@@ -1,0 +1,15 @@
+stages:
+  - deploy
+
+vercel-deploy:
+  image: node:18
+  stage: deploy
+  tags:
+    - RUN-FRONT
+  only:
+    - dev  # or "main", or adjust as needed
+  before_script:
+    - npm install -g vercel
+  script:
+    - vercel build --token=$VERCEL_TOKEN
+    - vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN --org=$VERCEL_ORG_ID --project=$VERCEL_PROJECT_ID

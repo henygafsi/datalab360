@@ -1,0 +1,48 @@
+{
+  "name": "isomorphic",
+  "version": "7.4.0",
+  "description": "A nextjs template to build dashboard",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "build": "turbo build",
+    "start": "turbo start",
+    "clean": "turbo clean && rm -rf node_modules .turbo",
+    "cache:clean": "turbo cache:clean && rm -rf .turbo",
+    "iso:dev": "turbo dev --filter=iso",
+    "iso:lint": "turbo lint --filter=iso",
+    "iso:build": "turbo build --filter=iso",
+    "iso:start": "turbo start --filter=iso",
+    "iso:clean": "turbo clean --filter=iso",
+    "starter:dev": "turbo dev --filter=starter",
+    "starter:lint": "turbo lint --filter=starter",
+    "starter:build": "turbo build --filter=starter",
+    "starter:start": "turbo start --filter=starter",
+    "starter:clean": "turbo clean --filter=starter",
+    "dnd:dev": "turbo dev --filter=dnd",
+    "dnd:lint": "turbo lint --filter=dnd",
+    "dnd:build": "turbo build --filter=dnd",
+    "dnd:start": "turbo start --filter=dnd",
+    "dnd:clean": "turbo clean --filter=dnd",
+    "intl:dev": "turbo dev --filter=intl",
+    "intl:lint": "turbo lint --filter=intl",
+    "intl:build": "turbo build --filter=intl",
+    "intl:start": "turbo start --filter=intl",
+    "intl:clean": "turbo clean --filter=intl",
+    "gen-icons": "turbo gen-icons --filter=core",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "eslint": "8.57.0",
+    "husky": "^9.1.6",
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.8",
+    "turbo": "2.1.3",
+    "typescript-config": "workspace:*"
+  },
+  "packageManager": "pnpm@9.1.4",
+  "engines": {
+    "node": ">=18"
+  }
+}
