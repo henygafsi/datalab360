@@ -46,16 +46,16 @@ export const authOptions: NextAuthOptions = {
       id: 'credentials',
       name: 'Credentials',
       credentials: {
-        email: { label: 'Email', type: 'text' },
+        username: { label: 'Email', type: 'text' },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) {
+        if (!credentials?.username || !credentials?.password) {
           return null;
         }
 
         const loginData: LoginData = {
-          email: credentials.email,
+          email: credentials.username,
           password: credentials.password,
         };
 
@@ -67,10 +67,10 @@ export const authOptions: NextAuthOptions = {
           if (response.access_token) {
             return {
               id: response.idUser,
-              email: credentials.email,
+              username: credentials.username,
               access_token: response.access_token,
               message: response.message,
-              username: response.username,
+              email: response.email,
             };
           }
         } catch (error) {

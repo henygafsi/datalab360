@@ -103,6 +103,7 @@
     "react-svg-worldmap": "2.0.0-alpha.16",
     "react-to-print": "^3.0.1",
     "react-use": "^17.5.1",
+    "reactflow": "^11.11.4",
     "recharts": "^2.12.7",
     "resend": "^4.0.0",
     "rizzui": "^0.8.7",
