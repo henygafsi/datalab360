@@ -20,21 +20,19 @@ export const authOptions: NextAuthOptions = {
         ...session,
         user: {
           ...session.user,
-          //id: access_token.idaccess_token as string,
-          id: token.idUser as string, // Set user ID from access_token
+          //id: access_token.idaccess_token as string, // This line seems like a leftover or typo
           access_token: token.access_token as string, // Set access_token in session
-          email: token.email as string, // Add email to session from JWT access_token
+          account_name: token.account_name as string, // Add account_name to session from JWT access_token
           username: token.username as string, // Add username to session from JWT access_token
         },
       };
     },
     async jwt({ token, user }) {
       if (user) {
-      token.idUser = user.id;  // Add user ID
-      token.email = user.email; // Add email
-      token.username = (user as any).username; // Add username
-      token.access_token = (user as any).access_token; // ✅ <-- This line is missing in your version
-    }
+        token.account_name = (user as any).account_name;  // Add account_name from user to token
+        token.username = (user as any).username; // Add username from user to token
+        token.access_token = (user as any).access_token; // ✅ THIS LINE IS CRUCIAL AND NOW INCLUDED
+      }
       return token;
     },
     async redirect({ url, baseUrl }) {
@@ -46,16 +44,18 @@ export const authOptions: NextAuthOptions = {
       id: 'credentials',
       name: 'Credentials',
       credentials: {
-        username: { label: 'Email', type: 'text' },
+        account_name: { label: 'Account Name', type: 'text' },
+        username: { label: 'Username', type: 'text' },
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        if (!credentials?.username || !credentials?.password) {
+        if (!credentials?.account_name || !credentials?.username || !credentials?.password) {
           return null;
         }
 
         const loginData: LoginData = {
-          email: credentials.username,
+          account_name: credentials.account_name,
+          username: credentials.username,
           password: credentials.password,
         };
 
@@ -65,12 +65,14 @@ export const authOptions: NextAuthOptions = {
 
           // If login is successful, return the user object
           if (response.access_token) {
+            // The object returned here is the 'user' object that gets passed to the 'jwt' callback
             return {
-              id: response.idUser,
+              id: response.username, // Ensure you pass an 'id' property if your session expects it
+              account_name: credentials.account_name,
+              access_token: response.access_token, // Pass the access_token here
+              token_type: response.token_type, // Pass token_type if needed in session
               username: credentials.username,
-              access_token: response.access_token,
-              message: response.message,
-              email: response.email,
+              message: response.message, // Pass message if needed
             };
           }
         } catch (error) {

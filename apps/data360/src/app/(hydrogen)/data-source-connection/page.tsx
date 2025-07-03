@@ -3,7 +3,8 @@
 import { useState, FormEvent, ChangeEvent } from 'react';
 import { Input, Button, Checkbox, Text } from 'rizzui';
 import Image from 'next/image';
-import { useToast } from '@/hooks/use-toast';
+// REMOVE THIS LINE: import { useToast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast'; // IMPORT react-hot-toast directly
 
 // Import the new connection services from the same folder
 import {
@@ -12,7 +13,7 @@ import {
     createAzureStage,
     setupAwsStorageIntegration,
     createAwsStage,
-    getIntegrationDetails, // Ensure this is imported
+    getIntegrationDetails,
 } from './connectionServices';
 
 // Assuming submitS3Form is also in the data-source-connection services folder
@@ -80,7 +81,7 @@ type AwsFormData = {
 
 
 export default function DataSourcePage() {
-    const { toast } = useToast();
+    // REMOVE THIS LINE: const { toast } = useToast(); // No longer needed
     const [selectedSource, setSelectedSource] = useState<string>('');
     const [loading, setLoading] = useState<boolean>(false);
     const [currentStep, setCurrentStep] = useState<number>(0);
@@ -172,7 +173,7 @@ export default function DataSourcePage() {
                     azureFormData.storage_url
                 );
                 setAzureStorageIntegrationCreated(true);
-                toast({ title: 'Azure Storage Integration', description: 'Storage integration created successfully!', variant: 'success' });
+                toast.success('Storage integration created successfully!'); // Updated toast
                 setAzureCurrentSubStep(2); // Move to Notification step
             } else if (azureCurrentSubStep === 2) { // Step 2: Handle Notification Option
                 if (showAzureNotificationOption) {
@@ -183,25 +184,24 @@ export default function DataSourcePage() {
                         azureFormData.queue_url
                     );
                     setAzureNotificationIntegrationCreated(true);
-                    toast({ title: 'Azure Notification Integration', description: 'Notification integration created successfully!', variant: 'success' });
+                    toast.success('Notification integration created successfully!'); // Updated toast
                     setAzureCurrentSubStep(3); // Move to new step: Get Notification Details
                 } else {
                     // If notification option is OFF, skip to Stage creation
-                    toast({ title: 'Notification Skipped', description: 'Notification integration creation skipped.' });
+                    toast('Notification integration creation skipped.'); // Updated toast (general message)
                     setAzureCurrentSubStep(4); // Skip directly to Stage creation
                 }
-            } else if (azureCurrentSubStep === 3) { // New Step 3: Get Notification Integration Details (Conditional)
+            } else if (azureCurrentSubStep === 3) { // Step 3: Get Notification Integration Details (Conditional)
                 if (!azureNotificationIntegrationCreated) {
                     throw new Error("Notification integration not created, cannot fetch details.");
                 }
                 const response = await getIntegrationDetails(azureFormData.notification_integration_name);
                 console.log('Notification Integration Details:', response);
-                // Assuming response.details contains the fields
                 setAzureConsentUrl(response?.azure_consent_url || null);
                 setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
                 setAzureNotificationDetailsFetched(true);
-                toast({ title: 'Azure Notification Details', description: 'Notification integration details fetched successfully!', variant: 'success' });
-                // setAzureCurrentSubStep(4); // Move to Stage creation
+                toast.success('Notification integration details fetched successfully!'); // Updated toast
+                // Removed automatic step advancement here
             } else if (azureCurrentSubStep === 4) { // Final Step: Create Azure Stage
                 const notificationIntegrationParam = (azureFormData.auto_update && showAzureNotificationOption && azureNotificationDetailsFetched)
                     ? azureFormData.notification_integration_name
@@ -215,16 +215,13 @@ export default function DataSourcePage() {
                     azureFormData.auto_update,
                     notificationIntegrationParam
                 );
-                toast({ title: 'Azure Stage', description: 'Azure Stage created successfully!', variant: 'success' });
+                toast.success('Azure Stage created successfully!'); // Updated toast
                 setCurrentStep(0); // All Azure setup complete
                 setSelectedSource('');
             }
         } catch (error: any) {
-            toast({
-                title: 'Connection Error',
-                description: `Failed: ${error.message || 'An unexpected error occurred.'}`,
-                variant: 'destructive',
-            });
+            // Updated error toast
+            toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -378,7 +375,6 @@ export default function DataSourcePage() {
                                     {loading ? 'Fetching Details...' : 'Fetch Consent Details'}
                                 </Button>
                             )}
-                            {/* ADD THIS BUTTON */}
                             {azureNotificationDetailsFetched && (
                                 <Button type="button" onClick={() => setAzureCurrentSubStep(4)} className="w-full bg-green-500 hover:bg-green-600" disabled={loading}>
                                     Continue to Create Stage
@@ -423,7 +419,7 @@ export default function DataSourcePage() {
                                     label="Enable automatic updates (Snowpipe)"
                                     checked={azureFormData.auto_update}
                                     onChange={(e) => handleChange(e, 'azure')}
-                                    disabled={loading || !azureNotificationIntegrationCreated || !azureNotificationDetailsFetched} // Disable if notification not created or details not fetched
+                                    disabled={loading || !azureNotificationIntegrationCreated || !azureNotificationDetailsFetched}
                                 />
                             )}
                             {!showAzureNotificationOption && (
@@ -461,7 +457,7 @@ export default function DataSourcePage() {
                     awsFormData.external_id
                 );
                 setAwsIntegrationCreated(true);
-                toast({ title: 'AWS Storage Integration', description: 'Storage integration created successfully!', variant: 'success' });
+                toast.success('Storage integration created successfully!'); // Updated toast
                 setAwsCurrentSubStep(2);
             } else if (awsCurrentSubStep === 2) {
                 await createAwsStage(
@@ -471,16 +467,12 @@ export default function DataSourcePage() {
                     awsFormData.load_data,
                     awsFormData.auto_update
                 );
-                toast({ title: 'AWS Stage', description: 'AWS Stage created successfully!', variant: 'success' });
+                toast.success('AWS Stage created successfully!'); // Updated toast
                 setCurrentStep(0);
                 setSelectedSource('');
             }
         } catch (error: any) {
-            toast({
-                title: 'Connection Error',
-                description: `Failed: ${error.message || 'An unexpected error occurred.'}`,
-                variant: 'destructive',
-            });
+            toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`); // Updated toast
             console.error('Error:', error);
         } finally {
             setLoading(false);
@@ -676,12 +668,12 @@ export default function DataSourcePage() {
                                         stage_name: 'dummy_stage',
                                     };
                                     const response = await submitS3Form(dummyFormData);
-                                    toast({ title: 'S3 Connection', description: 'Generic S3 form submitted successfully!', variant: 'success' });
+                                    toast.success('Generic S3 form submitted successfully!'); // Updated toast
                                     console.log('Response:', response);
                                     setSelectedSource('');
                                     setCurrentStep(0);
                                 } catch (error: any) {
-                                    toast({ title: 'S3 Connection Error', description: `Failed: ${error.message || 'An unexpected error occurred.'}`, variant: 'destructive' });
+                                    toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`); // Updated toast
                                     console.error('Error:', error);
                                 } finally {
                                     setLoading(false);

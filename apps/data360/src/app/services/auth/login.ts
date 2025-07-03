@@ -1,10 +1,11 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 /**
  * The shape of the login data
  */
 export interface LoginData {
-  email: string;
+  account_name: string; // This is the account name, not email
+  username: string; // This is the username, which is typically the email in many systems
   password: string;
 }
 
@@ -14,12 +15,21 @@ export interface LoginData {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
-  idUser: string;
-  email: string;
+  account_name: string; // The account name associated with the user
   username: string;
   message: string;
 }
 
+function buildUrlWithQueryParams(baseUrl: string, params: Record<string, string | boolean | null | undefined>): string {
+    const url = new URL(baseUrl);
+    for (const key in params) {
+        const value = params[key];
+        if (value !== null && value !== undefined) {
+            url.searchParams.append(key, String(value));
+        }
+    }
+    return url.toString();
+}
 /**
  * Login function to authenticate the user.
  *
@@ -27,25 +37,34 @@ export interface LoginResponse {
  * @returns The login response containing the token and user ID.
  * @throws Error if the login request fails.
  */
+
+
+
 export const login = async (loginData: LoginData): Promise<LoginResponse> => {
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/user/login/`;
-  console.log('Login URL:', url);
-  console.log('Login data:', loginData);
-
-  // ✅ Properly format the request body as x-www-form-urlencoded
-  const body = new URLSearchParams();
-  body.append('username', loginData.email); // required: FastAPI expects "username"
-  body.append('password', loginData.password);
-
   try {
-    const response = await axios.post<LoginResponse>(url, body, {
+    // Build the URL with login credentials as query parameters
+    const endpoint = buildUrlWithQueryParams(
+        `${process.env.NEXT_PUBLIC_API_URL}/user/login/`, // Ensure NEXT_PUBLIC_API_URL is correctly set
+        {
+            account_name: loginData.account_name,
+            username: loginData.username,
+            password: loginData.password,
+        }
+    );
+  try {
+    console.log('Login URL with params:', endpoint);
+    console.log('Login data (sent as params):', loginData);
+
+    // Make the POST request. The data is now in the URL, so no 'body' is passed with axios.post.
+    const response = await axios.post<LoginResponse>(endpoint, {}, { // Pass an empty object as the request body
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+        'accept': 'application/json', // Specify accepted response type
+        // 'Content-Type' header is usually not necessary for empty body POSTs,
+        // or can be omitted if server doesn't strictly require it.
+        // If your server expects application/json even with query params, you could add:
+        // 'Content-Type': 'application/json',
       },
     });
-
-    console.log('Login response:', response.data);
-
 
     if (response.status === 200) {
       return response.data;
@@ -62,5 +81,15 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
       console.error('Login error:', error);
       throw new Error('Failed to log in. Please try again.');
     }
+  }
+}catch (error) {
+    console.error("Login failed:", error);
+
+    const axiosError = error as AxiosError<any>;
+
+    if (axiosError.response?.data?.detail) {
+      throw new Error(axiosError.response.data.detail);
+    }
+    throw new Error("Login error: An unexpected issue occurred during login.");
   }
 };

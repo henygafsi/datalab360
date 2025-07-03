@@ -11,6 +11,7 @@ import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
 
 const initialValues: LoginSchema = {
+  account_name: '',
   username: 'admin@admin.com',
   password: 'admin',
   rememberMe: true,
@@ -39,6 +40,16 @@ export default function SignInForm() {
       >
         {({ register, formState: { errors } }) => (
           <div className="space-y-5">
+            <Input
+              type="text"
+              size="lg"
+              label="Account Name"
+              placeholder="Enter your account name"
+              className="[&>label>span]:font-medium"
+              inputClassName="text-sm"
+              {...register('account_name')}
+              error={errors.account_name?.message}
+            />
             <Input
               type="text"
               size="lg"

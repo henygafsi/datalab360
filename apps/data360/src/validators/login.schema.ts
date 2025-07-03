@@ -3,6 +3,7 @@ import { z } from 'zod';
 // form zod validation schema
 export const loginSchema = z.object({
   //username: z.string().min(1),
+  account_name: z.string().min(1, 'Account name is required'),
   username: z.string(),
   password: z.string().min(1),
   rememberMe: z.boolean().optional(),
