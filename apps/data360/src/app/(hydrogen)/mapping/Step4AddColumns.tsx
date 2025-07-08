@@ -1,19 +1,18 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { PlusCircle, MinusCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { getAuthToken } from '@/lib/auth';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Loader2, PlusCircle, XCircle } from 'lucide-react';
+import { getSession } from 'next-auth/react';
+import axios from 'axios';
+// Removed: import { getStepEventData } from './getStepEventData'; // Removed
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
-import { addColumnsToTable } from './addColumnsToTable';
-import logWizardEvent from './page';
 
 interface TableSelection {
     database: string;
@@ -21,20 +20,11 @@ interface TableSelection {
     table: string;
 }
 
-interface ColumnDetail {
-    name: string;
-    data_type: string;
-    is_nullable: boolean;
-    is_primary_key: boolean;
-    is_foreign_key: boolean;
-    is_required_for_mapping?: boolean;
-}
-
 interface ColumnMapping {
     source_column: string;
     target_column: string;
     data_type: string;
-    source_table_key: string;
+    source_table_key?: string;
 }
 
 interface NewTargetColumn {
@@ -54,422 +44,303 @@ interface MappingData {
     column_mappings: ColumnMapping[];
     new_target_columns: NewTargetColumn[];
     primary_keys?: { source: string[]; target: string[] };
-    foreign_keys?: { source: Array<{ column: string; referenced_table: string; referenced_column: string }>; target: Array<{ column: string; referenced_table: string; referenced_column: string }>; };
-    column_attributes?: { [tableName: string]: { [columnName: string]: ColumnDetail } };
+    foreign_keys?: {
+        source: Array<{ column: string; referenced_table: string; referenced_column: string }>;
+        target: Array<{ column: string; referenced_table: string; referenced_column: string }>;
+    };
 }
 
 interface Step4Props {
     onNext: () => void;
     onBack: () => void;
     mappingData: MappingData;
-    updateMappingData: (newData: Partial<MappingData>) => void;
+    updateMappingData: (newData: Partial<MappingData>, eventType: string, eventDetails: any) => void; // Updated signature
     selectedSourceTable: TableSelection | null;
     selectedTargetTable: TableSelection | null;
     projectId: string;
     username: string;
 }
 
-const Step4AddColumns: React.FC<Step4Props> = ({ onNext, onBack, mappingData, updateMappingData, selectedSourceTable, selectedTargetTable, projectId, username }) => {
-    const [currentColumnMappings, setCurrentColumnMappings] = useState<ColumnMapping[]>(mappingData.column_mappings || []);
-    const [sourceColumns, setSourceColumns] = useState<ColumnDetail[]>([]);
-    const [targetColumns, setTargetColumns] = useState<ColumnDetail[]>([]);
-    const [newTargetColumns, setNewTargetColumns] = useState<NewTargetColumn[]>(mappingData.new_target_columns || []);
-    const [loading, setLoading] = useState(true);
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+
+const Step4AddColumns: React.FC<Step4Props> = ({
+    onNext,
+    onBack,
+    mappingData,
+    updateMappingData,
+    selectedSourceTable,
+    selectedTargetTable,
+    projectId,
+    username,
+}) => {
     const { toast } = useToast();
+    // Initialize newColumns from mappingData.new_target_columns
+    const [newColumns, setNewColumns] = useState<NewTargetColumn[]>(mappingData.new_target_columns || []);
+    const [newColumnName, setNewColumnName] = useState('');
+    const [newColumnType, setNewColumnType] = useState('VARCHAR(255)');
+    const [newColumnNullable, setNewColumnNullable] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
+    const [targetColumns, setTargetColumns] = useState<string[]>([]); // Stores names of existing target columns
 
+    const dataTypes = [
+        'VARCHAR(255)',
+        'NUMBER(38,0)',
+        'FLOAT',
+        'DATE',
+        'TIMESTAMP',
+        'BOOLEAN',
+        'TEXT',
+    ];
+
+    // Update local state when parent mappingData.new_target_columns changes
     useEffect(() => {
-        const fetchColumns = async () => {
-            if (!selectedSourceTable || !selectedTargetTable) {
-                toast({
-                    title: 'Error',
-                    description: 'Source or target table not selected.',
-                    variant: 'destructive',
-                });
-                setLoading(false);
-                return;
-            }
+        if (mappingData.new_target_columns) {
+            setNewColumns(mappingData.new_target_columns);
+        }
+    }, [mappingData.new_target_columns]);
 
-            setLoading(true);
-            try {
-                const [sourceColsResult, targetColsResult] = await Promise.all([
-                    getTableColumns(selectedSourceTable.database, selectedSourceTable.schema, selectedSourceTable.table),
-                    getTableColumns(selectedTargetTable.database, selectedTargetTable.schema, selectedTargetTable.table),
-                ]);
-
-                const mapFetchedColumns = (cols: any[], tableType: 'source' | 'target') => {
-                    const tableName = tableType === 'source' ? selectedSourceTable!.table : selectedTargetTable!.table;
-                    return cols.map((col: any) => {
-                        const existingAttrs = mappingData.column_attributes?.[tableName]?.[col.name] || {};
-                        return {
-                            name: col.name || col.COLUMN_NAME,
-                            data_type: col.data_type || col.TYPE, // Use TYPE if DATA_TYPE is not present
-                            is_nullable: existingAttrs.is_nullable !== undefined ? existingAttrs.is_nullable : (col.is_nullable || col.IS_NULLABLE === 'YES'),
-                            is_primary_key: existingAttrs.is_primary_key !== undefined ? existingAttrs.is_primary_key : (col.is_primary_key || col.CONSTRAINT_TYPE === 'PRIMARY KEY'),
-                            is_foreign_key: existingAttrs.is_foreign_key !== undefined ? existingAttrs.is_foreign_key : (col.is_foreign_key || col.CONSTRAINT_TYPE === 'FOREIGN KEY'),
-                            is_required_for_mapping: existingAttrs.is_required_for_mapping !== undefined ? existingAttrs.is_required_for_mapping : false,
-                        };
+    // Fetch existing target table columns to prevent duplicates
+    useEffect(() => {
+        const fetchTargetColumns = async () => {
+            if (selectedTargetTable?.database && selectedTargetTable.schema && selectedTargetTable.table) {
+                try {
+                    const columns = await getTableColumns(
+                        selectedTargetTable.database,
+                        selectedTargetTable.schema,
+                        selectedTargetTable.table
+                    );
+                    setTargetColumns(columns.map(col => col.name || col.COLUMN_NAME));
+                } catch (error: any) {
+                    console.error('Error fetching target table columns:', error);
+                    toast({
+                        title: 'Error',
+                        description: `Failed to fetch existing target table columns: ${error.message || 'An unexpected error occurred.'}`,
+                        variant: 'destructive',
                     });
-                };
-
-                setSourceColumns(mapFetchedColumns(sourceColsResult, 'source'));
-                setTargetColumns(mapFetchedColumns(targetColsResult, 'target'));
-
-            } catch (error: any) {
-                console.error('Error fetching columns:', error);
-                toast({
-                    title: 'Error',
-                    description: `Failed to load column details: ${error.message}`,
-                    variant: 'destructive',
-                });
-                await logWizardEvent({
-                    project_id: projectId,
-                    event_type: "ADD_ADDITIONAL_COLUMNS", // Log FAILED event for this step
-                    status: "FAILED",
-                    username: username,
-                    details: {
-                        sourceTable: selectedSourceTable,
-                        targetTable: selectedTargetTable,
-                    },
-                    error: error.message,
-                });
-            } finally {
-                setLoading(false);
+                }
             }
         };
+        fetchTargetColumns();
+    }, [selectedTargetTable, toast]);
 
-        fetchColumns();
-    }, [selectedSourceTable, selectedTargetTable, toast, mappingData.column_attributes, projectId, username]);
-
-    useEffect(() => {
-        setCurrentColumnMappings(mappingData.column_mappings || []);
-        setNewTargetColumns(mappingData.new_target_columns || []);
-    }, [mappingData.column_mappings, mappingData.new_target_columns]);
-
-
-    const handleSourceColumnChange = (index: number, newSourceColumn: string) => {
-        const updatedMappings = [...currentColumnMappings];
-        const sourceColDetail = sourceColumns.find(col => col.name === newSourceColumn);
-        if (sourceColDetail) {
-            updatedMappings[index] = {
-                ...updatedMappings[index],
-                source_column: newSourceColumn,
-                data_type: sourceColDetail.data_type,
-            };
-            setCurrentColumnMappings(updatedMappings);
-        }
-    };
-
-    const handleTargetColumnChange = (index: number, newTargetColumn: string) => {
-        const updatedMappings = [...currentColumnMappings];
-        updatedMappings[index] = { ...updatedMappings[index], target_column: newTargetColumn };
-        setCurrentColumnMappings(updatedMappings);
-    };
-
-    const addMappingRow = () => {
-        setCurrentColumnMappings([...currentColumnMappings, { source_column: '', target_column: '', data_type: '', source_table_key: mappingData.source_table_key || '' }]);
-    };
-
-    const removeMappingRow = (index: number) => {
-        const updatedMappings = currentColumnMappings.filter((_, i) => i !== index);
-        setCurrentColumnMappings(updatedMappings);
-    };
-
-    const handleAddNewTargetColumn = () => {
-        setNewTargetColumns([...newTargetColumns, { name: '', type: 'VARCHAR', nullable: true }]);
-    };
-
-    const handleNewTargetColumnChange = (index: number, field: string, value: string | boolean) => {
-        const updatedNewColumns = [...newTargetColumns];
-        (updatedNewColumns[index] as any)[field] = value;
-        setNewTargetColumns(updatedNewColumns);
-    };
-
-    const removeNewTargetColumn = (index: number) => {
-        const updatedNewColumns = newTargetColumns.filter((_, i) => i !== index);
-        setNewTargetColumns(updatedNewColumns);
-    };
-
-    const handleNextStep = async () => {
-        if (!projectId || !username) {
+    const handleAddColumn = useCallback(() => {
+        if (!newColumnName.trim()) {
             toast({
-                title: 'Project Not Selected',
-                description: 'Please select or create a project in the first step.',
+                title: 'Validation Error',
+                description: 'Column name is required.',
                 variant: 'destructive',
             });
             return;
         }
 
-        for (const mapping of currentColumnMappings) {
-            if (!mapping.source_column || !mapping.target_column) {
-                toast({
-                    title: 'Validation Error',
-                    description: 'All mapped columns must have both source and target specified.',
-                    variant: 'destructive',
-                });
-                return;
-            }
-        }
-
-        for (const newCol of newTargetColumns) {
-            if (!newCol.name.trim()) {
-                toast({
-                    title: 'Validation Error',
-                    description: 'All new target columns must have a name.',
-                    variant: 'destructive',
-                });
-                return;
-            }
-        }
-
-        setLoading(true);
-        try {
-            if (newTargetColumns.length > 0) {
-                const addColumnsPayload = {
-                    project_id: projectId,
-                    database_name: selectedTargetTable!.database,
-                    schema_name: selectedTargetTable!.schema,
-                    table_name: selectedTargetTable!.table,
-                    columns: newTargetColumns.map(col => ({
-                        name: col.name,
-                        type: col.type,
-                        nullable: col.nullable,
-                    })),
-                };
-                const addColsResponse = await addColumnsToTable(addColumnsPayload, 'additional');
-                if (addColsResponse.status !== 'success') {
-                    throw new Error(addColsResponse.message || 'Failed to add new columns.');
-                }
-                toast({
-                    title: 'New Columns Added',
-                    description: addColsResponse.message || 'New columns successfully added to target table.',
-                    variant: 'success',
-                });
-            }
-
-            const mappingsForValidation = [{
-                source_database: mappingData.source_database,
-                source_schema: mappingData.source_schema,
-                source_table: mappingData.source_table,
-                source_columns: currentColumnMappings.map(m => m.source_column),
-                target_database: selectedTargetTable!.database,
-                target_schema: selectedTargetTable!.schema,
-                target_table: selectedTargetTable!.table,
-                target_columns: currentColumnMappings.map(m => m.target_column),
-            }];
-
-            const token = getAuthToken();
-            const response = await fetch('/api/mapping/test_mapping/', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({ mappings: mappingsForValidation }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.detail || 'Column mapping validation failed.');
-            }
-
+        const allExistingColumnNames = new Set([...newColumns.map(col => col.name.toLowerCase()), ...targetColumns.map(name => name.toLowerCase())]);
+        if (allExistingColumnNames.has(newColumnName.toLowerCase())) {
             toast({
-                title: 'Success',
-                description: 'Column mappings are compatible!',
-            });
-
-            // Log SUCCESS event
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "ADD_ADDITIONAL_COLUMNS", // Changed event type here
-                status: "SUCCESS",
-                username: username,
-                details: {
-                    columnMappings: currentColumnMappings,
-                    newTargetColumns: newTargetColumns,
-                },
-            });
-
-            updateMappingData({
-                project_id: projectId,
-                column_mappings: currentColumnMappings,
-                new_target_columns: newTargetColumns,
-                source_columns: currentColumnMappings.map(m => m.source_column),
-                target_columns: currentColumnMappings.map(m => m.target_column),
-            });
-
-            onNext();
-        } catch (error: any) {
-            toast({
-                title: 'Error',
-                description: `Operation failed: ${error.message}`,
+                title: 'Validation Error',
+                description: `Column name '${newColumnName}' already exists in the target table or in the list of new columns.`,
                 variant: 'destructive',
             });
-            // Log FAILED event
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "ADD_ADDITIONAL_COLUMNS", // Changed event type here
-                status: "FAILED",
-                username: username,
-                details: {
-                    columnMappings: currentColumnMappings,
-                    newTargetColumns: newTargetColumns,
-                },
-                error: error.message,
+            return;
+        }
+
+        const newCol: NewTargetColumn = {
+            name: newColumnName.trim(),
+            type: newColumnType,
+            nullable: newColumnNullable,
+        };
+        setNewColumns(prev => [...prev, newCol]);
+        setNewColumnName('');
+        setNewColumnType('VARCHAR(255)');
+        setNewColumnNullable(true);
+    }, [newColumnName, newColumnType, newColumnNullable, newColumns, targetColumns, toast]);
+
+    const handleRemoveColumn = useCallback((name: string) => {
+        setNewColumns(prev => prev.filter(col => col.name !== name));
+    }, []);
+
+    const handleSaveAndProceed = useCallback(async () => {
+        if (!projectId || !selectedTargetTable) {
+            toast({
+                title: 'Validation Error',
+                description: 'Project ID and target table are required to save columns.',
+                variant: 'destructive',
+            });
+            return;
+        }
+
+        setIsLoading(true);
+        try {
+            const session = await getSession();
+            if (!session?.user?.access_token) {
+                throw new Error('No access token available');
+            }
+            const token = session.user.access_token;
+
+            if (newColumns.length > 0) {
+                const addColumnsPayload = {
+                    project_id: projectId,
+                    database_name: selectedTargetTable.database,
+                    schema_name: selectedTargetTable.schema,
+                    table_name: selectedTargetTable.table,
+                    columns: newColumns.map(col => ({
+                        name: col.name,
+                        type: col.type,
+                        // Provide default and comment as empty strings to match backend schema
+                        default: '',
+                        comment: '',
+                        // Note: `nullable` is a frontend concept for DDL generation.
+                        // The backend's `add_columns` function only uses `name` and `type`
+                        // to build `ALTER TABLE ... ADD COLUMN name TYPE`.
+                        // If `NULL`/`NOT NULL` needs to be part of the DDL,
+                        // the backend's `add_columns` function needs to be updated to handle `nullable`
+                        // and append `NULL` or `NOT NULL` to the column definition string.
+                        // For now, we are just sending `name` and `type` to the backend's `add_columns`
+                        // which is what it currently uses for SQL generation.
+                    })),
+                };
+
+                const addColumnsResponse = await axios.post(
+                    `${API_BASE_URL}/mapping/add-columns`,
+                    addColumnsPayload,
+                    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+                );
+
+                if (addColumnsResponse.data.status !== 'success') {
+                    throw new Error(addColumnsResponse.data.detail || 'Failed to add columns to database.');
+                }
+
+                toast({
+                    title: 'Columns Added',
+                    description: 'Additional columns successfully added to target table in database.',
+                    variant: 'success',
+                });
+            } else {
+                toast({
+                    title: 'No New Columns',
+                    description: 'No additional columns to add. Proceeding to deployment step.',
+                    variant: 'info',
+                });
+            }
+
+            // Update parent's mappingData, which will trigger backend logging
+            await updateMappingData({ new_target_columns: newColumns }, "ADD_ADDITIONAL_COLUMNS", { columns: newColumns });
+
+            onNext(); // Move to Step 5
+        } catch (error: any) {
+            console.error('Error saving columns:', error);
+            toast({
+                title: 'Error',
+                description: `Failed to save or add columns: ${error.response?.data?.detail || error.message || 'An unexpected error occurred.'}`,
+                variant: 'destructive',
             });
         } finally {
-            setLoading(false);
+            setIsLoading(false);
         }
-    };
+    }, [projectId, selectedTargetTable, newColumns, updateMappingData, toast, onNext]);
 
-    if (loading) {
-        return (
-            <Card className="p-4">
-                <CardHeader><CardTitle>Step 4: Refine Mappings & Add Columns</CardTitle></CardHeader>
-                <CardContent>Loading column data...</CardContent>
-            </Card>
-        );
-    }
 
     return (
-        <Card className="p-4">
+        <Card className="p-6">
             <CardHeader>
-                <CardTitle>Step 4: Refine Mappings & Add Columns</CardTitle>
+                <CardTitle>Step 4: Add Optional Columns</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                    Review and refine your column mappings. You can also add new columns that will be created in the target table during deployment.
+                    Define and add optional columns to the target table before final deployment.
                 </p>
             </CardHeader>
             <CardContent className="space-y-6">
-                <h3 className="text-lg font-semibold mb-2">Column Mapping:</h3>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Source Column</TableHead>
-                            <TableHead>Target Column</TableHead>
-                            <TableHead>Data Type (Source)</TableHead>
-                            <TableHead>Required for Mapping?</TableHead>
-                            <TableHead>Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {currentColumnMappings.map((mapping, index) => {
-                            const sourceColInfo = sourceColumns.find(col => col.name === mapping.source_column);
-                            return (
-                                <TableRow key={index}>
-                                    <TableCell>
-                                        <Select
-                                            value={mapping.source_column}
-                                            onValueChange={(value) => handleSourceColumnChange(index, value)}
-                                        >
-                                            <SelectTrigger className="w-[180px]">
-                                                <SelectValue placeholder="Select Source Column" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {sourceColumns.map((col) => (
-                                                    <SelectItem key={col.name} value={col.name}>
-                                                        {col.name} ({col.data_type})
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </TableCell>
-                                    <TableCell>
-                                        <Select
-                                            value={mapping.target_column}
-                                            onValueChange={(value) => handleTargetColumnChange(index, value)}
-                                        >
-                                            <SelectTrigger className="w-[180px]">
-                                                <SelectValue placeholder="Select Target Column" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {targetColumns.map((col) => (
-                                                    <SelectItem key={col.name} value={col.name}>
-                                                        {col.name} ({col.data_type})
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
-                                    </TableCell>
-                                    <TableCell>{sourceColInfo?.data_type || 'N/A'}</TableCell>
-                                    <TableCell>
-                                        {mappingData.column_attributes?.[selectedSourceTable?.table || '']?.[mapping.source_column]?.is_required_for_mapping ? 'Yes' : 'No'}
-                                    </TableCell>
-                                    <TableCell>
-                                        <Button variant="ghost" size="icon" onClick={() => removeMappingRow(index)}>
-                                            <MinusCircle className="h-4 w-4 text-red-500" />
-                                        </Button>
-                                    </TableCell>
-                                </TableRow>
-                            );
-                        })}
-                    </TableBody>
-                </Table>
-                <Button onClick={addMappingRow} variant="outline" className="mt-2">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add Mapping Row
-                </Button>
-
-                <h3 className="text-lg font-semibold mt-6 mb-2">Add New Columns to Target Table:</h3>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Column Name</TableHead>
-                            <TableHead>Data Type</TableHead>
-                            <TableHead>Nullable</TableHead>
-                            <TableHead>Actions</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {newTargetColumns.map((col, index) => (
-                            <TableRow key={index}>
-                                <TableCell>
+                {selectedTargetTable ? (
+                    <>
+                        <div className="space-y-4">
+                            <h3 className="text-lg font-semibold">Add New Columns to Target Table</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                <div>
+                                    <Label htmlFor="new-column-name">Column Name</Label>
                                     <Input
-                                        value={col.name}
-                                        onChange={(e) => handleNewTargetColumnChange(index, 'name', e.target.value)}
-                                        placeholder="New Column Name"
+                                        id="new-column-name"
+                                        value={newColumnName}
+                                        onChange={(e) => setNewColumnName(e.target.value)}
+                                        placeholder="Enter column name"
                                     />
-                                </TableCell>
-                                <TableCell>
-                                    <Select
-                                        value={col.type}
-                                        onValueChange={(value) => handleNewTargetColumnChange(index, 'type', value)}
-                                    >
-                                        <SelectTrigger>
-                                            <SelectValue placeholder="Select Type" />
+                                </div>
+                                <div>
+                                    <Label htmlFor="new-column-type">Data Type</Label>
+                                    <Select value={newColumnType} onValueChange={setNewColumnType}>
+                                        <SelectTrigger id="new-column-type">
+                                            <SelectValue placeholder="Select data type" />
                                         </SelectTrigger>
                                         <SelectContent>
-                                            <SelectItem value="VARCHAR">VARCHAR</SelectItem>
-                                            <SelectItem value="NUMBER">NUMBER</SelectItem>
-                                            <SelectItem value="BOOLEAN">BOOLEAN</SelectItem>
-                                            <SelectItem value="DATE">DATE</SelectItem>
+                                            {dataTypes.map((type) => (
+                                                <SelectItem key={type} value={type}>
+                                                    {type}
+                                                </SelectItem>
+                                            ))}
                                         </SelectContent>
                                     </Select>
-                                </TableCell>
-                                <TableCell>
-                                    <Checkbox
-                                        checked={col.nullable}
-                                        onCheckedChange={(checked: boolean) => handleNewTargetColumnChange(index, 'nullable', checked)}
-                                        id={`new-col-nullable-${index}`}
-                                    />
-                                    <Label htmlFor={`new-col-nullable-${index}`} className="ml-2">
-                                        Nullable
-                                    </Label>
-                                </TableCell>
-                                <TableCell>
-                                    <Button variant="ghost" size="icon" onClick={() => removeNewTargetColumn(index)}>
-                                        <MinusCircle className="h-4 w-4 text-red-500" />
-                                    </Button>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-                <Button onClick={handleAddNewTargetColumn} variant="outline" className="mt-2">
-                    <PlusCircle className="mr-2 h-4 w-4" /> Add New Target Column
-                </Button>
+                                </div>
+                                <div>
+                                    <Label htmlFor="new-column-nullable">Nullable</Label>
+                                    <Select
+                                        value={newColumnNullable ? 'YES' : 'NO'}
+                                        onValueChange={(val) => setNewColumnNullable(val === 'YES')}
+                                    >
+                                        <SelectTrigger id="new-column-nullable">
+                                            <SelectValue placeholder="Nullable?" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="YES">Yes</SelectItem>
+                                            <SelectItem value="NO">No</SelectItem>
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <Button onClick={handleAddColumn} disabled={isLoading || !newColumnName.trim()}>
+                                    <PlusCircle className="mr-2 h-4 w-4" />
+                                    Add Column
+                                </Button>
+                            </div>
+                        </div>
 
-                <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={onBack}>Back</Button>
-                    <Button onClick={handleNextStep} disabled={loading}>
-                        {loading ? 'Validating...' : 'Validate & Proceed to Deployment'}
+                        {newColumns.length > 0 && (
+                            <div className="border p-4 rounded-md">
+                                <h4 className="text-md font-semibold mb-2">New Columns to be Added:</h4>
+                                <div className="space-y-2">
+                                    {newColumns.map((col) => (
+                                        <div key={col.name} className="flex items-center justify-between bg-gray-100 p-2 rounded">
+                                            <span>
+                                                {col.name} ({col.type}, {col.nullable ? 'Nullable' : 'Not Nullable'})
+                                            </span>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleRemoveColumn(col.name)}
+                                            >
+                                                <XCircle className="h-4 w-4" />
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </>
+                ) : (
+                    <p className="text-sm text-muted-foreground">Please select a target table in previous steps to add columns.</p>
+                )}
+
+                <div className="flex justify-between gap-2 mt-6">
+                    <Button variant="outline" onClick={onBack} disabled={isLoading}>
+                        Back
+                    </Button>
+                    <Button
+                        onClick={handleSaveAndProceed}
+                        disabled={isLoading || !selectedTargetTable || !projectId}
+                    >
+                        {isLoading ? (
+                            <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Saving & Proceeding...
+                            </>
+                        ) : (
+                            'Save Columns & Proceed'
+                        )}
                     </Button>
                 </div>
             </CardContent>

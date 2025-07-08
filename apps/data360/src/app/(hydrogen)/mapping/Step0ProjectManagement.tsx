@@ -1,4 +1,3 @@
-// src/app/(hydrogen)/mapping/Step0ProjectManagement.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -22,6 +21,7 @@ import { Loader2 } from 'lucide-react';
 // Import new services
 import { createProject } from './createProject';
 import { getProjects } from './getProjects';
+// No direct logWizardEvent import needed here, parent handles it
 // Removed: import { getAllUsers } from '@/app/services/user/getAllUsers';
 // Removed: import { MultiSelect } from '@/components/ui/multi-select';
 
@@ -43,20 +43,20 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     const [projects, setProjects] = useState<Project[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [newProjectName, setNewProjectName] = useState<string>('');
-    const [newProjectSharedWith, setNewProjectSharedWith] = useState<string>(''); // Reverted to string for comma-separated emails
+    const [newProjectSharedWith, setNewProjectSharedWith] = useState<string>('');
     const [loading, setLoading] = useState(true);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
 
     useEffect(() => {
+        console.log('Step0: Component mounted. Fetching initial projects...');
         const fetchData = async () => {
             setLoading(true);
             try {
-                // Fetch projects accessible by the current user
-                // The backend's `get_mapping_project_status` already filters based on `created_by` and `shared_with`
                 const fetchedProjects = await getProjects();
                 setProjects(fetchedProjects);
+                console.log('Step0: Fetched projects:', fetchedProjects);
             } catch (error: any) {
-                console.error("Error fetching data:", error);
+                console.error("Step0: Error fetching data:", error);
                 toast({
                     title: 'Error',
                     description: `Failed to fetch data: ${error.message || 'An unexpected error occurred.'}`,
@@ -64,40 +64,46 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                 });
             } finally {
                 setLoading(false);
+                console.log('Step0: Finished fetching projects. Loading state:', false);
             }
         };
         fetchData();
     }, [toast]);
 
     const handleCreateProject = async () => {
+        console.log('Step0: Attempting to create new project.');
         if (!newProjectName.trim()) {
             toast({
                 title: 'Validation Error',
                 description: 'Project name cannot be empty.',
                 variant: 'destructive',
             });
+            console.warn('Step0: Project name is empty.');
             return;
         }
 
         setIsCreatingProject(true);
+        const sharedUsers = newProjectSharedWith.split(',').map(email => email.trim()).filter(email => email);
+        const payload = { name: newProjectName.trim(), shared_with: sharedUsers };
+        console.log('Step0: Create project payload:', payload);
+
         try {
-            // Split the comma-separated string into an array of usernames
-            const sharedUsers = newProjectSharedWith.split(',').map(email => email.trim()).filter(email => email);
-            const response = await createProject({ name: newProjectName.trim(), shared_with: sharedUsers });
-            
+            const response = await createProject(payload);
+            console.log('Step0: Create project response:', response);
+
             toast({
                 title: 'Project Created',
                 description: `Project "${newProjectName}" created successfully!`,
                 variant: 'success',
             });
 
-            // Refresh project list and select the new project
             const updatedProjects = await getProjects();
             setProjects(updatedProjects);
             setSelectedProjectId(response.project_id);
             onProjectSelected(response.project_id, null); // New projects start from step 1
+            console.log('Step0: New project created and selected:', response.project_id);
         } catch (error: any) {
-            console.error("Error creating project:", error);
+            console.error("Step0: Error creating project:", error);
             toast({
                 title: 'Error',
                 description: `Failed to create project: ${error.message || 'An unexpected error occurred.'}`,
@@ -105,27 +111,32 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
             });
         } finally {
             setIsCreatingProject(false);
+            console.log('Step0: Finished creating project. Creating state:', false);
         }
     };
 
     const handleSelectProject = () => {
+        console.log('Step0: Attempting to select existing project.');
         if (!selectedProjectId) {
             toast({
                 title: 'Selection Required',
                 description: 'Please select an existing project.',
                 variant: 'destructive',
             });
+            console.warn('Step0: No project selected for continuation.');
             return;
         }
         const selectedProject = projects.find(p => p.project_id === selectedProjectId);
         if (selectedProject) {
             onProjectSelected(selectedProject.project_id, selectedProject.last_completed_step);
+            console.log('Step0: Selected existing project:', selectedProject.project_id, 'Last completed step:', selectedProject.last_completed_step);
         } else {
             toast({
                 title: 'Error',
                 description: 'Selected project not found.',
                 variant: 'destructive',
             });
+            console.error('Step0: Selected project not found in state:', selectedProjectId);
         }
     };
 

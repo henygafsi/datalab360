@@ -1,9 +1,15 @@
+import { View } from "lucide-react";
+
 export const routes = {
   connexion: {
     dataSourceConnection: '/data-source-connection',
   },
+  
   mapping: {
     viewMap: '/mapping',
+  },
+  workflow:{
+    ViewWorkflow: '/workflow'
   },
   gouvernance: {
     users: '/gouvernance/users',

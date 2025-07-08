@@ -1,4 +1,3 @@
-// src/app/(hydrogen)/mapping/Step3TablesRelations.tsx
 'use client';
 
 import React, { useEffect, useState, useCallback, memo } from 'react';
@@ -28,6 +27,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import { logWizardEvent } from './logWizardEvent';
 
 // Helper to get table short name (e.g., "CLIENTS" from "DB.SCHEMA.CLIENTS")
 const getTableShortName = (tableKey: string | null | undefined): string => {
@@ -47,8 +47,7 @@ const parseTableKey = (tableKey: string) => {
             table: parts[2],
         };
     }
-    console.warn(`Unexpected tableKey format: ${tableKey}. Expected 'database.schema.table'`);
-    // Fallback for potentially malformed keys (adjust as per your actual key formats)
+    console.warn(`Step3: Unexpected tableKey format: ${tableKey}. Expected 'database.schema.table'`);
     return {
         database: parts[0] || '',
         schema: parts[1] || '',
@@ -94,7 +93,7 @@ interface ForeignKey {
 }
 
 interface MappingDetail {
-    project_id: string | null; // Added project_id
+    project_id: string | null;
     source_database: string;
     source_schema: string;
     source_table: string;
@@ -109,16 +108,17 @@ interface MappingDetail {
 }
 
 interface Step3Props {
-    onNext: () => void; // This might need to change to onNext(finalData: YourFinalFormat)
+    onNext: () => void;
     onBack: () => void;
     mappingData: MappingDetail;
+    // Updated signature here - removed eventType and eventDetails args
     updateMappingData: (newData: Partial<MappingDetail>) => void;
     selectedSourceTables: TableSelection[];
     selectedTargetTable: TableSelection | null;
-    projectId: string; // Receive projectId
+    projectId: string;
+    username: string;
 }
 
-// Define interfaces for TableNodeData here if not already defined globally or imported
 interface TableNodeData {
     label: string;
     tableKey: string;
@@ -172,7 +172,6 @@ const TableNode: React.FC<{ data: TableNodeData }> = memo(({ data }) => {
 });
 TableNode.displayName = 'TableNode';
 
-// ... (TableNode and nodeTypes are unchanged) ...
 const nodeTypes = { customTableNode: TableNode };
 
 const Step3TablesRelations: React.FC<Step3Props> = ({
@@ -182,7 +181,8 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
     updateMappingData,
     selectedSourceTables,
     selectedTargetTable,
-    projectId, // Receive projectId
+    projectId,
+    username,
 }) => {
     const { toast } = useToast();
     const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -213,11 +213,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
         if (normalizedSourceType.includes('TIMESTAMP') && normalizedTargetType.includes('TIMESTAMP')) {
             return { compatible: true };
         }
-
+        console.log(`Step3: Type compatibility check: ${sourceDataType} (Source) vs ${targetDataType} (Target) -> INCOMPATIBLE`);
         return { compatible: false, reason: `Type mismatch: ${sourceDataType} vs ${targetDataType}` };
     }, []);
 
     const initializeReactFlowGraph = useCallback(async () => {
+        console.log('Step3: Initializing React Flow graph.');
         if (selectedSourceTables.length === 0 || !selectedTargetTable) {
             toast({
                 title: 'Selection Required',
@@ -225,12 +226,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 variant: 'destructive',
             });
             setLoading(false);
+            console.warn('Step3: Cannot initialize graph. Source or target table not selected.');
             return;
         }
 
         setLoading(true);
         const initialNodes: Node[] = [];
-        const initialEdges: Edge[] = [];
         let yPosSource = 50;
         let yPosTarget = 50;
 
@@ -239,9 +240,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
         try {
             for (const tableSelection of selectedSourceTables) {
                 const tableKey = `${tableSelection.database}.${tableSelection.schema}.${tableSelection.table}`;
+                console.log(`Step3: Fetching columns for source table: ${tableKey}`);
                 const fetchedColumns = await getTableColumns(tableSelection.database, tableSelection.schema, tableSelection.table);
+                console.log(`Step3: Fetched columns for ${tableKey}:`, fetchedColumns);
 
                 const columnsForNode: ColumnDetail[] = fetchedColumns.map((col: any) => {
+                    // Use mappingData.column_attributes to pre-fill properties if available
                     const attrs = mappingData.column_attributes?.[tableSelection.table]?.[col.name] || {};
                     const columnDetail: ColumnDetail = {
                         name: col.name,
@@ -274,9 +278,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             }
 
             const targetTableKey = `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`;
+            console.log(`Step3: Fetching columns for target table: ${targetTableKey}`);
             const fetchedTargetColumns = await getTableColumns(selectedTargetTable.database, selectedTargetTable.schema, selectedTargetTable.table);
+            console.log(`Step3: Fetched columns for ${targetTableKey}:`, fetchedTargetColumns);
 
             const targetColumnsForNode: ColumnDetail[] = fetchedTargetColumns.map((col: any) => {
+                 // Use mappingData.column_attributes to pre-fill properties if available
                 const attrs = mappingData.column_attributes?.[selectedTargetTable.table]?.[col.name] || {};
                 const columnDetail: ColumnDetail = {
                     name: col.name,
@@ -306,17 +313,20 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 },
             });
 
-            // Add existing column mappings as edges
+            // Add existing column mappings as edges from mappingData prop
+            const initialEdges: Edge[] = [];
             if (mappingData.column_mappings && mappingData.column_mappings.length > 0) {
+                console.log('Step3: Adding existing column mappings as edges from mappingData:', mappingData.column_mappings);
                 mappingData.column_mappings.forEach((mapping, idx) => {
-                    const srcNodeId = mapping.source_table_key; // Use the stored source_table_key
+                    const srcNodeId = mapping.source_table_key;
+                    const targetNodeId = `${mappingData.target_database}.${mappingData.target_schema}.${mappingData.target_table}`;
 
                     if (srcNodeId && initialNodes.some(n => n.id === srcNodeId)) {
                         initialEdges.push({
-                            id: `mapping-${srcNodeId}-${mapping.source_column}-${targetTableKey}-${mapping.target_column}-${idx}`,
+                            id: `mapping-${srcNodeId}-${mapping.source_column}-${targetNodeId}-${mapping.target_column}-${idx}`,
                             source: srcNodeId,
                             sourceHandle: mapping.source_column,
-                            target: targetTableKey,
+                            target: targetNodeId,
                             targetHandle: mapping.target_column,
                             type: ConnectionLineType.SmoothStep,
                             label: mapping.data_type,
@@ -325,14 +335,16 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                         });
                     }
                 });
+                console.log('Step3: Initial edges created from mappingData:', initialEdges);
             }
 
             setAllColumnsDataMap(tempAllColumnsDataMap);
             setNodes(initialNodes);
             setEdges(initialEdges);
+            console.log('Step3: React Flow nodes and edges set.');
 
         } catch (error: any) {
-            console.error('Error initializing React Flow graph:', error);
+            console.error('Step3: Error initializing React Flow graph:', error);
             toast({
                 title: 'Error',
                 description: `Failed to initialize visualization: ${error.message}`,
@@ -340,22 +352,25 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             });
         } finally {
             setLoading(false);
+            console.log('Step3: Finished initializing graph. Loading state:', false);
         }
-    }, [selectedSourceTables, selectedTargetTable, mappingData.column_attributes, mappingData.column_mappings, toast]);
+    }, [selectedSourceTables, selectedTargetTable, mappingData.column_attributes, mappingData.column_mappings, mappingData.target_database, mappingData.target_schema, mappingData.target_table, toast]);
 
+    // This useEffect will trigger the graph initialization whenever relevant data changes
     useEffect(() => {
         initializeReactFlowGraph();
     }, [initializeReactFlowGraph]);
 
 
     const onConnect = useCallback(
-        (connection: Connection) => {
-            console.log("New connection (edge) created:", connection); // Your requested log
+        async (connection: Connection) => {
+            console.log("Step3: New connection (edge) attempted:", connection);
 
             const { source: sourceNodeId, sourceHandle: sourceColumnName, target: targetNodeId, targetHandle: targetColumnName } = connection;
 
             if (!sourceNodeId || !targetNodeId || !sourceColumnName || !targetColumnName) {
                 toast({ title: 'Invalid Connection', description: 'Please connect a source column to a target column.', variant: 'destructive' });
+                console.warn('Step3: Invalid connection attempt. Missing IDs or handles.');
                 return;
             }
 
@@ -364,6 +379,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
             if (!sourceNode?.data.isSource || targetNode?.data.isSource) {
                 toast({ title: 'Invalid Connection', description: 'Please drag from a source table column to a target table column.', variant: 'destructive' });
+                console.warn('Step3: Invalid connection direction. Must be source to target.');
                 return;
             }
 
@@ -372,6 +388,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
             if (!sourceColDetail || !targetColDetail) {
                 toast({ title: 'Column Data Missing', description: 'Could not retrieve data types for selected columns.', variant: 'destructive' });
+                console.error('Step3: Column details missing for connection:', { sourceColDetail, targetColDetail });
                 return;
             }
 
@@ -384,6 +401,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                     variant: 'destructive',
                     duration: 5000,
                 });
+                console.warn('Step3: Type mismatch detected. Connection rejected.', compatibility.reason);
                 return;
             }
 
@@ -393,7 +411,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 source_column: sourceColumnName,
                 target_column: targetColumnName,
                 data_type: dataType,
-                source_table_key: sourceNodeId, // Store the full table key
+                source_table_key: sourceNodeId,
             };
 
             const isDuplicate = mappingData.column_mappings.some(
@@ -402,9 +420,11 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
             if (isDuplicate) {
                 toast({ title: 'Duplicate Mapping', description: `Column '${getTableShortName(sourceNodeId)}.${sourceColumnName}' is already mapped to '${targetColumnName}'.`, variant: 'info' });
+                console.warn('Step3: Duplicate mapping attempted:', newMapping);
                 return;
             }
 
+            const updatedColumnMappings = [...mappingData.column_mappings, newMapping];
             setEdges((eds) => addEdge({
                 ...connection,
                 type: ConnectionLineType.SmoothStep,
@@ -412,11 +432,13 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 style: { stroke: '#8B5CF6', strokeWidth: 2 },
                 markerEnd: { type: MarkerType.ArrowClosed, color: '#8B5CF6' },
             }, eds));
+            console.log('Step3: New edge added to React Flow state:', newMapping);
 
+            // Update parent's mappingData (logging happens via child API calls if any)
             updateMappingData({
-                project_id: projectId, // Ensure projectId is passed
-                column_mappings: [...mappingData.column_mappings, newMapping],
-                // These are probably already set from step 1, but good to ensure
+                column_mappings: updatedColumnMappings,
+                // Ensure other mappingData fields are passed along to prevent loss
+                project_id: projectId,
                 source_database: selectedSourceTables[0]?.database || '',
                 source_schema: selectedSourceTables[0]?.schema || '',
                 source_table: selectedSourceTables[0]?.table || '',
@@ -424,34 +446,84 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 target_schema: selectedTargetTable?.schema || '',
                 target_table: selectedTargetTable?.table || '',
             });
+            console.log('Step3: Mapping data updated in parent state.');
 
             toast({ title: 'Mapping Added', description: `Mapped '${getTableShortName(sourceNodeId)}.${sourceColumnName}' to '${targetColumnName}'.`, variant: 'success' });
+
+            // Log event here as it's an action, not necessarily handled by a separate API
+            await logWizardEvent({
+                project_id: projectId,
+                event_type: "ADD_MAPPING",
+                status: "SUCCESS",
+                username: username,
+                details: {
+                    sourceTable: getTableShortName(sourceNodeId),
+                    sourceColumn: sourceColumnName,
+                    targetTable: getTableShortName(targetNodeId),
+                    targetColumn: targetColumnName,
+                    dataType: dataType,
+                },
+            });
+            console.log('Step3: Wizard event ADD_MAPPING logged successfully.');
+
         },
-        [nodes, mappingData.column_mappings, updateMappingData, selectedSourceTables, selectedTargetTable, toast, setEdges, allColumnsDataMap, areTypesCompatible, projectId]
+        [nodes, mappingData.column_mappings, updateMappingData, selectedSourceTables, selectedTargetTable, toast, setEdges, allColumnsDataMap, areTypesCompatible, projectId, username]
     );
 
     const onEdgesDelete = useCallback(
-        (edgesToRemove: Edge[]) => {
+        async (edgesToRemove: Edge[]) => {
+            console.log('Step3: Attempting to delete edges:', edgesToRemove);
             const updatedMappings = mappingData.column_mappings.filter(m => {
                 return !edgesToRemove.some(edge =>
                     edge.sourceHandle === m.source_column && edge.targetHandle === m.target_column && edge.source === m.source_table_key
                 );
             });
-            updateMappingData({ column_mappings: updatedMappings, project_id: projectId }); // Pass projectId
             setEdges((eds) => eds.filter(edge => !edgesToRemove.includes(edge)));
             toast({ title: 'Mapping Removed', description: 'Selected mapping(s) removed.', variant: 'info' });
+            console.log('Step3: Edges removed from React Flow state.');
+
+            // Update parent's mappingData (logging happens via child API calls if any)
+            updateMappingData({
+                column_mappings: updatedMappings,
+                 // Ensure other mappingData fields are passed along to prevent loss
+                project_id: projectId,
+                source_database: selectedSourceTables[0]?.database || '',
+                source_schema: selectedSourceTables[0]?.schema || '',
+                source_table: selectedSourceTables[0]?.table || '',
+                target_database: selectedTargetTable?.database || '',
+                target_schema: selectedTargetTable?.schema || '',
+                target_table: selectedTargetTable?.table || '',
+            });
+            console.log('Step3: Mapping data updated in parent state.');
+
+            // Log event here as it's an action, not necessarily handled by a separate API
+            await logWizardEvent({
+                project_id: projectId,
+                event_type: "REMOVE_MAPPING",
+                status: "SUCCESS",
+                username: username,
+                details: {
+                    removedEdges: edgesToRemove.map(e => ({
+                        source: e.source,
+                        sourceHandle: e.sourceHandle,
+                        target: e.target,
+                        targetHandle: e.targetHandle,
+                    })),
+                },
+            });
+            console.log('Step3: Wizard event REMOVE_MAPPING logged successfully.');
         },
-        [mappingData.column_mappings, updateMappingData, toast, setEdges, projectId]
+        [mappingData.column_mappings, updateMappingData, toast, setEdges, projectId, username, selectedSourceTables, selectedTargetTable]
     );
 
-    // NEW TRANSFORMATION FUNCTION:
     const transformToFinalMappingsFormat = useCallback(
         (columnMappings: ColumnMapping[], selectedTargetTable: TableSelection | null) => {
+            console.log('Step3: Transforming to final mappings format.');
             if (!selectedTargetTable) {
+                console.warn('Step3: No target table selected for final mapping transformation.');
                 return [];
             }
 
-            // Group mappings by unique source_table_key
             const groupedMappings = new Map<string, Array<{ source_column: string; target_column: string }>>();
 
             columnMappings.forEach(colMap => {
@@ -465,11 +537,8 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
             const finalMappingsArray = Array.from(groupedMappings.entries()).flatMap(([sourceTableKey, columnPairs]) => {
                 const sourceTableParts = parseTableKey(sourceTableKey);
-                const targetTableParts = selectedTargetTable; // Target table is constant for this entire mapping wizard flow
+                const targetTableParts = selectedTargetTable;
 
-                // For each source table, create a mapping object.
-                // The source_columns and target_columns arrays will be populated by iterating through the columnPairs
-                // mapped from this specific source table.
                 const newFormatEntry = {
                     source_database: sourceTableParts.database,
                     source_schema: sourceTableParts.schema,
@@ -480,42 +549,33 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                     source_columns: columnPairs.map(pair => pair.source_column),
                     target_columns: columnPairs.map(pair => pair.target_column),
                 };
-
-                // The crucial part: If a source column can map to MULTIPLE target columns (e.g., from different drag operations),
-                // or a target column can receive from multiple source columns, this structure handles it
-                // by adding each individual connection as a parallel entry in the source_columns and target_columns arrays.
-                //
-                // Example:
-                // If you map SourceA.Col1 to Target.ColX, and then SourceA.Col1 to Target.ColY:
-                // Your `columnMappings` might have:
-                // [{ source_table_key: "SourceA", source_column: "Col1", target_column: "ColX", ... },
-                //  { source_table_key: "SourceA", source_column: "Col1", target_column: "ColY", ... }]
-                //
-                // The `transformToFinalMappingsFormat` will then produce:
-                // {
-                //    ...,
-                //    "source_table": "SourceA",
-                //    "source_columns": ["Col1", "Col1"], // 'Col1' appears twice
-                //    "target_columns": ["ColX", "ColY"]    // 'ColX' and 'ColY' are linked to 'Col1' in order
-                // }
-                // This means source_columns[0] maps to target_columns[0], source_columns[1] maps to target_columns[1], etc.
-
                 return newFormatEntry;
             });
-
+            console.log('Step3: Final transformed mappings:', finalMappingsArray);
             return finalMappingsArray;
         },
-        [selectedTargetTable] // Dependency for useCallback
+        [selectedTargetTable]
     );
 
 
-    const handleNextClick = useCallback(() => {
+    const handleNextClick = useCallback(async () => {
+        console.log('Step3: Proceeding to next step (handleNextClick).');
         if (!projectId) {
             toast({
                 title: 'Project Not Selected',
                 description: 'Please select or create a project in the first step.',
                 variant: 'destructive',
             });
+            console.warn('Step3: Cannot proceed. Project ID missing.');
+            return;
+        }
+        if (selectedSourceTables.length === 0 || !selectedTargetTable) { // Added validation to prevent empty navigation
+            toast({
+                title: 'Selection Required',
+                description: 'Please select at least one source table and one target table.',
+                variant: 'destructive',
+            });
+            console.warn('Step3: Cannot proceed. Source or target table not selected.');
             return;
         }
 
@@ -523,48 +583,88 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             const tableAttrs = mappingData.column_attributes?.[table.table] || {};
             return Object.entries(tableAttrs).filter(([, attrs]) => attrs.is_required_for_mapping).map(([colName,]) => ({ tableKey: `${table.database}.${table.schema}.${table.table}`, colName }));
         });
+        console.log('Step3: Required source columns from attributes:', requiredSourceColumns);
 
         const currentMappedSourceColumnsWithKeys = new Set(mappingData.column_mappings.map(m => `${m.source_table_key}::${m.source_column}`));
         const unmappedRequiredSource = requiredSourceColumns.filter(reqCol => !currentMappedSourceColumnsWithKeys.has(`${reqCol.tableKey}::${reqCol.colName}`));
+        console.log('Step3: Unmapped required source columns:', unmappedRequiredSource);
 
         if (unmappedRequiredSource.length > 0) {
             const unmappedList = unmappedRequiredSource.map(rc => `${getTableShortName(rc.tableKey)}.${rc.colName}`).join(', ');
             toast({ title: 'Mapping Validation Required', description: `The following source columns are marked as 'Required for Mapping' but are not yet mapped: ${unmappedList}. Please map them or go back to Step 2 to unmark them.`, variant: 'destructive', duration: 9000 });
+            console.warn('Step3: Validation failed. Unmapped required source columns.');
             return;
         }
 
         const requiredTargetColumns = selectedTargetTable ? Object.entries(mappingData.column_attributes?.[selectedTargetTable.table] || {}).filter(([, attrs]) => attrs.is_required_for_mapping).map(([colName,]) => colName) : [];
         const currentMappedTargetColumnNames = new Set(mappingData.column_mappings.map(m => m.target_column));
         const unmappedRequiredTarget = requiredTargetColumns.filter(colName => !currentMappedTargetColumnNames.has(colName));
+        console.log('Step3: Unmapped required target columns:', unmappedRequiredTarget);
 
         if (unmappedRequiredTarget.length > 0) {
             toast({ title: 'Mapping Validation Required', description: `The following target columns are marked as 'Required for Mapping' but do not have a source mapped to them: ${unmappedRequiredTarget.join(', ')}. Please map a source column to them or go back to Step 2 to unmark them.`, variant: 'destructive', duration: 9000 });
+            console.warn('Step3: Validation failed. Unmapped required target columns.');
             return;
         }
 
-        // Generate the final output format before proceeding
         const finalMappingsForSubmission = transformToFinalMappingsFormat(
             mappingData.column_mappings,
             selectedTargetTable
         );
 
-        console.log("Final Mappings for Project Submission:", {
-            project_id: projectId, // Use the actual project ID here
+        console.log("Step3: Final Mappings for Project Submission:", {
+            project_id: projectId,
             mappings: finalMappingsForSubmission
         });
 
+        // Update parent's mappingData. Logging is handled by the API calls in child components.
         updateMappingData({
-            project_id: projectId, // Ensure projectId is passed
-            column_mappings: mappingData.column_mappings, // Keep the current format for display in Step4
-            // The `source_columns` and `target_columns` in the parent mappingData
-            // are now derived from the `column_mappings` in the final format.
-            // For now, we'll keep them as simple arrays for the next step's expected interface.
-            source_columns: mappingData.column_mappings.map(m => m.source_column),
-            target_columns: mappingData.column_mappings.map(m => m.target_column),
+            column_mappings: mappingData.column_mappings,
+            // Ensure other mappingData fields are passed along to prevent loss
+            project_id: projectId,
+            source_database: selectedSourceTables[0]?.database || '',
+            source_schema: selectedSourceTables[0]?.schema || '',
+            source_table: selectedSourceTables[0]?.table || '',
+            target_database: selectedTargetTable?.database || '',
+            target_schema: selectedTargetTable?.schema || '',
+            target_table: selectedTargetTable?.table || '',
         });
+        console.log('Step3: Mapping data updated in parent state before proceeding.');
 
-        onNext(); // Proceed to the next step
-    }, [selectedSourceTables, selectedTargetTable, mappingData.column_attributes, mappingData.column_mappings, projectId, toast, onNext, transformToFinalMappingsFormat, updateMappingData]);
+        // Log wizard event for completing this step
+        await logWizardEvent({
+            project_id: projectId,
+            event_type: "TABLES_RELATIONS",
+            status: "SUCCESS",
+            username: username,
+            details: {
+                columnMappings: mappingData.column_mappings,
+                finalMappingsForSubmission: finalMappingsForSubmission,
+            },
+        });
+        console.log('Step3: Wizard event TABLES_RELATIONS logged successfully.');
+
+
+        onNext();
+        console.log('Step3: Proceeding to next step.');
+    }, [selectedSourceTables, selectedTargetTable, mappingData.column_attributes, mappingData.column_mappings, projectId, toast, onNext, transformToFinalMappingsFormat, updateMappingData, username]);
+
+    const handleBackStep = useCallback(async () => {
+        console.log('Step3: Going back (handleBackStep).');
+        await logWizardEvent({
+            project_id: projectId,
+            event_type: "NAVIGATE_BACK",
+            status: "SUCCESS",
+            username: username,
+            details: {
+                fromStep: "TABLES_RELATIONS",
+                toStep: "ADD_COLUMNS_REQUIRED",
+            },
+        });
+        console.log('Step3: Wizard event NAVIGATE_BACK logged successfully.');
+        onBack();
+        console.log('Step3: Navigating back.');
+    }, [onBack, projectId, username]);
 
     if (loading) {
         return (
@@ -610,13 +710,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 </div>
 
                 <div className="flex justify-end gap-2 mt-6">
-                    <Button variant="outline" onClick={onBack}>Back</Button>
+                    <Button variant="outline" onClick={handleBackStep}>Back</Button>
                     <Button onClick={handleNextClick}>Next</Button>
                 </div>
             </CardContent>
         </Card>
     );
 };
-
 
 export default Step3TablesRelations;

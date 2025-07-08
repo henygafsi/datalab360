@@ -26,7 +26,7 @@ import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { manageTableStructure } from './addConstraints';
 import { addPrimaryKey } from './addPrimaryKey';
-import logWizardEvent from './page'; // FIXED: Use default import for logWizardEvent
+import { logWizardEvent } from './logWizardEvent';
 
 interface ColumnDetail {
     name: string;
@@ -87,7 +87,8 @@ interface Step1Props {
     targetTables: string[];
     isLoadingOptions: boolean;
     projectId: string;
-    username: string; // Receive username
+    username: string;
+    mappingData: MappingData; // Ensure mappingData is passed and used
 }
 
 interface ManuallyDefinedPK {
@@ -114,10 +115,13 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     targetTables,
     isLoadingOptions,
     projectId,
-    username, // Use username
+    username,
+    mappingData, // Destructure mappingData here
 }) => {
     const { toast } = useToast();
-    const [currentSourceSelection, setCurrentSourceSelection] = useState<TableSelection>({ database: '', schema: '', table: '' });
+    const [currentSourceSelection, setCurrentSourceSelection] = useState<TableSelection>(
+        selectedSourceTables[0] || { database: '', schema: '', table: '' } // Initialize from prop
+    );
     const [targetColumnsData, setTargetColumnsData] = useState<ColumnDetail[]>([]);
     const [allSourceColumnsData, setAllSourceColumnsData] = useState<{ [key: string]: ColumnDetail[] }>({});
     const [isFetchingColumns, setIsFetchingColumns] = useState(false);
@@ -126,15 +130,141 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     const [currentSourceTables, setCurrentSourceTables] = useState<string[]>([]);
     const [isSourceOptionsLoading, setIsSourceOptionsLoading] = useState(false);
 
-    const [manuallyDefinedPKs, setManuallyDefinedPKs] = useState<ManuallyDefinedPK[]>([]);
-    const [manuallyDefinedFKs, setManuallyDefinedFKs] = useState<ManuallyDefinedFK[]>([]);
+    // Initialize PKs/FKs from mappingData prop using a function for useState
+    const [manuallyDefinedPKs, setManuallyDefinedPKs] = useState<ManuallyDefinedPK[]>(() => {
+        const pks: ManuallyDefinedPK[] = [];
+        (mappingData.primary_keys?.source || []).forEach(colName => {
+            if (mappingData.source_database && mappingData.source_schema && mappingData.source_table) {
+                pks.push({ tableKey: `${mappingData.source_database}.${mappingData.source_schema}.${mappingData.source_table}`, columnName: colName });
+            }
+        });
+        (mappingData.primary_keys?.target || []).forEach(colName => {
+            if (mappingData.target_database && mappingData.target_schema && mappingData.target_table) {
+                pks.push({ tableKey: `${mappingData.target_database}.${mappingData.target_schema}.${mappingData.target_table}`, columnName: colName });
+            }
+        });
+        return pks;
+    });
+
+    const [manuallyDefinedFKs, setManuallyDefinedFKs] = useState<ManuallyDefinedFK[]>(() => {
+        const fks: ManuallyDefinedFK[] = [];
+        (mappingData.foreign_keys?.source || []).forEach(fk => {
+             if (mappingData.source_database && mappingData.source_schema && mappingData.source_table) {
+                fks.push({
+                    sourceTableKey: `${mappingData.source_database}.${mappingData.source_schema}.${mappingData.source_table}`,
+                    sourceColumn: fk.column,
+                    referencedTableKey: `${mappingData.source_database}.${mappingData.source_schema}.${fk.referenced_table}`, // Assuming same schema/db for source FKs
+                    referencedColumn: fk.referenced_column,
+                });
+            }
+        });
+        (mappingData.foreign_keys?.target || []).forEach(fk => {
+            if (mappingData.target_database && mappingData.target_schema && mappingData.target_table) {
+                fks.push({
+                    sourceTableKey: `${mappingData.target_database}.${mappingData.target_schema}.${mappingData.target_table}`,
+                    sourceColumn: fk.column,
+                    referencedTableKey: `${mappingData.target_database}.${mappingData.target_schema}.${fk.referenced_table}`, // Assuming same schema/db for target FKs
+                    referencedColumn: fk.referenced_column,
+                });
+            }
+        });
+        return fks;
+    });
 
     const [fkSourceTableKey, setFkSourceTableKey] = useState<string>('');
     const [fkSourceColumn, setFkSourceColumn] = useState<string>('');
     const [fkReferencedTableKey, setFkReferencedTableKey] = useState<string>('');
     const [fkReferencedColumn, setFkReferencedColumn] = useState<string>('');
 
+    // Effect to update local component state when relevant props change
+    // This runs AFTER MappingWizardPage has loaded data and updated its states
     useEffect(() => {
+        console.log('Step1: Prop `selectedSourceTables` or `selectedTargetTable` or `mappingData` changed.');
+
+        // Re-initialize currentSourceSelection if the first source table changes
+        if (selectedSourceTables[0] && JSON.stringify(currentSourceSelection) !== JSON.stringify(selectedSourceTables[0])) {
+            setCurrentSourceSelection(selectedSourceTables[0]);
+        }
+
+        // Re-fetch columns for all currently selected source tables
+        const loadAllSourceCols = async () => {
+            const newAllSourceColumnsData: { [key: string]: ColumnDetail[] } = {};
+            for (const tableSel of selectedSourceTables) {
+                const tableKey = `${tableSel.database}.${tableSel.schema}.${tableSel.table}`;
+                try {
+                    const columns = await getTableColumns(tableSel.database, tableSel.schema, tableSel.table);
+                    newAllSourceColumnsData[tableKey] = columns.map(col => ({
+                        name: col.name || col.COLUMN_NAME || '',
+                        data_type: col.type || col.DATA_TYPE || '',
+                    }));
+                } catch (error) {
+                    console.error(`Error loading columns for pre-selected source table ${tableKey}:`, error);
+                }
+            }
+            setAllSourceColumnsData(newAllSourceColumnsData);
+        };
+        loadAllSourceCols();
+
+        // Re-fetch columns for the currently selected target table
+        if (selectedTargetTable) {
+            const loadTargetCols = async () => {
+                try {
+                    const columns = await getTableColumns(selectedTargetTable.database, selectedTargetTable.schema, selectedTargetTable.table);
+                    setTargetColumnsData(columns.map(col => ({
+                        name: col.name || col.COLUMN_NAME || '',
+                        data_type: col.type || col.DATA_TYPE || '',
+                    })));
+                } catch (error) {
+                    console.error(`Error loading columns for pre-selected target table ${selectedTargetTable.table}:`, error);
+                }
+            };
+            loadTargetCols();
+        }
+
+        // Re-initialize PK/FK states from the mappingData prop
+        setManuallyDefinedPKs(() => {
+            const pks: ManuallyDefinedPK[] = [];
+            (mappingData.primary_keys?.source || []).forEach(colName => {
+                if (mappingData.source_database && mappingData.source_schema && mappingData.source_table) {
+                    pks.push({ tableKey: `${mappingData.source_database}.${mappingData.source_schema}.${mappingData.source_table}`, columnName: colName });
+                }
+            });
+            (mappingData.primary_keys?.target || []).forEach(colName => {
+                if (mappingData.target_database && mappingData.target_schema && mappingData.target_table) {
+                    pks.push({ tableKey: `${mappingData.target_database}.${mappingData.target_schema}.${mappingData.target_table}`, columnName: colName });
+                }
+            });
+            return pks;
+        });
+        setManuallyDefinedFKs(() => {
+            const fks: ManuallyDefinedFK[] = [];
+            (mappingData.foreign_keys?.source || []).forEach(fk => {
+                 if (mappingData.source_database && mappingData.source_schema && mappingData.source_table) {
+                    fks.push({
+                        sourceTableKey: `${mappingData.source_database}.${mappingData.source_schema}.${mappingData.source_table}`,
+                        sourceColumn: fk.column,
+                        referencedTableKey: `${mappingData.source_database}.${mappingData.source_schema}.${fk.referenced_table}`,
+                        referencedColumn: fk.referenced_column,
+                    });
+                }
+            });
+            (mappingData.foreign_keys?.target || []).forEach(fk => {
+                if (mappingData.target_database && mappingData.target_schema && mappingData.target_table) {
+                    fks.push({
+                        sourceTableKey: `${mappingData.target_database}.${mappingData.target_schema}.${mappingData.target_table}`,
+                        sourceColumn: fk.column,
+                        referencedTableKey: `${mappingData.target_database}.${mappingData.target_schema}.${fk.referenced_table}`,
+                        referencedColumn: fk.referenced_column,
+                    });
+                }
+            });
+            return fks;
+        });
+
+    }, [selectedSourceTables, selectedTargetTable, mappingData]); // Dependencies for this effect
+
+    useEffect(() => {
+        console.log('Step1: currentSourceSelection.database changed:', currentSourceSelection.database);
         if (!currentSourceSelection.database) {
             setCurrentSourceSchemas([]);
             setCurrentSourceTables([]);
@@ -143,10 +273,12 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         const fetchSchemas = async () => {
             setIsSourceOptionsLoading(true);
             try {
+                console.log(`Step1: Fetching schemas for database: ${currentSourceSelection.database}`);
                 const schemasData = await getSchemas(currentSourceSelection.database);
                 setCurrentSourceSchemas(schemasData);
+                console.log(`Step1: Fetched schemas for ${currentSourceSelection.database}:`, schemasData);
             } catch (error: any) {
-                console.error(`Error fetching schemas for ${currentSourceSelection.database}:`, error);
+                console.error(`Step1: Error fetching schemas for ${currentSourceSelection.database}:`, error);
                 toast({
                     title: 'Error',
                     description: `Failed to fetch source schemas: ${error.message || 'An unexpected error occurred.'}`,
@@ -154,12 +286,14 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 });
             } finally {
                 setIsSourceOptionsLoading(false);
+                console.log('Step1: Finished fetching schemas. Source options loading state:', false);
             }
         };
         fetchSchemas();
     }, [currentSourceSelection.database, toast]);
 
     useEffect(() => {
+        console.log('Step1: currentSourceSelection.schema changed:', currentSourceSelection.schema);
         if (!currentSourceSelection.database || !currentSourceSelection.schema) {
             setCurrentSourceTables([]);
             return;
@@ -167,10 +301,13 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         const fetchTables = async () => {
             setIsSourceOptionsLoading(true);
             try {
+                console.log(`Step1: Fetching tables for ${currentSourceSelection.database}.${currentSourceSelection.schema}`);
                 const tablesData = await getTables(currentSourceSelection.database, currentSourceSelection.schema);
                 setCurrentSourceTables(tablesData);
-            } catch (error: any) {
-                console.error(`Error fetching tables for ${currentSourceSelection.database}.${currentSourceSelection.schema}:`, error);
+                console.log(`Step1: Fetched tables for ${currentSourceSelection.database}.${currentSourceSelection.schema}:`, tablesData);
+            }
+            catch (error: any) {
+                console.error(`Step1: Error fetching tables for ${currentSourceSelection.database}.${currentSourceSelection.schema}:`, error);
                 toast({
                     title: 'Error',
                     description: `Failed to fetch source tables: ${error.message || 'An unexpected error occurred.'}`,
@@ -178,30 +315,36 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 });
             } finally {
                 setIsSourceOptionsLoading(false);
+                console.log('Step1: Finished fetching tables. Source options loading state:', false);
             }
         };
         fetchTables();
     }, [currentSourceSelection.database, currentSourceSelection.schema, toast]);
 
     const handleCurrentSourceDbChange = useCallback((db: string) => {
+        console.log('Step1: Source DB changed to:', db);
         setCurrentSourceSelection((prev) => ({ ...prev, database: db, schema: '', table: '' }));
     }, []);
 
     const handleCurrentSourceSchemaChange = useCallback((schema: string) => {
+        console.log('Step1: Source Schema changed to:', schema);
         setCurrentSourceSelection((prev) => ({ ...prev, schema, table: '' }));
     }, []);
 
     const handleCurrentSourceTableChange = useCallback((table: string) => {
+        console.log('Step1: Source Table changed to:', table);
         setCurrentSourceSelection((prev) => ({ ...prev, table }));
     }, []);
 
     const handleAddSourceTable = useCallback(async () => {
+        console.log('Step1: Attempting to add source table:', currentSourceSelection);
         if (!currentSourceSelection.database || !currentSourceSelection.schema || !currentSourceSelection.table) {
             toast({
                 title: 'Validation Error',
                 description: 'Please select a database, schema, and table for the source.',
                 variant: 'destructive',
             });
+            console.warn('Step1: Validation failed for adding source table. Missing fields.');
             return;
         }
 
@@ -217,11 +360,13 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 description: 'This source table has already been added.',
                 variant: 'info',
             });
+            console.warn('Step1: Source table already added:', tableKey);
             return;
         }
 
         setIsFetchingColumns(true);
         try {
+            console.log(`Step1: Fetching columns for new source table: ${tableKey}`);
             const columns = await getTableColumns(
                 currentSourceSelection.database,
                 currentSourceSelection.schema,
@@ -240,8 +385,9 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 title: 'Source Table Added',
                 description: `Columns for ${currentSourceSelection.table} fetched successfully.`,
             });
+            console.log('Step1: Source table added and columns fetched:', tableKey, 'Columns:', columns);
         } catch (error: any) {
-            console.error('Failed to add source table or fetch columns:', error);
+            console.error('Step1: Failed to add source table or fetch columns:', error);
             toast({
                 title: 'Error',
                 description: `Failed to add source table: ${error.message || 'An unexpected error occurred.'}`,
@@ -249,10 +395,12 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             });
         } finally {
             setIsFetchingColumns(false);
+            console.log('Step1: Finished fetching columns for new source table. Fetching state:', false);
         }
     }, [currentSourceSelection, selectedSourceTables, setSelectedSourceTables, toast]);
 
     const handleRemoveSourceTable = useCallback((tableToRemove: TableSelection) => {
+        console.log('Step1: Attempting to remove source table:', tableToRemove);
         setSelectedSourceTables((prev) =>
             prev.filter(
                 (t) =>
@@ -271,13 +419,16 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         });
         setManuallyDefinedPKs(prev => prev.filter(pk => pk.tableKey !== tableKeyToRemove));
         setManuallyDefinedFKs(prev => prev.filter(fk => fk.sourceTableKey !== tableKeyToRemove && fk.referencedTableKey !== tableKeyToRemove));
+        console.log('Step1: Source table removed:', tableToRemove);
     }, [setSelectedSourceTables]);
 
     const handleTargetDbChange = useCallback((db: string) => {
+        console.log('Step1: Target DB changed to:', db);
         setSelectedTargetTable({ database: db, schema: '', table: '' });
     }, [setSelectedTargetTable]);
 
     const handleTargetSchemaChange = useCallback((schema: string) => {
+        console.log('Step1: Target Schema changed to:', schema);
         setSelectedTargetTable((prev) => ({
             database: prev?.database || '',
             schema,
@@ -286,6 +437,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     }, [setSelectedTargetTable]);
 
     const handleTargetTableChange = useCallback(async (table: string) => {
+        console.log('Step1: Target Table changed to:', table);
         const newTargetSelection = {
             database: selectedTargetTable?.database || '',
             schema: selectedTargetTable?.schema || '',
@@ -295,6 +447,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
 
         setIsFetchingColumns(true);
         try {
+            console.log(`Step1: Fetching columns for new target table: ${newTargetSelection.database}.${newTargetSelection.schema}.${newTargetSelection.table}`);
             const columns = await getTableColumns(
                 newTargetSelection.database,
                 newTargetSelection.schema,
@@ -308,8 +461,9 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 title: 'Target Table Selected',
                 description: `Columns for ${newTargetSelection.table} fetched successfully.`,
             });
+            console.log('Step1: Target table selected and columns fetched:', newTargetSelection, 'Columns:', columns);
         } catch (error: any) {
-            console.error('Failed to fetch target table columns:', error);
+            console.error('Step1: Failed to fetch target table columns:', error);
             toast({
                 title: 'Error',
                 description: `Failed to fetch target table columns: ${error.message || 'An unexpected error occurred.'}`,
@@ -317,28 +471,31 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             });
         } finally {
             setIsFetchingColumns(false);
+            console.log('Step1: Finished fetching columns for new target table. Fetching state:', false);
         }
     }, [selectedTargetTable, setSelectedTargetTable, toast]);
 
     const handleTogglePrimaryKey = useCallback(async (tableKey: string, columnName: string) => {
+        console.log(`Step1: Toggling PK for ${tableKey}.${columnName}`);
         if (!projectId || !username) {
             toast({ title: 'Error', description: 'Project or user not available.', variant: 'destructive' });
+            console.warn('Step1: PK toggle failed. Project or username missing.');
             return;
         }
 
         const [db, schema, table] = tableKey.split('.');
         if (!db || !schema || !table) {
             toast({ title: 'Error', description: 'Invalid table key for PK operation.', variant: 'destructive' });
+            console.error('Step1: Invalid table key for PK operation:', tableKey);
             return;
         }
 
         setManuallyDefinedPKs(prevPKs => {
             const existingPKIndex = prevPKs.findIndex(pk => pk.tableKey === tableKey && pk.columnName === columnName);
             if (existingPKIndex > -1) {
-                // Remove PK (frontend state only, backend doesn't have DROP PK for this flow)
+                console.log(`Step1: Removing PK from frontend state for ${tableKey}.${columnName}`);
                 return prevPKs.filter((_, index) => index !== existingPKIndex);
             } else {
-                // Add PK
                 const payload = {
                     project_id: projectId,
                     database_name: db,
@@ -346,8 +503,10 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                     table_name: table,
                     column_names: [columnName],
                 };
+                console.log('Step1: Adding PK. Payload to addPrimaryKey service:', payload);
                 addPrimaryKey(payload)
                     .then(response => {
+                        console.log('Step1: addPrimaryKey service response:', response);
                         if (response.status === 'success' || response.status === 'info') {
                             toast({ title: 'Primary Key Status', description: response.message, variant: 'default' });
                         } else {
@@ -355,21 +514,24 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                         }
                     })
                     .catch(error => {
-                        console.error("Error adding PK via API:", error);
+                        console.error("Step1: Error adding PK via API:", error);
                         toast({ title: 'API Error', description: `Failed to add primary key: ${error.message}`, variant: 'destructive' });
                     });
+                console.log(`Step1: Adding PK to frontend state for ${tableKey}.${columnName}`);
                 return [...prevPKs, { tableKey, columnName }];
             }
         });
     }, [projectId, username, toast]);
 
     const handleAddForeignKey = useCallback(async () => {
+        console.log('Step1: Attempting to add Foreign Key.');
         if (!fkSourceTableKey || !fkSourceColumn || !fkReferencedTableKey || !fkReferencedColumn) {
             toast({
                 title: 'Validation Error',
                 description: 'Please select all fields for the Foreign Key.',
                 variant: 'destructive',
             });
+            console.warn('Step1: FK validation failed. Missing fields.');
             return;
         }
 
@@ -379,6 +541,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 description: 'Source and referenced columns cannot be the same if from the same table.',
                 variant: 'destructive',
             });
+            console.warn('Step1: FK validation failed. Source and referenced columns are identical.');
             return;
         }
 
@@ -403,6 +566,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 description: 'This Foreign Key relationship already exists.',
                 variant: 'info',
             });
+            console.warn('Step1: Duplicate FK found:', newFK);
             return;
         }
 
@@ -411,17 +575,22 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
 
         if (!sourceDb || !sourceSchema || !sourceTable || !refDb || !refSchema || !refTable) {
             toast({ title: 'Error', description: 'Invalid table key for FK operation.', variant: 'destructive' });
+            console.error('Step1: Invalid table key for FK operation. Source:', fkSourceTableKey, 'Referenced:', fkReferencedTableKey);
             return;
         }
 
+        const payload = {
+            SOURCE_TABLE: `"${sourceDb}"."${sourceSchema}"."${sourceTable}"`,
+            COLUMN_NAME: newFK.sourceColumn,
+            CONSTRAINT_TYPE: 'ADD_FK',
+            TABLE_REF: `"${refDb}"."${refSchema}"."${refTable}"`,
+            COLUMN_REF: newFK.referencedColumn,
+        };
+        console.log('Step1: Adding FK. Payload to manageTableStructure service:', payload);
+
         try {
-            const response = await manageTableStructure({
-                SOURCE_TABLE: `"${sourceDb}"."${sourceSchema}"."${sourceTable}"`,
-                COLUMN_NAME: newFK.sourceColumn,
-                CONSTRAINT_TYPE: 'ADD_FK',
-                TABLE_REF: `"${refDb}"."${refSchema}"."${refTable}"`,
-                COLUMN_REF: newFK.referencedColumn,
-            });
+            const response = await manageTableStructure(payload);
+            console.log('Step1: manageTableStructure service response (ADD_FK):', response);
 
             if (response.status === 'success' || response.status === 'info') {
                 setManuallyDefinedFKs((prevFKs) => [...prevFKs, newFK]);
@@ -433,15 +602,17 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 setFkSourceColumn('');
                 setFkReferencedTableKey('');
                 setFkReferencedColumn('');
+                console.log('Step1: Foreign Key added to frontend state and form reset.');
             } else {
                 toast({
                     title: 'Foreign Key Error',
                     description: response.message,
                     variant: 'destructive',
                 });
+                console.error('Step1: Backend reported FK error:', response.message);
             }
         } catch (error: any) {
-            console.error("Error adding FK via API:", error);
+            console.error("Step1: Error adding FK via API:", error);
             toast({
                 title: 'API Error',
                 description: `Failed to add foreign key: ${error.message}`,
@@ -451,7 +622,8 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     }, [fkSourceTableKey, fkSourceColumn, fkReferencedTableKey, fkReferencedColumn, manuallyDefinedFKs, toast]);
 
     const handleRemoveForeignKey = useCallback((fkToRemove: ManuallyDefinedFK) => {
-        setManuallyDefinedFKs(prevFKs => prevFKs.filter(fk =>
+        console.log('Step1: Attempting to remove Foreign Key from frontend state:', fkToRemove);
+        setManuallyDefinedFKs(prevFKs => prevPKs.filter(fk =>
             !(fk.sourceTableKey === fkToRemove.sourceTableKey &&
                 fk.sourceColumn === fkToRemove.sourceColumn &&
                 fk.referencedTableKey === fkToRemove.referencedTableKey &&
@@ -462,15 +634,18 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             description: 'Foreign Key removed from local configuration. (Note: Actual removal from DB requires separate DDL if already applied).',
             variant: 'info',
         });
+        console.log('Step1: Foreign Key removed from frontend state.');
     }, [toast]);
 
     const handleNextClick = useCallback(async () => {
+        console.log('Step1: Proceeding to next step (handleNextClick).');
         if (selectedSourceTables.length === 0 || !selectedTargetTable) {
             toast({
                 title: 'Selection Required',
                 description: 'Please select at least one source table and one target table.',
                 variant: 'destructive',
             });
+            console.warn('Step1: Cannot proceed. Source or target table not selected.');
             return;
         }
         if (!projectId || !username) {
@@ -479,18 +654,23 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 description: 'Please select or create a project in the previous step.',
                 variant: 'destructive',
             });
+            console.warn('Step1: Cannot proceed. Project ID or username missing.');
             return;
         }
 
         const primaryKeysForMapping: { source: string[]; target: string[] } = { source: [], target: [] };
         const foreignKeysForMapping: { source: ForeignKey[]; target: ForeignKey[] } = { source: [], target: [] };
-        const columnMappings: any[] = [];
+        const columnMappings: any[] = []; // This will be populated by Step 3
 
         manuallyDefinedPKs.forEach(pk => {
-            if (pk.tableKey === `${selectedTargetTable?.database}.${selectedTargetTable?.schema}.${selectedTargetTable?.table}`) {
+            if (selectedTargetTable && pk.tableKey === `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`) {
                 primaryKeysForMapping.target.push(pk.columnName);
             } else {
-                primaryKeysForMapping.source.push(pk.columnName);
+                // Ensure source PKs are associated with their specific source table
+                const sourceTable = selectedSourceTables.find(st => `${st.database}.${st.schema}.${st.table}` === pk.tableKey);
+                if (sourceTable) {
+                    primaryKeysForMapping.source.push(pk.columnName);
+                }
             }
         });
 
@@ -500,10 +680,14 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 referenced_table: fk.referencedTableKey.split('.').pop() || '',
                 referenced_column: fk.referencedColumn,
             };
-            if (fk.sourceTableKey === `${selectedTargetTable?.database}.${selectedTargetTable?.schema}.${selectedTargetTable?.table}`) {
+            if (selectedTargetTable && fk.sourceTableKey === `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`) {
                 foreignKeysForMapping.target.push(foreignKey);
             } else {
-                foreignKeysForMapping.source.push(foreignKey);
+                // Ensure source FKs are associated with their specific source table
+                const sourceTable = selectedSourceTables.find(st => `${st.database}.${st.schema}.${st.table}` === fk.sourceTableKey);
+                if (sourceTable) {
+                    foreignKeysForMapping.source.push(foreignKey);
+                }
             }
         });
 
@@ -515,31 +699,33 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             target_database: selectedTargetTable.database,
             target_schema: selectedTargetTable.schema,
             target_table: selectedTargetTable.table,
-            column_mappings: columnMappings,
+            column_mappings: columnMappings, // Passed empty, will be filled in Step3
             primary_keys: { source: primaryKeysForMapping.source, target: primaryKeysForMapping.target },
             foreign_keys: { source: foreignKeysForMapping.source, target: foreignKeysForMapping.target },
         };
 
-        console.log("PK/FK Data for Next Step:", JSON.stringify(finalMappingData.primary_keys, null, 2));
-        console.log("FK Data for Next Step:", JSON.stringify(finalMappingData.foreign_keys, null, 2));
+        console.log("Step1: PK/FK Data for Next Step:", JSON.stringify(finalMappingData.primary_keys, null, 2));
+        console.log("Step1: FK Data for Next Step:", JSON.stringify(finalMappingData.foreign_keys, null, 2));
 
-        // Log SUCCESS event before proceeding
+        // Update parent's mappingData. Log event happens in parent's updateMappingData or child API calls.
+        // For Step 1, the primary_keys and foreign_keys are determined here, so we log them.
         await logWizardEvent({
             project_id: projectId,
-            event_type: "ADD_PRIMARY_KEY", // Corresponds to backend WIZARD_STEPS
+            event_type: "ADD_PRIMARY_KEY",
             status: "SUCCESS",
             username: username,
             details: {
                 selectedSourceTables: selectedSourceTables.map(t => `${t.database}.${t.schema}.${t.table}`),
                 selectedTargetTable: `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`,
-                definedPrimaryKeys: manuallyDefinedPKs,
-                definedForeignKeys: manuallyDefinedFKs,
+                primary_keys: finalMappingData.primary_keys, // Log the full PK structure
+                foreign_keys: finalMappingData.foreign_keys, // Log the full FK structure
             },
         });
 
         updateMappingData(finalMappingData);
-        onNext();
 
+        onNext();
+        console.log('Step1: Data updated and proceeding to next step.');
     }, [selectedSourceTables, selectedTargetTable, manuallyDefinedPKs, manuallyDefinedFKs, updateMappingData, onNext, toast, projectId, username]);
 
     const getAllAvailableColumns = useCallback(() => {
@@ -800,7 +986,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                                     {/* FK Source Table Select */}
                                     <div>
                                         <Label htmlFor="fk-source-table">Source Table (FK Column In)</Label>
-                                        <Select value={fkSourceTableKey} onValueChange={(val) => { setFkSourceTableKey(val); setFkSourceColumn(''); }}>
+                                        <Select onValueChange={(val) => { setFkSourceTableKey(val); setFkSourceColumn(''); }} value={fkSourceTableKey}>
                                             <SelectTrigger id="fk-source-table">
                                                 <SelectValue placeholder="Select Table" />
                                             </SelectTrigger>
@@ -918,7 +1104,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 <div className="flex justify-end gap-2 mt-6">
                     <Button
                         onClick={handleNextClick}
-                        disabled={selectedSourceTables.length === 0 || !selectedTargetTable || isFetchingColumns || isLoadingOptions || !projectId}
+                        disabled={isLoadingOptions || !projectId || selectedSourceTables.length === 0 || !selectedTargetTable}
                     >
                         {'Next'}
                     </Button>

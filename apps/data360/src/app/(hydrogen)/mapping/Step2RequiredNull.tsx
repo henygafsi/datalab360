@@ -18,9 +18,8 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
-import logWizardEvent from './page';
-import { storeSelectedColumns } from './storeSelectedColumns'; // NEW: Import storeSelectedColumns
-import { describeSelectedColumns } from './describeSelectedColumns'; // NEW: Import describeSelectedColumns
+import { logWizardEvent } from './logWizardEvent';
+import { storeSelectedColumns } from './storeSelectedColumns'; // Import the service
 
 interface TableSelection {
     database: string;
@@ -32,7 +31,7 @@ interface ColumnAttributes {
     is_nullable: boolean;
     is_primary_key: boolean;
     is_foreign_key: boolean;
-    is_required_for_mapping: boolean;
+    is_required_for_mapping: boolean; // User controls this
     data_type?: string;
 }
 
@@ -63,35 +62,40 @@ interface MappingData {
 interface Step2Props {
     onNext: () => void;
     onBack: () => void;
-    mappingData: MappingData;
     updateMappingData: (newData: Partial<MappingData>) => void;
     selectedSourceTable: TableSelection | null;
     selectedTargetTable: TableSelection | null;
     projectId: string;
     username: string;
+    mappingData: MappingData; // Ensure mappingData is passed to initialize
 }
 
 const Step2RequiredNull: React.FC<Step2Props> = ({
     onNext,
     onBack,
-    mappingData,
     updateMappingData,
     selectedSourceTable,
     selectedTargetTable,
     projectId,
     username,
+    mappingData, // Destructure mappingData
 }) => {
     const { toast } = useToast();
     const [sourceColumns, setSourceColumns] = useState<ColumnDetail[]>([]);
     const [targetColumns, setTargetColumns] = useState<ColumnDetail[]>([]);
     const [loading, setLoading] = useState(true);
 
+    // internalColumnAttributes state will manage user changes (required for mapping)
+    // and hold other attributes from fetched data/mappingData
     const [internalColumnAttributes, setInternalColumnAttributes] = useState<
         { [tableName: string]: { [columnName: string]: ColumnAttributes } }
     >(mappingData.column_attributes || {});
 
+
+    // Effect to fetch columns and initialize internalColumnAttributes when tables or project data changes
     useEffect(() => {
-        const fetchColumns = async () => {
+        console.log('Step2: Component mounted or relevant props changed. Fetching columns...');
+        const fetchAndInitializeColumns = async () => {
             if (!selectedSourceTable || !selectedTargetTable) {
                 toast({
                     title: 'Error',
@@ -104,93 +108,70 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
 
             setLoading(true);
             try {
+                console.log(`Step2: Fetching columns for source: ${selectedSourceTable.table} and target: ${selectedTargetTable.table}`);
                 const [sourceColsResult, targetColsResult] = await Promise.all([
                     getTableColumns(selectedSourceTable.database, selectedSourceTable.schema, selectedSourceTable.table),
                     getTableColumns(selectedTargetTable.database, selectedTargetTable.schema, selectedTargetTable.table),
                 ]);
+                console.log('Step2: Fetched columns. Source:', sourceColsResult, 'Target:', targetColsResult);
 
-                // Helper to map fetched columns and apply existing attributes
-                const mapFetchedColumns = (cols: any[], tableType: 'source' | 'target') => {
+                const newInternalAttributes: { [tableName: string]: { [columnName: string]: ColumnAttributes } } = {};
+
+                const processColumns = (cols: any[], tableType: 'source' | 'target') => {
                     const tableName = tableType === 'source' ? selectedSourceTable!.table : selectedTargetTable!.table;
+                    newInternalAttributes[tableName] = {};
+
                     return cols.map((col: any) => {
-                        const existingAttrs = internalColumnAttributes[tableName]?.[col.name] || {};
-                        return {
+                        // Prioritize attributes from mappingData.column_attributes (loaded from backend)
+                        // otherwise, fall back to DB metadata
+                        const existingAttrs = mappingData.column_attributes?.[tableName]?.[col.name] || {};
+                        
+                        const columnDetail: ColumnDetail = {
                             name: col.name || col.COLUMN_NAME,
                             data_type: col.data_type || col.type,
+                            // is_nullable and is_primary_key/foreign_key are derived from DB or loaded state
                             is_nullable: existingAttrs.is_nullable !== undefined ? existingAttrs.is_nullable : (col.is_nullable || col.IS_NULLABLE === 'YES'),
                             is_primary_key: existingAttrs.is_primary_key !== undefined ? existingAttrs.is_primary_key : (col.is_primary_key || col.CONSTRAINT_TYPE === 'PRIMARY KEY'),
                             is_foreign_key: existingAttrs.is_foreign_key !== undefined ? existingAttrs.is_foreign_key : (col.is_foreign_key || col.CONSTRAINT_TYPE === 'FOREIGN KEY'),
+                            // is_required_for_mapping is controllable by user on this screen, so prioritize loaded state
                             is_required_for_mapping: existingAttrs.is_required_for_mapping !== undefined ? existingAttrs.is_required_for_mapping : false,
                         };
+                        newInternalAttributes[tableName][columnDetail.name] = columnDetail;
+                        return columnDetail;
                     });
                 };
 
-                setSourceColumns(mapFetchedColumns(sourceColsResult, 'source'));
-                setTargetColumns(mapFetchedColumns(targetColsResult, 'target'));
-
-                // NEW: Fetch previously selected required columns if project_id exists
-                if (projectId && selectedSourceTable) {
-                    try {
-                        const describeResult = await describeSelectedColumns(
-                            projectId,
-                            selectedSourceTable.database,
-                            selectedSourceTable.schema,
-                            selectedSourceTable.table
-                        );
-
-                        if (describeResult.describe_filtered && describeResult.describe_filtered.length > 0) {
-                            const previouslyRequiredColumnNames = new Set(describeResult.describe_filtered.map(row => row[0])); // row[0] is column name
-
-                            setInternalColumnAttributes(prev => {
-                                const newAttrs = { ...prev };
-                                if (!newAttrs[selectedSourceTable.table]) {
-                                    newAttrs[selectedSourceTable.table] = {};
-                                }
-                                // Update existing source columns based on fetched required columns
-                                sourceColsResult.forEach((col: any) => {
-                                    const colName = col.name || col.COLUMN_NAME;
-                                    newAttrs[selectedSourceTable.table][colName] = {
-                                        ...newAttrs[selectedSourceTable.table][colName],
-                                        is_required_for_mapping: previouslyRequiredColumnNames.has(colName),
-                                    };
-                                });
-                                return newAttrs;
-                            });
-                        }
-                    } catch (fetchError: any) {
-                        console.warn("Could not fetch previously selected columns:", fetchError.message);
-                        // This is a soft error, don't block the UI, just log it.
-                    }
-                }
-
+                setSourceColumns(processColumns(sourceColsResult, 'source'));
+                setTargetColumns(processColumns(targetColsResult, 'target'));
+                setInternalColumnAttributes(newInternalAttributes); // Update internal state with loaded/initial attributes
+                console.log('Step2: Columns and initial internal attributes set:', newInternalAttributes);
 
             } catch (error: any) {
-                console.error('Error fetching columns:', error);
+                console.error('Step2: Error fetching columns:', error);
                 toast({
                     title: 'Error',
                     description: `Failed to load column details: ${error.message}`,
                     variant: 'destructive',
                 });
-                await logWizardEvent({
-                    project_id: projectId,
-                    event_type: "ADD_COLUMNS_REQUIRED",
-                    status: "FAILED",
-                    username: username,
-                    details: {
-                        sourceTable: selectedSourceTable,
-                        targetTable: selectedTargetTable,
-                    },
-                    error: error.message,
-                });
             } finally {
                 setLoading(false);
+                console.log('Step2: Finished fetching columns. Loading state:', false);
             }
         };
 
-        fetchColumns();
-    }, [selectedSourceTable, selectedTargetTable, toast, projectId, username]); // Removed internalColumnAttributes from deps to prevent infinite loop
+        fetchAndInitializeColumns();
+    }, [selectedSourceTable, selectedTargetTable, toast, mappingData.column_attributes]); // Re-run if these props change
+
+    // Propagate changes from parent's mappingData to internal state if mappingData changes
+    useEffect(() => {
+        if (mappingData.column_attributes) {
+            setInternalColumnAttributes(mappingData.column_attributes);
+        }
+    }, [mappingData.column_attributes]);
+
 
     const handleRequiredToggle = useCallback((tableName: string, columnName: string, isRequired: boolean) => {
+        console.log(`Step2: Toggling 'Required for Mapping' for ${tableName}.${columnName} to ${isRequired}`);
         setInternalColumnAttributes(prev => {
             const newAttributes = { ...prev };
             if (!newAttributes[tableName]) {
@@ -200,84 +181,121 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 ...newAttributes[tableName][columnName],
                 is_required_for_mapping: isRequired,
             };
-            return newAttributes;
-        });
-    }, []);
-
-    const handleNullableToggle = useCallback((tableName: string, columnName: string, isNullable: boolean) => {
-        setInternalColumnAttributes(prev => {
-            const newAttributes = { ...prev };
-            if (!newAttributes[tableName]) {
-                newAttributes[tableName] = {};
-            }
-            newAttributes[tableName][columnName] = {
-                ...newAttributes[tableName][columnName],
-                is_nullable: isNullable,
-            };
+            console.log('Step2: Updated internalColumnAttributes (Required):', newAttributes);
             return newAttributes;
         });
     }, []);
 
     const handleNextStep = useCallback(async () => {
-        if (!projectId || !username || !selectedSourceTable) {
-            toast({ title: 'Error', description: 'Project, user, or source table not available.', variant: 'destructive' });
+        console.log('Step2: Proceeding to next step (handleNextStep).');
+        
+        if (!projectId || !username || !selectedSourceTable || !selectedTargetTable) {
+            toast({ title: 'Error', description: 'Project, user, or table selection missing.', variant: 'destructive' });
+            console.warn('Step2: Cannot proceed. Missing essential data.');
             return;
         }
 
-        const sourceTableAttrs = internalColumnAttributes[selectedSourceTable.table] || {};
-        const selectedRequiredColumns = Object.entries(sourceTableAttrs)
-            .filter(([, attrs]) => attrs.is_required_for_mapping)
-            .map(([colName,]) => colName);
+        // --- Prepare payload for storeSelectedColumns API ---
+        // This endpoint expects 'selected_columns' as an array of STRINGS (column names)
+        // representing only the columns marked as 'required for mapping'.
+        const selectedSourceColumnNames: string[] = sourceColumns
+            .filter(col => internalColumnAttributes[selectedSourceTable.table]?.[col.name]?.is_required_for_mapping)
+            .map(col => col.name);
+
+        const selectedTargetColumnNames: string[] = targetColumns
+            .filter(col => internalColumnAttributes[selectedTargetTable.table]?.[col.name]?.is_required_for_mapping)
+            .map(col => col.name);
 
         try {
-            // NEW: Store selected columns in the backend
+            console.log('Step2: Calling storeSelectedColumns for source table...');
             await storeSelectedColumns({
                 project_id: projectId,
-                selected_columns: selectedRequiredColumns,
-                source_table: selectedSourceTable.table,
+                database_name: selectedSourceTable.database,
+                schema_name: selectedSourceTable.schema,
+                table_name: selectedSourceTable.table,
+                selected_columns: selectedSourceColumnNames, // CORRECTED: Use selected_columns (array of strings)
             });
-            toast({ title: 'Columns Saved', description: 'Required columns configuration saved.', variant: 'success' });
 
-            // Log SUCCESS event before proceeding
+            console.log('Step2: Calling storeSelectedColumns for target table...');
+            await storeSelectedColumns({
+                project_id: projectId,
+                database_name: selectedTargetTable.database,
+                schema_name: selectedTargetTable.schema,
+                table_name: selectedTargetTable.table,
+                selected_columns: selectedTargetColumnNames, // CORRECTED: Use selected_columns (array of strings)
+            });
+
+            toast({ title: 'Required Columns Saved', description: 'Column requirements saved successfully!', variant: 'success' });
+            console.log('Step2: Column requirements saved to backend successfully.');
+
+            // Update parent mappingData with the collected column attributes
+            // This is vital for subsequent steps to have the latest attributes
+            const updatedMappingDataPayload = {
+                project_id: projectId,
+                column_attributes: internalColumnAttributes,
+            };
+            updateMappingData(updatedMappingDataPayload);
+            console.log('Step2: Parent mappingData updated with column attributes.');
+
+            // Log wizard event for completing this step
             await logWizardEvent({
                 project_id: projectId,
                 event_type: "ADD_COLUMNS_REQUIRED",
                 status: "SUCCESS",
                 username: username,
                 details: {
-                    columnAttributes: internalColumnAttributes,
                     sourceTable: selectedSourceTable,
                     targetTable: selectedTargetTable,
+                    selectedSourceColumnNames: selectedSourceColumnNames, // Log just names for this API
+                    selectedTargetColumnNames: selectedTargetColumnNames, // Log just names for this API
+                    columnAttributes: internalColumnAttributes, // Log the full attributes structure for detailed tracking
                 },
             });
+            console.log('Step2: Wizard event ADD_COLUMNS_REQUIRED logged successfully.');
 
-            updateMappingData({
-                project_id: projectId,
-                column_attributes: internalColumnAttributes,
-            });
             onNext();
+            console.log('Step2: Proceeding to next step.');
+
         } catch (error: any) {
-            console.error("Error saving columns or logging event:", error);
+            console.error('Step2: Failed to save column requirements:', error);
             toast({
-                title: 'Error',
-                description: `Failed to save column configuration: ${error.message}`,
+                title: 'Error Saving Columns',
+                description: `Failed to save column requirements: ${error.message}`,
                 variant: 'destructive',
             });
-            // Log FAILED event
             await logWizardEvent({
                 project_id: projectId,
                 event_type: "ADD_COLUMNS_REQUIRED",
                 status: "FAILED",
                 username: username,
                 details: {
-                    columnAttributes: internalColumnAttributes,
                     sourceTable: selectedSourceTable,
                     targetTable: selectedTargetTable,
+                    error: error.message || String(error),
                 },
-                error: error.message,
             });
+            console.log('Step2: Wizard event ADD_COLUMNS_REQUIRED logged as FAILED.');
         }
-    }, [updateMappingData, internalColumnAttributes, onNext, projectId, username, selectedSourceTable, selectedTargetTable, toast]);
+    }, [projectId, username, selectedSourceTable, selectedTargetTable, sourceColumns, targetColumns, internalColumnAttributes, updateMappingData, toast, onNext]);
+
+
+    const handleBackStep = useCallback(async () => {
+        console.log('Step2: Going back (handleBackStep).');
+        await logWizardEvent({
+            project_id: projectId,
+            event_type: "NAVIGATE_BACK",
+            status: "SUCCESS",
+            username: username,
+            details: {
+                fromStep: "ADD_COLUMNS_REQUIRED",
+                toStep: "ADD_PRIMARY_KEY",
+            },
+        });
+        console.log('Step2: Wizard event NAVIGATE_BACK logged successfully.');
+        onBack();
+        console.log('Step2: Navigating back.');
+    }, [onBack, projectId, username]);
+
 
     if (loading) {
         return (
@@ -294,7 +312,6 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 <CardTitle>Step 2: Define Column Requirements</CardTitle>
                 <p className="text-sm text-muted-foreground">
                     Mark columns as 'Required for Mapping' if they must be included in the final data flow.
-                    Adjust 'Nullable' for target columns as needed.
                 </p>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -307,7 +324,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                                 <TableRow>
                                     <TableHead>Column Name</TableHead>
                                     <TableHead>Data Type</TableHead>
-                                    <TableHead>DB Nullable</TableHead>
+                                    <TableHead>DB Nullable</TableHead> {/* Still display original DB nullable */}
                                     <TableHead>Required for Mapping</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -345,7 +362,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                                 <TableRow>
                                     <TableHead>Column Name</TableHead>
                                     <TableHead>Data Type</TableHead>
-                                    <TableHead>DB Nullable</TableHead>
+                                    <TableHead>DB Nullable</TableHead> {/* Still display original DB nullable */}
                                     <TableHead>Required for Mapping</TableHead>
                                 </TableRow>
                             </TableHeader>
@@ -355,16 +372,8 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                                         <TableCell className="font-medium">{col.name}</TableCell>
                                         <TableCell>{col.data_type}</TableCell>
                                         <TableCell>
-                                            <Checkbox
-                                                checked={internalColumnAttributes[selectedTargetTable.table]?.[col.name]?.is_nullable || false}
-                                                onCheckedChange={(checked: boolean) =>
-                                                    handleNullableToggle(selectedTargetTable.table, col.name, checked)
-                                                }
-                                                id={`target-null-${col.name}`}
-                                            />
-                                            <Label htmlFor={`target-null-${col.name}`} className="ml-2">
-                                                Nullable
-                                            </Label>
+                                            {/* Removed user-editable Nullable checkbox */}
+                                            {col.is_nullable ? 'Yes' : 'No'}
                                         </TableCell>
                                         <TableCell>
                                             <Checkbox
@@ -386,7 +395,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 )}
 
                 <div className="flex justify-end gap-2 mt-6">
-                    <Button variant="outline" onClick={onBack}>Back</Button>
+                    <Button variant="outline" onClick={handleBackStep}>Back</Button>
                     <Button onClick={handleNextStep}>Next</Button>
                 </div>
             </CardContent>

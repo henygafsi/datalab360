@@ -30,32 +30,33 @@ export interface ManageTablePayload {
 export const manageTableStructure = async (payload: ManageTablePayload): Promise<any> => {
     const session = await getSession();
     if (!session?.user?.access_token) {
+        console.error('Service: manageTableStructure - No access token available.');
         throw new Error('No access token available');
     }
     const token = session.user.access_token;
 
-    // The backend expects a GET request with query parameters
     const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/manage_table`;
+    console.log(`Service: manageTableStructure - Sending GET request to ${url} with params:`, payload);
 
     try {
         const response = await axios.get(url, {
             headers: { 'Authorization': `Bearer ${token}` },
-            params: payload, // Axios will serialize this object into query parameters
+            params: payload,
         });
+        console.log('Service: manageTableStructure - Response received:', response.data);
         return response.data;
     } catch (error) {
-        console.error("Error managing table structure:", error);
+        console.error("Service: manageTableStructure - Error managing table structure:", error);
         if (axios.isAxiosError(error) && error.response) {
+            console.error('Service: manageTableStructure - Error response status:', error.response.status);
+            console.error('Service: manageTableStructure - Error response data:', error.response.data);
             let errorDetailMessage = '';
 
-            // Safely access and convert error detail to a string for checking
             if (error.response.data && typeof error.response.data.detail === 'string') {
                 errorDetailMessage = error.response.data.detail;
             } else if (error.response.data && Array.isArray(error.response.data.detail)) {
-                // If 'detail' is an array (common for validation errors), join messages
                 errorDetailMessage = error.response.data.detail.map((item: any) => item.msg || item).join('; ');
             } else if (error.response.data) {
-                // Fallback for other unexpected structures, stringify the whole data object
                 errorDetailMessage = JSON.stringify(error.response.data);
             } else {
                 errorDetailMessage = 'An unknown error occurred during table management.';
@@ -63,24 +64,17 @@ export const manageTableStructure = async (payload: ManageTablePayload): Promise
 
             const status = error.response.status;
 
-            // Check for specific "already exists" errors from Snowflake
-            // We are now directly looking for the specific phrases within the errorDetailMessage
-            // without requiring a specific prefix like "SQL compilation error:"
             if (status === 500) {
                 if (errorDetailMessage.includes("primary key already exists for table")) {
                     return { status: 'info', message: `Primary key already exists for table ${payload.SOURCE_TABLE.replace(/"/g, '')}. Skipping operation.` };
                 }
                 if (errorDetailMessage.includes("foreign key already exists for table")) {
-                    // This assumes the backend error message for FK also mentions the table name.
-                    // Adjust if the actual error message is different.
                     return { status: 'info', message: `Foreign key already exists for table ${payload.SOURCE_TABLE.replace(/"/g, '')} on column ${payload.COLUMN_NAME}. Skipping operation.` };
                 }
             }
 
-            // For any other 500 errors or unhandled Axios errors, re-throw them as critical.
             throw new Error(errorDetailMessage || 'An unknown error occurred during table management.');
         }
-        // Re-throw non-Axios errors or unexpected errors that don't have a response
         throw error;
     }
 };

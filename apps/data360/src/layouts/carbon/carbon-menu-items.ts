@@ -1,4 +1,4 @@
-import { routes } from '@/config/routes';
+import { routes } from '@/config/routes'; // Assuming this import path
 import { IconType } from 'react-icons/lib';
 import {
   PiBinocularsDuotone,
@@ -13,6 +13,8 @@ import {
   PiUserGearDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
+
+
 
 export interface SubMenuItemType {
   name: string;
@@ -60,6 +62,20 @@ export const carbonMenuItems: MenuItemsType[] = [
         name: 'View Mapping',
         href: routes.mapping.viewMap,
         icon: PiMapPinLineDuotone,
+      },
+    ],
+  },
+  // Workflow menu item moved here, under Mapping
+  {
+    id: '8', // Retaining the unique ID
+    name: 'Workflow',
+    title: 'Workflow',
+    icon: PiShootingStarDuotone,
+    menuItems: [
+      {
+        name: 'View Workflow',
+        href: routes.workflow.ViewWorkflow,
+        icon: PiShootingStarDuotone,
       },
     ],
   },

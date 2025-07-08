@@ -1,11 +1,22 @@
 // src/app/services/mapping/storeSelectedColumns.ts
-import axios from "axios";
-import { getSession } from "next-auth/react";
+import axios from 'axios';
+import { getSession } from 'next-auth/react';
+
+interface ColumnAttribute {
+    name: string;
+    is_required_for_mapping: boolean;
+    is_nullable?: boolean;
+    is_primary_key?: boolean;
+    is_foreign_key?: boolean;
+    data_type?: string;
+}
 
 interface StoreSelectedColumnsPayload {
     project_id: string;
-    selected_columns: string[]; // Array of column names
-    source_table: string; // The table from which columns were selected
+    database_name: string;
+    schema_name: string;
+    table_name: string;
+    columns: ColumnAttribute[];
 }
 
 interface StoreSelectedColumnsResponse {
@@ -15,22 +26,19 @@ interface StoreSelectedColumnsResponse {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
-/**
- * Stores the list of selected (required/nullable) columns for a project step.
- * This corresponds to the backend's /mapping/store-selected-columns endpoint.
- * @param payload - The project ID, selected column names, and source table.
- * @returns The API response.
- */
 export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload): Promise<StoreSelectedColumnsResponse> => {
     const session = await getSession();
     if (!session?.user?.access_token) {
+        console.error('Service: storeSelectedColumns - No access token available.');
         throw new Error('No access token available');
     }
     const token = session.user.access_token;
 
     try {
+        console.log(`Service: storeSelectedColumns - Sending POST request to ${API_BASE_URL}/mapping/store-selected-columns`);
+        console.log('Service: storeSelectedColumns - Request payload:', payload);
         const response = await axios.post<StoreSelectedColumnsResponse>(
-            `${API_BASE_URL}/mapping/store-selected-columns`,
+            `${API_BASE_URL}/mapping/store-selected-columns`.replace(/\/$/, ''),
             payload,
             {
                 headers: {
@@ -39,10 +47,21 @@ export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload)
                 },
             }
         );
+        console.log('Service: storeSelectedColumns - Response received:', response.data);
         return response.data;
     } catch (error) {
-        console.error("Error storing selected columns:", error);
+        console.error('Service: storeSelectedColumns - Error storing selected columns:', error);
         if (axios.isAxiosError(error) && error.response) {
+            console.error('Service: storeSelectedColumns - Error response status:', error.response.status);
+            console.error('Service: storeSelectedColumns - Error response data:', error.response.data);
+            if (error.response.status === 422) {
+                const detail = error.response.data.detail || 'Validation failed';
+                if (Array.isArray(detail)) {
+                    const errorMessages = detail.map((err: any) => `Field ${err.loc.join('.')}: ${err.msg}`).join(', ');
+                    throw new Error(errorMessages || 'Validation failed for selected columns.');
+                }
+                throw new Error(detail || 'Validation failed for selected columns.');
+            }
             throw new Error(error.response.data.detail || 'Failed to store selected columns.');
         }
         throw error;
