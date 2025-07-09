@@ -1,3 +1,5 @@
+// C:\Users\banno\OneDrive\Bureau\datalab360Front\apps\data360\src\app\shared\gouvernance\users\add-user-button.tsx
+
 'use client';
 
 import { Button } from 'rizzui';
@@ -11,6 +13,7 @@ type AddUserButtonProps = {
   modalBtnLabel?: string;
   className?: string;
   buttonLabel?: string;
+  onAddUserSuccess: () => void;
 };
 
 export default function AddUserButton({
@@ -18,8 +21,9 @@ export default function AddUserButton({
   modalBtnLabel = 'Add User',
   className,
   buttonLabel = 'Add User',
+  onAddUserSuccess,
 }: React.PropsWithChildren<AddUserButtonProps>) {
-  const { openModal } = useModal();
+  const { openModal, closeModal } = useModal();
 
   return (
     <Button
@@ -27,12 +31,12 @@ export default function AddUserButton({
         openModal({
           view: (
             <AddUserForm
-              onAddUser={(newUser) => {
-                console.log('New user added:', newUser);
-              }}
+              onAddUserSuccess={onAddUserSuccess}
+              onClose={closeModal}
             />
           ),
           customSize: '500px',
+          title: title,
         })
       }
       className={cn('w-full @lg:w-auto', className)}

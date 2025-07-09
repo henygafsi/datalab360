@@ -1,12 +1,15 @@
+// C:\Users\banno\OneDrive\Bureau\datalab360Front\apps\data360\src\app\shared\gouvernance\roles\columns.tsx
+
 'use client';
 
-import AvatarCard from '@core/ui/avatar-card';
+// import AvatarCard from '@core/ui/avatar-card'; // Removed as avatar is not in RoleTableDataType
 import DateCell from '@core/ui/date-cell';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Checkbox, Text } from 'rizzui';
 import TableRowActionGroup from '@core/components/table-utils/table-row-action-group';
+import { RoleTableDataType } from './table';
 
-const columnHelper = createColumnHelper<any>();
+const columnHelper = createColumnHelper<RoleTableDataType>();
 
 export const roleListColumns = [
   columnHelper.display({
@@ -34,7 +37,9 @@ export const roleListColumns = [
     size: 250,
     header: 'Role',
     cell: ({ row }) => (
-      <AvatarCard src={row.original.avatar} name={row.original.role} />
+      // If you have an avatar for roles, re-enable AvatarCard and ensure 'avatar' exists in RoleTableDataType
+      // <AvatarCard src={row.original.avatar} name={row.original.role} />
+      <Text className="text-sm">{row.original.role || 'N/A'}</Text>
     ),
   }),
   columnHelper.accessor('numberOfGrants', {
@@ -42,45 +47,29 @@ export const roleListColumns = [
     size: 150,
     header: 'Number of Grants',
     cell: ({ row }) => (
-      <Text className="text-sm">{row.original.numberOfGrants}</Text>
+      <Text className="text-sm">{row.original.numberOfGrants ?? 'N/A'}</Text> // Use ?? for number fallback
     ),
   }),
   columnHelper.accessor('createdOn', {
     id: 'createdOn',
     size: 200,
     header: 'Created On',
-    cell: ({ row }) => <DateCell date={new Date(row.original.createdOn)} />,
+    cell: ({ row }) => {
+      const dateValue = row.original.createdOn ? new Date(row.original.createdOn) : null;
+      if (!dateValue || isNaN(dateValue.getTime())) {
+        return <Text className="text-sm text-gray-500">Invalid Date</Text>;
+      }
+      return <DateCell date={dateValue} />;
+    },
   }),
   columnHelper.accessor('comment', {
     id: 'comment',
     size: 150,
     header: 'Comment',
     cell: ({ row }) => (
-      <Text className="text-sm">{row.original.comment}</Text>
+      <Text className="text-sm">{row.original.comment || 'N/A'}</Text>
     ),
   }),
-  /*columnHelper.accessor('grants', {
-    id: 'grants',
-    size: 200,
-    header: 'Grants',
-    cell: ({ row }) => (
-      <Text className="text-sm">{row.original.grants.join(', ')}</Text>
-    ),
-  }),
-  columnHelper.accessor('status', {
-    id: 'status',
-    size: 150,
-    header: 'Status',
-    cell: ({ row }) => (
-      <Text
-        className={`text-sm font-medium ${
-          row.original.status === 'Enabled' ? 'text-green-600' : 'text-red-600'
-        }`}
-      >
-        {row.original.status}
-      </Text>
-    ),
-  }),*/
   columnHelper.display({
     id: 'actions',
     size: 120,
