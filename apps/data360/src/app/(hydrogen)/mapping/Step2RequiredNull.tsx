@@ -18,7 +18,6 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
-import { logWizardEvent } from './logWizardEvent';
 import { storeSelectedColumns } from './storeSelectedColumns'; // Import the service
 
 interface TableSelection {
@@ -238,19 +237,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             console.log('Step2: Parent mappingData updated with column attributes.');
 
             // Log wizard event for completing this step
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "ADD_COLUMNS_REQUIRED",
-                status: "SUCCESS",
-                username: username,
-                details: {
-                    sourceTable: selectedSourceTable,
-                    targetTable: selectedTargetTable,
-                    selectedSourceColumnNames: selectedSourceColumnNames, // Log just names for this API
-                    selectedTargetColumnNames: selectedTargetColumnNames, // Log just names for this API
-                    columnAttributes: internalColumnAttributes, // Log the full attributes structure for detailed tracking
-                },
-            });
+          
             console.log('Step2: Wizard event ADD_COLUMNS_REQUIRED logged successfully.');
 
             onNext();
@@ -263,17 +250,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 description: `Failed to save column requirements: ${error.message}`,
                 variant: 'destructive',
             });
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "ADD_COLUMNS_REQUIRED",
-                status: "FAILED",
-                username: username,
-                details: {
-                    sourceTable: selectedSourceTable,
-                    targetTable: selectedTargetTable,
-                    error: error.message || String(error),
-                },
-            });
+           
             console.log('Step2: Wizard event ADD_COLUMNS_REQUIRED logged as FAILED.');
         }
     }, [projectId, username, selectedSourceTable, selectedTargetTable, sourceColumns, targetColumns, internalColumnAttributes, updateMappingData, toast, onNext]);
@@ -281,16 +258,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
 
     const handleBackStep = useCallback(async () => {
         console.log('Step2: Going back (handleBackStep).');
-        await logWizardEvent({
-            project_id: projectId,
-            event_type: "NAVIGATE_BACK",
-            status: "SUCCESS",
-            username: username,
-            details: {
-                fromStep: "ADD_COLUMNS_REQUIRED",
-                toStep: "ADD_PRIMARY_KEY",
-            },
-        });
+        
         console.log('Step2: Wizard event NAVIGATE_BACK logged successfully.');
         onBack();
         console.log('Step2: Navigating back.');

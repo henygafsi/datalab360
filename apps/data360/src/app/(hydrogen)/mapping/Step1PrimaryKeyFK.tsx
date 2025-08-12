@@ -26,7 +26,6 @@ import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { manageTableStructure } from './addConstraints';
 import { addPrimaryKey } from './addPrimaryKey';
-import { logWizardEvent } from './logWizardEvent';
 
 interface ColumnDetail {
     name: string;
@@ -709,18 +708,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
 
         // Update parent's mappingData. Log event happens in parent's updateMappingData or child API calls.
         // For Step 1, the primary_keys and foreign_keys are determined here, so we log them.
-        await logWizardEvent({
-            project_id: projectId,
-            event_type: "ADD_PRIMARY_KEY",
-            status: "SUCCESS",
-            username: username,
-            details: {
-                selectedSourceTables: selectedSourceTables.map(t => `${t.database}.${t.schema}.${t.table}`),
-                selectedTargetTable: `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`,
-                primary_keys: finalMappingData.primary_keys, // Log the full PK structure
-                foreign_keys: finalMappingData.foreign_keys, // Log the full FK structure
-            },
-        });
+     
 
         updateMappingData(finalMappingData);
 

@@ -7,6 +7,7 @@ declare module 'next-auth' {
       id: string;
       username: string;   // Add the username field
       access_token: string;      // Add the token field
+      role: string;
     } & DefaultSession['user'];
   }
 }
@@ -18,5 +19,6 @@ declare module 'next-auth/jwt' {
     idUser?: string;    // Add the idUser field
     access_token?: string;     // Add the token field
     username?: string;  // Add the username field
+    role?: string;
   }
 }

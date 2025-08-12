@@ -17,6 +17,8 @@ export interface LoginResponse {
   token_type: string;
   account_name: string; // The account name associated with the user
   username: string;
+  role: string;
+  items: any[];
   message: string;
 }
 
@@ -65,6 +67,7 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
         // 'Content-Type': 'application/json',
       },
     });
+    console.log(response)
 
     if (response.status === 200) {
       return response.data;

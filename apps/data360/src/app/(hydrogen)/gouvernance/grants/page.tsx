@@ -32,7 +32,7 @@ export default function GrantsTablePage() {
       fileName="grants_data"
       header="ID,Role,Number of Grants,Created On,Permissions,Status"
     >
-     <GrantsTable />
+     <GrantsTable moduleFilter="gouvernance, workflow"/>
     </TableLayout>
   );
 }

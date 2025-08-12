@@ -27,7 +27,6 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
-import { logWizardEvent } from './logWizardEvent';
 
 // Helper to get table short name (e.g., "CLIENTS" from "DB.SCHEMA.CLIENTS")
 const getTableShortName = (tableKey: string | null | undefined): string => {
@@ -451,19 +450,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             toast({ title: 'Mapping Added', description: `Mapped '${getTableShortName(sourceNodeId)}.${sourceColumnName}' to '${targetColumnName}'.`, variant: 'success' });
 
             // Log event here as it's an action, not necessarily handled by a separate API
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "ADD_MAPPING",
-                status: "SUCCESS",
-                username: username,
-                details: {
-                    sourceTable: getTableShortName(sourceNodeId),
-                    sourceColumn: sourceColumnName,
-                    targetTable: getTableShortName(targetNodeId),
-                    targetColumn: targetColumnName,
-                    dataType: dataType,
-                },
-            });
+         
             console.log('Step3: Wizard event ADD_MAPPING logged successfully.');
 
         },
@@ -496,21 +483,6 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             });
             console.log('Step3: Mapping data updated in parent state.');
 
-            // Log event here as it's an action, not necessarily handled by a separate API
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: "REMOVE_MAPPING",
-                status: "SUCCESS",
-                username: username,
-                details: {
-                    removedEdges: edgesToRemove.map(e => ({
-                        source: e.source,
-                        sourceHandle: e.sourceHandle,
-                        target: e.target,
-                        targetHandle: e.targetHandle,
-                    })),
-                },
-            });
             console.log('Step3: Wizard event REMOVE_MAPPING logged successfully.');
         },
         [mappingData.column_mappings, updateMappingData, toast, setEdges, projectId, username, selectedSourceTables, selectedTargetTable]
@@ -631,17 +603,6 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
         });
         console.log('Step3: Mapping data updated in parent state before proceeding.');
 
-        // Log wizard event for completing this step
-        await logWizardEvent({
-            project_id: projectId,
-            event_type: "TABLES_RELATIONS",
-            status: "SUCCESS",
-            username: username,
-            details: {
-                columnMappings: mappingData.column_mappings,
-                finalMappingsForSubmission: finalMappingsForSubmission,
-            },
-        });
         console.log('Step3: Wizard event TABLES_RELATIONS logged successfully.');
 
 
@@ -651,16 +612,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
     const handleBackStep = useCallback(async () => {
         console.log('Step3: Going back (handleBackStep).');
-        await logWizardEvent({
-            project_id: projectId,
-            event_type: "NAVIGATE_BACK",
-            status: "SUCCESS",
-            username: username,
-            details: {
-                fromStep: "TABLES_RELATIONS",
-                toStep: "ADD_COLUMNS_REQUIRED",
-            },
-        });
+        
         console.log('Step3: Wizard event NAVIGATE_BACK logged successfully.');
         onBack();
         console.log('Step3: Navigating back.');

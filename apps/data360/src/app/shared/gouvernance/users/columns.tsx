@@ -39,22 +39,6 @@ export const userListColumns = [
       <Text className="text-sm">{row.original.name || 'N/A'}</Text> // Display N/A if null/empty
     ),
   }),
-  columnHelper.accessor('firstName', { // New: First Name column
-    id: 'firstName',
-    size: 150,
-    header: 'First Name',
-    cell: ({ row }) => (
-      <Text className="text-sm">{row.original.firstName || 'N/A'}</Text> // Display N/A if null/empty
-    ),
-  }),
-  columnHelper.accessor('lastName', { // New: Last Name column
-    id: 'lastName',
-    size: 150,
-    header: 'Last Name',
-    cell: ({ row }) => (
-      <Text className="text-sm">{row.original.lastName || 'N/A'}</Text> // Display N/A if null/empty
-    ),
-  }),
   columnHelper.display({
     id: 'email',
     size: 280,
@@ -74,14 +58,6 @@ export const userListColumns = [
       }
       return <DateCell date={dateValue} />;
     },
-  }),
-  columnHelper.accessor('roles', {
-    id: 'roles',
-    size: 200,
-    header: 'Roles',
-    cell: ({ row }) => (
-      <Text className="text-sm">{row.original.roles.join(', ') || 'N/A'}</Text> // Display N/A if no roles
-    ),
   }),
   columnHelper.accessor('status', {
     id: 'status',

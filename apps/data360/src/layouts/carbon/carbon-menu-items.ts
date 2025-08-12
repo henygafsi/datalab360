@@ -11,6 +11,7 @@ import {
   PiUserCircleDuotone,
   PiStorefrontDuotone,
   PiUserGearDuotone,
+  PiEyeSlashDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -28,19 +29,21 @@ export interface ItemType {
   href?: string;
   description?: string;
   subMenuItems?: SubMenuItemType[];
+
 }
 
 export interface MenuItemsType {
-  id: string;
+  id: number;
   name: string;
   title: string;
   icon: IconType;
   menuItems: ItemType[];
+
 }
 
 export const carbonMenuItems: MenuItemsType[] = [
   {
-    id: '1',
+    id: 1,
     name: 'Connexion',
     title: 'Connexion',
     icon: PiUserCircleDuotone,
@@ -50,10 +53,10 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.connexion.dataSourceConnection,
         icon: PiHouseLineDuotone,
       },
-    ],
+    ]
   },
   {
-    id: '2',
+    id: 2,
     name: 'Mapping',
     title: 'Mapping',
     icon: PiMapPinLineDuotone,
@@ -63,11 +66,11 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.mapping.viewMap,
         icon: PiMapPinLineDuotone,
       },
-    ],
+    ]
   },
   // Workflow menu item moved here, under Mapping
   {
-    id: '8', // Retaining the unique ID
+    id: 3, // Retaining the unique ID
     name: 'Workflow',
     title: 'Workflow',
     icon: PiShootingStarDuotone,
@@ -80,7 +83,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: '3',
+    id: 4,
     name: 'BI Reporting',
     title: 'BI Reporting',
     icon: PiChartBarDuotone,
@@ -93,7 +96,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: '4',
+    id: 5,
     name: 'Gouvernance',
     title: 'Gouvernance',
     icon: PiUserGearDuotone,
@@ -116,7 +119,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: '5',
+    id: 6,
     name: "KPI's Store",
     title: "KPI's Store",
     icon: PiStorefrontDuotone,
@@ -129,7 +132,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: '6',
+    id: 7,
     name: 'DaRquest / DAC',
     title: 'DaRquest / DAC',
     icon: PiShootingStarDuotone,
@@ -142,7 +145,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: '7',
+    id: 8,
     name: 'Observability',
     title: 'Observability',
     icon: PiBinocularsDuotone,

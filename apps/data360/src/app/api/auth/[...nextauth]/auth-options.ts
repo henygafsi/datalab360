@@ -24,6 +24,9 @@ export const authOptions: NextAuthOptions = {
           access_token: token.access_token as string, // Set access_token in session
           account_name: token.account_name as string, // Add account_name to session from JWT access_token
           username: token.username as string, // Add username to session from JWT access_token
+          role: token.role as string,
+          items: token.items as string
+
         },
       };
     },
@@ -31,6 +34,8 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.account_name = (user as any).account_name;  // Add account_name from user to token
         token.username = (user as any).username; // Add username from user to token
+        token.role = (user as any).role;
+        token.items = (user as any).items
         token.access_token = (user as any).access_token; // ✅ THIS LINE IS CRUCIAL AND NOW INCLUDED
       }
       return token;
@@ -72,6 +77,8 @@ export const authOptions: NextAuthOptions = {
               access_token: response.access_token, // Pass the access_token here
               token_type: response.token_type, // Pass token_type if needed in session
               username: credentials.username,
+              role: response.role,
+              items: response.items,
               message: response.message, // Pass message if needed
             };
           }

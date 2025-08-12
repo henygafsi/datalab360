@@ -17,8 +17,9 @@ const NeedSupport = dynamic(() => import('@/layouts/carbon/need-support'), {
 
 export function CarbonSidebar({ className }: { className?: string }) {
   const { data: session } = useSession(); // Get session data
-
   // Get username from session or fallback to a default if not available
+  const allowedIds = (session?.user as any)?.items ?? []; 
+
   const username = session?.user?.username || 'Guest'; 
   return (
     <aside
@@ -49,7 +50,7 @@ export function CarbonSidebar({ className }: { className?: string }) {
           'h-[calc(100%-265px)] [&_.simplebar-content]:flex [&_.simplebar-content]:h-full [&_.simplebar-content]:flex-col [&_.simplebar-content]:justify-between'
         )}
       >
-        <CarbonSidebarMenu />
+        <CarbonSidebarMenu allowedIds={allowedIds}/>
 
         <div className="sticky bottom-0 bg-gray-0 dark:bg-gray-50">
           <NeedSupport

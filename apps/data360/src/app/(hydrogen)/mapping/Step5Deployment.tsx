@@ -8,7 +8,6 @@ import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
-import { logWizardEvent } from './logWizardEvent'; // Ensure this is imported
 import { manageTableStructure } from './addConstraints'; // Ensure this is imported
 
 interface MappingData {
@@ -44,6 +43,7 @@ interface Step5Props {
     onBack: () => void;
     mappingData: MappingData;
     projectId: string;
+    primaryKeys?: string[];
     username: string;
 }
 
@@ -222,14 +222,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             });
             console.log('Step5: Model deployed successfully via /mapping/deploy_model/.');
 
-            // Log the successful deployment event
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: 'DEPLOY_MODEL',
-                status: 'SUCCESS',
-                username: username,
-                details: { deploymentPayload: deployRequestBody },
-            });
             console.log('Step5: Wizard event DEPLOY_MODEL logged as SUCCESS.');
 
             // Refresh the current page to reload project data from scratch
@@ -249,14 +241,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 variant: 'destructive',
             });
 
-            // Log the failed deployment event
-            await logWizardEvent({
-                project_id: projectId,
-                event_type: 'DEPLOY_MODEL',
-                status: 'FAILED',
-                username: username,
-                details: { error: error.response?.data?.detail || error.message, attemptedPayload: mappingData },
-            });
+          
             console.error('Step5: Wizard event DEPLOY_MODEL logged as FAILED.');
 
         } finally {

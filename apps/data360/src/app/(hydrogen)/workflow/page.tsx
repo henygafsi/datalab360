@@ -694,10 +694,10 @@ const WorkflowHomePage: React.FC = () => {
                 disabled={!isWorkflowSaved || !activeWorkflowName}
               >
                 <span>Schedule <span className="font-normal text-sm opacity-80">(Once Saved)</span></span>
-                {showScheduleDropdown ? '▲' : '▼'}
+                {showScheduleDropdown ? '▼' : '▲'}
               </button>
               {showScheduleDropdown && (
-                <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 overflow-hidden">
+                <div className="absolute bottom-full mb-1 w-full z-20 bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden origin-bottom animate-[fadeIn_120ms_ease-out]">
                   <select
                     className="w-full p-3 bg-white text-gray-800 border-none focus:outline-none focus:ring-0 appearance-none"
                     value={activeSchedule}
