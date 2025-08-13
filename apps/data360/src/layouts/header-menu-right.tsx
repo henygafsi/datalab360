@@ -1,44 +1,63 @@
 import { Badge, ActionIcon } from 'rizzui';
 import MessagesDropdown from '@/layouts/messages-dropdown';
 import ProfileMenu from '@/layouts/profile-menu';
-import SettingsButton from '@/layouts/settings-button';
-import RingBellSolidIcon from '@core/components/icons/ring-bell-solid';
-import ChatSolidIcon from '@core/components/icons/chat-solid';
 import NotificationDropdown from './notification-dropdown';
+import { 
+  HiOutlineBell, 
+  HiOutlineChatBubbleLeftEllipsis,
+  HiOutlineSun,
+  HiOutlineMoon
+} from 'react-icons/hi2';
+import { useState } from 'react';
 
 export default function HeaderMenuRight() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  const toggleDarkMode = () => {
+    setIsDarkMode(!isDarkMode);
+    // Add your dark mode toggle logic here
+    document.documentElement.classList.toggle('dark');
+  };
+
   return (
-    <div className="ms-auto grid shrink-0 grid-cols-3 items-center gap-2 text-gray-700 xs:gap-3 xl:gap-4">
+    <div className="flex items-center space-x-3">
+      {/* Theme Toggle */}
+      <button
+        onClick={toggleDarkMode}
+        className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all duration-200 hover:scale-110"
+        aria-label="Toggle theme"
+      >
+        {isDarkMode ? (
+          <HiOutlineSun className="w-5 h-5 text-amber-500" />
+        ) : (
+          <HiOutlineMoon className="w-5 h-5 text-slate-600" />
+        )}
+      </button>
+
+      {/* Notifications */}
       <NotificationDropdown>
-        <ActionIcon
-          aria-label="Notification"
-          variant="text"
-          className="relative h-[34px] w-[34px] shadow backdrop-blur-md dark:bg-gray-100 md:h-9 md:w-9"
-        >
-          <RingBellSolidIcon className="h-[18px] w-auto" />
-          <Badge
-            renderAsDot
-            color="warning"
-            enableOutlineRing
-            className="absolute right-2.5 top-2.5 -translate-y-1/3 translate-x-1/2"
-          />
-        </ActionIcon>
+        <div className="relative">
+          <button className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all duration-200 hover:scale-110 group">
+            <HiOutlineBell className="w-5 h-5 text-slate-600 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
+          </button>
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
+        </div>
       </NotificationDropdown>
+
+      {/* Messages */}
       <MessagesDropdown>
-        <ActionIcon
-          aria-label="Messages"
-          variant="text"
-          className="relative h-[34px] w-[34px] shadow backdrop-blur-md dark:bg-gray-100 md:h-9 md:w-9"
-        >
-          <ChatSolidIcon className="h-[18px] w-auto" />
-          <Badge
-            renderAsDot
-            color="success"
-            enableOutlineRing
-            className="absolute right-2.5 top-2.5 -translate-y-1/3 translate-x-1/2"
-          />
-        </ActionIcon>
+        <div className="relative">
+          <button className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all duration-200 hover:scale-110 group">
+            <HiOutlineChatBubbleLeftEllipsis className="w-5 h-5 text-slate-600 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
+          </button>
+          <div className="absolute -top-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse" />
+        </div>
       </MessagesDropdown>
+
+      {/* Divider */}
+      <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+
+      {/* Profile Menu */}
       <ProfileMenu />
     </div>
   );

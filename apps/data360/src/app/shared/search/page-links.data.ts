@@ -65,9 +65,5 @@ export const pageLinks = [
   {
     name: 'Observability',
     label: true,
-  },
-  {
-    name: 'System Status',
-    href: routes.observability.systemStatus,
-  },
+  }
 ];

@@ -4,15 +4,97 @@ import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { PiCaretDownBold } from 'react-icons/pi';
-import { menuItems } from '@/layouts/hydrogen/menu-items';
-import StatusBadge from '@core/components/get-status-badge';
+import { 
+  HiOutlineDatabase, 
+  HiOutlineMap, 
+  HiOutlineCog8Tooth, 
+  HiOutlineChartBarSquare,
+  HiOutlineUsers,
+  HiOutlineShieldCheck,
+  HiOutlineKey,
+  HiOutlineHome,
+  HiOutlineDocumentChart
+} from 'react-icons/hi2';
+
+// Modern menu items with better organization
+const modernMenuItems = [
+  {
+    name: 'Dashboard',
+    href: '/',
+    icon: <HiOutlineHome className="w-5 h-5" />,
+  },
+  {
+    name: 'Data Sources',
+    icon: <HiOutlineDatabase className="w-5 h-5" />,
+    dropdownItems: [
+      {
+        name: 'Connections',
+        href: '/data-source-connection',
+      },
+      {
+        name: 'Configuration',
+        href: '/data-source-config',
+      }
+    ]
+  },
+  {
+    name: 'Data Processing',
+    dropdownItems: [
+      {
+        name: 'Mapping',
+        href: '/mapping',
+        icon: <HiOutlineMap className="w-4 h-4" />,
+      },
+      {
+        name: 'Workflow',
+        href: '/workflow',
+        icon: <HiOutlineCog8Tooth className="w-4 h-4" />,
+      }
+    ]
+  },
+  {
+    name: 'Analytics',
+    dropdownItems: [
+      {
+        name: 'BI Reporting',
+        href: '/bi-reporting',
+        icon: <HiOutlineChartBarSquare className="w-4 h-4" />,
+      },
+      {
+        name: 'Dashboards',
+        href: '/analytics',
+        icon: <HiOutlineDocumentChart className="w-4 h-4" />,
+      }
+    ]
+  },
+  {
+    name: 'Governance',
+    dropdownItems: [
+      {
+        name: 'Users',
+        href: '/gouvernance/users',
+        icon: <HiOutlineUsers className="w-4 h-4" />,
+      },
+      {
+        name: 'Roles',
+        href: '/gouvernance/roles',
+        icon: <HiOutlineShieldCheck className="w-4 h-4" />,
+      },
+      {
+        name: 'Grants',
+        href: '/gouvernance/grants',
+        icon: <HiOutlineKey className="w-4 h-4" />,
+      }
+    ]
+  }
+];
 
 export function SidebarMenu() {
   const pathname = usePathname();
 
   return (
-    <div className="mt-4 pb-3 3xl:mt-6">
-      {menuItems.map((item, index) => {
+    <nav className="space-y-2">
+      {modernMenuItems.map((item, index) => {
         const isActive = pathname === (item?.href as string);
         const pathnameExistInDropdowns: any = item?.dropdownItems?.filter(
           (dropdownItem) => dropdownItem.href === pathname
@@ -22,126 +104,90 @@ export function SidebarMenu() {
         return (
           <Fragment key={item.name + '-' + index}>
             {item?.href ? (
-              <>
-                {item?.dropdownItems ? (
-                  <Collapse
-                    defaultOpen={isDropdownOpen}
-                    header={({ open, toggle }) => (
-                      <div
-                        onClick={toggle}
-                        className={cn(
-                          'group relative mx-3 flex cursor-pointer items-center justify-between rounded-md px-3 py-2 font-medium lg:my-1 2xl:mx-5 2xl:my-2',
-                          isDropdownOpen
-                            ? 'before:top-2/5 text-primary before:absolute before:-start-3 before:block before:h-4/5 before:w-1 before:rounded-ee-md before:rounded-se-md before:bg-primary 2xl:before:-start-5'
-                            : 'text-gray-700 transition-colors duration-200 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700'
-                        )}
-                      >
-                        <span className="flex items-center">
-                          {item?.icon && (
-                            <span
-                              className={cn(
-                                'me-2 inline-flex h-5 w-5 items-center justify-center rounded-md [&>svg]:h-[20px] [&>svg]:w-[20px]',
-                                isDropdownOpen
-                                  ? 'text-primary'
-                                  : 'text-gray-800 dark:text-gray-500 dark:group-hover:text-gray-700'
-                              )}
-                            >
-                              {item?.icon}
-                            </span>
-                          )}
-                          {item.name}
-                        </span>
-
-                        <PiCaretDownBold
-                          strokeWidth={3}
-                          className={cn(
-                            'h-3.5 w-3.5 -rotate-90 text-gray-500 transition-transform duration-200 rtl:rotate-90',
-                            open && 'rotate-0 rtl:rotate-0'
-                          )}
-                        />
-                      </div>
-                    )}
-                  >
-                    {item?.dropdownItems?.map((dropdownItem, index) => {
-                      const isChildActive =
-                        pathname === (dropdownItem?.href as string);
-
-                      return (
-                        <Link
-                          href={dropdownItem?.href}
-                          key={dropdownItem?.name + index}
-                          className={cn(
-                            'mx-3.5 mb-0.5 flex items-center justify-between rounded-md px-3.5 py-2 font-medium capitalize last-of-type:mb-1 lg:last-of-type:mb-2 2xl:mx-5',
-                            isChildActive
-                              ? 'text-primary'
-                              : 'text-gray-500 transition-colors duration-200 hover:bg-gray-100 hover:text-gray-900'
-                          )}
-                        >
-                          <div className="flex items-center truncate">
-                            <span
-                              className={cn(
-                                'me-[18px] ms-1 inline-flex h-1 w-1 rounded-full bg-current transition-all duration-200',
-                                isChildActive
-                                  ? 'bg-primary ring-[1px] ring-primary'
-                                  : 'opacity-40'
-                              )}
-                            />{' '}
-                            <span className="truncate">
-                              {dropdownItem?.name}
-                            </span>
-                          </div>
-                          {dropdownItem?.badge?.length ? (
-                            <StatusBadge status={dropdownItem?.badge} />
-                          ) : null}
-                        </Link>
-                      );
-                    })}
-                  </Collapse>
-                ) : (
-                  <Link
-                    href={item?.href}
-                    className={cn(
-                      'group relative mx-3 my-0.5 flex items-center justify-between rounded-md px-3 py-2 font-medium capitalize lg:my-1 2xl:mx-5 2xl:my-2',
-                      isActive
-                        ? 'before:top-2/5 text-primary before:absolute before:-start-3 before:block before:h-4/5 before:w-1 before:rounded-ee-md before:rounded-se-md before:bg-primary 2xl:before:-start-5'
-                        : 'text-gray-700 transition-colors duration-200 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-700/90'
-                    )}
-                  >
-                    <div className="flex items-center truncate">
-                      {item?.icon && (
-                        <span
-                          className={cn(
-                            'me-2 inline-flex size-5 items-center justify-center rounded-md [&>svg]:size-5',
-                            isActive
-                              ? 'text-primary'
-                              : 'text-gray-800 dark:text-gray-500 dark:group-hover:text-gray-700'
-                          )}
-                        >
-                          {item?.icon}
-                        </span>
-                      )}
-                      <span className="truncate">{item.name}</span>
-                    </div>
-                    {item?.badge?.length ? (
-                      <StatusBadge status={item?.badge} />
-                    ) : null}
-                  </Link>
-                )}
-              </>
-            ) : (
-              <Title
-                as="h6"
+              // Single Menu Item
+              <Link
+                href={item.href}
                 className={cn(
-                  'mb-2 truncate px-6 text-xs font-normal uppercase tracking-widest text-gray-500 2xl:px-8',
-                  index !== 0 && 'mt-6 3xl:mt-7'
+                  'group flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                  isActive
+                    ? 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-200/20 dark:border-blue-500/20'
+                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
                 )}
               >
+                <span className={cn(
+                  'mr-3 transition-transform duration-200',
+                  isActive ? 'text-blue-600 dark:text-blue-400 scale-110' : 'group-hover:scale-110'
+                )}>
+                  {item.icon}
+                </span>
                 {item.name}
-              </Title>
+                {isActive && (
+                  <div className="ml-auto w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                )}
+              </Link>
+            ) : (
+              // Dropdown Menu Item
+              <Collapse
+                defaultOpen={isDropdownOpen}
+                header={({ open, toggle }) => (
+                  <button
+                    onClick={toggle}
+                    className={cn(
+                      'group w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                      isDropdownOpen
+                        ? 'bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 text-slate-900 dark:text-white shadow-sm'
+                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
+                    )}
+                  >
+                    <div className="flex items-center">
+                      <span className="mr-3 transition-transform duration-200 group-hover:scale-110">
+                        {item.icon || <HiOutlineDocumentChart className="w-5 h-5" />}
+                      </span>
+                      {item.name}
+                    </div>
+                    <PiCaretDownBold
+                      className={cn(
+                        'w-4 h-4 transition-transform duration-200',
+                        open ? 'rotate-0' : '-rotate-90'
+                      )}
+                    />
+                  </button>
+                )}
+              >
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-200 dark:border-slate-700 pl-4">
+                  {item?.dropdownItems?.map((dropdownItem, dropIndex) => {
+                    const isChildActive = pathname === (dropdownItem?.href as string);
+
+                    return (
+                      <Link
+                        key={dropdownItem?.name + dropIndex}
+                        href={dropdownItem?.href}
+                        className={cn(
+                          'group flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+                          isChildActive
+                            ? 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-200/20 dark:border-blue-500/20'
+                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white hover:translate-x-1'
+                        )}
+                      >
+                        <span className={cn(
+                          'mr-3 transition-all duration-200',
+                          isChildActive ? 'text-blue-600 dark:text-blue-400 scale-110' : 'group-hover:scale-110'
+                        )}>
+                          {dropdownItem.icon || <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />}
+                        </span>
+                        {dropdownItem.name}
+                        {isChildActive && (
+                          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        )}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </Collapse>
             )}
           </Fragment>
         );
       })}
-    </div>
+    </nav>
   );
 }

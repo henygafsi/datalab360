@@ -7,14 +7,35 @@ export default function HydrogenLayout({
   children: React.ReactNode;
 }) {
   return (
-    <main className="flex min-h-screen flex-grow">
-      <Sidebar className="fixed hidden xl:block dark:bg-gray-50" />
-      <div className="flex w-full flex-col xl:ms-[270px] xl:w-[calc(100%-270px)] 2xl:ms-72 2xl:w-[calc(100%-288px)]">
-        <Header />
-        <div className="flex flex-grow flex-col px-4 pb-6 pt-2 md:px-5 lg:px-6 lg:pb-8 3xl:px-8 3xl:pt-4 4xl:px-10 4xl:pb-9">
-          {children}
+    <div className="relative min-h-screen bg-gradient-to-br from-slate-50 via-white to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
+      {/* Background Pattern */}
+      <div className="absolute inset-0 bg-grid-pattern opacity-[0.02] pointer-events-none" style={{backgroundSize: '60px 60px'}} />
+      
+      {/* Main Layout */}
+      <div className="flex min-h-screen">
+        {/* Sidebar */}
+        <Sidebar className="fixed hidden xl:block z-30" />
+        
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col xl:ml-[280px] 2xl:ml-[320px] transition-all duration-300">
+          <Header />
+          
+          {/* Page Content */}
+          <main className="flex-1 relative">
+            {/* Content Background */}
+            <div className="absolute inset-0 bg-gradient-to-b from-transparent via-white/50 to-white/80 dark:from-transparent dark:via-slate-900/50 dark:to-slate-900/80 pointer-events-none" />
+            
+            {/* Scrollable Content */}
+            <div className="relative z-10 min-h-full px-6 py-8 lg:px-8 lg:py-12">
+              <div className="max-w-7xl mx-auto">
+                <div className="animate-fade-in-up duration-700">
+                  {children}
+                </div>
+              </div>
+            </div>
+          </main>
         </div>
       </div>
-    </main>
+    </div>
   );
 }
