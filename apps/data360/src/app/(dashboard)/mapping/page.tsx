@@ -396,17 +396,11 @@ const MappingWizardPage = () => {
     const updateMappingData = useCallback((newData: Partial<MappingDetail>) => { setMappingData(prev => ({ ...prev, ...newData })); }, []);
     const handleNext = useCallback(() => setCurrentStep((prev) => prev + 1), []);
     const handleBack = useCallback(() => setCurrentStep((prev) => prev - 1), []);
-    const handleProjectSelected = useCallback(async (id: string, lastStep: string | null) => {
-        setProjectId(id);
-        const lastStepIndex = WIZARD_STEPS_BACKEND_ORDER.indexOf(lastStep || '');
-        if (lastStep === "DEPLOY_MODEL") {
-            setCurrentStep(WIZARD_STEPS_BACKEND_ORDER.indexOf("ADD_ADDITIONAL_COLUMNS"));
-        } else if (lastStepIndex >= 0) {
-            setCurrentStep(lastStepIndex + 1);
-        } else {
-            setCurrentStep(1);
-        }
-    }, []);
+  const handleProjectSelected = useCallback((id: string) => {
+    setProjectId(id);
+    // Always start from Step 1 (Primary Keys) when a project is selected.
+    setCurrentStep(1); 
+}, []);
 
     const renderStep = () => {
         if (isLoadingProjectData) {
