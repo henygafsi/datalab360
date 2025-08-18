@@ -194,6 +194,8 @@ const MappingWizardPage = () => {
     const [targetTablesList, setTargetTablesList] = useState<string[]>([]);
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
 
+    // In your MappingWizardPage component...
+
     useEffect(() => {
         const loadProjectStateFromEvents = async () => {
             if (!projectId) return;
@@ -202,8 +204,9 @@ const MappingWizardPage = () => {
             console.log(`--- Loading all events for project: ${projectId} ---`);
             const events = await getProjectStepsEvents(projectId);
             if (events.length === 0) {
+                console.log("No events found for this project. Starting fresh.");
                 setIsLoadingProjectData(false);
-                setCurrentStep(1);
+                setCurrentStep(1); // Go to step 1 for a new project
                 return;
             }
 
@@ -211,88 +214,125 @@ const MappingWizardPage = () => {
             let tempMappingData: Partial<MappingDetail> = { project_id: projectId, column_attributes: {} };
             let finalSourceTables: TableSelection[] = [];
             let finalTargetTable: TableSelection | null = null;
-            const pkMap = new Map<string, string[]>();
             
-            // 1. Iterate through all events to gather atomic information
+            const pkMap = new Map<string, string[]>();
+            const allTablesMentioned = new Map<string, TableSelection>(); // Use a Map to store unique tables with full info
+
+            // 1. Iterate through all events to gather atomic information first
             for (const event of events) {
                 const details = event.event_details;
+                
+                // Helper to register a table and return its unique key
+                const registerTable = (db?: string, sch?: string, tbl?: string): string | null => {
+                    if (!db || !sch || !tbl) return null;
+                    const key = `${db}.${sch}.${tbl}`;
+                    if (!allTablesMentioned.has(key)) {
+                        allTablesMentioned.set(key, { database: db, schema: sch, table: tbl });
+                    }
+                    return key;
+                };
+
                 switch (event.event_type) {
                     case 'ADD_PRIMARY_KEY':
-                        pkMap.set(`${details.database}.${details.schema}.${details.table}`, details.columns);
+                        const pkTableKey = registerTable(details.database, details.schema, details.table);
+                        if (pkTableKey) {
+                            pkMap.set(pkTableKey, details.columns);
+                        }
                         break;
                     case 'ADD_REQUIRED_COLUMNS':
-                        const tableKey = details.table_name;
-                        if (!tempMappingData.column_attributes![tableKey]) tempMappingData.column_attributes![tableKey] = {};
+                        registerTable(details.database_name, details.schema_name, details.table_name);
+                        // The child component (Step2) expects the simple table name as the key.
+                        const simpleTableKey = details.table_name; 
+                        if (!tempMappingData.column_attributes![simpleTableKey]) {
+                            tempMappingData.column_attributes![simpleTableKey] = {};
+                        }
                         (details.selected_columns || []).forEach((col: string) => {
-                            if (!tempMappingData.column_attributes![tableKey][col]) tempMappingData.column_attributes![tableKey][col] = {} as ColumnAttributes;
-                            tempMappingData.column_attributes![tableKey][col].is_required_for_mapping = true;
+                            if (!tempMappingData.column_attributes![simpleTableKey][col]) {
+                                tempMappingData.column_attributes![simpleTableKey][col] = {} as ColumnAttributes;
+                            }
+                            tempMappingData.column_attributes![simpleTableKey][col].is_required_for_mapping = true;
                         });
                         break;
+                    // Also register tables mentioned in deployment events to ensure they are known
+                    case 'DEPLOY_MODEL':
+                    case 'TEST_MAPPING':
+                         if (details.mappings && details.mappings[0]) {
+                            const mapping = details.mappings[0];
+                            registerTable(mapping.source_database, mapping.source_schema, mapping.source_table);
+                            registerTable(mapping.target_database, mapping.target_schema, mapping.target_table);
+                         }
+                         break;
                 }
             }
 
-            // 2. Find the last deployment or test event to define the overall structure
-            let lastStateEvent = events.slice().reverse().find(e => e.event_type === 'DEPLOY_MODEL' || e.event_type === 'TEST_MAPPING');
+            // 2. Find the last deployment event, as it's the best source of truth for table roles and mappings.
+            const lastStateEvent = events.slice().reverse().find(e => (e.event_type === 'DEPLOY_MODEL' || e.event_type === 'TEST_MAPPING') && e.event_details.mappings);
+
+            let sourcePks: { [key: string]: string[] } = {};
+            let targetPks: string[] = [];
+            let columnMappings: ColumnMapping[] = [];
 
             if (lastStateEvent) {
-                console.log("Found state snapshot from event:", lastStateEvent.event_type);
+                console.log("State Snapshot Found. Reconstructing from event:", lastStateEvent.event_type);
                 const details = lastStateEvent.event_details.mappings[0];
                 const sourceTable = { database: details.source_database, schema: details.source_schema, table: details.source_table };
                 const targetTable = { database: details.target_database, schema: details.target_schema, table: details.target_table };
 
+                // This event definitively tells us the source and target tables.
                 finalSourceTables = [sourceTable];
                 finalTargetTable = targetTable;
 
-                tempMappingData.column_mappings = (details.source_columns || []).map((sc: string, index: number) => ({
+                // It also contains the exact column mappings at that time.
+                columnMappings = (details.source_columns || []).map((sc: string, index: number) => ({
                     source_column: sc,
                     target_column: details.target_columns[index],
                     source_table_key: `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`,
-                    data_type: 'unknown', // Will be fetched later
+                    data_type: 'unknown', // This will be fetched later by the child component
                 }));
-                
-                // Use PKs from this event as the source of truth
-                tempMappingData.primary_keys = {
-                    source: { [`${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`]: details.pk_source || [] },
-                    target: details.pk_target || []
-                };
+
+                // Primary keys are also taken directly from this event.
+                sourcePks = { [`${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`]: details.pk_source || [] };
+                targetPks = details.pk_target || [];
 
             } else {
-                // Fallback if no deployment/test event exists
-                console.log("No state snapshot found, reconstructing from atomic events.");
-                const allTablesInvolved: TableSelection[] = [];
-                events.forEach(event => {
-                    const d = event.event_details;
-                    const tableInfo = d.database && d.schema && d.table ? { database: d.database, schema: d.schema, table: d.table } :
-                                    d.database_name && d.schema_name && d.table_name ? { database: d.database_name, schema: d.schema_name, table: d.table_name } : null;
-                    if (tableInfo && !allTablesInvolved.some(t => t.table === tableInfo.table && t.schema === tableInfo.schema)) {
-                        allTablesInvolved.push(tableInfo);
-                    }
-                });
+                console.log("No State Snapshot found. Reconstructing from atomic events.");
+                // Fallback: If no deployment event, infer tables from all events gathered.
+                const allTableArray = Array.from(allTablesMentioned.values());
+                if (allTableArray.length > 0) {
+                    // A common pattern is that the last table added/mentioned is the target.
+                    finalTargetTable = allTableArray.pop()!; 
+                    finalSourceTables = allTableArray; // The rest are sources.
+                }
 
-                finalTargetTable = allTablesInvolved.pop() || null;
-                finalSourceTables = allTablesInvolved;
-
-                const sourcePks: { [key: string]: string[] } = {};
+                // Assemble Primary Keys from the `pkMap` we built earlier.
                 finalSourceTables.forEach(t => {
                     const key = `${t.database}.${t.schema}.${t.table}`;
                     if (pkMap.has(key)) sourcePks[key] = pkMap.get(key)!;
                 });
-                const targetPks = finalTargetTable ? (pkMap.get(`${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`) || []) : [];
-                tempMappingData.primary_keys = { source: sourcePks, target: targetPks };
+                if (finalTargetTable) {
+                    const key = `${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`;
+                    targetPks = pkMap.get(key) || [];
+                }
             }
-
-            // Set final state
+            
+            // 3. Set the final state by combining all reconstructed parts.
             setSelectedSourceTables(finalSourceTables);
             setSelectedTargetTable(finalTargetTable);
             setMappingData(prev => ({
                 ...prev,
-                ...tempMappingData,
+                ...tempMappingData, // This contains the crucial `column_attributes`.
+                project_id: projectId,
                 source_database: finalSourceTables[0]?.database || '',
                 source_schema: finalSourceTables[0]?.schema || '',
                 source_table: finalSourceTables[0]?.table || '',
                 target_database: finalTargetTable?.database || '',
                 target_schema: finalTargetTable?.schema || '',
                 target_table: finalTargetTable?.table || '',
+                column_mappings: columnMappings,
+                primary_keys: {
+                    source: sourcePks,
+                    target: targetPks
+                },
             }));
 
             console.log("--- Project state reconstruction complete ---");
@@ -301,6 +341,7 @@ const MappingWizardPage = () => {
 
         loadProjectStateFromEvents();
     }, [projectId]);
+
 
 
     // --- General Setup & Data Fetching for Dropdowns ---
