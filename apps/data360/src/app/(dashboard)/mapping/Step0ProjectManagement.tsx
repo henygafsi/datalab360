@@ -17,13 +17,9 @@ import {
 } from '@/components/ui';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
-
-// Import new services
 import { createProject } from './createProject';
 import { getProjects } from './getProjects';
-// No direct logWizardEvent import needed here, parent handles it
-// Removed: import { getAllUsers } from '@/app/services/user/getAllUsers';
-// Removed: import { MultiSelect } from '@/components/ui/multi-select';
+import { getProjectLatestEvents } from './getProjectLatestEvents';
 
 interface Project {
     project_id: string;
@@ -31,6 +27,7 @@ interface Project {
     created_by: string;
     shared_with: string[];
     deployment_version: number;
+    step_name?: string | null;
     last_completed_step: string | null;
 }
 
@@ -42,101 +39,95 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     const { toast } = useToast();
     const [projects, setProjects] = useState<Project[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
-    const [newProjectName, setNewProjectName] = useState<string>('');
-    const [newProjectSharedWith, setNewProjectSharedWith] = useState<string>('');
+    const [newProjectName, setNewProjectName] = useState('');
+    const [newProjectSharedWith, setNewProjectSharedWith] = useState('');
     const [loading, setLoading] = useState(true);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
 
     useEffect(() => {
-        console.log('Step0: Component mounted. Fetching initial projects...');
         const fetchData = async () => {
             setLoading(true);
             try {
-                const fetchedProjects = await getProjects();
-                setProjects(fetchedProjects);
-                console.log('Step0: Fetched projects:', fetchedProjects);
+                const baseProjects = await getProjects();
+                console.log('Step0: Fetched base projects:', baseProjects);
+
+                if (!baseProjects || baseProjects.length === 0) {
+                    setProjects([]);
+                    return;
+                }
+
+                const enrichedProjectsPromises = baseProjects.map(async (project) => {
+                    const events = await getProjectLatestEvents(project.project_id);
+                    const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+                    const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || 'None');
+                    return {
+                        ...project,
+                        last_completed_step: finalStep,
+                    };
+                });
+
+                const finalProjects = await Promise.all(enrichedProjectsPromises);
+                setProjects(finalProjects);
+                console.log('Step0: Enriched projects with final steps:', finalProjects);
             } catch (error: any) {
-                console.error("Step0: Error fetching data:", error);
+                console.error("Step0: Error during data fetching:", error);
                 toast({
                     title: 'Error',
-                    description: `Failed to fetch data: ${error.message || 'An unexpected error occurred.'}`,
+                    description: `Failed to fetch project data: ${error.message || 'An unexpected error occurred.'}`,
                     variant: 'destructive',
                 });
+                setProjects([]);
             } finally {
                 setLoading(false);
-                console.log('Step0: Finished fetching projects. Loading state:', false);
             }
         };
+
         fetchData();
     }, [toast]);
 
+    const handleSelectProject = () => {
+        if (!selectedProjectId) {
+            toast({ title: 'Selection Required', description: 'Please select an existing project.', variant: 'destructive' });
+            return;
+        }
+        const selectedProject = projects.find(p => p.project_id === selectedProjectId);
+        if (selectedProject) {
+            onProjectSelected(selectedProject.project_id, selectedProject.last_completed_step);
+        } else {
+            toast({ title: 'Error', description: 'Selected project not found.', variant: 'destructive' });
+        }
+    };
+
     const handleCreateProject = async () => {
-        console.log('Step0: Attempting to create new project.');
         if (!newProjectName.trim()) {
-            toast({
-                title: 'Validation Error',
-                description: 'Project name cannot be empty.',
-                variant: 'destructive',
-            });
-            console.warn('Step0: Project name is empty.');
+            toast({ title: 'Validation Error', description: 'Project name cannot be empty.', variant: 'destructive' });
             return;
         }
 
         setIsCreatingProject(true);
         const sharedUsers = newProjectSharedWith.split(',').map(email => email.trim()).filter(email => email);
         const payload = { name: newProjectName.trim(), shared_with: sharedUsers };
-        console.log('Step0: Create project payload:', payload);
 
         try {
             const response = await createProject(payload);
-            console.log('Step0: Create project response:', response);
+            toast({ title: 'Project Created', description: `Project "${newProjectName}" created successfully!`, variant: 'success' });
 
-            toast({
-                title: 'Project Created',
-                description: `Project "${newProjectName}" created successfully!`,
-                variant: 'success',
-            });
-
-            const updatedProjects = await getProjects();
-            setProjects(updatedProjects);
+            const newProject: Project = {
+                ...(response as Omit<Project, 'last_completed_step'>),
+                name: newProjectName.trim(),
+                created_by: 'You',
+                shared_with: sharedUsers,
+                deployment_version: 0,
+                last_completed_step: 'CREATE_PROJECT',
+            };
+            setProjects(prevProjects => [newProject, ...prevProjects]);
             setSelectedProjectId(response.project_id);
-            onProjectSelected(response.project_id, null); // New projects start from step 1
-            console.log('Step0: New project created and selected:', response.project_id);
+            onProjectSelected(response.project_id, null);
         } catch (error: any) {
             console.error("Step0: Error creating project:", error);
-            toast({
-                title: 'Error',
-                description: `Failed to create project: ${error.message || 'An unexpected error occurred.'}`,
-                variant: 'destructive',
-            });
+            toast({ title: 'Error', description: `Failed to create project: ${error.message || 'An unexpected error occurred.'}`, variant: 'destructive' });
         } finally {
             setIsCreatingProject(false);
-            console.log('Step0: Finished creating project. Creating state:', false);
-        }
-    };
-
-    const handleSelectProject = () => {
-        console.log('Step0: Attempting to select existing project.');
-        if (!selectedProjectId) {
-            toast({
-                title: 'Selection Required',
-                description: 'Please select an existing project.',
-                variant: 'destructive',
-            });
-            console.warn('Step0: No project selected for continuation.');
-            return;
-        }
-        const selectedProject = projects.find(p => p.project_id === selectedProjectId);
-        if (selectedProject) {
-            onProjectSelected(selectedProject.project_id, selectedProject.last_completed_step);
-            console.log('Step0: Selected existing project:', selectedProject.project_id, 'Last completed step:', selectedProject.last_completed_step);
-        } else {
-            toast({
-                title: 'Error',
-                description: 'Selected project not found.',
-                variant: 'destructive',
-            });
-            console.error('Step0: Selected project not found in state:', selectedProjectId);
         }
     };
 
@@ -144,8 +135,8 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
         return (
             <Card className="p-4">
                 <CardHeader><CardTitle>Loading Projects...</CardTitle></CardHeader>
-                <CardContent>
-                    <Loader2 className="mr-2 h-6 w-6 animate-spin" /> Fetching available projects.
+                <CardContent className="flex items-center">
+                    <Loader2 className="mr-2 h-6 w-6 animate-spin" /> Fetching available projects...
                 </CardContent>
             </Card>
         );
@@ -160,7 +151,6 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                 </p>
             </CardHeader>
             <CardContent className="space-y-8">
-                {/* Create New Project Section */}
                 <div className="space-y-4 border p-4 rounded-lg">
                     <h3 className="text-lg font-semibold">Create New Project</h3>
                     <div>
@@ -193,9 +183,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                         )}
                     </Button>
                 </div>
-
-                {/* Select Existing Project Section */}
-                {projects.length > 0 && (
+                {projects.length > 0 ? (
                     <div className="space-y-4 border p-4 rounded-lg">
                         <h3 className="text-lg font-semibold">Select Existing Project</h3>
                         <div>
@@ -217,8 +205,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                             Continue to Project
                         </Button>
                     </div>
-                )}
-                {projects.length === 0 && !loading && (
+                ) : (
                     <p className="text-center text-muted-foreground">No existing projects found. Please create a new one.</p>
                 )}
             </CardContent>

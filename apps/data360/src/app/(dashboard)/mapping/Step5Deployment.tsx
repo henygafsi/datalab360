@@ -8,7 +8,14 @@ import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
-import { manageTableStructure } from './addConstraints'; // Ensure this is imported
+import { manageTableStructure } from './addConstraints';
+
+// --- Interface Definitions ---
+interface ForeignKey {
+    column: string;
+    referenced_table: string;
+    referenced_column: string;
+}
 
 interface MappingData {
     project_id: string | null;
@@ -30,12 +37,12 @@ interface MappingData {
         nullable: boolean;
     }>;
     primary_keys?: {
-        source: string[];
+        source: { [tableKey: string]: string[] }; // Updated to match parent
         target: string[];
     };
     foreign_keys?: {
-        source: Array<{ column: string; referenced_table: string; referenced_column: string }>;
-        target: Array<{ column: string; referenced_table: string; referenced_column: string }>;
+        source: ForeignKey[];
+        target: ForeignKey[];
     };
 }
 
@@ -43,7 +50,6 @@ interface Step5Props {
     onBack: () => void;
     mappingData: MappingData;
     projectId: string;
-    primaryKeys?: string[];
     username: string;
 }
 
@@ -53,9 +59,8 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
     const router = useRouter();
     const { toast } = useToast();
     const [deploying, setDeploying] = useState(false);
-    // Using mappingData directly for display, as it should be the most up-to-date from parent
-    const [deployedMappings] = useState(mappingData.column_mappings);
-    const [newColumns] = useState(mappingData.new_target_columns);
+    const deployedMappings = mappingData?.column_mappings || [];
+    const newColumns = mappingData?.new_target_columns || [];
 
     const handleDeploy = useCallback(async () => {
         if (!projectId || !mappingData || !mappingData.target_table) {
@@ -79,18 +84,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             return;
         }
 
-        for (const mapping of mappingData.column_mappings) {
-            if (!mapping.source_column || !mapping.target_column) {
-                toast({
-                    title: 'Error',
-                    description: 'All column mappings must have both source and target columns defined.',
-                    variant: 'destructive',
-                });
-                setDeploying(false);
-                return;
-            }
-        }
-
         try {
             const session = await getSession();
             if (!session?.user?.access_token) {
@@ -98,54 +91,58 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             }
             const token = session.user.access_token;
 
-            // 1. Perform Mapping Validation (using /mapping/test_mapping/)
-            const mappingsForValidation = [
+            const pk_source = mappingData.primary_keys?.source
+                ? Object.values(mappingData.primary_keys.source).flat()
+                : [];
+            const pk_target = mappingData.primary_keys?.target || [];
+
+            const mappingsForPayload = [
                 {
                     source_database: mappingData.source_database,
                     source_schema: mappingData.source_schema,
                     source_table: mappingData.source_table,
                     source_columns: mappingData.column_mappings.map((m) => m.source_column),
+                    pk_source: pk_source,
                     target_database: mappingData.target_database,
                     target_schema: mappingData.target_schema,
                     target_table: mappingData.target_table,
                     target_columns: mappingData.column_mappings.map((m) => m.target_column),
+                    pk_target: pk_target,
                 },
             ];
 
-            console.log('Step5: Sending mapping validation request to /mapping/test_mapping/', mappingsForValidation);
+            console.log('Step5: Sending mapping validation request to /mapping/test_mapping/', mappingsForPayload);
             const validationResponse = await axios.post(
                 `${API_BASE_URL}/mapping/test_mapping/`,
-                { project_id: projectId, mappings: mappingsForValidation },
+                { project_id: projectId, mappings: mappingsForPayload },
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
 
             if (validationResponse.data.status !== 'success') {
-                throw new Error(validationResponse.data.detail || 'Mapping validation failed. Please review your mappings.');
+                throw new Error(validationResponse.data.detail || 'Mapping validation failed.');
             }
 
             toast({
                 title: 'Validation Success',
-                description: 'Column mappings are valid. Proceeding to apply constraints and deploy.',
+                description: 'Column mappings are valid. Applying constraints and deploying.',
                 variant: 'success',
             });
             console.log('Step5: Mapping validation successful.');
 
-
-            // 2. Apply Primary Key and Foreign Key Constraints (using /mapping/manage_table)
+            // --- FIXED: Restored Constraint Application Logic ---
             const constraintPromises = [];
             const targetTableKey = `"${mappingData.target_database}"."${mappingData.target_schema}"."${mappingData.target_table}"`;
 
             if (mappingData.primary_keys?.target?.length) {
-                mappingData.primary_keys.target.forEach((pkColumn: string) => {
-                    console.log(`Step5: Adding PK constraint for ${pkColumn} on ${targetTableKey}`);
-                    constraintPromises.push(
-                        manageTableStructure({
-                            SOURCE_TABLE: targetTableKey,
-                            COLUMN_NAME: pkColumn,
-                            CONSTRAINT_TYPE: 'ADD_PK',
-                        }, token) // Pass token to manageTableStructure
-                    );
-                });
+                // Assuming the API takes all PK columns at once for a given table
+                console.log(`Step5: Adding PK constraint for ${mappingData.primary_keys.target.join(', ')} on ${targetTableKey}`);
+                constraintPromises.push(
+                    manageTableStructure({
+                        SOURCE_TABLE: targetTableKey,
+                        COLUMN_NAME: mappingData.primary_keys.target.join(', '), // Join for single call if API supports it
+                        CONSTRAINT_TYPE: 'ADD_PK',
+                    }, token)
+                );
             }
 
             if (mappingData.foreign_keys?.target?.length) {
@@ -159,7 +156,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                             TABLE_REF: referencedTableFullPath,
                             COLUMN_REF: fk.referenced_column,
                             CONSTRAINT_TYPE: 'ADD_FK',
-                        }, token) // Pass token to manageTableStructure
+                        }, token)
                     );
                 });
             }
@@ -172,34 +169,19 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                     .map((r) => (r as PromiseRejectedResult).reason);
 
                 if (errors.length) {
-                    errors.forEach((err, idx) => console.error(`Step5: Constraint application error ${idx + 1}:`, err));
-                    throw new Error(`One or more constraint applications failed. Details in console. Errors: ${errors.map((e) => e.message).join(', ')}`);
+                    throw new Error(`One or more constraint applications failed: ${errors.map((e) => e.message).join(', ')}`);
                 }
                 toast({
                     title: 'Constraints Applied',
                     description: 'Primary and/or Foreign Key constraints were applied successfully.',
                     variant: 'success',
                 });
-                console.log('Step5: All specified constraints applied successfully.');
-            } else {
-                console.log('Step5: No primary or foreign key constraints defined for target table.');
             }
+            // --- End of Restored Logic ---
 
-            // 3. Perform Final Deployment (using /mapping/deploy_model/)
             const deployRequestBody = {
                 project_id: projectId,
-                mappings: [
-                    {
-                        source_database: mappingData.source_database,
-                        source_schema: mappingData.source_schema,
-                        source_table: mappingData.source_table,
-                        source_columns: mappingData.column_mappings.map(m => m.source_column),
-                        target_database: mappingData.target_database,
-                        target_schema: mappingData.target_schema,
-                        target_table: mappingData.target_table,
-                        target_columns: mappingData.column_mappings.map(m => m.target_column),
-                    },
-                ],
+                mappings: mappingsForPayload,
             };
 
             console.log('Step5: Sending final deployment request to /mapping/deploy_model/', deployRequestBody);
@@ -212,26 +194,17 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             if (deployResponse.data.status !== 'success') {
                 throw new Error(deployResponse.data.detail || 'Model deployment failed after validation.');
             }
-
-            // --- Deployment Success ---
+            
             toast({
                 title: 'Deployment Complete!',
-                description: 'Model deployed successfully. Refreshing the page...',
+                description: 'Model deployed successfully. Refreshing...',
                 variant: 'success',
-                duration: 2000, // Show for 2 seconds before refresh
+                duration: 2000,
             });
-            console.log('Step5: Model deployed successfully via /mapping/deploy_model/.');
-
-            console.log('Step5: Wizard event DEPLOY_MODEL logged as SUCCESS.');
-
-            // Refresh the current page to reload project data from scratch
-            // This will take the user back to Step 0 and load the updated project status
+            
             setTimeout(() => {
-                window.location.reload(); // Hard refresh the page
-                // Or if using Next.js App Router only for client-side navigation without full page load:
-                // router.refresh(); // This re-fetches data for current route segment
-                // router.push('/mapping'); // This navigates back to mapping homepage, then loads data
-            }, 2500); // Give time for toast to be seen
+                window.location.reload();
+            }, 2500);
 
         } catch (error: any) {
             console.error('Step5: Deployment process error:', error);
@@ -240,10 +213,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 description: `Deployment failed: ${error.response?.data?.detail || error.message || 'An unexpected error occurred.'}`,
                 variant: 'destructive',
             });
-
-          
-            console.error('Step5: Wizard event DEPLOY_MODEL logged as FAILED.');
-
         } finally {
             setDeploying(false);
         }
@@ -254,7 +223,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             <CardHeader>
                 <CardTitle>Step 5: Review and Deploy</CardTitle>
                 <p className="text-sm text-muted-foreground">
-                    Review your mappings and additional columns, then initiate the deployment process to the target table.
+                    Review your mappings and additional columns, then initiate the deployment process.
                 </p>
             </CardHeader>
             <CardContent>
@@ -266,7 +235,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
                         {deployedMappings.length > 0 && (
                             <>
-                                <p><strong>Column Mappings:</strong></p>
+                                <p className="mt-2"><strong>Column Mappings:</strong></p>
                                 <ul className="list-disc pl-5">
                                     {deployedMappings.map((mapping, index) => (
                                         <li key={index}>
@@ -279,7 +248,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
                         {newColumns.length > 0 && (
                             <>
-                                <p><strong>Additional Columns:</strong></p>
+                                <p className="mt-2"><strong>Additional Columns:</strong></p>
                                 <ul className="list-disc pl-5">
                                     {newColumns.map((col, index) => (
                                         <li key={index}>
@@ -292,7 +261,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
                         {mappingData.primary_keys && (
                             <>
-                                <p><strong>Primary Keys on Target:</strong></p>
+                                <p className="mt-2"><strong>Primary Keys on Target:</strong></p>
                                 <ul className="list-disc pl-5">
                                     {mappingData.primary_keys.target.length > 0 ? (
                                         <li>{mappingData.primary_keys.target.join(', ')}</li>
@@ -302,20 +271,15 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                                 </ul>
                             </>
                         )}
-
-                        {mappingData.foreign_keys && (
+                         {mappingData.foreign_keys && mappingData.foreign_keys.target.length > 0 && (
                             <>
-                                <p><strong>Foreign Keys on Target:</strong></p>
+                                <p className="mt-2"><strong>Foreign Keys on Target:</strong></p>
                                 <ul className="list-disc pl-5">
-                                    {mappingData.foreign_keys.target.length > 0 ? (
-                                        mappingData.foreign_keys.target.map((fk, index) => (
-                                            <li key={`target-fk-${index}`}>
-                                                {fk.column} → {fk.referenced_table}.{fk.referenced_column}
-                                            </li>
-                                        ))
-                                    ) : (
-                                        <li>None defined for target.</li>
-                                    )}
+                                    {mappingData.foreign_keys.target.map((fk, index) => (
+                                        <li key={`target-fk-${index}`}>
+                                            {fk.column} → {fk.referenced_table}.{fk.referenced_column}
+                                        </li>
+                                    ))}
                                 </ul>
                             </>
                         )}

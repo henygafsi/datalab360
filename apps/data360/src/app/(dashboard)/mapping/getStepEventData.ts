@@ -31,7 +31,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
     try {
         console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
         const response = await axios.post<LatestStepEventResponse>(
-            `${API_BASE_URL}/mapping/latest-step-event/`,
+            `${API_BASE_URL}/mapping/get-steps-event/`,
             null, // POST request with empty body as per your Swagger
             {
                 headers: {
