@@ -155,19 +155,15 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             fetchAllColumns();
         }
         
-        const pksFromProps: ManuallyDefinedPK[] = [];
+         const pksFromProps: ManuallyDefinedPK[] = [];
         if (mappingData.primary_keys?.source) {
             for (const tableKey in mappingData.primary_keys.source) {
-                mappingData.primary_keys.source[tableKey].forEach(columnName => {
-                    pksFromProps.push({ tableKey, columnName });
-                });
+                mappingData.primary_keys.source[tableKey].forEach(columnName => pksFromProps.push({ tableKey, columnName }));
             }
         }
         if (mappingData.primary_keys?.target && selectedTargetTable) {
             const targetTableKey = `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`;
-            mappingData.primary_keys.target.forEach(columnName => {
-                pksFromProps.push({ tableKey: targetTableKey, columnName });
-            });
+            mappingData.primary_keys.target.forEach(columnName => pksFromProps.push({ tableKey: targetTableKey, columnName }));
         }
         setManuallyDefinedPKs(pksFromProps);
     }, [mappingData, selectedSourceTables, selectedTargetTable]);

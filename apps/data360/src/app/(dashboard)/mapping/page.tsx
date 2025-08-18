@@ -194,14 +194,12 @@ const MappingWizardPage = () => {
     const [targetTablesList, setTargetTablesList] = useState<string[]>([]);
     const [isLoadingOptions, setIsLoadingOptions] = useState(false);
 
-     // --- CENTRALIZED STATE RECONSTRUCTION ---
     useEffect(() => {
         const loadProjectStateFromEvents = async () => {
             if (!projectId) return;
 
             setIsLoadingProjectData(true);
             console.log(`--- Loading all events for project: ${projectId} ---`);
-
             const events = await getProjectStepsEvents(projectId);
             if (events.length === 0) {
                 setIsLoadingProjectData(false);
@@ -209,81 +207,93 @@ const MappingWizardPage = () => {
                 return;
             }
 
+            // --- FIXED: Reliable State Reconstruction Logic ---
             let tempMappingData: Partial<MappingDetail> = { project_id: projectId, column_attributes: {} };
-            let allTablesInvolved: TableSelection[] = [];
+            let finalSourceTables: TableSelection[] = [];
+            let finalTargetTable: TableSelection | null = null;
             const pkMap = new Map<string, string[]>();
-
+            
+            // 1. Iterate through all events to gather atomic information
             for (const event of events) {
                 const details = event.event_details;
-                let tableInfo: TableSelection | null = null;
-
                 switch (event.event_type) {
-                    case "ADD_PRIMARY_KEY":
-                        tableInfo = { database: details.database, schema: details.schema, table: details.table };
-                        pkMap.set(`${tableInfo.database}.${tableInfo.schema}.${tableInfo.table}`, details.columns);
+                    case 'ADD_PRIMARY_KEY':
+                        pkMap.set(`${details.database}.${details.schema}.${details.table}`, details.columns);
                         break;
-                    
-                    case "ADD_REQUIRED_COLUMNS":
-                        tableInfo = { database: details.database_name, schema: details.schema_name, table: details.table_name };
-                        const reqTableKey = `${tableInfo.database}.${tableInfo.schema}.${tableInfo.table}`;
-                        if (!tempMappingData.column_attributes![reqTableKey]) {
-                            tempMappingData.column_attributes![reqTableKey] = {};
-                        }
+                    case 'ADD_REQUIRED_COLUMNS':
+                        const tableKey = details.table_name;
+                        if (!tempMappingData.column_attributes![tableKey]) tempMappingData.column_attributes![tableKey] = {};
                         (details.selected_columns || []).forEach((col: string) => {
-                            if (!tempMappingData.column_attributes![reqTableKey][col]) {
-                                tempMappingData.column_attributes![reqTableKey][col] = {} as ColumnAttributes;
-                            }
-                            tempMappingData.column_attributes![reqTableKey][col].is_required_for_mapping = true;
+                            if (!tempMappingData.column_attributes![tableKey][col]) tempMappingData.column_attributes![tableKey][col] = {} as ColumnAttributes;
+                            tempMappingData.column_attributes![tableKey][col].is_required_for_mapping = true;
                         });
                         break;
-
-                    case "TABLES_RELATIONS":
-                        tempMappingData.column_mappings = details.columnMappings || [];
-                        break;
-                    
-                    case "ADD_ADDITIONAL_COLUMNS":
-                        tempMappingData.new_target_columns = details.newTargetColumns || [];
-                        break;
                 }
+            }
+
+            // 2. Find the last deployment or test event to define the overall structure
+            let lastStateEvent = events.slice().reverse().find(e => e.event_type === 'DEPLOY_MODEL' || e.event_type === 'TEST_MAPPING');
+
+            if (lastStateEvent) {
+                console.log("Found state snapshot from event:", lastStateEvent.event_type);
+                const details = lastStateEvent.event_details.mappings[0];
+                const sourceTable = { database: details.source_database, schema: details.source_schema, table: details.source_table };
+                const targetTable = { database: details.target_database, schema: details.target_schema, table: details.target_table };
+
+                finalSourceTables = [sourceTable];
+                finalTargetTable = targetTable;
+
+                tempMappingData.column_mappings = (details.source_columns || []).map((sc: string, index: number) => ({
+                    source_column: sc,
+                    target_column: details.target_columns[index],
+                    source_table_key: `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`,
+                    data_type: 'unknown', // Will be fetched later
+                }));
                 
-                // FIXED: Ensure any event with table info adds to the list of involved tables
-                if (tableInfo && !allTablesInvolved.some(t => 
-                    t.database === tableInfo!.database && t.schema === tableInfo!.schema && t.table === tableInfo!.table
-                )) {
-                    allTablesInvolved.push(tableInfo);
-                }
+                // Use PKs from this event as the source of truth
+                tempMappingData.primary_keys = {
+                    source: { [`${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`]: details.pk_source || [] },
+                    target: details.pk_target || []
+                };
+
+            } else {
+                // Fallback if no deployment/test event exists
+                console.log("No state snapshot found, reconstructing from atomic events.");
+                const allTablesInvolved: TableSelection[] = [];
+                events.forEach(event => {
+                    const d = event.event_details;
+                    const tableInfo = d.database && d.schema && d.table ? { database: d.database, schema: d.schema, table: d.table } :
+                                    d.database_name && d.schema_name && d.table_name ? { database: d.database_name, schema: d.schema_name, table: d.table_name } : null;
+                    if (tableInfo && !allTablesInvolved.some(t => t.table === tableInfo.table && t.schema === tableInfo.schema)) {
+                        allTablesInvolved.push(tableInfo);
+                    }
+                });
+
+                finalTargetTable = allTablesInvolved.pop() || null;
+                finalSourceTables = allTablesInvolved;
+
+                const sourcePks: { [key: string]: string[] } = {};
+                finalSourceTables.forEach(t => {
+                    const key = `${t.database}.${t.schema}.${t.table}`;
+                    if (pkMap.has(key)) sourcePks[key] = pkMap.get(key)!;
+                });
+                const targetPks = finalTargetTable ? (pkMap.get(`${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`) || []) : [];
+                tempMappingData.primary_keys = { source: sourcePks, target: targetPks };
             }
 
-            const sourceTableKeysInMappings = new Set(tempMappingData.column_mappings?.map(m => m.source_table_key));
-            let finalTargetTable: TableSelection | null = allTablesInvolved.find(t => 
-                !sourceTableKeysInMappings.has(`${t.database}.${t.schema}.${t.table}`)
-            ) || null;
-            
-            if (!finalTargetTable && allTablesInvolved.length > 0) {
-                finalTargetTable = allTablesInvolved[allTablesInvolved.length - 1];
-            }
-            
-            const finalSourceTables = allTablesInvolved.filter(t => t !== finalTargetTable);
-
+            // Set final state
             setSelectedSourceTables(finalSourceTables);
             setSelectedTargetTable(finalTargetTable);
-
-            // FIXED: Populate primary keys with the new, more robust structure
-            const sourcePks: { [tableKey: string]: string[] } = {};
-            finalSourceTables.forEach(t => {
-                const key = `${t.database}.${t.schema}.${t.table}`;
-                if (pkMap.has(key)) {
-                    sourcePks[key] = pkMap.get(key)!;
-                }
-            });
-            let targetPks: string[] = [];
-            if (finalTargetTable) {
-                const key = `${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`;
-                if (pkMap.has(key)) targetPks = pkMap.get(key) || [];
-            }
-            tempMappingData.primary_keys = { source: sourcePks, target: targetPks };
-            
-            setMappingData(prev => ({ ...prev, ...tempMappingData }));
+            setMappingData(prev => ({
+                ...prev,
+                ...tempMappingData,
+                source_database: finalSourceTables[0]?.database || '',
+                source_schema: finalSourceTables[0]?.schema || '',
+                source_table: finalSourceTables[0]?.table || '',
+                target_database: finalTargetTable?.database || '',
+                target_schema: finalTargetTable?.schema || '',
+                target_table: finalTargetTable?.table || '',
+            }));
 
             console.log("--- Project state reconstruction complete ---");
             setIsLoadingProjectData(false);
@@ -342,27 +352,17 @@ const MappingWizardPage = () => {
         fetchTargetTables();
     }, [selectedTargetTable?.database, selectedTargetTable?.schema]);
 
-    // --- State Management and Navigation Callbacks ---
-    const updateMappingData = useCallback((newData: Partial<MappingDetail>) => {
-        setMappingData((prev) => ({ ...prev, ...newData }));
-    }, []);
-
+    const updateMappingData = useCallback((newData: Partial<MappingDetail>) => { setMappingData(prev => ({ ...prev, ...newData })); }, []);
     const handleNext = useCallback(() => setCurrentStep((prev) => prev + 1), []);
     const handleBack = useCallback(() => setCurrentStep((prev) => prev - 1), []);
-
     const handleProjectSelected = useCallback(async (id: string, lastStep: string | null) => {
         setProjectId(id);
-        
         const lastStepIndex = WIZARD_STEPS_BACKEND_ORDER.indexOf(lastStep || '');
-
         if (lastStep === "DEPLOY_MODEL") {
-            // If deployed, go to the step *before* deployment for review
             setCurrentStep(WIZARD_STEPS_BACKEND_ORDER.indexOf("ADD_ADDITIONAL_COLUMNS"));
         } else if (lastStepIndex >= 0) {
-            // Go directly to the last step that was completed to allow for edits
-            setCurrentStep(lastStepIndex + 1); // Go to the *next* step
+            setCurrentStep(lastStepIndex + 1);
         } else {
-            // For a new project or project with only CREATE_PROJECT event, go to the first real step
             setCurrentStep(1);
         }
     }, []);
@@ -381,90 +381,19 @@ const MappingWizardPage = () => {
         }
 
         switch (currentStep) {
-            case 0:
-                return <Step0ProjectManagement onProjectSelected={handleProjectSelected} />;
-            case 1:
-                if (!projectId || !username) return null;
-                return (
-                    <Step1PrimaryKeyFK
-                        onNext={handleNext}
-                        onBack={handleBack}
-                        mappingData={mappingData}
-                        updateMappingData={updateMappingData}
-                        selectedSourceTables={selectedSourceTables}
-                        setSelectedSourceTables={setSelectedSourceTables}
-                        selectedTargetTable={selectedTargetTable}
-                        setSelectedTargetTable={setSelectedTargetTable}
-                        databases={databases}
-                        targetSchemas={targetSchemas}
-                        targetTables={targetTablesList}
-                        isLoadingOptions={isLoadingOptions}
-                        projectId={projectId}
-                        username={username}
-                    />
-                );
-            case 2:
-                if (!projectId || !username) return null;
-                return (
-                    <Step2RequiredNull
-                        onNext={handleNext}
-                        onBack={handleBack}
-                        mappingData={mappingData}
-                        updateMappingData={updateMappingData}
-                        // Step 2 seems to handle one source table at a time based on its props
-                        selectedSourceTable={selectedSourceTables[0] || null}
-                        selectedTargetTable={selectedTargetTable}
-                        projectId={projectId}
-                        username={username}
-                    />
-                );
-            case 3:
-                if (!projectId || !username) return null;
-                return (
-                    <Step3TablesRelations
-                        onNext={handleNext}
-                        onBack={handleBack}
-                        mappingData={mappingData}
-                        updateMappingData={updateMappingData}
-                        selectedSourceTables={selectedSourceTables}
-                        selectedTargetTable={selectedTargetTable}
-                        projectId={projectId}
-                        username={username}
-                    />
-                );
-            case 4:
-                if (!projectId || !username) return null;
-                return (
-                    <Step4AddColumns
-                        onNext={handleNext}
-                        onBack={handleBack}
-                        mappingData={mappingData}
-                        updateMappingData={updateMappingData}
-                        selectedSourceTable={selectedSourceTables[0] || null}
-                        selectedTargetTable={selectedTargetTable}
-                        projectId={projectId}
-                        username={username}
-                    />
-                );
-            case 5:
-                if (!projectId || !username) return null;
-                return (
-                    <Step5Deployment
-                        onBack={handleBack}
-                        mappingData={mappingData}
-                        projectId={projectId}
-                        username={username}
-                    />
-                );
-            default:
-                return <div>Unknown Step</div>;
+            case 0: return <Step0ProjectManagement onProjectSelected={handleProjectSelected} />;
+            case 1: return <Step1PrimaryKeyFK onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTables={selectedSourceTables} setSelectedSourceTables={setSelectedSourceTables} selectedTargetTable={selectedTargetTable} setSelectedTargetTable={setSelectedTargetTable} databases={databases} targetSchemas={targetSchemas} targetTables={targetTablesList} isLoadingOptions={isLoadingOptions} projectId={projectId!} username={username!} />;
+            case 2: return <Step2RequiredNull onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 3: return <Step3TablesRelations onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTables={selectedSourceTables} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 4: return <Step4AddColumns onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 5: return <Step5Deployment onBack={handleBack} mappingData={mappingData} projectId={projectId!} username={username!} />;
+            default: return <div>Unknown Step</div>;
         }
     };
-
+    
     return (
         <div className="space-y-8">
             <Breadcrumb currentStep={currentStep} projectId={projectId} />
-            
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                     <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-rose-500 flex items-center justify-center shadow-2xl shadow-purple-500/25">
@@ -475,30 +404,18 @@ const MappingWizardPage = () => {
                             Data Mapping Wizard
                         </h1>
                         <p className="text-slate-600 dark:text-slate-400 text-lg">
-                            {currentStep === 0 
-                                ? "Manage your mapping projects and create new ones"
-                                : `Step ${currentStep} of 5: Configure your data mapping workflow`
-                            }
+                            {currentStep === 0 ? "Manage your mapping projects" : `Step ${currentStep} of 5: Configure your data mapping workflow`}
                         </p>
                         {projectId && (
                             <div className="flex items-center mt-3 space-x-3">
-                                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 px-3 py-1 text-sm font-medium">
-                                    Project: {projectId}
-                                </Badge>
-                                {username && (
-                                    <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 px-3 py-1 text-sm font-medium">
-                                        User: {username}
-                                    </Badge>
-                                )}
+                                <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 px-3 py-1 text-sm font-medium">Project: {projectId}</Badge>
+                                {username && <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 px-3 py-1 text-sm font-medium">User: {username}</Badge>}
                             </div>
                         )}
                     </div>
                 </div>
             </div>
-
-            <ModernCard className="p-10">
-                {renderStep()}
-            </ModernCard>
+            <ModernCard className="p-10">{renderStep()}</ModernCard>
         </div>
     );
 };
