@@ -155,7 +155,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             fetchAllColumns();
         }
         
-         const pksFromProps: ManuallyDefinedPK[] = [];
+        const pksFromProps: ManuallyDefinedPK[] = [];
         if (mappingData.primary_keys?.source) {
             for (const tableKey in mappingData.primary_keys.source) {
                 mappingData.primary_keys.source[tableKey].forEach(columnName => pksFromProps.push({ tableKey, columnName }));
@@ -196,25 +196,41 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         setManuallyDefinedPKs(prev => prev.filter(pk => pk.tableKey !== tableKeyToRemove));
     }, [setSelectedSourceTables]);
 
+    // --- MAJOR FIX HERE ---
+    // This function now sends the *complete list* of PKs for a table on every change.
     const handleTogglePrimaryKey = useCallback((tableKey: string, columnName: string) => {
         const isCurrentlyPk = manuallyDefinedPKs.some(pk => pk.tableKey === tableKey && pk.columnName === columnName);
         const [database_name, schema_name, table_name] = tableKey.split('.');
 
-        if (!isCurrentlyPk) {
-            addPrimaryKey({ project_id: projectId, database_name, schema_name, table_name, column_names: [columnName] })
-                .then(response => {
-                    toast({ title: "Primary Key", description: response.message, variant: "success" });
-                    setManuallyDefinedPKs(prev => [...prev, { tableKey, columnName }]);
-                })
-                .catch(error => {
-                    toast({ title: "Error", description: `Failed to set primary key: ${error.message}`, variant: "destructive" });
-                });
-        } else {
-            // NOTE: Add a 'removePrimaryKey' service if your API supports it.
-            // For now, we just remove it from the local state.
-            setManuallyDefinedPKs(prev => prev.filter(pk => !(pk.tableKey === tableKey && pk.columnName === columnName)));
-            toast({ title: "Primary Key", description: "Primary key removed from local selection.", variant: "info" });
-        }
+        // 1. Determine the new, complete list of PKs for the affected table.
+        const currentPksForThisTable = manuallyDefinedPKs
+            .filter(pk => pk.tableKey === tableKey)
+            .map(pk => pk.columnName);
+        
+        const updatedPksForTable = isCurrentlyPk
+            ? currentPksForThisTable.filter(c => c !== columnName) // Remove column
+            : [...currentPksForThisTable, columnName]; // Add column
+
+        // 2. Send the full, updated list to the backend.
+        addPrimaryKey({ 
+            project_id: projectId, 
+            database_name, 
+            schema_name, 
+            table_name, 
+            column_names: updatedPksForTable 
+        })
+        .then(response => {
+            toast({ title: "Primary Key Updated", description: `PK for ${table_name} has been updated.`, variant: "success" });
+            
+            // 3. Reconstruct the component's local state to match the new reality.
+            const otherTablesPks = manuallyDefinedPKs.filter(pk => pk.tableKey !== tableKey);
+            const updatedPksAsObjects = updatedPksForTable.map(col => ({ tableKey, columnName: col }));
+            setManuallyDefinedPKs([...otherTablesPks, ...updatedPksAsObjects]);
+        })
+        .catch(error => {
+            toast({ title: "Error", description: `Failed to update primary key: ${error.message}`, variant: "destructive" });
+        });
+
     }, [manuallyDefinedPKs, projectId, toast]);
 
     const handleNextClick = useCallback(async () => {
@@ -242,7 +258,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             target_table: selectedTargetTable?.table || mappingData.target_table,
         });
         onNext();
-    }, [selectedSourceTables, selectedTargetTable, manuallyDefinedPKs, updateMappingData, onNext, toast, projectId, username, mappingData]);
+    }, [selectedSourceTables, selectedTargetTable, manuallyDefinedPKs, updateMappingData, onNext, mappingData]);
     
     return (
         <Card className="p-4">

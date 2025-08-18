@@ -45,7 +45,7 @@ export const getProjectStepsEvents = async (projectId: string): Promise<StepEven
 
         // Access the deeply nested array of events.
         // It returns an empty array if the structure is missing, preventing crashes.
-        return response.data?.latest_event?.latest_event || [];
+    return response.data?.latest_event?.latest_event || [];
 
     } catch (error) {
         if (axios.isAxiosError(error)) {
