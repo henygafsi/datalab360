@@ -640,14 +640,47 @@ const WorkflowHomePage: React.FC = () => {
       <div className="w-64 bg-gray-50 p-4 border-r border-gray-300 flex flex-col justify-between overflow-y-auto z-20">
         <div>
           <h3 className="text-xl font-bold text-gray-800 mb-4">🧩 ETL Blocks</h3>
-          <PaletteItem label="Source" type="src" shape={<div className="w-6 h-6 bg-blue-400 rounded" />} tooltip="Input data source (e.g., DB)" />
-          <PaletteItem label="Join" type="join" shape={<div className="w-0 h-0 border-l-[12px] border-r-[12px] border-b-[20px] border-transparent border-b-yellow-400" />} tooltip="Join 2 sources" />
-          <PaletteItem label="Aggregate KPI" type="aggregate_kpi" shape={<div className="w-6 h-6 bg-red-400 rounded-full" />} tooltip="Aggregate key performance indicator" />
-          <PaletteItem label="Sort" type="sort" shape={<div className="w-6 h-6 bg-purple-300 rounded-full" />} tooltip="Sort dataset" />
-          <PaletteItem label="Destination" type="destination" shape={<div className="w-6 h-6 bg-green-400 rounded" />} tooltip="Output target" />
-          <PaletteItem label="Drop Nulls" type="drop_nulls" shape={<div className="w-6 h-6 bg-orange-300 rounded" />} />
-          <PaletteItem label="Drop Duplicates" type="drop_duplicates" shape={<div className="w-6 h-6 bg-pink-300 rounded" />} />
-          <PaletteItem label="Normalize" type="normalize" shape={<div className="w-6 h-6 bg-cyan-300 rounded-full" />} />
+<PaletteItem 
+  label="Source" 
+  type="src" 
+  shape={
+    <svg 
+      width="48px" 
+      height="48px" 
+      viewBox="0 0 24 24" 
+      role="img" 
+      xmlns="http://www.w3.org/2000/svg" 
+      aria-labelledby="databaseIconTitle" 
+      stroke="#000000" 
+      strokeWidth="1" 
+      strokeLinecap="square" 
+      strokeLinejoin="miter" 
+      fill="none" 
+      color="#000000"
+      className="w-12 h-12"
+    >
+      <title id="databaseIconTitle">Database</title>
+      <ellipse cx="12" cy="6" rx="8" ry="3"/>
+      <path d="M4,6 C4,8.209139 7.581722,10 12,10 C16.418278,10 20,8.209139 20,6"/>
+      <path d="M4,12 C4,14.209139 7.581722,16 12,16 C16.418278,16 20,14.209139 20,12"/>
+      <path d="M4,18 C4,20.209139 7.581722,22 12,22 C16.418278,22 20,20.209139 20,18"/>
+      <path d="M4 6L4 18"/>
+      <path d="M20 6L20 18"/>
+    </svg>
+  } 
+  tooltip="Input data source (e.g., DB)" 
+/>
+          <PaletteItem label="Join" type="join" shape={<span className="text-4xl">🔀</span>} tooltip="Join 2 sources" />
+          <PaletteItem label="Aggregate KPI" type="aggregate_kpi" shape={<span className="text-4xl">📊</span>} tooltip="Aggregate key performance indicator" />
+          <PaletteItem label="Sort" type="sort" shape={<span className="text-4xl">⬆️</span>} tooltip="Sort dataset" />
+          <PaletteItem label="Destination" type="destination" shape={<svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>} tooltip="Output target" />
+          <PaletteItem label="Drop Nulls" type="drop_nulls" shape={<span className="text-4xl">🗑️</span>} />
+          <PaletteItem label="Drop Duplicates" type="drop_duplicates" shape={<span className="text-4xl">✂️</span>} />
+          <PaletteItem label="Normalize" type="normalize" shape={<span className="text-4xl">⚖️</span>} />
+          <PaletteItem label="Export Excel" type="export_excel" shape={<svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>} tooltip="Export to Excel file" />
           <div className="mt-6">
             <label htmlFor="workflowName" className="block text-sm font-medium text-gray-700 mb-1">Workflow Name</label>
             <input

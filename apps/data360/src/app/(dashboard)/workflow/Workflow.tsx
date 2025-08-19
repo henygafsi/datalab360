@@ -26,10 +26,11 @@ const getId = () => `node_${id++}`;
 // --- Node Types (Moved outside the component for memoization) ---
 const nodeTypes = {
   src: ({ data }: any) => (
-    <div className="relative w-40 h-24 bg-blue-100 border-2 border-blue-500 text-blue-900 font-bold rounded-lg shadow-lg hover:shadow-xl transition cursor-pointer flex flex-col justify-center items-center text-xs text-center p-2 group">
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-blue-700 rounded-full absolute top-1/2 -right-3" />
-      <span className="text-sm font-semibold mb-1">📥 Source</span>
-      <div className="absolute inset-0 bg-blue-50 text-blue-900 rounded-lg flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+    <div className="relative w-40 h-24 font-bold flex flex-col justify-center items-center text-xs text-center p-2 group">
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-blue-700 rounded-full absolute top-1/2 -right-3" />
+      <svg width="48px" height="48px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg" aria-labelledby="databaseIconTitle" stroke="#000000" stroke-width="1" stroke-linecap="square" stroke-linejoin="miter" fill="none" color="#000000"> <title id="databaseIconTitle">Database</title> <ellipse cx="12" cy="6" rx="8" ry="3"/> <path d="M4,6 C4,8.209139 7.581722,10 12,10 C16.418278,10 20,8.209139 20,6"/> <path d="M4,12 C4,14.209139 7.581722,16 12,16 C16.418278,16 20,14.209139 20,12"/> <path d="M4,18 C4,20.209139 7.581722,22 12,22 C16.418278,22 20,20.209139 20,18"/> <path d="M4 6L4 18"/> <path d="M20 6L20 18"/> </svg>
+      <span className="text-sm font-semibold mb-1">Source</span>
+      <div className="absolute inset-0 bg-transparent text-blue-900 rounded-lg flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div><b>DB:</b> {data.database || 'N/A'}</div>
         <div><b>Schema:</b> {data.schema || 'N/A'}</div>
         <div><b>Table:</b> {data.table || 'N/A'}</div>
@@ -38,32 +39,35 @@ const nodeTypes = {
     </div>
   ),
   drop_nulls: ({ data }: any) => (
-    <div className="relative w-32 h-20 bg-orange-100 border-2 border-orange-500 text-orange-800 rounded-lg p-2 flex flex-col justify-center items-center text-xs font-bold group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-orange-700 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-orange-700 rounded-full" />
-      🧹 Drop Nulls
-      <div className="absolute inset-0 bg-orange-50 text-orange-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
+    <div className="relative w-32 h-20 p-2 flex flex-col justify-center items-center text-xs font-bold group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-orange-700 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-orange-700 rounded-full" />
+      <span className="text-4xl">🗑️</span>
+      <span>Drop Nulls</span>
+      <div className="absolute inset-0 bg-transparent text-orange-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
         <div><b>Column:</b> {data.null_column}</div>
       </div>
     </div>
   ),
   drop_duplicates: ({ data }: any) => (
-    <div className="relative w-32 h-20 bg-pink-100 border-2 border-pink-500 text-pink-800 rounded-lg p-2 flex flex-col justify-center items-center text-xs font-bold group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-pink-700 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-pink-700 rounded-full" />
-      ✂️ Drop Duplicates
-      <div className="absolute inset-0 bg-pink-50 text-pink-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
+    <div className="relative w-32 h-20 p-2 flex flex-col justify-center items-center text-xs font-bold group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-pink-700 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-pink-700 rounded-full" />
+      <span className="text-4xl">✂️</span>
+      <span>Drop Duplicates</span>
+      <div className="absolute inset-0 bg-transparent text-pink-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
         <div><b>Order Col:</b> {data.order_column || 'N/A'}</div>
         <div><b>Dedup Cols:</b> {data.dedup_columns ? (Array.isArray(data.dedup_columns) ? data.dedup_columns.join(', ') : data.dedup_columns) : 'N/A'}</div>
       </div>
     </div>
   ),
   normalize: ({ data }: any) => (
-    <div className="relative w-32 h-20 bg-cyan-100 border-2 border-cyan-500 text-cyan-800 rounded-lg p-2 flex flex-col justify-center items-center text-xs font-bold group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-cyan-700 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-cyan-700 rounded-full" />
-      ⚖️ Normalize ({data.normalize_type})
-      <div className="absolute inset-0 bg-cyan-50 text-cyan-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
+    <div className="relative w-32 h-20 p-2 flex flex-col justify-center items-center text-xs font-bold group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-cyan-700 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-cyan-700 rounded-full" />
+      <span className="text-4xl">⚖️</span>
+      <span>Normalize ({data.normalize_type})</span>
+      <div className="absolute inset-0 bg-transparent text-cyan-800 text-[10px] rounded p-1 opacity-0 group-hover:opacity-100">
         <div><b>Target:</b> {data.normalize_type === 'zscore' ? data.zscore_column : data.minmax_column}</div>
         <div><b>Output:</b> {data.normalize_type === 'zscore' ? data.zscore_column_normalized : data.minmax_column_normalized}</div>
       </div>
@@ -71,16 +75,14 @@ const nodeTypes = {
   ),
 
   join: ({ data }: any) => (
-    <div className="relative w-40 h-40 text-yellow-800 font-semibold group">
-      <svg viewBox="0 0 100 100" className="w-full h-full">
-        <polygon points="0,0 0,100 100,50" fill="#FEF3C7" stroke="#FACC15" strokeWidth="4" />
-      </svg>
-      <Handle type="target" position={Position.Left} id="input1" className="w-3 h-3 bg-yellow-700 absolute top-1/4 -left-3 rounded-full" />
-      <Handle type="target" position={Position.Left} id="input2" className="w-3 h-3 bg-yellow-700 absolute top-3/4 -left-3 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-yellow-700 rounded-full absolute top-1/2 -right-3 rounded-full" />
+    <div className="relative w-40 h-40 font-semibold group">
+      <Handle type="target" position={Position.Left} id="input1" className="w-5 h-5 bg-yellow-700 absolute top-1/4 -left-3 rounded-full" />
+      <Handle type="target" position={Position.Left} id="input2" className="w-5 h-5 bg-yellow-700 absolute top-3/4 -left-3 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-yellow-700 rounded-full absolute top-1/2 -right-3 rounded-full" />
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-xs font-bold pointer-events-none text-yellow-800 text-center">
-        🔀 Join
-        <div className="absolute inset-0 bg-yellow-50 text-yellow-800 rounded-lg flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+      <span className="text-4xl">🔀</span>
+      <span>Join</span>
+        <div className="absolute inset-0 bg-transparent text-yellow-800 rounded-lg flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
           <div><b>Type:</b> {data.join_type || 'N/A'}</div>
           <div><b>L-Key:</b> {data.left_key || 'N/A'}</div>
           <div><b>R-Key:</b> {data.right_key || 'N/A'}</div>
@@ -91,11 +93,12 @@ const nodeTypes = {
     </div>
   ),
   aggregate_kpi: ({ data }: any) => (
-    <div className="relative w-40 h-24 bg-red-100 border-2 border-red-500 text-red-800 font-bold flex flex-col items-center justify-center rounded-xl shadow-lg hover:shadow-xl transition cursor-pointer p-2 group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-red-700 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-red-700 rounded-full" />
-      <span className="text-sm">📊 Aggregate KPI</span>
-      <div className="absolute inset-0 bg-red-50 text-red-800 rounded-xl flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+    <div className="relative w-40 h-24 font-bold flex flex-col items-center justify-center p-2 group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-red-700 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-red-700 rounded-full" />
+      <span className="text-4xl">📊</span>
+      <span className="text-sm">Aggregate KPI</span>
+      <div className="absolute inset-0 bg-transparent text-red-800 rounded-xl flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div><b>KPI:</b> {data.kpi_name || 'N/A'}</div>
         <div><b>Agg Type:</b> {data.agg_type || 'N/A'}</div>
         <div><b>Cols:</b> {data.columns ? (Array.isArray(data.columns) ? data.columns.join(', ') : data.columns) : 'N/A'}</div>
@@ -103,25 +106,39 @@ const nodeTypes = {
     </div>
   ),
   sort: ({ data }: any) => (
-    <div className="relative w-20 h-20 bg-purple-100 border-2 border-purple-500 text-purple-800 font-bold flex items-center justify-center rounded-full shadow-lg hover:shadow-xl transition cursor-pointer p-2 group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-purple-700 rounded-full" />
-      <Handle type="source" position={Position.Right} className="w-3 h-3 bg-purple-700 rounded-full" />
-      <span className="text-sm text-center">⬆️⬇️ Sort</span>
-      <div className="absolute inset-0 bg-purple-50 text-purple-800 rounded-full flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+    <div className="relative w-20 h-20 font-bold flex items-center justify-center p-2 group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-purple-700 rounded-full" />
+      <Handle type="source" position={Position.Right} className="w-5 h-5 bg-purple-700 rounded-full" />
+      <svg fill="#000000" height="48" viewBox="0 0 24 24" width="48" xmlns="http://www.w3.org/2000/svg">
+        <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z"/>
+    </svg>
+      <span className="text-sm text-center">Sort</span>
+      <div className="absolute inset-0 bg-transparent text-purple-800 rounded-full flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div><b>Col:</b> {data.sort_column || 'N/A'}</div>
         <div><b>Order:</b> {data.sort_order || 'N/A'}</div>
       </div>
     </div>
   ),
   destination: ({ data }: any) => (
-    <div className="relative w-40 h-24 bg-green-100 border-2 border-green-500 text-green-800 font-bold flex flex-col items-center justify-center rounded-xl shadow-lg hover:shadow-xl transition cursor-pointer p-2 group">
-      <Handle type="target" position={Position.Left} className="w-3 h-3 bg-green-700 rounded-full" />
-      <span className="text-sm">📤 Destination</span>
-      <div className="absolute inset-0 bg-green-50 text-green-800 rounded-xl flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+    <div className="relative w-40 h-24 font-bold flex flex-col items-center justify-center p-2 group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-green-700 rounded-full" />
+      <svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+      <span className="text-sm">Destination</span>
+      <div className="absolute inset-0 bg-transparent text-green-800 rounded-xl flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div><b>DB:</b> {data.database || 'N/A'}</div>
         <div><b>Table:</b> {data.destination_table || 'N/A'}</div>
         <div><b>Columns:</b> {data.columns ? (Array.isArray(data.columns) ? data.columns.join(', ') : data.columns) : 'N/A'}</div>
       </div>
+    </div>
+  ),
+  export_excel: ({ data }: any) => (
+    <div className="relative w-40 h-24 font-bold flex flex-col items-center justify-center p-2 group">
+      <Handle type="target" position={Position.Left} className="w-5 h-5 bg-emerald-700 rounded-full" />
+      <svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+      <span className="text-sm">Export Excel</span>
     </div>
   ),
 };
