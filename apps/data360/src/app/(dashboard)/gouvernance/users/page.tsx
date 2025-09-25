@@ -65,7 +65,7 @@ export default function UsersManagementPage() {
         
         <div className="flex items-center space-x-4">
           <ImportButton title="Import Users" />
-          <AddUserButton onSuccess={handleAddUserSuccess} />
+          <AddUserButton onAddUserSuccess={handleAddUserSuccess} />
         </div>
       </div>
 

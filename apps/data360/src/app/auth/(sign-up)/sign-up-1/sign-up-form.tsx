@@ -11,12 +11,11 @@ import { SignUpSchema, signUpSchema } from '@/validators/signup.schema';
 import { registerUser } from '@/app/services/auth/register';
 
 const initialValues = {
+  organisation_name: '',
   username: '',
-  firstName: '',
-  lastName: '',
   email: '',
   password: '',
-  confirmPassword: '',
+  confirm_password: '',
   isAgreed: false,
 };
 
@@ -30,12 +29,11 @@ export default function SignUpForm() {
   const onSubmit: SubmitHandler<SignUpSchema> = async (data) => {
     try {
       await registerUser({
-        username: data.username, // Assuming username is the email
-        first_name: data.firstName,
-        last_name: data.lastName,
+        organisation_name: data.organisation_name,
+        username: data.username,
         email: data.email,
         password: data.password,
-        confirm_password: data.confirmPassword,
+        confirm_password: data.confirm_password,
       });
       alert('Registration successful!');
     } catch (error) {
@@ -60,32 +58,22 @@ export default function SignUpForm() {
             <Input
               type="text"
               size="lg"
+              label="Organization"
+              placeholder="Enter your organization"
+              className="col-span-2 [&>label>span]:font-medium"
+              inputClassName="text-sm"
+              {...register('organisation_name')}
+              error={errors.organisation_name?.message}
+            />
+            <Input
+              type="text"
+              size="lg"
               label="Username"
               placeholder="Enter your username"
               className="col-span-2 [&>label>span]:font-medium"
               inputClassName="text-sm"
               {...register('username')}
               error={errors.username?.message}
-            />
-            <Input
-              type="text"
-              size="lg"
-              label="First Name"
-              placeholder="Enter your first name"
-              className="[&>label>span]:font-medium"
-              inputClassName="text-sm"
-              {...register('firstName')}
-              error={errors.firstName?.message}
-            />
-            <Input
-              type="text"
-              size="lg"
-              label="Last Name"
-              placeholder="Enter your last name"
-              className="[&>label>span]:font-medium"
-              inputClassName="text-sm"
-              {...register('lastName')}
-              error={errors.lastName?.message}
             />
             <Input
               type="email"
@@ -112,8 +100,8 @@ export default function SignUpForm() {
               size="lg"
               className="[&>label>span]:font-medium"
               inputClassName="text-sm"
-              {...register('confirmPassword')}
-              error={errors.confirmPassword?.message}
+              {...register('confirm_password')}
+              error={errors.confirm_password?.message}
             />
             <div className="col-span-2 flex items-start">
               <Checkbox

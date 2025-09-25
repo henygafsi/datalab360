@@ -43,11 +43,9 @@ interface MappingData {
     target_table: string;
     column_mappings: ColumnMapping[];
     new_target_columns: NewTargetColumn[];
+    new_target_columns_by_table?: { [tableKey: string]: NewTargetColumn[] };
     primary_keys?: { source: string[]; target: string[] };
-    foreign_keys?: {
-        source: Array<{ column: string; referenced_table: string; referenced_column: string }>;
-        target: Array<{ column: string; referenced_table: string; referenced_column: string }>;
-    };
+    groups?: Array<{ sources: TableSelection[]; target: TableSelection | null }>;
 }
 
 interface Step4Props {
@@ -76,11 +74,16 @@ const Step4AddColumns: React.FC<Step4Props> = ({
     const { toast } = useToast();
     // Initialize newColumns from mappingData.new_target_columns
     const [newColumns, setNewColumns] = useState<NewTargetColumn[]>(mappingData.new_target_columns || []);
+    const [newColumnsByTarget, setNewColumnsByTarget] = useState<{ [tableKey: string]: NewTargetColumn[] }>(mappingData.new_target_columns_by_table || {});
+    const [newColumnNameByTarget, setNewColumnNameByTarget] = useState<{ [tableKey: string]: string }>({});
+    const [newColumnTypeByTarget, setNewColumnTypeByTarget] = useState<{ [tableKey: string]: string }>({});
+    const [newColumnNullableByTarget, setNewColumnNullableByTarget] = useState<{ [tableKey: string]: boolean }>({});
     const [newColumnName, setNewColumnName] = useState('');
     const [newColumnType, setNewColumnType] = useState('VARCHAR(255)');
     const [newColumnNullable, setNewColumnNullable] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [targetColumns, setTargetColumns] = useState<string[]>([]); // Stores names of existing target columns
+    const [targetColumnsByTable, setTargetColumnsByTable] = useState<{ [tableKey: string]: string[] }>({});
 
     const dataTypes = [
         'VARCHAR(255)',
@@ -97,33 +100,41 @@ const Step4AddColumns: React.FC<Step4Props> = ({
         if (mappingData.new_target_columns) {
             setNewColumns(mappingData.new_target_columns);
         }
-    }, [mappingData.new_target_columns]);
+        if (mappingData.new_target_columns_by_table) {
+            setNewColumnsByTarget(mappingData.new_target_columns_by_table);
+        }
+    }, [mappingData.new_target_columns, mappingData.new_target_columns_by_table]);
 
     // Fetch existing target table columns to prevent duplicates
     useEffect(() => {
         const fetchTargetColumns = async () => {
-            if (selectedTargetTable?.database && selectedTargetTable.schema && selectedTargetTable.table) {
-                try {
-                    const columns = await getTableColumns(
-                        selectedTargetTable.database,
-                        selectedTargetTable.schema,
-                        selectedTargetTable.table
-                    );
-                    setTargetColumns(columns.map(col => col.name || col.COLUMN_NAME));
-                } catch (error: any) {
-                    console.error('Error fetching target table columns:', error);
-                    toast({
-                        title: 'Error',
-                        description: `Failed to fetch existing target table columns: ${error.message || 'An unexpected error occurred.'}`,
-                        variant: 'destructive',
-                    });
+            const groups = (mappingData.groups && mappingData.groups.length > 0) ? mappingData.groups : [{ target: selectedTargetTable, sources: [] }];
+            const map: { [k: string]: string[] } = {};
+            for (const g of groups) {
+                if (g.target) {
+                    try {
+                        const columns = await getTableColumns(
+                            g.target.database,
+                            g.target.schema,
+                            g.target.table
+                        );
+                        map[`${g.target.database}.${g.target.schema}.${g.target.table}`] = columns.map(col => col.name || (col as any).COLUMN_NAME);
+                    } catch (error: any) {
+                        console.error('Error fetching target table columns:', error);
+                        toast({ title: 'Error', description: `Failed to fetch existing target table columns: ${error.message || 'An unexpected error occurred.'}`, variant: 'destructive' });
+                    }
                 }
+            }
+            setTargetColumnsByTable(map);
+            if (selectedTargetTable) {
+                const key = `${selectedTargetTable.database}.${selectedTargetTable.schema}.${selectedTargetTable.table}`;
+                setTargetColumns(map[key] || []);
             }
         };
         fetchTargetColumns();
-    }, [selectedTargetTable, toast]);
+    }, [selectedTargetTable, toast, mappingData.groups]);
 
-    const handleAddColumn = useCallback(() => {
+    const handleAddColumn = useCallback((tKey?: string) => {
         if (!newColumnName.trim()) {
             toast({
                 title: 'Validation Error',
@@ -132,37 +143,47 @@ const Step4AddColumns: React.FC<Step4Props> = ({
             });
             return;
         }
-
-        const allExistingColumnNames = new Set([...newColumns.map(col => col.name.toLowerCase()), ...targetColumns.map(name => name.toLowerCase())]);
-        if (allExistingColumnNames.has(newColumnName.toLowerCase())) {
-            toast({
-                title: 'Validation Error',
-                description: `Column name '${newColumnName}' already exists in the target table or in the list of new columns.`,
-                variant: 'destructive',
-            });
-            return;
-        }
-
         const newCol: NewTargetColumn = {
             name: newColumnName.trim(),
             type: newColumnType,
             nullable: newColumnNullable,
         };
-        setNewColumns(prev => [...prev, newCol]);
-        setNewColumnName('');
-        setNewColumnType('VARCHAR(255)');
-        setNewColumnNullable(true);
-    }, [newColumnName, newColumnType, newColumnNullable, newColumns, targetColumns, toast]);
+        if (tKey) {
+            const exists = new Set([...(targetColumnsByTable[tKey] || []).map(n => n.toLowerCase()), ...((newColumnsByTarget[tKey] || []).map(c => c.name.toLowerCase()))]);
+            if (exists.has(newCol.name.toLowerCase())) {
+                toast({ title: 'Validation Error', description: `Column name '${newCol.name}' already exists in the target table or in the list of new columns.`, variant: 'destructive' });
+                return;
+            }
+            setNewColumnsByTarget(prev => ({ ...prev, [tKey]: [ ...(prev[tKey] || []), newCol ] }));
+            setNewColumnNameByTarget(prev => ({ ...prev, [tKey]: '' }));
+            setNewColumnTypeByTarget(prev => ({ ...prev, [tKey]: 'VARCHAR(255)' }));
+            setNewColumnNullableByTarget(prev => ({ ...prev, [tKey]: true }));
+        } else {
+            const allExistingColumnNames = new Set([...newColumns.map(col => col.name.toLowerCase()), ...targetColumns.map(name => name.toLowerCase())]);
+            if (allExistingColumnNames.has(newColumnName.toLowerCase())) {
+                toast({ title: 'Validation Error', description: `Column name '${newColumnName}' already exists in the target table or in the list of new columns.`, variant: 'destructive' });
+                return;
+            }
+            setNewColumns(prev => [...prev, newCol]);
+            setNewColumnName('');
+            setNewColumnType('VARCHAR(255)');
+            setNewColumnNullable(true);
+        }
+    }, [newColumnName, newColumnType, newColumnNullable, newColumns, targetColumns, toast, targetColumnsByTable, newColumnsByTarget]);
 
-    const handleRemoveColumn = useCallback((name: string) => {
-        setNewColumns(prev => prev.filter(col => col.name !== name));
+    const handleRemoveColumn = useCallback((name: string, tKey?: string) => {
+        if (tKey) {
+            setNewColumnsByTarget(prev => ({ ...prev, [tKey]: (prev[tKey] || []).filter(c => c.name !== name) }));
+        } else {
+            setNewColumns(prev => prev.filter(col => col.name !== name));
+        }
     }, []);
 
     const handleSaveAndProceed = useCallback(async () => {
-        if (!projectId || !selectedTargetTable) {
+        if (!projectId) {
             toast({
                 title: 'Validation Error',
-                description: 'Project ID and target table are required to save columns.',
+                description: 'Project ID is required to save columns.',
                 variant: 'destructive',
             });
             return;
@@ -176,7 +197,30 @@ const Step4AddColumns: React.FC<Step4Props> = ({
             }
             const token = session.user.access_token;
 
-            if (newColumns.length > 0) {
+            const groups = (mappingData.groups && mappingData.groups.length > 0) ? mappingData.groups : [{ target: selectedTargetTable, sources: [] }];
+            if (mappingData.groups && mappingData.groups.length > 0) {
+                for (const g of groups) {
+                    if (!g.target) continue;
+                    const tKey = `${g.target.database}.${g.target.schema}.${g.target.table}`;
+                    const cols = newColumnsByTarget[tKey] || [];
+                    if (cols.length === 0) continue;
+                    const addColumnsPayload = {
+                        project_id: projectId,
+                        database_name: g.target.database,
+                        schema_name: g.target.schema,
+                        table_name: g.target.table,
+                        columns: cols.map(col => ({ name: col.name, type: col.type, default: '', comment: '' })),
+                    };
+                    const addColumnsResponse = await axios.post(
+                        `${API_BASE_URL}/mapping/add-columns`,
+                        addColumnsPayload,
+                        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+                    );
+                    if (addColumnsResponse.data.status !== 'success') {
+                        throw new Error(addColumnsResponse.data.detail || 'Failed to add columns to database.');
+                    }
+                }
+            } else if (newColumns.length > 0 && selectedTargetTable) {
                 const addColumnsPayload = {
                     project_id: projectId,
                     database_name: selectedTargetTable.database,
@@ -223,7 +267,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
             }
 
             // Update parent's mappingData, which will trigger backend logging
-            await updateMappingData({ new_target_columns: newColumns }, "ADD_ADDITIONAL_COLUMNS", { columns: newColumns });
+            await updateMappingData({ new_target_columns: newColumns, new_target_columns_by_table: newColumnsByTarget }, "ADD_ADDITIONAL_COLUMNS", { columns: newColumns, by_table: newColumnsByTarget });
 
             onNext(); // Move to Step 5
         } catch (error: any) {
@@ -242,13 +286,79 @@ const Step4AddColumns: React.FC<Step4Props> = ({
     return (
         <Card className="p-6">
             <CardHeader>
-                <CardTitle>Step 4: Add Optional Columns</CardTitle>
+                <CardTitle>Step 3: Add Optional Columns</CardTitle>
                 <p className="text-sm text-muted-foreground">
                     Define and add optional columns to the target table before final deployment.
                 </p>
             </CardHeader>
             <CardContent className="space-y-6">
-                {selectedTargetTable ? (
+                {(mappingData.groups && mappingData.groups.length > 0) ? (
+                    <div className="space-y-6">
+                        {mappingData.groups.map((g, idx) => g.target && (
+                            <details key={`grp-${idx}`} className="rounded-md border p-2 space-y-4" open>
+                                <summary className="cursor-pointer select-none font-medium">Group {idx + 1} — Target: {g.target.database}.{g.target.schema}.{g.target.table}</summary>
+                                {(() => {
+                                    const tKey = `${g.target!.database}.${g.target!.schema}.${g.target!.table}`;
+                                    const nameVal = newColumnNameByTarget[tKey] ?? '';
+                                    const typeVal = newColumnTypeByTarget[tKey] ?? 'VARCHAR(255)';
+                                    const nullableVal = newColumnNullableByTarget[tKey] ?? true;
+                                    const pending = newColumnsByTarget[tKey] || [];
+                                    const existing = targetColumnsByTable[tKey] || [];
+                                    return (
+                                        <>
+                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                                                <div>
+                                                    <Label>Column Name</Label>
+                                                    <Input value={nameVal} onChange={(e) => setNewColumnNameByTarget(prev => ({ ...prev, [tKey]: e.target.value }))} placeholder="Enter column name" />
+                                                </div>
+                                                <div>
+                                                    <Label>Data Type</Label>
+                                                    <Select value={typeVal} onValueChange={(v) => setNewColumnTypeByTarget(prev => ({ ...prev, [tKey]: v }))}>
+                                                        <SelectTrigger><SelectValue placeholder="Select Type" /></SelectTrigger>
+                                                        <SelectContent>
+                                                            {dataTypes.map(dt => <SelectItem key={dt} value={dt}>{dt}</SelectItem>)}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <div>
+                                                    <Label>Nullable</Label>
+                                                    <Select value={nullableVal ? 'true' : 'false'} onValueChange={(v) => setNewColumnNullableByTarget(prev => ({ ...prev, [tKey]: v === 'true' }))}>
+                                                        <SelectTrigger><SelectValue /></SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="true">True</SelectItem>
+                                                            <SelectItem value="false">False</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
+                                                <Button onClick={() => { setNewColumnName(nameVal); setNewColumnType(typeVal); setNewColumnNullable(nullableVal); handleAddColumn(tKey); }}>
+                                                    <PlusCircle className="mr-2 h-4 w-4" /> Add Column
+                                                </Button>
+                                            </div>
+                                            <p className="text-xs text-muted-foreground">Existing: {existing.join(', ') || 'none'}</p>
+                                            {pending.length > 0 && (
+                                                <div className="border p-4 rounded-md">
+                                                    <h4 className="text-md font-semibold mb-2">Pending Columns</h4>
+                                                    <ul className="flex flex-wrap gap-2">
+                                                        {pending.map(col => (
+                                                            <li key={`${tKey}-${col.name}`} className="flex items-center gap-2 border rounded px-2 py-1 bg-muted/30">
+                                                                <span>{col.name} <span className="text-muted-foreground">({col.type})</span> {col.nullable ? '' : '• NOT NULL'}</span>
+                                                                <XCircle className="h-4 w-4 cursor-pointer" onClick={() => handleRemoveColumn(col.name, tKey)} />
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()}
+                            </details>
+                        ))}
+                        <div className="flex justify-between gap-2 mt-6">
+                            <Button variant="outline" onClick={onBack}>Back</Button>
+                            <Button onClick={handleSaveAndProceed} disabled={isLoading}>{isLoading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Next'}</Button>
+                        </div>
+                    </div>
+                ) : selectedTargetTable ? (
                     <>
                         <div className="space-y-4">
                             <h3 className="text-lg font-semibold">Add New Columns to Target Table</h3>
@@ -322,27 +432,28 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                         )}
                     </>
                 ) : (
-                    <p className="text-sm text-muted-foreground">Please select a target table in previous steps to add columns.</p>
+                    <>
+                        <p className="text-sm text-muted-foreground">Please select a target table in previous steps to add columns.</p>
+                        <div className="flex justify-between gap-2 mt-6">
+                            <Button variant="outline" onClick={onBack} disabled={isLoading}>
+                                Back
+                            </Button>
+                            <Button
+                                onClick={handleSaveAndProceed}
+                                disabled={isLoading || !selectedTargetTable || !projectId}
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Saving & Proceeding...
+                                    </>
+                                ) : (
+                                    'Save Columns & Proceed'
+                                )}
+                            </Button>
+                        </div>
+                    </>
                 )}
-
-                <div className="flex justify-between gap-2 mt-6">
-                    <Button variant="outline" onClick={onBack} disabled={isLoading}>
-                        Back
-                    </Button>
-                    <Button
-                        onClick={handleSaveAndProceed}
-                        disabled={isLoading || !selectedTargetTable || !projectId}
-                    >
-                        {isLoading ? (
-                            <>
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Saving & Proceeding...
-                            </>
-                        ) : (
-                            'Save Columns & Proceed'
-                        )}
-                    </Button>
-                </div>
             </CardContent>
         </Card>
     );

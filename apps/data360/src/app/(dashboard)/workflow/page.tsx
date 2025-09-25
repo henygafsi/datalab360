@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { getSession } from 'next-auth/react';
 import toast, { Toaster } from 'react-hot-toast';
+import { Node, Edge } from 'reactflow';
 import WorkflowBuilder from './Workflow';
 import WorkflowCard from './WorkflowCard';
 
@@ -48,6 +49,7 @@ const WorkflowHomePage: React.FC = () => {
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
+  const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
 
   const cronScheduleOptions = useMemo(() => ([
     { value: 'hourly', label: 'Every hour' },
@@ -62,7 +64,7 @@ const WorkflowHomePage: React.FC = () => {
       if (session?.user?.access_token) {
         const token = session.user.access_token as string;
         setAccessToken(token);
-        await fetchWorkflows(token);
+        await fetchWorkflowsRef.current?.(token);
       } else {
         setError("No access token found. Please log in.");
         setLoading(false);
@@ -75,7 +77,7 @@ const WorkflowHomePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/get_workflows/`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -85,11 +87,19 @@ const WorkflowHomePage: React.FC = () => {
         const errorText = await response.text();
         throw new Error(`Failed to fetch workflows: ${response.status} - ${errorText}`);
       }
-      const data = await response.json();
+      const data = await response.json() as any;
       if (Array.isArray(data.workflows)) {
         setWorkflows(data.workflows);
         if (data.workflows.length > 0 && !activeWorkflowName) {
-          loadWorkflow(data.workflows[0]);
+          // Load first workflow directly without calling loadWorkflow to avoid circular dependency
+          const firstWorkflow = data.workflows[0];
+          setActiveWorkflowName(firstWorkflow.workflow_name);
+          const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
+          setActiveNodes(nodes);
+          setActiveEdges(edges);
+          setActiveSchedule(firstWorkflow.schedule_interval_str || '');
+          setIsWorkflowSaved(true);
+          toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
         }
       } else {
         setWorkflows([]);
@@ -101,6 +111,9 @@ const WorkflowHomePage: React.FC = () => {
       setLoading(false);
     }
   }, [activeWorkflowName]);
+
+  // Store the function in ref to avoid circular dependency
+  fetchWorkflowsRef.current = fetchWorkflows;
 
   const convertBackendToReactFlow = useCallback((backendSteps: BackendStep[]): { nodes: ReactFlowNode[]; edges: ReactFlowEdge[] } => {
     const newNodes: ReactFlowNode[] = [];
@@ -218,7 +231,7 @@ const WorkflowHomePage: React.FC = () => {
       return;
     }
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/rename_workflow/`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/rename_workflow/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -312,6 +325,52 @@ const WorkflowHomePage: React.FC = () => {
       return;
     }
     const topologicallySortedNodes = tempOrderedNodeIds.map(nodeId => activeNodes.find(n => n.id === nodeId)!);
+
+    // Helper: derive output columns of a node by walking upstream when needed
+    const getAllOutputColumnsOfNodeLocal = (node: ReactFlowNode | undefined): string[] => {
+      if (!node) return [];
+      switch (node.type) {
+        case 'src':
+          if (Array.isArray(node.data.columns)) return node.data.columns as string[];
+          if (typeof node.data.columns === 'string') return (node.data.columns as string).split(',').map((c: string) => c.trim()).filter(Boolean);
+          return [];
+        case 'join': {
+          const lc = Array.isArray(node.data.left_columns) ? node.data.left_columns as string[] : [];
+          const rc = Array.isArray(node.data.right_columns) ? node.data.right_columns as string[] : [];
+          return Array.from(new Set([...lc, ...rc]));
+        }
+        case 'aggregate_kpi': {
+          const incomingEdge = activeEdges.find(edge => edge.target === node.id);
+          const beforeCols = incomingEdge ? getAllOutputColumnsOfNodeLocal(activeNodes.find(n => n.id === incomingEdge.source)) : [];
+          const aggregatedColumns = Array.isArray(node.data.columns)
+            ? (node.data.columns as string[])
+            : (typeof node.data.columns === 'string' ? (node.data.columns as string).split(',').map((c: string) => c.trim()) : []);
+          const kpiName = node.data.kpi_name ? [node.data.kpi_name as string] : [];
+          const nonAggregated = beforeCols.filter(col => !aggregatedColumns.includes(col));
+          return Array.from(new Set([...nonAggregated, ...kpiName].filter(Boolean)));
+        }
+        case 'sort':
+        case 'drop_nulls':
+        case 'drop_duplicates': {
+          const incomingEdge = activeEdges.find(edge => edge.target === node.id);
+          return incomingEdge ? getAllOutputColumnsOfNodeLocal(activeNodes.find(n => n.id === incomingEdge.source)) : [];
+        }
+        case 'normalize': {
+          const incomingEdge = activeEdges.find(edge => edge.target === node.id);
+          const inputCols = incomingEdge ? getAllOutputColumnsOfNodeLocal(activeNodes.find(n => n.id === incomingEdge.source)) : [];
+          const normalizedOutputColumn = node.data.normalize_type === 'zscore'
+            ? node.data.zscore_column_normalized
+            : node.data.minmax_column_normalized;
+          const targetColumn = node.data.normalize_type === 'zscore' ? node.data.zscore_column : node.data.minmax_column;
+          const after = inputCols.filter(col => col !== targetColumn);
+          return Array.from(new Set([...after, normalizedOutputColumn].filter(Boolean)));
+        }
+        case 'destination':
+        default:
+          return [];
+      }
+    };
+
     const finalSteps = topologicallySortedNodes.map(node => {
       const step: any = {
         step_order: nodeIdToStepOrderMap.get(node.id),
@@ -393,18 +452,30 @@ const WorkflowHomePage: React.FC = () => {
           step.payload.input_step = inputStep;
           delete step.payload.columns;
           break;
-        case 'destination':
+        case 'destination': {
           step.action_type = 'destination';
           step.payload.input_step = inputStep;
+          let destCols: string[] = [];
           if (typeof step.payload.columns === 'string') {
-            step.payload.destination_columns_str = step.payload.columns.split(',').map((c: string) => c.trim());
+            destCols = step.payload.columns.split(',').map((c: string) => c.trim());
           } else if (Array.isArray(step.payload.columns)) {
-            step.payload.destination_columns_str = step.payload.columns;
-          } else {
-            step.payload.destination_columns_str = [];
+            destCols = step.payload.columns;
           }
+          if (!destCols || destCols.length === 0) {
+            const prevNode = incomingEdgesForStep.length > 0 ? activeNodes.find(n => n.id === incomingEdgesForStep[0].source) : undefined;
+            destCols = getAllOutputColumnsOfNodeLocal(prevNode);
+            // If destination DB/schema not set, inherit from upstream node when available
+            if (!step.payload.database && prevNode?.data?.database) {
+              step.payload.database = prevNode.data.database;
+            }
+            if (!step.payload.schema && prevNode?.data?.schema) {
+              step.payload.schema = prevNode.data.schema;
+            }
+          }
+          step.payload.destination_columns_str = destCols;
           delete step.payload.columns;
           break;
+        }
         case 'rename_col':
           step.action_type = 'rename_col';
           step.payload.input_step = inputStep;
@@ -427,6 +498,7 @@ const WorkflowHomePage: React.FC = () => {
           break;
       }
       orderedSteps.push(step);
+      return step;
     });
     const workflowJson = {
       workflow_name: activeWorkflowName,
@@ -434,7 +506,7 @@ const WorkflowHomePage: React.FC = () => {
     };
     console.log("Generated Workflow JSON:", JSON.stringify(workflowJson, null, 2));
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/create_workflow/`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -469,7 +541,7 @@ const WorkflowHomePage: React.FC = () => {
       return;
     }
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/execute_workflow/?workflow_name=${encodeURIComponent(activeWorkflowName)}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/execute_workflow/?workflow_name=${encodeURIComponent(activeWorkflowName)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -503,7 +575,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to schedule workflow: '${activeWorkflowName}' with cron_schedule: '${cron_schedule_value}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/schedule_workflow/`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/schedule_workflow/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -543,7 +615,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to suspend workflow: '${activeWorkflowName}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/suspend_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/suspend_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -577,7 +649,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to resume workflow: '${activeWorkflowName}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/API_WORKFLOW/resume_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/resume_task/?task_name=${encodeURIComponent('execute_workflow_'+ activeWorkflowName)}`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${accessToken}`,
@@ -674,8 +746,8 @@ const WorkflowHomePage: React.FC = () => {
           <PaletteItem label="Aggregate KPI" type="aggregate_kpi" shape={<span className="text-4xl">📊</span>} tooltip="Aggregate key performance indicator" />
           <PaletteItem label="Sort" type="sort" shape={<span className="text-4xl">⬆️</span>} tooltip="Sort dataset" />
           <PaletteItem label="Destination" type="destination" shape={<svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>} tooltip="Output target" />
           <PaletteItem label="Drop Nulls" type="drop_nulls" shape={<span className="text-4xl">🗑️</span>} />
           <PaletteItem label="Drop Duplicates" type="drop_duplicates" shape={<span className="text-4xl">✂️</span>} />
@@ -843,14 +915,14 @@ const WorkflowHomePage: React.FC = () => {
             initialNodes={activeNodes}
             initialEdges={activeEdges}
             initialWorkflowName={activeWorkflowName}
-            onWorkflowNameChange={setActiveWorkflowName}
             initialSelectedCronSchedule={activeSchedule}
             accessToken={accessToken}
-            refreshWorkflows={fetchWorkflows}
+            refreshWorkflows={() => accessToken && fetchWorkflows(accessToken)}
             initialIdCounter={globalNodeIdCounter}
             onSetIdCounter={onSetIdCounterFromBuilder}
             setIsWorkflowSaved={setIsWorkflowSaved}
-            setEdges={setActiveEdges}
+            setParentNodes={(nodes: Node[]) => setActiveNodes(nodes as ReactFlowNode[])}
+            setParentEdges={(edges: Edge[]) => setActiveEdges(edges as ReactFlowEdge[])}
           />
         </div>
       </div>

@@ -116,6 +116,11 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.gouvernance.grants,
         icon: PiCurrencyDollarDuotone,
       },
+      {
+        name: 'Masking Policies',
+        href: routes.gouvernance.masking,
+        icon: PiEyeSlashDuotone,
+      },
     ],
   },
   {

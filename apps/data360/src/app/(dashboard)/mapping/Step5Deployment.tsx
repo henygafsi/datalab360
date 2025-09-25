@@ -8,13 +8,11 @@ import { Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
-import { manageTableStructure } from './addConstraints';
 
-// --- Interface Definitions ---
-interface ForeignKey {
-    column: string;
-    referenced_table: string;
-    referenced_column: string;
+interface TableSelection {
+    database: string;
+    schema: string;
+    table: string;
 }
 
 interface MappingData {
@@ -30,6 +28,7 @@ interface MappingData {
         target_column: string;
         data_type: string;
         source_table_key?: string;
+        target_table_key?: string;
     }>;
     new_target_columns: Array<{
         name: string;
@@ -37,13 +36,10 @@ interface MappingData {
         nullable: boolean;
     }>;
     primary_keys?: {
-        source: { [tableKey: string]: string[] }; // Updated to match parent
+        source: { [tableKey: string]: string[] };
         target: string[];
     };
-    foreign_keys?: {
-        source: ForeignKey[];
-        target: ForeignKey[];
-    };
+    groups?: Array<{ sources: TableSelection[]; target: TableSelection | null }>;
 }
 
 interface Step5Props {
@@ -62,11 +58,69 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
     const deployedMappings = mappingData?.column_mappings || [];
     const newColumns = mappingData?.new_target_columns || [];
 
+    type MappingPayload = {
+        source_database: string;
+        source_schema: string;
+        source_table: string;
+        source_columns: string[];
+        pk_source: string[];
+        target_database: string;
+        target_schema: string;
+        target_table: string;
+        target_columns: string[];
+        pk_target: string[];
+    };
+
+    const buildMappings = useCallback((): MappingPayload[] => {
+        const groups = (mappingData.groups && mappingData.groups.length > 0)
+            ? mappingData.groups
+            : [{
+                sources: [{ database: mappingData.source_database, schema: mappingData.source_schema, table: mappingData.source_table }],
+                target: { database: mappingData.target_database, schema: mappingData.target_schema, table: mappingData.target_table }
+            }];
+
+        const mappings: MappingPayload[] = [];
+        const pkSourceMap = mappingData.primary_keys?.source || {};
+
+        groups.forEach(g => {
+            if (!g.target) return;
+            const tgtKey = `${g.target.database}.${g.target.schema}.${g.target.table}`;
+            const targetPkList = mappingData.primary_keys?.source?.[tgtKey] || mappingData.primary_keys?.target || [];
+            
+            (g.sources || []).forEach(src => {
+                const srcKey = `${src.database}.${src.schema}.${src.table}`;
+                const sourcePkList = pkSourceMap[srcKey] || [];
+                
+                // Relevant mappings for this pair
+                const relevant = (mappingData.column_mappings || []).filter((m: any) => {
+                    const matchSource = (m.source_table_key || srcKey) === srcKey;
+                    const matchTarget = m.target_table_key ? m.target_table_key === tgtKey : true;
+                    return matchSource && matchTarget;
+                });
+                
+                mappings.push({
+                    source_database: src.database,
+                    source_schema: src.schema,
+                    source_table: src.table,
+                    source_columns: relevant.map(m => m.source_column),
+                    pk_source: sourcePkList,
+                    target_database: g.target!.database,
+                    target_schema: g.target!.schema,
+                    target_table: g.target!.table,
+                    target_columns: relevant.map(m => m.target_column),
+                    pk_target: targetPkList,
+                });
+            });
+        });
+        return mappings;
+    }, [mappingData]);
+
+
     const handleDeploy = useCallback(async () => {
-        if (!projectId || !mappingData || !mappingData.target_table) {
+        if (!projectId || !mappingData) {
             toast({
                 title: 'Error',
-                description: 'Missing project ID, mapping data, or target table information.',
+                description: 'Missing project ID or mapping data.',
                 variant: 'destructive',
             });
             return;
@@ -74,7 +128,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
         setDeploying(true);
 
-        if (mappingData.column_mappings.length === 0) {
+        if ((mappingData.column_mappings || []).length === 0) {
             toast({
                 title: 'Error',
                 description: 'Please define at least one column mapping before deployment.',
@@ -91,25 +145,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             }
             const token = session.user.access_token;
 
-            const pk_source = mappingData.primary_keys?.source
-                ? Object.values(mappingData.primary_keys.source).flat()
-                : [];
-            const pk_target = mappingData.primary_keys?.target || [];
-
-            const mappingsForPayload = [
-                {
-                    source_database: mappingData.source_database,
-                    source_schema: mappingData.source_schema,
-                    source_table: mappingData.source_table,
-                    source_columns: mappingData.column_mappings.map((m) => m.source_column),
-                    pk_source: pk_source,
-                    target_database: mappingData.target_database,
-                    target_schema: mappingData.target_schema,
-                    target_table: mappingData.target_table,
-                    target_columns: mappingData.column_mappings.map((m) => m.target_column),
-                    pk_target: pk_target,
-                },
-            ];
+            const mappingsForPayload = buildMappings();
 
             console.log('Step5: Sending mapping validation request to /mapping/test_mapping/', mappingsForPayload);
             const validationResponse = await axios.post(
@@ -124,76 +160,29 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
             toast({
                 title: 'Validation Success',
-                description: 'Column mappings are valid. Applying constraints and deploying.',
+                description: 'Column mappings are valid. Proceeding with deployment.',
                 variant: 'success',
             });
             console.log('Step5: Mapping validation successful.');
 
-            // --- FIXED: Restored Constraint Application Logic ---
-            const constraintPromises = [];
-            const targetTableKey = `"${mappingData.target_database}"."${mappingData.target_schema}"."${mappingData.target_table}"`;
+            // PK constraints should already be applied during table setup, not during deployment
+            // Deployment only handles the mapping logic, not table structure modifications
 
-            if (mappingData.primary_keys?.target?.length) {
-                // Assuming the API takes all PK columns at once for a given table
-                console.log(`Step5: Adding PK constraint for ${mappingData.primary_keys.target.join(', ')} on ${targetTableKey}`);
-                constraintPromises.push(
-                    manageTableStructure({
-                        SOURCE_TABLE: targetTableKey,
-                        COLUMN_NAME: mappingData.primary_keys.target.join(', '), // Join for single call if API supports it
-                        CONSTRAINT_TYPE: 'ADD_PK',
-                    }, token)
-                );
-            }
-
-            if (mappingData.foreign_keys?.target?.length) {
-                mappingData.foreign_keys.target.forEach((fk) => {
-                    const referencedTableFullPath = `"${mappingData.target_database}"."${mappingData.target_schema}"."${fk.referenced_table}"`;
-                    console.log(`Step5: Adding FK constraint for ${fk.column} referencing ${referencedTableFullPath}.${fk.referenced_column}`);
-                    constraintPromises.push(
-                        manageTableStructure({
-                            SOURCE_TABLE: targetTableKey,
-                            COLUMN_NAME: fk.column,
-                            TABLE_REF: referencedTableFullPath,
-                            COLUMN_REF: fk.referenced_column,
-                            CONSTRAINT_TYPE: 'ADD_FK',
-                        }, token)
-                    );
-                });
-            }
-
-            if (constraintPromises.length > 0) {
-                console.log(`Step5: Attempting to apply ${constraintPromises.length} constraints.`);
-                const results = await Promise.allSettled(constraintPromises);
-                const errors = results
-                    .filter((r) => r.status === 'rejected')
-                    .map((r) => (r as PromiseRejectedResult).reason);
-
-                if (errors.length) {
-                    throw new Error(`One or more constraint applications failed: ${errors.map((e) => e.message).join(', ')}`);
-                }
-                toast({
-                    title: 'Constraints Applied',
-                    description: 'Primary and/or Foreign Key constraints were applied successfully.',
-                    variant: 'success',
-                });
-            }
-            // --- End of Restored Logic ---
-
-            const deployRequestBody = {
-                project_id: projectId,
-                mappings: mappingsForPayload,
-            };
+            const deployRequestBody = { project_id: projectId, mappings: mappingsForPayload };
 
             console.log('Step5: Sending final deployment request to /mapping/deploy_model/', deployRequestBody);
             const deployResponse = await axios.post(
                 `${API_BASE_URL}/mapping/deploy_model/`,
-                deployRequestBody,
+                { project_id: projectId, mappings: mappingsForPayload },
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
 
             if (deployResponse.data.status !== 'success') {
                 throw new Error(deployResponse.data.detail || 'Model deployment failed after validation.');
             }
+            
+            // Show success popup alert
+            alert('🎉 Deployment Successful!\n\nYour mapping has been deployed successfully. The system will now refresh to show the updated data.');
             
             toast({
                 title: 'Deployment Complete!',
@@ -216,7 +205,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
         } finally {
             setDeploying(false);
         }
-    }, [projectId, mappingData, username, toast, router]);
+    }, [projectId, mappingData, toast, buildMappings]);
 
     return (
         <Card className="p-6">
@@ -230,10 +219,109 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 <div className="space-y-6">
                     <div>
                         <h3 className="text-lg font-semibold">Deployment Summary</h3>
-                        <p><strong>Source Table:</strong> {mappingData.source_database}.{mappingData.source_schema}.{mappingData.source_table}</p>
-                        <p><strong>Target Table:</strong> {mappingData.target_database}.{mappingData.target_schema}.{mappingData.target_table}</p>
+                        
+                        {/* Show all groups if they exist, otherwise show single mapping */}
+                        {mappingData.groups && mappingData.groups.length > 0 ? (
+                            <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-sm text-muted-foreground">Multiple table groups configured:</p>
+                                    <div className="text-sm font-medium text-blue-600 dark:text-blue-400">
+                                        {mappingData.groups.length} group(s) • {deployedMappings.length} total mappings
+                                    </div>
+                                </div>
+                                {mappingData.groups.map((group, groupIndex) => (
+                                    <div key={groupIndex} className="border rounded-lg p-4 bg-slate-50 dark:bg-slate-800">
+                                        <h4 className="font-semibold text-blue-600 dark:text-blue-400 mb-2">
+                                            Group {groupIndex + 1}
+                                        </h4>
+                                        
+                                        {/* Source Tables */}
+                                        <div className="mb-3">
+                                            <p className="font-medium text-sm">Source Tables:</p>
+                                            {group.sources.map((source, sourceIndex) => (
+                                                <p key={sourceIndex} className="text-sm ml-2">
+                                                    {source.database}.{source.schema}.{source.table}
+                                                </p>
+                                            ))}
+                                        </div>
+                                        
+                                        {/* Target Table */}
+                                        <div className="mb-3">
+                                            <p className="font-medium text-sm">Target Table:</p>
+                                            <p className="text-sm ml-2">
+                                                {group.target?.database}.{group.target?.schema}.{group.target?.table}
+                                            </p>
+                                        </div>
+                                        
+                                        {/* Primary Keys for this group */}
+                                        {(() => {
+                                            const targetKey = `${group.target?.database}.${group.target?.schema}.${group.target?.table}`;
+                                            const groupTargetPks = mappingData.primary_keys?.source?.[targetKey] || mappingData.primary_keys?.target || [];
+                                            
+                                            const sourcePkEntries = group.sources.map(source => {
+                                                const sourceKey = `${source.database}.${source.schema}.${source.table}`;
+                                                const sourcePks = mappingData.primary_keys?.source?.[sourceKey] || [];
+                                                return { source, sourcePks };
+                                            }).filter(entry => entry.sourcePks.length > 0);
+                                            
+                                            return (sourcePkEntries.length > 0 || groupTargetPks.length > 0) && (
+                                                <div className="mb-3">
+                                                    <p className="font-medium text-sm">Primary Keys:</p>
+                                                    {sourcePkEntries.map((entry, index) => (
+                                                        <p key={index} className="text-sm ml-2">
+                                                            <span className="text-blue-600">Source ({entry.source.table}):</span> {entry.sourcePks.join(', ')}
+                                                        </p>
+                                                    ))}
+                                                    {groupTargetPks.length > 0 && (
+                                                        <p className="text-sm ml-2">
+                                                            <span className="text-green-600">Target ({group.target?.table}):</span> {groupTargetPks.join(', ')}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })()}
+                                        
+                                        {/* Column Mappings for this group */}
+                                        {(() => {
+                                            const groupMappings = deployedMappings.filter(mapping => {
+                                                // Check if mapping belongs to this group by matching source tables
+                                                const sourceKey = mapping.source_table_key || '';
+                                                const targetKey = `${group.target?.database}.${group.target?.schema}.${group.target?.table}`;
+                                                
+                                                // Match by source table key or target table key
+                                                const matchesSource = group.sources.some(source => 
+                                                    sourceKey.includes(`${source.database}.${source.schema}.${source.table}`)
+                                                );
+                                                const matchesTarget = mapping.target_table_key === targetKey;
+                                                
+                                                return matchesSource || matchesTarget;
+                                            });
+                                            
+                                            return groupMappings.length > 0 && (
+                                                <div className="mb-3">
+                                                    <p className="font-medium text-sm">Column Mappings ({groupMappings.length}):</p>
+                                                    <ul className="list-disc pl-5 text-sm max-h-32 overflow-y-auto">
+                                                        {groupMappings.map((mapping, index) => (
+                                                            <li key={index}>
+                                                                {mapping.source_column} → {mapping.target_column} ({mapping.data_type})
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div>
+                                <p><strong>Source Table:</strong> {mappingData.source_database}.{mappingData.source_schema}.{mappingData.source_table}</p>
+                                <p><strong>Target Table:</strong> {mappingData.target_database}.{mappingData.target_schema}.{mappingData.target_table}</p>
+                            </div>
+                        )}
 
-                        {deployedMappings.length > 0 && (
+                        {/* Show all column mappings if no groups */}
+                        {(!mappingData.groups || mappingData.groups.length === 0) && deployedMappings.length > 0 && (
                             <>
                                 <p className="mt-2"><strong>Column Mappings:</strong></p>
                                 <ul className="list-disc pl-5">
@@ -271,23 +359,9 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                                 </ul>
                             </>
                         )}
-                         {mappingData.foreign_keys && mappingData.foreign_keys.target.length > 0 && (
-                            <>
-                                <p className="mt-2"><strong>Foreign Keys on Target:</strong></p>
-                                <ul className="list-disc pl-5">
-                                    {mappingData.foreign_keys.target.map((fk, index) => (
-                                        <li key={`target-fk-${index}`}>
-                                            {fk.column} → {fk.referenced_table}.{fk.referenced_column}
-                                        </li>
-                                    ))}
-                                </ul>
-                            </>
-                        )}
                     </div>
                     <div className="flex justify-between gap-2 mt-6">
-                        <Button variant="outline" onClick={onBack} disabled={deploying}>
-                            Back
-                        </Button>
+                        <Button variant="outline" onClick={onBack} disabled={deploying}>Back</Button>
                         <Button onClick={handleDeploy} disabled={deploying}>
                             {deploying ? (
                                 <>

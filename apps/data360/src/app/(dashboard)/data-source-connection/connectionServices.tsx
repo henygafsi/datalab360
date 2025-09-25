@@ -11,12 +11,13 @@ interface ApiResponse {
 // New interface for the expected structured response from getIntegrationDetails
 interface AzureIntegrationDetailsResponse {
     message: string;
+    azure_consent_url?: string; // Optional, as it might not always be there
+    azure_multi_tenant_app_name?: string; // Optional
     details: {
         integration_name: string;
         tenant_id?: string; // Add if returned
         type: string; // e.g., "AZURE_NOTIFICATION"
-        azure_consent_url?: string; // Optional, as it might not always be there
-        azure_multi_tenant_app_name?: string; // Optional
+        
         // ... other relevant details you might expect ...
     };
 }

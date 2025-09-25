@@ -21,9 +21,8 @@ export default function TableLayout({
     <>
       <PageHeader {...props}>
         <div className="mt-4 flex items-center gap-3 @lg:mt-0">
-          <AddUserButton /> {/* AddUserButton to open the user form modal */}
+          <AddUserButton />
           <ImportButton title={'Import Users'} />{' '}
-          {/* ImportButton for file upload */}
         </div>
       </PageHeader>
 

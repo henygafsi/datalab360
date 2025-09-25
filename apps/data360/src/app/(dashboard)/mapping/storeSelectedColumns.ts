@@ -2,21 +2,12 @@
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
 
-interface ColumnAttribute {
-    name: string;
-    is_required_for_mapping: boolean;
-    is_nullable?: boolean;
-    is_primary_key?: boolean;
-    is_foreign_key?: boolean;
-    data_type?: string;
-}
-
 interface StoreSelectedColumnsPayload {
     project_id: string;
     database_name: string;
     schema_name: string;
     table_name: string;
-    columns: ColumnAttribute[];
+    selected_columns: string[];
 }
 
 interface StoreSelectedColumnsResponse {

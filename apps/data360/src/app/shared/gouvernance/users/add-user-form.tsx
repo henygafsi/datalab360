@@ -8,14 +8,14 @@ import { addUser, assignRoleToUser } from '@/app/services/gouvernance/fetch_user
 import { getRoles } from '@/app/services/gouvernance/fetch_roles'; // Import getRoles
 
 type AddUserFormProps = {
-  onAddUserSuccess: () => void;
+  onAddUserSuccess?: () => void;
   onClose: () => void;
 };
 
 export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormProps) {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [selectedRole, setSelectedRole] = useState<string>(''); // State for selected role
   const [availableRoles, setAvailableRoles] = useState<SelectOption[]>([]); // State for available roles
   const [loading, setLoading] = useState(false);
@@ -54,15 +54,10 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
       return;
     }
 
-    const username = `${firstName.toUpperCase()}${lastName.toUpperCase()}`;
-    const defaultPassword = 'password123'; // Still hardcoded, consider secure password generation
-
     try {
       const userData = {
         username: username,
-        password: defaultPassword,
-        first_name: firstName,
-        last_name: lastName,
+        password: password,
         email: email,
       };
       await addUser(userData); // No accessToken parameter needed
@@ -71,7 +66,7 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
       await assignRoleToUser(username, selectedRole); // Use selected role
       console.log(`Role '${selectedRole}' assigned to user '${username}'`);
 
-      onAddUserSuccess();
+      onAddUserSuccess?.();
       onClose();
     } catch (err: any) {
       console.error('Failed to add user or assign role:', err);
@@ -86,23 +81,23 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
       <div className="mb-6 flex items-center justify-between">
         <form onSubmit={handleSubmit} className="space-y-4 w-full">
           <div>
-            <label htmlFor="firstName" className="block text-gray-700">First Name</label>
+            <label htmlFor="username" className="block text-gray-700">Username</label>
             <input
-              id="firstName"
+              id="username"
               type="text"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               className="mt-1 block w-full rounded-md border p-2"
               required
             />
           </div>
           <div>
-            <label htmlFor="lastName" className="block text-gray-700">Last Name</label>
+            <label htmlFor="password" className="block text-gray-700">Password</label>
             <input
-              id="lastName"
-              type="text"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               className="mt-1 block w-full rounded-md border p-2"
               required
             />
@@ -127,10 +122,12 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
                 id="roleSelect"
                 options={availableRoles}
                 value={selectedRole}
-                onChange={(value) => setSelectedRole(value?.value as string || '')}
+                onChange={(option) => {
+                  const opt = option as SelectOption | null;
+                  setSelectedRole(opt?.value as string || '');
+                }}
                 placeholder="Select a role"
                 className="mt-1"
-                required
               />
             )}
           </div>

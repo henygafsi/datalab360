@@ -1,22 +1,20 @@
 import Link from 'next/link';
-import { Fragment } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold } from 'react-icons/pi';
+import { PiCaretDownBold, PiDatabase, PiChartBar } from 'react-icons/pi';
 import { 
-  HiOutlineDatabase, 
   HiOutlineMap, 
   HiOutlineCog8Tooth, 
-  HiOutlineChartBarSquare,
   HiOutlineUsers,
   HiOutlineShieldCheck,
   HiOutlineKey,
   HiOutlineHome,
-  HiOutlineDocumentChart
+  HiOutlineDocumentChartBar
 } from 'react-icons/hi2';
 
-// Modern menu items with better organization
+
 const modernMenuItems = [
   {
     name: 'Dashboard',
@@ -25,7 +23,7 @@ const modernMenuItems = [
   },
   {
     name: 'Data Sources',
-    icon: <HiOutlineDatabase className="w-5 h-5" />,
+    icon: <PiDatabase className="w-5 h-5" />,
     dropdownItems: [
       {
         name: 'Connections',
@@ -58,12 +56,12 @@ const modernMenuItems = [
       {
         name: 'BI Reporting',
         href: '/bi-reporting',
-        icon: <HiOutlineChartBarSquare className="w-4 h-4" />,
+        icon: <PiChartBar className="w-4 h-4" />,
       },
       {
         name: 'Dashboards',
         href: '/analytics',
-        icon: <HiOutlineDocumentChart className="w-4 h-4" />,
+        icon: <HiOutlineDocumentChartBar className="w-4 h-4" />,
       }
     ]
   },
@@ -84,6 +82,11 @@ const modernMenuItems = [
         name: 'Grants',
         href: '/gouvernance/grants',
         icon: <HiOutlineKey className="w-4 h-4" />,
+      },
+      {
+        name: 'Masking Policy',
+        href: '/gouvernance/masking',
+        icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       }
     ]
   }
@@ -92,98 +95,123 @@ const modernMenuItems = [
 export function SidebarMenu() {
   const pathname = usePathname();
 
+  // Feature flag: show full menu when datalake connection completed
+  const [datalakeConnected, setDatalakeConnected] = useState<boolean>(false);
+
+  useEffect(() => {
+    // Initialize from localStorage (or future session-based flag)
+    try {
+      const flag = typeof window !== 'undefined' ? window.localStorage.getItem('features.datalakeConnected') : null;
+      setDatalakeConnected(flag === '1');
+    } catch {}
+
+    // Listen for refresh events to update without logout/login
+    const handler = () => {
+      try {
+        const flag = typeof window !== 'undefined' ? window.localStorage.getItem('features.datalakeConnected') : null;
+        setDatalakeConnected(flag === '1');
+      } catch {}
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('app:refresh-menu', handler);
+    }
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('app:refresh-menu', handler);
+      }
+    };
+  }, []);
+
+  const filteredMenuItems = useMemo(() => {
+    if (datalakeConnected) {
+      return modernMenuItems;
+    }
+    // Before connection established: show minimal menu with only Connections under Data Sources
+    return modernMenuItems
+      .map((item) => {
+        if (item.name === 'Data Sources') {
+          return {
+            ...item,
+            dropdownItems: item.dropdownItems?.filter((d: any) => d.href === '/data-source-connection')
+          };
+        }
+        // Hide other groups entirely when not connected
+        if (['Data Processing', 'Analytics', 'Governance'].includes(item.name)) {
+          return null as any;
+        }
+        return item;
+      })
+      .filter(Boolean);
+  }, [datalakeConnected]);
+
   return (
     <nav className="space-y-2">
-      {modernMenuItems.map((item, index) => {
+      {filteredMenuItems.map((item: any, index: number) => {
         const isActive = pathname === (item?.href as string);
         const pathnameExistInDropdowns: any = item?.dropdownItems?.filter(
-          (dropdownItem) => dropdownItem.href === pathname
+          (dropdownItem: any) => dropdownItem.href === pathname
         );
         const isDropdownOpen = Boolean(pathnameExistInDropdowns?.length);
 
         return (
           <Fragment key={item.name + '-' + index}>
-            {item?.href ? (
-              // Single Menu Item
-              <Link
-                href={item.href}
-                className={cn(
-                  'group flex items-center px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-200/20 dark:border-blue-500/20'
-                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
-                )}
-              >
-                <span className={cn(
-                  'mr-3 transition-transform duration-200',
-                  isActive ? 'text-blue-600 dark:text-blue-400 scale-110' : 'group-hover:scale-110'
-                )}>
-                  {item.icon}
-                </span>
-                {item.name}
-                {isActive && (
-                  <div className="ml-auto w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                )}
-              </Link>
-            ) : (
-              // Dropdown Menu Item
+            {item?.dropdownItems ? (
+              <div className="rounded-lg border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60">
               <Collapse
-                defaultOpen={isDropdownOpen}
                 header={({ open, toggle }) => (
                   <button
+                      className="flex w-full items-center justify-between text-slate-700 dark:text-slate-200"
                     onClick={toggle}
-                    className={cn(
-                      'group w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
-                      isDropdownOpen
-                        ? 'bg-gradient-to-r from-slate-100 to-slate-50 dark:from-slate-800 dark:to-slate-900 text-slate-900 dark:text-white shadow-sm'
-                        : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800/70 hover:text-slate-900 dark:hover:text-white'
-                    )}
-                  >
-                    <div className="flex items-center">
-                      <span className="mr-3 transition-transform duration-200 group-hover:scale-110">
-                        {item.icon || <HiOutlineDocumentChart className="w-5 h-5" />}
-                      </span>
+                    >
+                      <div className="flex items-center gap-2">
+                        {item?.icon}
+                        <Title as="h6" className="font-medium">
                       {item.name}
+                        </Title>
                     </div>
                     <PiCaretDownBold
-                      className={cn(
-                        'w-4 h-4 transition-transform duration-200',
-                        open ? 'rotate-0' : '-rotate-90'
-                      )}
+                        className={cn('h-4 w-4 transition-transform', open && 'rotate-180')}
                     />
                   </button>
                 )}
               >
-                <div className="ml-4 mt-1 space-y-1 border-l-2 border-slate-200 dark:border-slate-700 pl-4">
-                  {item?.dropdownItems?.map((dropdownItem, dropIndex) => {
-                    const isChildActive = pathname === (dropdownItem?.href as string);
-
+                  <div className="px-2 pb-2">
+                    {item?.dropdownItems?.map((dropdownItem: any) => {
+                      const isDropdownActive = pathname === dropdownItem.href;
                     return (
                       <Link
-                        key={dropdownItem?.name + dropIndex}
-                        href={dropdownItem?.href}
+                          key={dropdownItem.name}
+                          href={dropdownItem.href}
                         className={cn(
-                          'group flex items-center px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
-                          isChildActive
-                            ? 'bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 shadow-sm border border-blue-200/20 dark:border-blue-500/20'
-                            : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 hover:text-slate-900 dark:hover:text-white hover:translate-x-1'
-                        )}
-                      >
-                        <span className={cn(
-                          'mr-3 transition-all duration-200',
-                          isChildActive ? 'text-blue-600 dark:text-blue-400 scale-110' : 'group-hover:scale-110'
-                        )}>
-                          {dropdownItem.icon || <div className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />}
-                        </span>
+                            'flex items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                            isDropdownActive
+                              ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700'
+                          )}
+                        >
+                          {dropdownItem.icon && dropdownItem.icon}
                         {dropdownItem.name}
-                        {isChildActive && (
-                          <div className="ml-auto w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-                        )}
                       </Link>
                     );
                   })}
                 </div>
               </Collapse>
+              </div>
+            ) : (
+              <Link
+                href={item?.href as string}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/60 dark:bg-slate-800/60 px-4 py-3 transition-colors',
+                  isActive
+                    ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
+                    : 'text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700'
+                )}
+              >
+                {item?.icon}
+                <Title as="h6" className="font-medium">
+                  {item.name}
+                </Title>
+              </Link>
             )}
           </Fragment>
         );

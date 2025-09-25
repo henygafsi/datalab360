@@ -5,6 +5,7 @@ import ReactFlow, {
   ReactFlowProvider,
   addEdge,
   Background,
+  BackgroundVariant,
   Controls,
   MiniMap,
   useNodesState,
@@ -28,7 +29,7 @@ const nodeTypes = {
   src: ({ data }: any) => (
     <div className="relative w-40 h-24 font-bold flex flex-col justify-center items-center text-xs text-center p-2 group">
       <Handle type="source" position={Position.Right} className="w-5 h-5 bg-blue-700 rounded-full absolute top-1/2 -right-3" />
-      <svg width="48px" height="48px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg" aria-labelledby="databaseIconTitle" stroke="#000000" stroke-width="1" stroke-linecap="square" stroke-linejoin="miter" fill="none" color="#000000"> <title id="databaseIconTitle">Database</title> <ellipse cx="12" cy="6" rx="8" ry="3"/> <path d="M4,6 C4,8.209139 7.581722,10 12,10 C16.418278,10 20,8.209139 20,6"/> <path d="M4,12 C4,14.209139 7.581722,16 12,16 C16.418278,16 20,14.209139 20,12"/> <path d="M4,18 C4,20.209139 7.581722,22 12,22 C16.418278,22 20,20.209139 20,18"/> <path d="M4 6L4 18"/> <path d="M20 6L20 18"/> </svg>
+      <svg width="48px" height="48px" viewBox="0 0 24 24" role="img" xmlns="http://www.w3.org/2000/svg" aria-labelledby="databaseIconTitle" stroke="#000000" strokeWidth="1" strokeLinecap="square" strokeLinejoin="miter" fill="none" color="#000000"> <title id="databaseIconTitle">Database</title> <ellipse cx="12" cy="6" rx="8" ry="3"/> <path d="M4,6 C4,8.209139 7.581722,10 12,10 C16.418278,10 20,8.209139 20,6"/> <path d="M4,12 C4,14.209139 7.581722,16 12,16 C16.418278,16 20,14.209139 20,12"/> <path d="M4,18 C4,20.209139 7.581722,22 12,22 C16.418278,22 20,20.209139 20,18"/> <path d="M4 6L4 18"/> <path d="M20 6L20 18"/> </svg>
       <span className="text-sm font-semibold mb-1">Source</span>
       <div className="absolute inset-0 bg-transparent text-blue-900 rounded-lg flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
         <div><b>DB:</b> {data.database || 'N/A'}</div>
@@ -123,8 +124,8 @@ const nodeTypes = {
     <div className="relative w-40 h-24 font-bold flex flex-col items-center justify-center p-2 group">
       <Handle type="target" position={Position.Left} className="w-5 h-5 bg-green-700 rounded-full" />
       <svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
       <span className="text-sm">Destination</span>
       <div className="absolute inset-0 bg-transparent text-green-800 rounded-xl flex flex-col justify-center items-center text-[10px] p-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
@@ -229,7 +230,7 @@ const SourceConfigModal = ({ isOpen, onClose, onSave, initialData, accessToken, 
       try {
         const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', }, });
         if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
-        const result = await response.json();
+        const result = await response.json() as any;
         let processedData: string[] = [];
         if (url.includes('/mapping/databases') || url.includes('/mapping/schemas/') || url.includes('/mapping/tables/')) {
           const key = url.includes('/mapping/databases') ? 'databases' : url.includes('/mapping/schemas/') ? 'schemas' : 'tables';
@@ -279,8 +280,8 @@ const JoinConfigModal = ({ isOpen, onClose, onSave, initialData, availableNodes,
       const rightEdge = incomingEdges.find((edge: Edge) => edge.targetHandle === 'input2');
       const nodeIdToStepMap = new Map<string, number>();
       availableNodes.forEach((node: Node, idx: number) => nodeIdToStepMap.set(node.id, idx + 1));
-      setLeftInputCols(getAllOutputColumnsOfNode(availableNodes.find(n => n.id === leftEdge?.source), availableNodes, edges));
-      setRightInputCols(getAllOutputColumnsOfNode(availableNodes.find(n => n.id === rightEdge?.source), availableNodes, edges));
+      setLeftInputCols(getAllOutputColumnsOfNode(availableNodes.find((n: Node) => n.id === leftEdge?.source), availableNodes, edges));
+      setRightInputCols(getAllOutputColumnsOfNode(availableNodes.find((n: Node) => n.id === rightEdge?.source), availableNodes, edges));
       if (leftEdge) setLeftStep(nodeIdToStepMap.get(leftEdge.source));
       if (rightEdge) setRightStep(nodeIdToStepMap.get(rightEdge.source));
     }
@@ -349,7 +350,7 @@ const DestinationConfigModal = ({ isOpen, onClose, onSave, initialData, availabl
     try {
       const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', }, });
       if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
-      const result = await response.json();
+      const result = await response.json() as any;
       let processedData: string[] = [];
       if (url.includes('/mapping/databases') || url.includes('/mapping/schemas/') || url.includes('/mapping/tables/')) {
         const key = url.includes('/mapping/databases') ? 'databases' : url.includes('/mapping/schemas/') ? 'schemas' : 'tables';
@@ -358,21 +359,47 @@ const DestinationConfigModal = ({ isOpen, onClose, onSave, initialData, availabl
       } else if (url.includes('/mapping/get_table_columns')) {
         const raw = result.columns || result;
         processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-      } else { processedData = Array.isArray(result) ? result : []; }
+      } else { processedData = Array.isArray(result) ? result.map((item: any) => String(item)) : []; }
       setter(processedData);
     } catch (error) { console.error(`DestinationConfigModal: Error fetching data from ${url}:`, error); toast.error(`Destination Configuration Error: Failed to load data. Check console for details. Error: ${error instanceof Error ? error.message : String(error)}`); }
   }, [accessToken]);
   useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
   useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
   useEffect(() => { if (database && schema && accessToken) { setTables([]); setDestinationTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
-  useEffect(() => { if (isOpen && initialData) { setDatabase(initialData.database || ''); setSchema(initialData.schema || ''); setDestinationTable(initialData.destination_table || ''); setDestinationColumns(initialData.columns || []); } }, [isOpen, initialData]);
+  useEffect(() => {
+    if (isOpen && initialData) {
+      setDatabase(initialData.database || '');
+      setSchema(initialData.schema || '');
+      setDestinationTable(initialData.destination_table || '');
+      const initCols = Array.isArray(initialData.columns) ? initialData.columns : [];
+      setDestinationColumns(initCols);
+    }
+  }, [isOpen, initialData]);
+  // If no columns selected yet, default to all available input columns
+  useEffect(() => {
+    if (isOpen) {
+      const current = Array.isArray(initialData?.columns) ? initialData.columns : [];
+      if ((!current || current.length === 0) && Array.isArray(availableInputColumns)) {
+        setDestinationColumns(availableInputColumns as string[]);
+      }
+    }
+  }, [isOpen, availableInputColumns, initialData]);
   const handleSave = () => { onSave({ database, schema, destination_table: destinationTable, columns: destinationColumns }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
       <h2 className="text-lg font-bold">Configure Destination</h2>
       <select className="w-full border px-3 py-2 rounded" value={database} onChange={(e) => setDatabase(e.target.value)}><option value="">Select Database</option>{databases.map(db => <option key={db} value={db}>{db}</option>)}</select>
       <select className="w-full border px-3 py-2 rounded" value={schema} onChange={(e) => setSchema(e.target.value)}><option value="">Select Schema</option>{schemas.map(s => <option key={s} value={s}>{s}</option>)}</select>
-      <select className="w-full border px-3 py-2 rounded" value={destinationTable} onChange={(e) => setDestinationTable(e.target.value)}><option value="">Select Table</option>{tables.map(t => <option key={t} value={t}>{t}</option>)}</select>
+      <div>
+        <label className="block text-sm font-medium text-gray-700">table_name</label>
+        <input
+          type="text"
+          className="w-full border px-3 py-2 rounded"
+          value={destinationTable}
+          onChange={(e) => setDestinationTable(e.target.value)}
+          placeholder="Enter table name"
+        />
+      </div>
       <label className="block text-sm font-medium text-gray-700 mt-2">Destination Columns (Select from available)</label>
       <select multiple className="w-full border px-3 py-2 rounded h-24" value={destinationColumns} onChange={(e) => setDestinationColumns(Array.from(e.target.selectedOptions, o => o.value))}>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select>
       <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
@@ -392,6 +419,9 @@ interface WorkflowBuilderProps {
   initialIdCounter: number; 
   onSetIdCounter: (count: number) => void; 
   setIsWorkflowSaved: React.Dispatch<React.SetStateAction<boolean>>;
+  // Sync internal graph up to parent so Save can see it
+  setParentNodes?: (nodes: Node[]) => void;
+  setParentEdges?: (edges: Edge[]) => void;
 }
 
 export default function WorkflowBuilder({
@@ -405,6 +435,8 @@ export default function WorkflowBuilder({
   initialIdCounter, 
   onSetIdCounter, 
   setIsWorkflowSaved, // Still used for setting save status
+  setParentNodes,
+  setParentEdges,
 }: WorkflowBuilderProps) {
   const reactFlowWrapper = useRef(null);
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
@@ -438,18 +470,53 @@ export default function WorkflowBuilder({
   }, [initialIdCounter, onSetIdCounter]);
 
 
-  // Update ReactFlow nodes/edges when initialNodes/initialEdges props change
+  // Refs to avoid ping-pong updates when syncing with parent
+  const suppressNodePropagationRef = useRef(false);
+  const suppressEdgePropagationRef = useRef(false);
+  const prevInitialNodesRef = useRef<Node[] | null>(null);
+  const prevInitialEdgesRef = useRef<Edge[] | null>(null);
+
+  // Update nodes when parent-provided initialNodes reference changes
   useEffect(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-    // When nodes/edges are updated, ensure fitView is called to properly display them
-    if (reactFlowInstance && initialNodes.length > 0) {
-      const timeoutId = setTimeout(() => {
-        reactFlowInstance.fitView({ padding: 0.2 });
-      }, 50);
-      return () => clearTimeout(timeoutId);
+    if (prevInitialNodesRef.current !== initialNodes) {
+      suppressNodePropagationRef.current = true;
+      setNodes(initialNodes);
+      prevInitialNodesRef.current = initialNodes;
+      // Fit view after applying new nodes
+      if (reactFlowInstance && initialNodes.length > 0) {
+        const timeoutId = setTimeout(() => {
+          reactFlowInstance.fitView({ padding: 0.2 });
+        }, 50);
+        return () => clearTimeout(timeoutId);
+      }
     }
-  }, [initialNodes, initialEdges, setNodes, setEdges, reactFlowInstance]);
+  }, [initialNodes, setNodes, reactFlowInstance]);
+
+  // Update edges when parent-provided initialEdges reference changes
+  useEffect(() => {
+    if (prevInitialEdgesRef.current !== initialEdges) {
+      suppressEdgePropagationRef.current = true;
+      setEdges(initialEdges);
+      prevInitialEdgesRef.current = initialEdges;
+    }
+  }, [initialEdges, setEdges]);
+
+  // Propagate current nodes to parent, avoiding echo from props-driven updates
+  useEffect(() => {
+    if (suppressNodePropagationRef.current) {
+      suppressNodePropagationRef.current = false;
+      return;
+    }
+    if (setParentNodes) setParentNodes(nodes);
+  }, [nodes, setParentNodes]);
+
+  useEffect(() => {
+    if (suppressEdgePropagationRef.current) {
+      suppressEdgePropagationRef.current = false;
+      return;
+    }
+    if (setParentEdges) setParentEdges(edges);
+  }, [edges, setParentEdges]);
 
 
   const onConnect: OnConnect = useCallback(
@@ -660,7 +727,7 @@ export default function WorkflowBuilder({
         className="react-flow-canvas"
         onNodeClick={onNodeClick}
       >
-        <Background variant="dots" gap={12} size={1} />
+        <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         <Controls />
         <MiniMap />
       </ReactFlow>

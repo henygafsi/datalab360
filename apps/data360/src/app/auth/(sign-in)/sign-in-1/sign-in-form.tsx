@@ -42,6 +42,21 @@ export default function SignInForm() {
     } else {
       // Optionally handle redirect or set a successful login state here
       console.log('Login successful:', response);
+      try {
+        if (typeof window !== 'undefined') {
+          const accountName = (data as any).account_name || '';
+          const username = (data as any).username || '';
+          const password = (data as any).password || '';
+          // Cache credentials for silent re-auth
+          window.sessionStorage.setItem('auth.account_name', accountName);
+          window.sessionStorage.setItem('auth.username', username);
+          window.sessionStorage.setItem('auth.password', password);
+          // Also persist in localStorage to survive navigation reloads
+          window.localStorage.setItem('auth.account_name', accountName);
+          window.localStorage.setItem('auth.username', username);
+          window.localStorage.setItem('auth.password', password);
+        }
+      } catch {}
     }
 
     setReset({ username: "", password: "", isRememberMe: false });

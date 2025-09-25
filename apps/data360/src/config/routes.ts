@@ -15,6 +15,7 @@ export const routes = {
     users: '/gouvernance/users',
     roles: '/gouvernance/roles',
     grants: '/gouvernance/grants',
+    masking: '/gouvernance/masking',
   },
   biReporting: {
     viewReporting: '/bi-reporting'

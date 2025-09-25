@@ -36,7 +36,8 @@ interface ColumnMapping {
     source_column: string;
     target_column: string;
     data_type: string;
-    source_table_key: string;
+    source_table_key?: string;
+    target_table_key?: string;
 }
 
 interface NewTargetColumn {
@@ -53,11 +54,7 @@ interface ColumnAttributes {
     data_type?: string;
 }
 
-interface ForeignKey {
-    column: string;
-    referenced_table: string;
-    referenced_column: string;
-}
+// ForeignKey handling removed
 
 interface MappingDetail {
     project_id: string | null;
@@ -73,11 +70,8 @@ interface MappingDetail {
         source: { [tableKey: string]: string[] }; // MODIFIED: More robust structure
         target: string[];
     };
-    foreign_keys?: {
-        source: ForeignKey[];
-        target: ForeignKey[];
-    };
     column_attributes?: { [tableName: string]: { [columnName: string]: ColumnAttributes } };
+    groups?: Array<{ sources: TableSelection[]; target: TableSelection | null }>;
 }
 
 // This order is crucial for navigation and state reconstruction
@@ -85,8 +79,8 @@ const WIZARD_STEPS_BACKEND_ORDER = [
     "CREATE_PROJECT",         // Index 0
     "ADD_PRIMARY_KEY",        // Index 1
     "ADD_REQUIRED_COLUMNS",   // Index 2
-    "TABLES_RELATIONS",       // Index 3
-    "ADD_ADDITIONAL_COLUMNS", // Index 4
+    "ADD_ADDITIONAL_COLUMNS", // Index 3 (moved before relations)
+    "TABLES_RELATIONS",       // Index 4
     "DEPLOY_MODEL"            // Index 5
 ];
 
@@ -95,10 +89,10 @@ const WIZARD_STEPS_BACKEND_ORDER = [
 function Breadcrumb({ currentStep, projectId }: { currentStep: number, projectId: string | null }) {
     const stepNames = [
         "Project Management",
-        "Primary Keys & Foreign Keys", 
+        "Primary Keys",
         "Column Requirements",
-        "Table Relations",
         "Additional Columns",
+        "Table Relations",
         "Deployment"
     ];
 
@@ -166,6 +160,18 @@ function ModernCard({ children, className = '', ...props }: { children: React.Re
 }
 
 
+// --- Helpers ---
+const mapEventTypeToStepIndex = (eventType?: string | null): number => {
+    const t = (eventType || '').toUpperCase();
+    if (!t) return 1;
+    if (t.includes('DEPLOY')) return 5;
+    if (t.includes('RELATION')) return 4;
+    if (t.includes('ADD') && t.includes('COLUMN')) return 3;
+    if (t.includes('REQUIRED') || t.includes('NULL')) return 2;
+    if (t.includes('PRIMARY') || t.includes('FOREIGN') || t.includes('KEY')) return 1;
+    return 1;
+};
+
 // --- Main Wizard Component ---
 const MappingWizardPage = () => {
     const [currentStep, setCurrentStep] = useState(0);
@@ -179,8 +185,7 @@ const MappingWizardPage = () => {
         source_database: '', source_schema: '', source_table: '',
         target_database: '', target_schema: '', target_table: '',
         column_mappings: [], new_target_columns: [],
-        primary_keys: { source: [], target: [] },
-        foreign_keys: { source: [], target: [] },
+        primary_keys: { source: {}, target: [] },
         column_attributes: {},
     });
 
@@ -201,10 +206,42 @@ const MappingWizardPage = () => {
             if (!projectId) return;
 
             setIsLoadingProjectData(true);
-            console.log(`--- Loading all events for project: ${projectId} ---`);
-            const events = await getProjectStepsEvents(projectId);
-            if (events.length === 0) {
-                console.log("No events found for this project. Starting fresh.");
+            const rawEvents: any = await getProjectStepsEvents(projectId);
+            // Normalize backend response into an array of { event_type, event_details }
+            let events: Array<{ event_type: string; event_details: any }> = [];
+            if (Array.isArray(rawEvents)) {
+                events = rawEvents as any[];
+            } else if (rawEvents && typeof rawEvents === 'object') {
+                try {
+                    const latest = rawEvents.latest_event?.latest_event || rawEvents.latest_event || rawEvents;
+                    if (latest?.CREATE_PROJECT) {
+                        events.push({ event_type: 'CREATE_PROJECT', event_details: latest.CREATE_PROJECT.event_details || {} });
+                    }
+                    if (Array.isArray(latest?.ADD_PRIMARY_KEY)) {
+                        latest.ADD_PRIMARY_KEY.forEach((e: any) => {
+                            events.push({ event_type: e.event_type || 'ADD_PRIMARY_KEY', event_details: e.event_details || {} });
+                        });
+                    }
+                    if (Array.isArray(latest?.DEPLOY_MODEL)) {
+                        latest.DEPLOY_MODEL.forEach((e: any) => {
+                            events.push({ event_type: e.event_type || 'DEPLOY_MODEL', event_details: e.event_details || {} });
+                        });
+                    }
+                    if (Array.isArray(latest?.TEST_MAPPING)) {
+                        latest.TEST_MAPPING.forEach((e: any) => {
+                            events.push({ event_type: e.event_type || 'TEST_MAPPING', event_details: e.event_details || {} });
+                        });
+                    }
+                    if (Array.isArray(latest?.ADD_GROUP)) {
+                        latest.ADD_GROUP.forEach((e: any) => {
+                            events.push({ event_type: e.event_type || 'ADD_GROUP', event_details: e.event_details || {} });
+                        });
+                    }
+                } catch (e) {
+                    // Silent error handling
+                }
+            }
+            if (!events || events.length === 0) {
                 setIsLoadingProjectData(false);
                 setCurrentStep(1); // Go to step 1 for a new project
                 return;
@@ -253,6 +290,17 @@ const MappingWizardPage = () => {
                             tempMappingData.column_attributes![simpleTableKey][col].is_required_for_mapping = true;
                         });
                         break;
+                    case 'ADD_GROUP':
+                        // Register tables from group definition
+                        if (details.sources && Array.isArray(details.sources)) {
+                            details.sources.forEach((src: any) => {
+                                registerTable(src.database, src.schema, src.table);
+                            });
+                        }
+                        if (details.target) {
+                            registerTable(details.target.database, details.target.schema, details.target.table);
+                        }
+                        break;
                     // Also register tables mentioned in deployment events to ensure they are known
                     case 'DEPLOY_MODEL':
                     case 'TEST_MAPPING':
@@ -262,41 +310,148 @@ const MappingWizardPage = () => {
                             registerTable(mapping.target_database, mapping.target_schema, mapping.target_table);
                          }
                          break;
+                    case 'TABLES_RELATIONS':
+                        // Handle individual column mappings from TABLES_RELATIONS events
+                        if (details.column_mappings && Array.isArray(details.column_mappings)) {
+                            details.column_mappings.forEach((mapping: any) => {
+                                if (mapping.source_table_key) {
+                                    const [db, sch, tbl] = mapping.source_table_key.split('.');
+                                    registerTable(db, sch, tbl);
+                                }
+                                if (mapping.target_table_key) {
+                                    const [db, sch, tbl] = mapping.target_table_key.split('.');
+                                    registerTable(db, sch, tbl);
+                                }
+                            });
+                         }
+                         break;
                 }
             }
 
             // 2. Find the last deployment event, as it's the best source of truth for table roles and mappings.
             const lastStateEvent = events.slice().reverse().find(e => (e.event_type === 'DEPLOY_MODEL' || e.event_type === 'TEST_MAPPING') && e.event_details.mappings);
+            
+            // Also look for TABLES_RELATIONS events that contain individual column mappings
+            const lastRelationsEvent = events.slice().reverse().find(e => e.event_type === 'TABLES_RELATIONS' && e.event_details.column_mappings);
 
             let sourcePks: { [key: string]: string[] } = {};
             let targetPks: string[] = [];
             let columnMappings: ColumnMapping[] = [];
 
-            if (lastStateEvent) {
-                console.log("State Snapshot Found. Reconstructing from event:", lastStateEvent.event_type);
-                const details = lastStateEvent.event_details.mappings[0];
-                const sourceTable = { database: details.source_database, schema: details.source_schema, table: details.source_table };
-                const targetTable = { database: details.target_database, schema: details.target_schema, table: details.target_table };
-
-                // This event definitively tells us the source and target tables.
-                finalSourceTables = [sourceTable];
-                finalTargetTable = targetTable;
-
-                // It also contains the exact column mappings at that time.
-                columnMappings = (details.source_columns || []).map((sc: string, index: number) => ({
-                    source_column: sc,
-                    target_column: details.target_columns[index],
-                    source_table_key: `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`,
-                    data_type: 'unknown', // This will be fetched later by the child component
+            // First, try to get column mappings from TABLES_RELATIONS event (most recent individual mappings)
+            if (lastRelationsEvent) {
+                const relationsMappings = lastRelationsEvent.event_details.column_mappings || [];
+                columnMappings = relationsMappings.map((mapping: any) => ({
+                    source_column: mapping.source_column,
+                    target_column: mapping.target_column,
+                    source_table_key: mapping.source_table_key,
+                    target_table_key: mapping.target_table_key,
+                    data_type: mapping.data_type || 'unknown',
                 }));
+            }
 
-                // Primary keys are also taken directly from this event.
-                sourcePks = { [`${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`]: details.pk_source || [] };
-                targetPks = details.pk_target || [];
+            if (lastStateEvent) {
+                const allMappings = lastStateEvent.event_details.mappings || [];
+
+                // Build groups from all mappings by target table, merging sources by target
+                const groupsByTarget = new Map<string, { target: TableSelection, sources: Map<string, TableSelection> }>();
+
+                for (const m of allMappings) {
+                    const src: TableSelection = { database: m.source_database, schema: m.source_schema, table: m.source_table };
+                    const tgt: TableSelection = { database: m.target_database, schema: m.target_schema, table: m.target_table };
+                    const srcKey = `${src.database}.${src.schema}.${src.table}`;
+                    const tgtKey = `${tgt.database}.${tgt.schema}.${tgt.table}`;
+
+                    if (!groupsByTarget.has(tgtKey)) {
+                        groupsByTarget.set(tgtKey, { target: tgt, sources: new Map<string, TableSelection>() });
+                    }
+                    groupsByTarget.get(tgtKey)!.sources.set(srcKey, src);
+
+                    // Build column mappings for this pair (only if we don't already have them from TABLES_RELATIONS)
+                    if (columnMappings.length === 0) {
+                        const sourceColumns: string[] = m.source_columns || [];
+                        const targetColumns: string[] = m.target_columns || [];
+                        for (let i = 0; i < Math.min(sourceColumns.length, targetColumns.length); i++) {
+                            columnMappings.push({
+                                source_column: sourceColumns[i],
+                                target_column: targetColumns[i],
+                                source_table_key: srcKey,
+                                target_table_key: tgtKey,
+                                data_type: 'unknown',
+                            });
+                        }
+                    }
+
+                    // Capture source PKs per table
+                    const pkSrc: string[] = m.pk_source || [];
+                    if (pkSrc.length > 0) {
+                        sourcePks[srcKey] = pkSrc;
+                    }
+
+                    // Note: target PKs are global in our current shape; if multiple targets exist,
+                    // we keep the most recent one or leave empty. This will still allow PK UI rendering per group.
+                    targetPks = m.pk_target || targetPks;
+                }
+
+                // Choose a default source/target for top-level convenience (first group)
+                const firstGroup = Array.from(groupsByTarget.values())[0];
+                if (firstGroup) {
+                    finalTargetTable = firstGroup.target;
+                    finalSourceTables = Array.from(firstGroup.sources.values());
+                }
+
+                // Persist groups onto mapping data for Step 1 rehydration
+                const groupsArr = Array.from(groupsByTarget.values()).map(g => ({
+                    sources: Array.from(g.sources.values()),
+                    target: g.target,
+                }));
+                tempMappingData.groups = groupsArr;
 
             } else {
-                console.log("No State Snapshot found. Reconstructing from atomic events.");
-                // Fallback: If no deployment event, infer tables from all events gathered.
+                // Check if we have ADD_GROUP events to reconstruct groups
+                const groupEvents = events.filter(e => e.event_type === 'ADD_GROUP');
+                if (groupEvents.length > 0) {
+                    // Reconstruct groups from ADD_GROUP events
+                    const groupsMap = new Map<number, { sources: TableSelection[]; target: TableSelection | null }>();
+                    
+                    groupEvents.forEach(event => {
+                        const details = event.event_details;
+                        const groupIndex = details.group_index || 0;
+                        
+                        if (!groupsMap.has(groupIndex)) {
+                            groupsMap.set(groupIndex, { sources: [], target: null });
+                        }
+                        
+                        const group = groupsMap.get(groupIndex)!;
+                        if (details.sources && Array.isArray(details.sources)) {
+                            group.sources = details.sources;
+                        }
+                        if (details.target) {
+                            group.target = details.target;
+                        }
+                    });
+                    
+                    // Convert map to array and set groups
+                    const groupsArr = Array.from(groupsMap.values()).filter(g => g.sources.length > 0 && g.target);
+                    if (groupsArr.length > 0) {
+                        tempMappingData.groups = groupsArr;
+                        // Choose the first group for top-level selections
+                        finalTargetTable = groupsArr[0].target!;
+                        finalSourceTables = groupsArr[0].sources;
+                        
+                        // Set primary keys from the groups
+                        finalSourceTables.forEach(t => {
+                            const key = `${t.database}.${t.schema}.${t.table}`;
+                            if (pkMap.has(key)) sourcePks[key] = pkMap.get(key)!;
+                        });
+                        if (finalTargetTable) {
+                            const key = `${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`;
+                            targetPks = pkMap.get(key) || [];
+                        }
+                    }
+                }
+                
+                // Fallback: If no deployment event and no groups, infer tables from all events gathered.
                 const allTableArray = Array.from(allTablesMentioned.values());
                 if (allTableArray.length > 0) {
                     // A common pattern is that the last table added/mentioned is the target.
@@ -313,9 +468,53 @@ const MappingWizardPage = () => {
                     const key = `${finalTargetTable.database}.${finalTargetTable.schema}.${finalTargetTable.table}`;
                     targetPks = pkMap.get(key) || [];
                 }
+
+                // Build groups from ADD_PRIMARY_KEY events by pairing targets in RETAIL_DW with non-RETAIL_DW sources
+                const normalizeName = (name: string) => name.replace(/^(DIM_|FACT_)/i, '').toUpperCase();
+                const entries = Array.from(pkMap.entries());
+                const targets = entries
+                    .map(([k, cols]) => {
+                        const [db, sch, tbl] = k.split('.');
+                        return { key: k, db, sch, tbl, cols };
+                    })
+                    .filter(e => e.sch === 'RETAIL_DW');
+                const sources = entries
+                    .map(([k, cols]) => {
+                        const [db, sch, tbl] = k.split('.');
+                        return { key: k, db, sch, tbl, cols };
+                    })
+                    .filter(e => e.sch !== 'RETAIL_DW');
+
+                const groupsArr: Array<{ sources: TableSelection[]; target: TableSelection | null }> = [];
+                for (const tgt of targets) {
+                    const tgtBase = normalizeName(tgt.tbl);
+                    const matched = sources.filter(src => {
+                        const srcBase = src.tbl.toUpperCase();
+                        const baseMatch = srcBase === tgtBase || srcBase === `${tgtBase}S` || `${srcBase}S` === tgtBase;
+                        const pkOverlap = (src.cols || []).some((c: string) => (tgt.cols || []).includes(c));
+                        return baseMatch || pkOverlap;
+                    });
+                    const groupSources: TableSelection[] = matched.map(m => ({ database: m.db, schema: m.sch, table: m.tbl }));
+                    const groupTarget: TableSelection = { database: tgt.db, schema: tgt.sch, table: tgt.tbl };
+                    if (groupSources.length > 0) groupsArr.push({ sources: groupSources, target: groupTarget });
+                }
+
+                if (groupsArr.length > 0) {
+                    tempMappingData.groups = groupsArr;
+                    // Choose the first group for top-level selections
+                    finalTargetTable = groupsArr[0].target!;
+                    finalSourceTables = groupsArr[0].sources;
+                }
             }
             
             // 3. Set the final state by combining all reconstructed parts.
+            console.log('Step3: Final PK state before setting:', {
+                sourcePks,
+                targetPks,
+                columnMappings: columnMappings.length,
+                groups: tempMappingData.groups?.length || 0
+            });
+            
             setSelectedSourceTables(finalSourceTables);
             setSelectedTargetTable(finalTargetTable);
             setMappingData(prev => ({
@@ -335,7 +534,6 @@ const MappingWizardPage = () => {
                 },
             }));
 
-            console.log("--- Project state reconstruction complete ---");
             setIsLoadingProjectData(false);
         };
 
@@ -396,10 +594,9 @@ const MappingWizardPage = () => {
     const updateMappingData = useCallback((newData: Partial<MappingDetail>) => { setMappingData(prev => ({ ...prev, ...newData })); }, []);
     const handleNext = useCallback(() => setCurrentStep((prev) => prev + 1), []);
     const handleBack = useCallback(() => setCurrentStep((prev) => prev - 1), []);
-  const handleProjectSelected = useCallback((id: string) => {
+  const handleProjectSelected = useCallback((id: string, lastCompletedStep: string | null) => {
     setProjectId(id);
-    // Always start from Step 1 (Primary Keys) when a project is selected.
-    setCurrentStep(1); 
+    setCurrentStep(mapEventTypeToStepIndex(lastCompletedStep));
 }, []);
 
     const renderStep = () => {
@@ -418,10 +615,10 @@ const MappingWizardPage = () => {
         switch (currentStep) {
             case 0: return <Step0ProjectManagement onProjectSelected={handleProjectSelected} />;
             case 1: return <Step1PrimaryKeyFK onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTables={selectedSourceTables} setSelectedSourceTables={setSelectedSourceTables} selectedTargetTable={selectedTargetTable} setSelectedTargetTable={setSelectedTargetTable} databases={databases} targetSchemas={targetSchemas} targetTables={targetTablesList} isLoadingOptions={isLoadingOptions} projectId={projectId!} username={username!} />;
-            case 2: return <Step2RequiredNull onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
-            case 3: return <Step3TablesRelations onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTables={selectedSourceTables} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
-            case 4: return <Step4AddColumns onNext={handleNext} onBack={handleBack} mappingData={mappingData} updateMappingData={updateMappingData} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
-            case 5: return <Step5Deployment onBack={handleBack} mappingData={mappingData} projectId={projectId!} username={username!} />;
+            case 2: return <Step2RequiredNull onNext={handleNext} onBack={handleBack} mappingData={mappingData as any} updateMappingData={(nd: any) => updateMappingData(nd)} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 3: return <Step4AddColumns onNext={handleNext} onBack={handleBack} mappingData={mappingData as any} updateMappingData={(nd: any) => updateMappingData(nd)} selectedSourceTable={selectedSourceTables[0] || null} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 4: return <Step3TablesRelations onNext={handleNext} onBack={handleBack} mappingData={mappingData as any} updateMappingData={(nd: any) => updateMappingData(nd)} selectedSourceTables={selectedSourceTables} selectedTargetTable={selectedTargetTable} projectId={projectId!} username={username!} />;
+            case 5: return <Step5Deployment onBack={handleBack} mappingData={mappingData as any} projectId={projectId!} username={username!} />;
             default: return <div>Unknown Step</div>;
         }
     };

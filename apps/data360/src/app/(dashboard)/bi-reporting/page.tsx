@@ -12,16 +12,19 @@ import {
 } from 'react-icons/hi2';
 import PageBuilder from './components/page-builder';
 import { SaveAllIcon } from 'lucide-react';
-import StatCard, { STAT_CARD_OPTIONS } from './components/stat-cards';
-import ChartCard, { CHART_OPTIONS } from './components/chart-components';
+import ChartCard, { CHART_OPTIONS, DynamicChart } from './components/chart-components';
 import { ComponentConfig } from './components/configuration-modal';
 
 interface DashboardItem {
   id: string;
-  type: 'stat' | 'chart';
+  type: 'chart';
   componentId: string;
   position: number;
   config?: ComponentConfig;
+  w?: number;
+  h?: number;
+  hUnits?: number;
+  fontScale?: number;
 }
 
 function Breadcrumb() {
@@ -162,7 +165,7 @@ export default function BIReportingPage() {
               onClick={() => setActiveTab('builder')}
               icon={<HiOutlineCog6Tooth className="w-5 h-5" />}
               label="Dashboard Builder"
-              count={savedLayouts.length}
+              count={savedLayouts.filter(i => i.type === 'chart').length}
             />
             <TabButton
               active={activeTab === 'preview'}
@@ -199,64 +202,69 @@ export default function BIReportingPage() {
               </div>
               
               <div className="space-y-8">
-                {savedLayouts.filter(item => item.type === 'stat').length > 0 && (
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
-                      Key Metrics
-                    </h3>
-                    <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-                      {savedLayouts
-                        .filter(item => item.type === 'stat')
-                        .map((item) => {
-                          const defaultConfig = STAT_CARD_OPTIONS.find(option => option.id === item.componentId);
-                          if (!defaultConfig) return null;
-                          
-                          const finalConfig = item.config ? {
-                            ...defaultConfig,
-                            title: item.config.title || defaultConfig.title,
-                            subtitle: item.config.subtitle || defaultConfig.subtitle,
-                            colorScheme: (item.config.colorScheme as any) || defaultConfig.colorScheme,
-                          } : defaultConfig;
-                          
-                          return (
-                            <StatCard key={item.id} {...finalConfig} />
-                          );
-                        })}
-                    </div>
-                  </div>
-                )}
+                {/* Stat cards removed */}
                 
                 {savedLayouts.filter(item => item.type === 'chart').length > 0 && (
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">
                       Analytics Charts
                     </h3>
-                    <div className="grid gap-8 lg:grid-cols-2 xl:grid-cols-3">
-                      {savedLayouts
+                    <div className="grid grid-cols-6 gap-6 auto-rows-[10rem] min-w-[1024px]">
+                      {(() => {
+                        const chartItems = savedLayouts
                         .filter(item => item.type === 'chart')
-                        .map((item) => {
-                          const defaultConfig = CHART_OPTIONS.find(option => option.id === item.componentId);
-                          if (!defaultConfig) return null;
+                          .sort((a, b) => (a.position || 0) - (b.position || 0));
+                        
+                        const maxPosition = chartItems.length > 0 ? Math.max(...chartItems.map(item => item.position || 0)) : -1;
+                        const totalSlots = Math.max(30, maxPosition + 1); // At least 30 slots (5 rows)
+                        
+                        const elements = [];
+                        
+                        for (let pos = 0; pos < totalSlots; pos++) {
+                          const chartAtPosition = chartItems.find(item => (item.position || 0) === pos);
                           
-                          const finalConfig = item.config ? {
+                          if (chartAtPosition) {
+                            const defaultConfig = CHART_OPTIONS.find(option => option.id === chartAtPosition.componentId);
+                            if (!defaultConfig) continue;
+
+                            const finalConfig = chartAtPosition.config ? {
                             ...defaultConfig,
-                            title: item.config.title || defaultConfig.title,
-                            description: item.config.description || defaultConfig.description,
+                              title: chartAtPosition.config.title || defaultConfig.title,
+                              description: chartAtPosition.config.description || defaultConfig.description,
                           } : defaultConfig;
                           
-                          return (
+                            // Convert position to grid coordinates (same logic as builder)
+                            const row = Math.floor(pos / 6); // 6 columns
+                            const col = pos % 6;
+                            const w = chartAtPosition.w || 1;
+                            const heightUnits = chartAtPosition.hUnits || chartAtPosition.h || 1;
+                            const heightRows = Math.max(1, Math.round(heightUnits * 2)); // 0.5 -> 1 row, 1.0 -> 2 rows
+
+                            elements.push(
+                              <div
+                                key={chartAtPosition.id}
+                                style={{
+                                  gridColumn: `${col + 1} / span ${w}`,
+                                  gridRow: `${row + 1} / span ${heightRows}`,
+                                }}
+                              >
                             <ChartCard
-                              key={item.id}
-                              id={finalConfig.id}
-                              title={finalConfig.title}
-                              description={finalConfig.description}
-                              badge={finalConfig.badge}
-                              badgeColor={finalConfig.badgeColor}
-                            >
-                              {finalConfig.component}
+                                  id={String((finalConfig as any).id || chartAtPosition.id)}
+                                  title={String((finalConfig as any).title || 'Chart')}
+                                  description={String((finalConfig as any).description || '')}
+                                  badge={String((finalConfig as any).badge || 'Dynamic')}
+                                  badgeColor={String((finalConfig as any).badgeColor || 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400')}
+                                  heightRem={heightUnits * 10}
+                                >
+                                  <DynamicChart config={{ ...chartAtPosition.config, componentId: chartAtPosition.componentId } || { chartType: 'bar', componentId: chartAtPosition.componentId }} enabled={activeTab === 'preview'} fontScale={chartAtPosition.fontScale || 1} />
                             </ChartCard>
-                          );
-                        })}
+                              </div>
+                            );
+                          }
+                        }
+                        
+                        return elements;
+                      })()}
                     </div>
                   </div>
                 )}

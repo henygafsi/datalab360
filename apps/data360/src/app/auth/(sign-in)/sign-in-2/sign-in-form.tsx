@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { SubmitHandler } from 'react-hook-form';
+import { signIn } from 'next-auth/react';
 import { Input, Button, Password, Checkbox, Text } from 'rizzui';
 import { useMedia } from '@core/hooks/use-media';
 import { Form } from '@core/ui/form';
@@ -9,6 +10,7 @@ import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
 
 const initialValues: LoginSchema = {
+  account_name: '',
   username: 'admin@admin.com',
   password: 'admin',
   rememberMe: true,
@@ -16,8 +18,23 @@ const initialValues: LoginSchema = {
 
 export default function SignInForm() {
   const isMedium = useMedia('(max-width: 1200px)', false);
-  const onSubmit: SubmitHandler<LoginSchema> = (data) => {
-    console.log('Sign in data', data);
+  const onSubmit: SubmitHandler<LoginSchema> = async (data) => {
+    const res = await signIn('credentials', { redirect: false, ...data });
+    if (!res?.error) {
+      try {
+        if (typeof window !== 'undefined') {
+          const accountName = (data as any).account_name || '';
+          const username = (data as any).username || '';
+          const password = (data as any).password || '';
+          window.sessionStorage.setItem('auth.account_name', accountName);
+          window.sessionStorage.setItem('auth.username', username);
+          window.sessionStorage.setItem('auth.password', password);
+          window.localStorage.setItem('auth.account_name', accountName);
+          window.localStorage.setItem('auth.username', username);
+          window.localStorage.setItem('auth.password', password);
+        }
+      } catch {}
+    }
   };
 
   return (

@@ -44,7 +44,7 @@ export async function getUsers(): Promise<UserTableDataType[]> {
       throw new Error(`Failed to fetch users: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     console.log('Raw API Response Data (in fetch_users.ts):', data);
 
     const users: UserTableDataType[] = data.map((user: any) => {
@@ -56,9 +56,10 @@ export async function getUsers(): Promise<UserTableDataType[]> {
       }
       if (user.default_secondary_roles && user.default_secondary_roles !== '[]') {
         try {
-          const secondaryRoles = JSON.parse(user.default_secondary_roles.replace(/'/g, '"'));
+          const secondaryRoles = JSON.parse(user.default_secondary_roles.replace(/'/g, '"')) as string[];
           if (Array.isArray(secondaryRoles)) {
-            roles = [...new Set([...roles, ...secondaryRoles])];
+            const combinedRoles: string[] = [...roles, ...secondaryRoles];
+            roles = Array.from(new Set<string>(combinedRoles));
           }
         } catch (e) {
           console.warn('Could not parse default_secondary_roles for user:', user.name, user.default_secondary_roles, e);
@@ -91,7 +92,7 @@ export async function getUsers(): Promise<UserTableDataType[]> {
  * @returns A promise that resolves to a success message or similar.
  * @throws Error if the API call fails.
  */
-export async function addUser(userData: { username: string; password?: string; first_name: string; last_name: string; email: string }): Promise<string> {
+export async function addUser(userData: { username: string; password: string; email: string }): Promise<string> {
     try {
         const accessToken = await getAccessTokenFromSession(); // Get token from session
 
@@ -106,13 +107,13 @@ export async function addUser(userData: { username: string; password?: string; f
         });
 
         if (!response.ok) {
-            const errorData = await response.json();
-            const errorMessage = errorData.detail ? JSON.stringify(errorData.detail) : `${response.status} ${response.statusText}`;
+            const errorData: any = await response.json();
+            const errorMessage = errorData?.detail ? JSON.stringify(errorData.detail) : `${response.status} ${response.statusText}`;
             throw new Error(`Failed to add user: ${errorMessage}`);
         }
 
-        const data = await response.json();
-        return data;
+        const data: any = await response.json();
+        return data as string;
     } catch (error) {
         console.error('Error adding user:', error);
         throw error;
@@ -141,13 +142,13 @@ export async function assignRoleToUser(username: string, roleName: string): Prom
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      const errorMessage = errorData.detail ? JSON.stringify(errorData.detail) : `${response.status} ${response.statusText}`;
+      const errorData: any = await response.json();
+      const errorMessage = errorData?.detail ? JSON.stringify(errorData.detail) : `${response.status} ${response.statusText}`;
       throw new Error(`Failed to assign role: ${errorMessage}`);
     }
 
-    const data = await response.json();
-    return data;
+    const data: any = await response.json();
+    return data as string;
   } catch (error) {
     console.error('Error assigning role:', error);
     throw error;
