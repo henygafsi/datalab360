@@ -14,6 +14,7 @@ import PageBuilder from './components/page-builder';
 import { SaveAllIcon } from 'lucide-react';
 import ChartCard, { CHART_OPTIONS, DynamicChart } from './components/chart-components';
 import { ComponentConfig } from './components/configuration-modal';
+import ChatWidget from './components/chat-widget';
 
 interface DashboardItem {
   id: string;
@@ -230,7 +231,6 @@ export default function BIReportingPage() {
                             const finalConfig = chartAtPosition.config ? {
                             ...defaultConfig,
                               title: chartAtPosition.config.title || defaultConfig.title,
-                              description: chartAtPosition.config.description || defaultConfig.description,
                           } : defaultConfig;
                           
                             // Convert position to grid coordinates (same logic as builder)
@@ -251,12 +251,12 @@ export default function BIReportingPage() {
                             <ChartCard
                                   id={String((finalConfig as any).id || chartAtPosition.id)}
                                   title={String((finalConfig as any).title || 'Chart')}
-                                  description={String((finalConfig as any).description || '')}
+                                  description=""
                                   badge={String((finalConfig as any).badge || 'Dynamic')}
                                   badgeColor={String((finalConfig as any).badgeColor || 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400')}
                                   heightRem={heightUnits * 10}
                                 >
-                                  <DynamicChart config={{ ...chartAtPosition.config, componentId: chartAtPosition.componentId } || { chartType: 'bar', componentId: chartAtPosition.componentId }} enabled={activeTab === 'preview'} fontScale={chartAtPosition.fontScale || 1} />
+                                  <DynamicChart config={{ ...chartAtPosition.config, componentId: chartAtPosition.componentId }} enabled={activeTab === 'preview'} fontScale={chartAtPosition.fontScale || 1} />
                             </ChartCard>
                               </div>
                             );
@@ -273,6 +273,9 @@ export default function BIReportingPage() {
           )}
         </div>
       )}
+      
+      {/* Chat Widget */}
+      <ChatWidget />
     </div>
   );
 }

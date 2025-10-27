@@ -34,7 +34,7 @@ const QuillEditor = dynamic(() => import('@core/ui/quill-editor'), {
   ssr: false,
 });
 
-zconst FormSchema = z.object({
+const FormSchema = z.object({
   message: z.string({ required_error: 'Invalid email address' }),
 });
 
