@@ -1,27 +1,36 @@
 import axios from 'axios';
 
 /**
- * The shape of one mapping item
- * (e.g., one link between source & target).
+ * User registration data
  */
 export interface userData {
-    username: string,
-    first_name: string,
-    last_name: string,
-    email: string,
-    password: string,
-    confirm_password: string,
+    organisation_name: string;
+    username: string;
+    email: string;
+    password: string;
+    confirm_password: string;
 }
 
 
 
-export const registerUser = async (userData: any) => {
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/user/register`; // e.g., http://api.datalab360.io/mapping
+export const registerUser = async (userData: userData) => {
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/user/register/`;
+
     try {
-      const response = await axios.post(url, userData);
+      const response = await axios.post(url, userData, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      });
       return response.data;
-    } catch (error) {
-        console.error('Error saving mapping:', error);
-        throw error;
+    } catch (error: any) {
+      const axiosError = error as any;
+
+      if (axiosError.response?.data?.detail) {
+        throw new Error(`Registration failed: ${axiosError.response.data.detail}`);
+      }
+
+      throw new Error('Registration error: An unexpected issue occurred.');
     }
   };

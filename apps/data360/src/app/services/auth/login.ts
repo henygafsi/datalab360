@@ -22,16 +22,6 @@ export interface LoginResponse {
   message: string;
 }
 
-function buildUrlWithQueryParams(baseUrl: string, params: Record<string, string | boolean | null | undefined>): string {
-    const url = new URL(baseUrl);
-    for (const key in params) {
-        const value = params[key];
-        if (value !== null && value !== undefined) {
-            url.searchParams.append(key, String(value));
-        }
-    }
-    return url.toString();
-}
 /**
  * Login function to authenticate the user.
  *
@@ -44,30 +34,19 @@ function buildUrlWithQueryParams(baseUrl: string, params: Record<string, string 
 
 export const login = async (loginData: LoginData): Promise<LoginResponse> => {
   try {
-    // Build the URL with login credentials as query parameters
-    const endpoint = buildUrlWithQueryParams(
-        `${process.env.NEXT_PUBLIC_API_URL}/user/login/`, // Ensure NEXT_PUBLIC_API_URL is correctly set
-        {
-            account_name: loginData.account_name,
-            username: loginData.username,
-            password: loginData.password,
-        }
-    );
-  try {
-    console.log('Login URL with params:', endpoint);
-    console.log('Login data (sent as params):', loginData);
+    const endpoint = `${process.env.NEXT_PUBLIC_API_URL}/user/login/`;
 
-    // Make the POST request. The data is now in the URL, so no 'body' is passed with axios.post.
-    const response = await axios.post<LoginResponse>(endpoint, {}, { // Pass an empty object as the request body
-      headers: {
-        'accept': 'application/json', // Specify accepted response type
-        // 'Content-Type' header is usually not necessary for empty body POSTs,
-        // or can be omitted if server doesn't strictly require it.
-        // If your server expects application/json even with query params, you could add:
-        // 'Content-Type': 'application/json',
-      },
-    });
-    console.log(response)
+    // Make the POST request with credentials in the body (NOT in URL)
+    const response = await axios.post<LoginResponse>(
+      endpoint,
+      loginData, // Credentials in request body
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      }
+    );
 
     if (response.status === 200) {
       return response.data;
@@ -75,24 +54,28 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
       throw new Error('Invalid response from server');
     }
   } catch (error: any) {
-    if (error.response?.data?.detail) {
-      console.error('Login error details:', error.response.data.detail);
-      throw new Error(
-        `Login failed: ${error.response.data.detail.map((e: any) => e.msg).join(', ')}`
-      );
-    } else {
-      console.error('Login error:', error);
-      throw new Error('Failed to log in. Please try again.');
-    }
-  }
-}catch (error) {
-    console.error("Login failed:", error);
-
     const axiosError = error as AxiosError<any>;
 
+    // Handle API error response
     if (axiosError.response?.data?.detail) {
-      throw new Error(axiosError.response.data.detail);
+      const detail = axiosError.response.data.detail;
+
+      // detail peut être string OU array d'objets
+      if (Array.isArray(detail)) {
+        const errorMessages = detail.map((e: any) => e.msg || e).join(', ');
+        throw new Error(`Login failed: ${errorMessages}`);
+      } else if (typeof detail === 'string') {
+        throw new Error(`Login failed: ${detail}`);
+      } else {
+        throw new Error('Login failed: Invalid credentials');
+      }
     }
-    throw new Error("Login error: An unexpected issue occurred during login.");
+
+    // Handle network or other errors
+    if (axiosError.message) {
+      throw new Error(`Login error: ${axiosError.message}`);
+    }
+
+    throw new Error('Login error: An unexpected issue occurred during login.');
   }
 };

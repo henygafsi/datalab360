@@ -1,6 +1,8 @@
 import { View } from "lucide-react";
 
 export const routes = {
+  home: '/',
+  accountOverview: '/account-overview',
   connexion: {
     dataSourceConnection: '/data-source-connection',
   },

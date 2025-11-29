@@ -11,6 +11,12 @@ export const config = {
   // restricted routes
   matcher: [
     '/',
+    '/account-overview',
+    '/data-source-connection/:path*',
+    '/mapping/:path*',
+    '/workflow/:path*',
+    '/gouvernance/:path*',
+    '/bi-reporting/:path*',
     '/executive',
     '/financial',
     '/analytics',

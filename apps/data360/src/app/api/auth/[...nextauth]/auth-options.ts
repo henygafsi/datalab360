@@ -41,7 +41,9 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async redirect({ url, baseUrl }) {
-      return baseUrl;
+      // After login, redirect to the account overview page
+      if (url.startsWith(baseUrl)) return url;
+      return `${baseUrl}/account-overview`;
     },
   },
   providers: [

@@ -1,10 +1,5 @@
-import FileDashboard from '@/app/shared/file/dashboard';
-import { metaObject } from '@/config/site.config';
+import { redirect } from 'next/navigation';
 
-export const metadata = {
-  ...metaObject(),
-};
-
-export default function FileDashboardPage() {
-  return <FileDashboard />;
+export default function DashboardPage() {
+  redirect('/account-overview');
 }

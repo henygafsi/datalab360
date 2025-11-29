@@ -49,3 +49,5 @@ next-env.d.ts
 /playwright/.cache/
 .vercel
 .vscode
+.md
+test-apis.sh
