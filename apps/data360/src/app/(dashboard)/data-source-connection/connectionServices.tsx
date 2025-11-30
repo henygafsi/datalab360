@@ -203,6 +203,68 @@ export async function createAwsStage(
     return { message: data };
 }
 
+// --- Snowflake Services ---
+
+export async function connectSnowflakeDatalake(
+    datalake_username: string,
+    datalake_password: string,
+    datalake_account: string,
+    datalake_role: string
+): Promise<ApiResponse> {
+    const token = await getAuthToken();
+    const endpoint = buildUrlWithQueryParams(
+        `${API_BASE_URL}/connect/snowflake_lake/datalake/connect`,
+        { datalake_username, datalake_password, datalake_account, datalake_role }
+    );
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to connect to Snowflake Datalake');
+    }
+    const data = await response.json();
+    return { message: data };
+}
+
+export async function listSnowflakeStages(): Promise<any> {
+    const token = await getAuthToken();
+    const endpoint = `${API_BASE_URL}/connect/stages`;
+    const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list Snowflake stages');
+    }
+    return await response.json();
+}
+
+export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
+    const token = await getAuthToken();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files`;
+    const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        },
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list stage files');
+    }
+    return await response.json();
+}
+
 // --- Common Integration Details ---
 export async function getIntegrationDetails(integration_name: string): Promise<AzureIntegrationDetailsResponse> {
     const token = await getAuthToken();

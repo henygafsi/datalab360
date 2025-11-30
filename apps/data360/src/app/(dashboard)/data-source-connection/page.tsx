@@ -1,15 +1,17 @@
 'use client';
 
-import { useState, FormEvent, ChangeEvent } from 'react';
+import { useState, FormEvent, ChangeEvent, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Input, Button, Checkbox, Text, Password, Badge } from 'rizzui';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import {
   HiOutlineCloudArrowUp,
   HiOutlineShieldCheck,
-  HiOutlineCheckCircle
+  HiOutlineCheckCircle,
+  HiOutlineTrash
 } from 'react-icons/hi2';
-import { Database } from 'lucide-react';
+import { Database, Eye } from 'lucide-react';
 
 // Import the new connection services from the same folder
 import {
@@ -18,6 +20,9 @@ import {
     createAzureStage,
     setupAwsStorageIntegration,
     createAwsStage,
+    connectSnowflakeDatalake,
+    listSnowflakeStages,
+    listSnowflakeStageFiles,
     getIntegrationDetails, // Ensure this is imported
 } from './connectionServices';
 import { silentReauth } from '@/app/services/auth/silentReauth';
@@ -27,6 +32,7 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 
 // Import Label from the correct local path
 import { Label } from '@/components/ui/label';
+import DatalakeBrowser from './DatalakeBrowser';
 
 // Modern breadcrumb component
 function Breadcrumb() {
@@ -175,10 +181,36 @@ type AwsFormData = {
     auto_update: boolean;
 };
 
+type SnowflakeFormData = {
+    datalake_username: string;
+    datalake_password: string;
+    datalake_account: string;
+    datalake_role: string;
+};
+
+type DatalakeConnection = {
+    id: string;
+    provider: 'snowflake' | 'azure' | 'aws';
+    name: string;
+    connected_at: string;
+    details: {
+        username?: string;
+        account?: string;
+        tenant_id?: string;
+        bucket_name?: string;
+        integration_name?: string;
+        stage_name?: string;
+    };
+};
+
 export default function DataSourceConnectionPage() {
+  const router = useRouter();
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
+  const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
+  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | null>(null);
+  const [activeConnections, setActiveConnections] = useState<DatalakeConnection[]>([]);
   
   const [azureFormData, setAzureFormData] = useState<AzureFormData>({
       storage_integration_name: '',
@@ -199,6 +231,13 @@ export default function DataSourceConnectionPage() {
       stage_name: '',
       load_data: false,
       auto_update: false,
+  });
+
+  const [snowflakeFormData, setSnowflakeFormData] = useState<SnowflakeFormData>({
+      datalake_username: '',
+      datalake_password: '',
+      datalake_account: '',
+      datalake_role: '',
   });
 
   const logos: Record<string, string> = {
@@ -230,6 +269,42 @@ export default function DataSourceConnectionPage() {
     },
   ];
 
+  // Load connections from localStorage on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('datalake_connections');
+      if (stored) {
+        try {
+          setActiveConnections(JSON.parse(stored));
+        } catch (e) {
+          console.error('Failed to parse stored connections', e);
+        }
+      }
+    }
+  }, []);
+
+  const saveConnection = (connection: DatalakeConnection) => {
+    const updated = [...activeConnections, connection];
+    setActiveConnections(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('datalake_connections', JSON.stringify(updated));
+    }
+  };
+
+  const removeConnection = (connectionId: string) => {
+    const updated = activeConnections.filter(c => c.id !== connectionId);
+    setActiveConnections(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('datalake_connections', JSON.stringify(updated));
+    }
+  };
+
+  const browseConnection = (connection: DatalakeConnection) => {
+    setConnectedProvider(connection.provider);
+    setShowDatalakeBrowser(true);
+    setCurrentStep(0);
+  };
+
   const handleSourceSelect = (sourceId: string) => {
     setSelectedSource(sourceId);
     setCurrentStep(1);
@@ -238,6 +313,8 @@ export default function DataSourceConnectionPage() {
   const handleBackToProviderSelection = () => {
       setSelectedSource('');
       setCurrentStep(0);
+      setShowDatalakeBrowser(false);
+      setConnectedProvider(null);
       // Reset specific form data when going back to selection
       setAzureFormData({
           storage_integration_name: '', notification_integration_name: '', tenant_id: '', storage_url: '', queue_url: '',
@@ -247,9 +324,12 @@ export default function DataSourceConnectionPage() {
           integration_name: '', bucket_name: '', aws_role_arn: '', external_id: '',
           stage_name: '', load_data: false, auto_update: false
       });
+      setSnowflakeFormData({
+          datalake_username: '', datalake_password: '', datalake_account: '', datalake_role: ''
+      });
   };
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws') => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws' | 'snowflake') => {
       const { name, value, type } = e.target;
       const target = e.target as HTMLInputElement;
 
@@ -262,6 +342,11 @@ export default function DataSourceConnectionPage() {
           setAwsFormData(prev => ({
               ...prev,
               [name]: type === 'checkbox' ? target.checked : value,
+          }));
+      } else if (provider === 'snowflake') {
+          setSnowflakeFormData(prev => ({
+              ...prev,
+              [name]: value,
           }));
       }
   };
@@ -335,8 +420,10 @@ export default function DataSourceConnectionPage() {
                       }
                   } catch {}
                   try { await silentReauth(); } catch {}
-                  setCurrentStep(0); // All Azure setup complete
-                  setSelectedSource('');
+                  // Show browser instead of going back to selection
+                  setConnectedProvider('azure');
+                  setShowDatalakeBrowser(true);
+                  setCurrentStep(0);
               } else {
               if (!azureNotificationIntegrationCreated) {
                   throw new Error("Notification integration not created, cannot fetch details.");
@@ -364,6 +451,21 @@ export default function DataSourceConnectionPage() {
                   notificationIntegrationParam
               );
               toast.success('Azure Stage created successfully!');
+
+              // Save connection
+              const connection: DatalakeConnection = {
+                  id: `azure_${Date.now()}`,
+                  provider: 'azure',
+                  name: `Azure - ${azureFormData.stage_name}`,
+                  connected_at: new Date().toISOString(),
+                  details: {
+                      tenant_id: azureFormData.tenant_id,
+                      integration_name: azureFormData.storage_integration_name,
+                      stage_name: azureFormData.stage_name,
+                  }
+              };
+              saveConnection(connection);
+
               try {
                   if (typeof window !== 'undefined') {
                       window.localStorage.setItem('features.datalakeConnected', '1');
@@ -371,8 +473,9 @@ export default function DataSourceConnectionPage() {
                   }
               } catch {}
               try { await silentReauth(); } catch {}
-              setCurrentStep(0); // All Azure setup complete
-              setSelectedSource('');
+
+              // Redirect to account-overview page
+              router.push('/account-overview');
           }
       } catch (error: any) {
           toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
@@ -385,6 +488,9 @@ export default function DataSourceConnectionPage() {
   // --- AWS Connection Steps ---
   const [awsCurrentSubStep, setAwsCurrentSubStep] = useState<number>(1);
   const [awsIntegrationCreated, setAwsIntegrationCreated] = useState<boolean>(false);
+
+  // --- Snowflake Connection ---
+  const [snowflakeConnected, setSnowflakeConnected] = useState<boolean>(false);
 
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
@@ -409,6 +515,21 @@ export default function DataSourceConnectionPage() {
                   awsFormData.auto_update
               );
               toast.success('AWS Stage created successfully!');
+
+              // Save connection
+              const connection: DatalakeConnection = {
+                  id: `aws_${Date.now()}`,
+                  provider: 'aws',
+                  name: `AWS - ${awsFormData.stage_name}`,
+                  connected_at: new Date().toISOString(),
+                  details: {
+                      bucket_name: awsFormData.bucket_name,
+                      integration_name: awsFormData.integration_name,
+                      stage_name: awsFormData.stage_name,
+                  }
+              };
+              saveConnection(connection);
+
               try {
                   if (typeof window !== 'undefined') {
                       window.localStorage.setItem('features.datalakeConnected', '1');
@@ -416,9 +537,54 @@ export default function DataSourceConnectionPage() {
                   }
               } catch {}
               try { await silentReauth(); } catch {}
-              setCurrentStep(0);
-              setSelectedSource('');
+
+              // Redirect to account-overview page
+              router.push('/account-overview');
           }
+      } catch (error: any) {
+          toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
+          console.error('Error:', error);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleSnowflakeSubmit = async (e: FormEvent) => {
+      e.preventDefault();
+      setLoading(true);
+      try {
+          await connectSnowflakeDatalake(
+              snowflakeFormData.datalake_username,
+              snowflakeFormData.datalake_password,
+              snowflakeFormData.datalake_account,
+              snowflakeFormData.datalake_role
+          );
+          setSnowflakeConnected(true);
+          toast.success('Snowflake Datalake connected successfully!');
+
+          // Save connection
+          const connection: DatalakeConnection = {
+              id: `snowflake_${Date.now()}`,
+              provider: 'snowflake',
+              name: `Snowflake - ${snowflakeFormData.datalake_account}`,
+              connected_at: new Date().toISOString(),
+              details: {
+                  username: snowflakeFormData.datalake_username,
+                  account: snowflakeFormData.datalake_account,
+              }
+          };
+          saveConnection(connection);
+
+          try {
+              if (typeof window !== 'undefined') {
+                  window.localStorage.setItem('features.datalakeConnected', '1');
+                  window.dispatchEvent(new Event('app:refresh-menu'));
+              }
+          } catch {}
+          try { await silentReauth(); } catch {}
+
+          // Redirect to account-overview page
+          router.push('/account-overview');
       } catch (error: any) {
           toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
           console.error('Error:', error);
@@ -820,18 +986,165 @@ export default function DataSourceConnectionPage() {
       );
   };
 
+  const renderSnowflakeForm = () => {
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-8 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-blue-600 bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">Snowflake Connection</h3>
+                  <div className="animate-float">
+                      <Image src={logos['snowflake']} alt="Snowflake Logo" width={80} height={80} className="transition-transform duration-300 hover:scale-110" />
+                  </div>
+              </div>
+              <form className="space-y-6" onSubmit={handleSnowflakeSubmit}>
+                  <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Connect to Snowflake Datalake</h4>
+                  <Input
+                      name="datalake_username"
+                      label="Datalake Username"
+                      placeholder="e.g., snowflake_user"
+                      value={snowflakeFormData.datalake_username}
+                      onChange={(e) => handleChange(e, 'snowflake')}
+                      required
+                      disabled={snowflakeConnected || loading}
+                      className="w-full"
+                  />
+                  <Password
+                      name="datalake_password"
+                      label="Datalake Password"
+                      placeholder="Enter your datalake password"
+                      value={snowflakeFormData.datalake_password}
+                      onChange={(e) => handleChange(e, 'snowflake')}
+                      required
+                      disabled={snowflakeConnected || loading}
+                      className="w-full"
+                  />
+                  <Input
+                      name="datalake_account"
+                      label="Datalake Account"
+                      placeholder="e.g., your_account.region"
+                      value={snowflakeFormData.datalake_account}
+                      onChange={(e) => handleChange(e, 'snowflake')}
+                      required
+                      disabled={snowflakeConnected || loading}
+                      className="w-full"
+                  />
+                  <Input
+                      name="datalake_role"
+                      label="Datalake Role"
+                      placeholder="e.g., ACCOUNTADMIN"
+                      value={snowflakeFormData.datalake_role}
+                      onChange={(e) => handleChange(e, 'snowflake')}
+                      required
+                      disabled={snowflakeConnected || loading}
+                      className="w-full"
+                  />
+
+                  <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                      {loading ? 'Connecting...' : 'Connect to Snowflake'}
+                  </Button>
+              </form>
+              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading}>
+                  Back to Data Source Selection
+              </Button>
+          </div>
+      );
+  };
+
   const renderForm = () => {
+        // Show datalake browser if connected
+        if (showDatalakeBrowser && connectedProvider) {
+            return (
+                <DatalakeBrowser
+                    provider={connectedProvider}
+                    onBack={handleBackToProviderSelection}
+                />
+            );
+        }
+
         if (currentStep === 0) {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
-                    
+
+                    {/* Active Connections */}
+                    {activeConnections.length > 0 && (
+                        <div className="mb-12">
+                            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-6 flex items-center">
+                                <Database className="h-6 w-6 mr-2 text-green-600" />
+                                Active Connections ({activeConnections.length})
+                            </h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {activeConnections.map((conn) => (
+                                    <div
+                                        key={conn.id}
+                                        className="group relative rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20 p-6 transition-all duration-300 hover:shadow-lg"
+                                    >
+                                        <div className="flex items-start justify-between mb-3">
+                                            <div className="flex items-center space-x-3 flex-1 min-w-0">
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
+                                                    <Image
+                                                        src={logos[conn.provider]}
+                                                        alt={conn.provider}
+                                                        width={24}
+                                                        height={24}
+                                                    />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm">
+                                                        {conn.name}
+                                                    </h4>
+                                                    <Text className="text-xs text-gray-500 dark:text-gray-400">
+                                                        {new Date(conn.connected_at).toLocaleDateString()}
+                                                    </Text>
+                                                </div>
+                                            </div>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    removeConnection(conn.id);
+                                                    toast.success('Connection removed');
+                                                }}
+                                                className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <HiOutlineTrash className="h-4 w-4" />
+                                            </button>
+                                        </div>
+                                        <div className="space-y-1 mb-3">
+                                            {conn.details.account && (
+                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
+                                                    Account: {conn.details.account}
+                                                </Text>
+                                            )}
+                                            {conn.details.bucket_name && (
+                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
+                                                    Bucket: {conn.details.bucket_name}
+                                                </Text>
+                                            )}
+                                            {conn.details.tenant_id && (
+                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
+                                                    Tenant: {conn.details.tenant_id}
+                                                </Text>
+                                            )}
+                                        </div>
+                                        <Button
+                                            onClick={() => browseConnection(conn)}
+                                            className="w-full bg-green-600 hover:bg-green-700 text-white text-sm py-2"
+                                        >
+                                            <Eye className="h-4 w-4 mr-2" />
+                                            Browse
+                                        </Button>
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="mt-6 border-t border-slate-200 dark:border-slate-700"></div>
+                        </div>
+                    )}
+
                     {/* Header */}
                     <div className="space-y-6 text-center mb-12">
                         <div className="mb-8 inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 shadow-2xl shadow-blue-500/25">
                             <Database className="h-10 w-10 text-white" />
                         </div>
                         <h2 className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-4xl font-bold text-transparent dark:from-white dark:via-slate-200 dark:to-slate-300">
-                            Choose Your Data Platform
+                            {activeConnections.length > 0 ? 'Add Another Connection' : 'Choose Your Data Platform'}
                         </h2>
                         <p className="mx-auto max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-400">
                             Select a cloud data platform to establish secure, high-performance connections for your analytics workflows
@@ -907,6 +1220,13 @@ export default function DataSourceConnectionPage() {
                             <Breadcrumb />
                             <StepIndicator currentStep={awsCurrentSubStep} totalSteps={2} />
                             {renderAwsForm()}
+                        </div>
+                    );
+                case 'snowflake':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb />
+                            {renderSnowflakeForm()}
                         </div>
                     );
                 default:
