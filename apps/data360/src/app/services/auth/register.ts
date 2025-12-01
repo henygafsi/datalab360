@@ -4,19 +4,11 @@ import axios from 'axios';
  * User registration data
  */
 export interface userData {
-<<<<<<< HEAD
     organisation_name: string;
     username: string;
     email: string;
     password: string;
     confirm_password: string;
-=======
-    organisation_name: string,
-    username: string,
-    email: string,
-    password: string,
-    confirm_password: string,
->>>>>>> eca92cb (m)
 }
 
 
@@ -42,3 +34,4 @@ export const registerUser = async (userData: userData) => {
       throw new Error('Registration error: An unexpected issue occurred.');
     }
   };
+
