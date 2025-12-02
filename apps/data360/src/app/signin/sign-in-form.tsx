@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { SubmitHandler } from 'react-hook-form';
 import { PiArrowRightBold } from 'react-icons/pi';
@@ -9,23 +10,40 @@ import { Checkbox, Password, Button, Input, Text } from 'rizzui';
 import { Form } from '@core/ui/form';
 import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
+import toast from 'react-hot-toast';
 
 const initialValues: LoginSchema = {
   account_name: '',
-  username: 'admin@admin.com',
-  password: 'admin',
+  username: '',
+  password: '',
   rememberMe: true,
 };
 
 export default function SignInForm() {
-  //TODO: why we need to reset it here
+  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(false);
   const [reset, setReset] = useState({});
 
-  const onSubmit: SubmitHandler<LoginSchema> = (data) => {
-    console.log(data);
-    signIn('credentials', {
-      ...data,
-    });
+  const onSubmit: SubmitHandler<LoginSchema> = async (data) => {
+    setIsLoading(true);
+
+    try {
+      const result = await signIn('credentials', {
+        ...data,
+        redirect: false,
+      });
+
+      if (result?.error) {
+        toast.error(result.error || 'Invalid credentials. Please try again.');
+        setIsLoading(false);
+      } else if (result?.ok) {
+        toast.success('Login successful! Redirecting...');
+        router.push('/account-overview');
+      }
+    } catch (error) {
+      toast.error('An error occurred. Please try again.');
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -82,9 +100,15 @@ export default function SignInForm() {
                 Forget Password?
               </Link>
             </div>
-            <Button className="w-full" type="submit" size="lg">
+            <Button
+              className="w-full"
+              type="submit"
+              size="lg"
+              isLoading={isLoading}
+              disabled={isLoading}
+            >
               <span>Sign in</span>{' '}
-              <PiArrowRightBold className="ms-2 mt-0.5 h-5 w-5" />
+              {!isLoading && <PiArrowRightBold className="ms-2 mt-0.5 h-5 w-5" />}
             </Button>
           </div>
         )}

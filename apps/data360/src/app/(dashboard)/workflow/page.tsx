@@ -5,6 +5,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { Node, Edge } from 'reactflow';
 import WorkflowBuilder from './Workflow';
 import WorkflowCard from './WorkflowCard';
+import { SAMPLE_WORKFLOWS } from './sampleWorkflowData';
 
 interface BackendWorkflow {
   workflow_name: string;
@@ -48,6 +49,7 @@ const WorkflowHomePage: React.FC = () => {
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
+  const [isUsingSampleData, setIsUsingSampleData] = useState<boolean>(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
 
@@ -76,6 +78,7 @@ const WorkflowHomePage: React.FC = () => {
   const fetchWorkflows = useCallback(async (token: string) => {
     setLoading(true);
     setError(null);
+    setIsUsingSampleData(false);
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
         headers: {
@@ -105,8 +108,26 @@ const WorkflowHomePage: React.FC = () => {
         setWorkflows([]);
       }
     } catch (err: any) {
-      setError(err.message || "An unknown error occurred while fetching workflows.");
-      toast.error(`Error: ${err.message || "Failed to load workflows"}`);
+      // Detect CORS errors
+      const isCorsError =
+        err.message?.includes('CORS') ||
+        err.message?.includes('NetworkError') ||
+        err.message?.includes('Failed to fetch') ||
+        err.name === 'TypeError';
+
+      if (isCorsError) {
+        toast.error('Unable to connect to the server. Please check your network connection.');
+        setError('Unable to connect to the server. Please check your network connection or contact your administrator.');
+      } else if (err.message?.includes('401')) {
+        toast.error('Your session has expired. Please log in again.');
+        setError('Your session has expired. Please log in again.');
+      } else {
+        toast.error(`Error: ${err.message || "Failed to load workflows"}`);
+        setError(err.message || "An unknown error occurred while fetching workflows.");
+      }
+
+      setWorkflows([]);
+      setIsUsingSampleData(false);
     } finally {
       setLoading(false);
     }

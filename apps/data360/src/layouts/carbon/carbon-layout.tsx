@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useSession } from 'next-auth/react';
 import Header from '@/layouts/carbon/carbon-header';
 import { CarbonSidebar } from './carbon-sidebar';
 
@@ -60,6 +61,7 @@ export default function CarbonLayout({
 }: {
   children: React.ReactNode;
 }) {
+  const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [isPageVisible, setIsPageVisible] = useState(true);
 
@@ -72,6 +74,26 @@ export default function CarbonLayout({
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
+
+  // Show loading overlay while checking session
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50/30 dark:from-slate-950 dark:via-gray-950 dark:to-blue-950/30 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <div className="absolute inset-0 w-16 h-16 border-4 border-transparent border-r-purple-600 rounded-full animate-spin-reverse" />
+          </div>
+          <p className="text-sm font-medium text-slate-600 dark:text-slate-400 animate-pulse">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If not authenticated, return null (middleware will redirect to sign-in)
+  if (status === 'unauthenticated') {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-gray-50 to-blue-50/30 dark:from-slate-950 dark:via-gray-950 dark:to-blue-950/30 relative overflow-hidden">
