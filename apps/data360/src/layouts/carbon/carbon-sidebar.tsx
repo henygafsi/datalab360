@@ -23,7 +23,24 @@ const NeedSupport = dynamic(() => import('@/layouts/carbon/need-support'), {
 
 export function CarbonSidebar({ className }: { className?: string }) {
   const { data: session } = useSession();
-  const allowedIds = (session?.user as any)?.items ?? [];
+  const userRole = (session?.user as any)?.role?.toLowerCase();
+  const sessionItems = (session?.user as any)?.items ?? [];
+
+  // Debug logging
+  console.log('🔍 Session Debug:', {
+    role: (session?.user as any)?.role,
+    roleLower: userRole,
+    items: sessionItems,
+    itemsType: typeof sessionItems,
+    isArray: Array.isArray(sessionItems)
+  });
+
+  // If user is administrator or modeler, grant access to all menus (1-9)
+  // Using toLowerCase() to handle case variations
+  const allowedIds = (userRole === 'administrator' || userRole === 'modeler')
+    ? [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    : sessionItems;
+
   const username = session?.user?.username || 'Guest';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);

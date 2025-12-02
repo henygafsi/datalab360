@@ -4,6 +4,7 @@ import {
   PiBinocularsDuotone,
   PiBriefcaseDuotone,
   PiChartBarDuotone,
+  PiCheckCircleDuotone,
   PiCurrencyDollarDuotone,
   PiHouseLineDuotone,
   PiMapPinLineDuotone,
@@ -12,6 +13,9 @@ import {
   PiStorefrontDuotone,
   PiUserGearDuotone,
   PiEyeSlashDuotone,
+  PiShieldCheckDuotone,
+  PiLockKeyDuotone,
+  PiGlobeDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -97,6 +101,19 @@ export const carbonMenuItems: MenuItemsType[] = [
   },
   {
     id: 5,
+    name: 'Data Quality',
+    title: 'Data Quality',
+    icon: PiCheckCircleDuotone,
+    menuItems: [
+      {
+        name: 'Quality Reports',
+        href: routes.dataQuality.viewReports,
+        icon: PiCheckCircleDuotone,
+      },
+    ],
+  },
+  {
+    id: 6,
     name: 'Gouvernance',
     title: 'Gouvernance',
     icon: PiUserGearDuotone,
@@ -121,10 +138,25 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.gouvernance.masking,
         icon: PiEyeSlashDuotone,
       },
+      {
+        name: 'Security Matrix',
+        href: routes.gouvernance.securityMatrix,
+        icon: PiShieldCheckDuotone,
+      },
+      {
+        name: 'RLS Policies',
+        href: routes.gouvernance.rlsPolicies,
+        icon: PiLockKeyDuotone,
+      },
+      {
+        name: 'Network Policies',
+        href: routes.gouvernance.networkPolicies,
+        icon: PiGlobeDuotone,
+      },
     ],
   },
   {
-    id: 6,
+    id: 7,
     name: "KPI's Store",
     title: "KPI's Store",
     icon: PiStorefrontDuotone,
@@ -137,7 +169,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: 7,
+    id: 8,
     name: 'DaRquest / DAC',
     title: 'DaRquest / DAC',
     icon: PiShootingStarDuotone,
@@ -150,7 +182,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     ],
   },
   {
-    id: 8,
+    id: 9,
     name: 'Observability',
     title: 'Observability',
     icon: PiBinocularsDuotone,

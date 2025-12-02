@@ -25,7 +25,7 @@ export const authOptions: NextAuthOptions = {
           account_name: token.account_name as string, // Add account_name to session from JWT access_token
           username: token.username as string, // Add username to session from JWT access_token
           role: token.role as string,
-          items: token.items as string
+          items: token.items as any  // Keep as array, not string
 
         },
       };
@@ -41,8 +41,25 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     async redirect({ url, baseUrl }) {
-      // After login, redirect to the account overview page
-      if (url.startsWith(baseUrl)) return url;
+      // After login, always redirect to account-overview page
+      // Handle callback URLs
+      if (url.startsWith('/')) {
+        // If it's just the root or sign-in page, redirect to account-overview
+        if (url === '/' || url.startsWith('/signin')) {
+          return `${baseUrl}/account-overview`;
+        }
+        // If it's another internal path, use it
+        return `${baseUrl}${url}`;
+      }
+      // If the URL already includes the baseUrl
+      if (url.startsWith(baseUrl)) {
+        // Check if it's the root path
+        if (url === baseUrl || url === `${baseUrl}/` || url.startsWith(`${baseUrl}/signin`)) {
+          return `${baseUrl}/account-overview`;
+        }
+        return url;
+      }
+      // Default to account-overview
       return `${baseUrl}/account-overview`;
     },
   },

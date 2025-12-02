@@ -18,9 +18,15 @@ export const routes = {
     roles: '/gouvernance/roles',
     grants: '/gouvernance/grants',
     masking: '/gouvernance/masking',
+    securityMatrix: '/gouvernance/security-matrix',
+    rlsPolicies: '/gouvernance/rls-policies',
+    networkPolicies: '/gouvernance/network-policies',
   },
   biReporting: {
     viewReporting: '/bi-reporting'
+  },
+  dataQuality: {
+    viewReports: '/data-quality'
   },
   kpiStore: {
     view: '/kpi-store',
