@@ -52,6 +52,9 @@ export default function RLSPoliciesContent() {
     expression: '',
     schema: 'GOVERNANCE',
     description: '',
+    database: '',
+    table_name: '',
+    filter_expression: '',
   });
 
   const [applyForm, setApplyForm] = useState({
@@ -187,6 +190,9 @@ export default function RLSPoliciesContent() {
       expression: '',
       schema: 'GOVERNANCE',
       description: '',
+      database: '',
+      table_name: '',
+      filter_expression: '',
     });
   };
 
