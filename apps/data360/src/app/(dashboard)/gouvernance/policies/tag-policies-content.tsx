@@ -70,7 +70,7 @@ export default function TagPoliciesContent() {
         tag_name: tagName,
         allowed_values: allowedValues,
         comment,
-        schema: 'GOVERNANCE',
+        schema: 'GOUVERNANCE',
       });
       toast.success('Tag created successfully!');
       setShowCreateModal(false);
@@ -114,7 +114,7 @@ export default function TagPoliciesContent() {
         table,
         column,
         tag_value: tagValue,
-        tag_schema: 'GOVERNANCE',
+        tag_schema: 'cp_data360.GOUVERNANCE',
       });
 
       const objectPath = objectType === 'DATABASE' ? database
