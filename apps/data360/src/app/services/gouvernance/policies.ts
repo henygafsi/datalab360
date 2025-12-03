@@ -108,27 +108,34 @@ export interface NetworkPolicy {
   type: 'allow' | 'deny';
   ip_ranges: string[];
   description?: string;
+  is_default?: boolean;
+  allowed_ip_list?: string;
+  blocked_ip_list?: string;
+  comment?: string;
   created_at: string;
   updated_at: string;
 }
 
 export interface CreateNetworkPolicyRequest {
   policy_name: string;
-  allowed_ip_list: string[];
-  blocked_ip_list?: string[];
+  allowed_ip_list: string;
+  blocked_ip_list?: string;
+  comment?: string;
 }
 
 // Tag Types
 export interface Tag {
   tag_name: string;
   schema: string;
-  allowed_values?: string[];
+  allowed_values?: string;
+  comment?: string;
   created_at?: string;
 }
 
 export interface CreateTagRequest {
   tag_name: string;
-  allowed_values?: string[];
+  allowed_values?: string;
+  comment?: string;
   schema?: string;
 }
 
@@ -136,8 +143,11 @@ export interface ApplyTagRequest {
   tag_name: string;
   tag_value: string;
   object_type: string;
-  object_name: string;
-  schema?: string;
+  database: string;
+  schema: string;
+  table?: string;
+  column?: string;
+  tag_schema?: string;
 }
 
 // Password Policy Types
@@ -153,6 +163,7 @@ export interface PasswordPolicy {
   max_age_days: number;
   max_retries: number;
   lockout_time_mins: number;
+  is_default?: boolean;
   created_at?: string;
 }
 
@@ -176,6 +187,7 @@ export interface SessionPolicy {
   schema: string;
   session_idle_timeout_mins: number;
   session_ui_idle_timeout_mins: number;
+  is_default?: boolean;
   created_at?: string;
 }
 
@@ -311,6 +323,16 @@ export async function getMaskedColumns(
   return response.data.data;
 }
 
+export async function deleteMaskingPolicy(
+  policy_name: string,
+  schema: string = 'GOVERNANCE'
+): Promise<any> {
+  const response = await axios.delete<StandardResponse>(`${POLICIES_API}/masking/${policy_name}`, {
+    params: { schema },
+  });
+  return response.data.data;
+}
+
 // ============= NETWORK POLICY SERVICES =============
 
 export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
@@ -322,8 +344,9 @@ export async function createNetworkPolicy(data: CreateNetworkPolicyRequest): Pro
   const response = await axios.post<StandardResponse<NetworkPolicy>>(`${POLICIES_API}/network`, null, {
     params: {
       policy_name: data.policy_name,
-      allowed_ip_list: data.allowed_ip_list.join(','),
-      blocked_ip_list: data.blocked_ip_list?.join(','),
+      allowed_ip_list: data.allowed_ip_list,
+      blocked_ip_list: data.blocked_ip_list,
+      comment: data.comment,
     },
   });
   return response.data.data;
@@ -331,6 +354,11 @@ export async function createNetworkPolicy(data: CreateNetworkPolicyRequest): Pro
 
 export async function deleteNetworkPolicy(policy_name: string): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/network/${policy_name}`);
+  return response.data.data;
+}
+
+export async function setNetworkPolicyAsDefault(policy_name: string): Promise<any> {
+  const response = await axios.post<StandardResponse>(`${POLICIES_API}/network/${policy_name}/set-default`);
   return response.data.data;
 }
 
@@ -347,7 +375,8 @@ export async function createTag(data: CreateTagRequest): Promise<Tag> {
   const response = await axios.post<StandardResponse<Tag>>(`${POLICIES_API}/tags`, null, {
     params: {
       tag_name: data.tag_name,
-      allowed_values: data.allowed_values?.join(','),
+      allowed_values: data.allowed_values,
+      comment: data.comment,
       schema: data.schema || 'GOVERNANCE',
     },
   });
@@ -360,8 +389,28 @@ export async function applyTag(data: ApplyTagRequest): Promise<any> {
       tag_name: data.tag_name,
       tag_value: data.tag_value,
       object_type: data.object_type,
-      object_name: data.object_name,
-      schema: data.schema || 'GOVERNANCE',
+      database: data.database,
+      schema: data.schema,
+      table: data.table,
+      column: data.column,
+      tag_schema: data.tag_schema || 'GOVERNANCE',
+    },
+  });
+  return response.data.data;
+}
+
+export async function removeTag(
+  object_type: string,
+  object_name: string,
+  tag_name: string,
+  schema: string = 'GOVERNANCE'
+): Promise<any> {
+  const response = await axios.post<StandardResponse>(`${POLICIES_API}/tags/remove`, null, {
+    params: {
+      object_type,
+      object_name,
+      tag_name,
+      schema,
     },
   });
   return response.data.data;
@@ -412,6 +461,16 @@ export async function deletePasswordPolicy(
   return response.data.data;
 }
 
+export async function setPasswordPolicyAsDefault(
+  policy_name: string,
+  schema: string = 'GOVERNANCE'
+): Promise<any> {
+  const response = await axios.post<StandardResponse>(`${POLICIES_API}/password/${policy_name}/set-default`, null, {
+    params: { schema },
+  });
+  return response.data.data;
+}
+
 // ============= SESSION POLICY SERVICES =============
 
 export async function getSessionPolicies(schema: string = 'GOVERNANCE'): Promise<SessionPolicy[]> {
@@ -438,6 +497,16 @@ export async function deleteSessionPolicy(
   schema: string = 'GOVERNANCE'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/session/${policy_name}`, {
+    params: { schema },
+  });
+  return response.data.data;
+}
+
+export async function setSessionPolicyAsDefault(
+  policy_name: string,
+  schema: string = 'GOVERNANCE'
+): Promise<any> {
+  const response = await axios.post<StandardResponse>(`${POLICIES_API}/session/${policy_name}/set-default`, null, {
     params: { schema },
   });
   return response.data.data;

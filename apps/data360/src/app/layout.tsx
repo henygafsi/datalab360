@@ -9,7 +9,6 @@ import { siteConfig } from '@/config/site.config';
 import { inter, lexendDeca } from '@/app/fonts';
 import cn from '@core/utils/class-names';
 import NextProgress from '@core/components/next-progress';
-import AxiosInterceptorProvider from '@/lib/axios-interceptor-provider';
 
 // styles
 import 'swiper/css';
@@ -40,7 +39,6 @@ export default async function RootLayout({
         className={cn(inter.variable, lexendDeca.variable, 'font-inter')}
       >
         <AuthProvider session={session}>
-          <AxiosInterceptorProvider />
           <ThemeProvider>
             <NextProgress />
             <JotaiProvider>
