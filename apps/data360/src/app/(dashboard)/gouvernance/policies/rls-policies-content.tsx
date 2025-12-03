@@ -389,7 +389,7 @@ export default function RLSPoliciesContent() {
                   onChange={(value: string) => setFormData({ ...formData, database: value, schema: '', table_name: '' })}
                 >
                   <option value="">Select Database</option>
-                  {databases.map(db => (
+                  {(databases || []).map(db => (
                     <option key={db} value={db}>{db}</option>
                   ))}
                 </Select>
@@ -403,7 +403,7 @@ export default function RLSPoliciesContent() {
                   disabled={!formData.database}
                 >
                   <option value="">Select Schema</option>
-                  {schemas.map(sch => (
+                  {(schemas || []).map(sch => (
                     <option key={sch} value={sch}>{sch}</option>
                   ))}
                 </Select>
@@ -417,7 +417,7 @@ export default function RLSPoliciesContent() {
                   disabled={!formData.schema}
                 >
                   <option value="">Select Table</option>
-                  {tables.map(tbl => (
+                  {(tables || []).map(tbl => (
                     <option key={tbl} value={tbl}>{tbl}</option>
                   ))}
                 </Select>
@@ -487,7 +487,7 @@ export default function RLSPoliciesContent() {
                   onChange={(value: string) => setApplyForm({ ...applyForm, database: value, schema: '', table_name: '' })}
                 >
                   <option value="">Select Database</option>
-                  {databases.map(db => (
+                  {(databases || []).map(db => (
                     <option key={db} value={db}>{db}</option>
                   ))}
                 </Select>
@@ -501,7 +501,7 @@ export default function RLSPoliciesContent() {
                   disabled={!applyForm.database}
                 >
                   <option value="">Select Schema</option>
-                  {schemas.map(sch => (
+                  {(schemas || []).map(sch => (
                     <option key={sch} value={sch}>{sch}</option>
                   ))}
                 </Select>
@@ -515,7 +515,7 @@ export default function RLSPoliciesContent() {
                   disabled={!applyForm.schema}
                 >
                   <option value="">Select Table</option>
-                  {tables.map(tbl => (
+                  {(tables || []).map(tbl => (
                     <option key={tbl} value={tbl}>{tbl}</option>
                   ))}
                 </Select>
