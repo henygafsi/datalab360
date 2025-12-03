@@ -86,7 +86,15 @@ const WIZARD_STEPS_BACKEND_ORDER = [
 
 // --- Reusable UI Components ---
 
-function Breadcrumb({ currentStep, projectId }: { currentStep: number, projectId: string | null }) {
+function Breadcrumb({
+    currentStep,
+    projectId,
+    onStepClick
+}: {
+    currentStep: number;
+    projectId: string | null;
+    onStepClick?: (stepIndex: number) => void;
+}) {
     const stepNames = [
         "Project Management",
         "Primary Keys",
@@ -95,6 +103,13 @@ function Breadcrumb({ currentStep, projectId }: { currentStep: number, projectId
         "Table Relations",
         "Deployment"
     ];
+
+    const handleStepClick = (index: number) => {
+        // Only allow clicking on current or previous (completed) steps
+        if (index <= currentStep && onStepClick) {
+            onStepClick(index);
+        }
+    };
 
     return (
         <nav className="mb-8">
@@ -111,39 +126,48 @@ function Breadcrumb({ currentStep, projectId }: { currentStep: number, projectId
                     </>
                 )}
             </div>
-            
+
             <div className="flex items-center justify-center">
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-2xl p-4 border border-slate-200/60 dark:border-slate-700/60 shadow-lg">
                     <div className="flex items-center space-x-3">
-                        {stepNames.map((stepName, index) => (
-                            <React.Fragment key={index}>
-                                <div className={`flex items-center space-x-3 px-4 py-2 rounded-xl transition-all duration-300 ${
-                                    index === currentStep 
-                                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30 scale-105'
-                                        : index < currentStep 
-                                            ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md shadow-green-500/20'
-                                            : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
-                                }`}>
-                                    <div className={`w-3 h-3 rounded-full flex items-center justify-center ${
-                                        index === currentStep
-                                            ? 'bg-white/30 animate-pulse'
-                                            : index < currentStep
-                                                ? 'bg-white/30'
-                                                : 'bg-slate-400 dark:bg-slate-500'
-                                    }`}>
-                                        {index < currentStep && (
-                                            <HiOutlineCheck className="w-2 h-2 text-white" />
-                                        )}
+                        {stepNames.map((stepName, index) => {
+                            const isClickable = index <= currentStep;
+                            const isCurrent = index === currentStep;
+                            const isCompleted = index < currentStep;
+
+                            return (
+                                <React.Fragment key={index}>
+                                    <div
+                                        onClick={() => handleStepClick(index)}
+                                        className={`flex items-center space-x-3 px-4 py-2 rounded-xl transition-all duration-300 ${
+                                            isCurrent
+                                                ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-lg shadow-blue-500/30 scale-105'
+                                                : isCompleted
+                                                    ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-md shadow-green-500/20 hover:shadow-lg hover:shadow-green-500/30'
+                                                    : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400'
+                                        } ${isClickable ? 'cursor-pointer hover:scale-105' : 'cursor-not-allowed opacity-60'}`}
+                                    >
+                                        <div className={`w-3 h-3 rounded-full flex items-center justify-center ${
+                                            isCurrent
+                                                ? 'bg-white/30 animate-pulse'
+                                                : isCompleted
+                                                    ? 'bg-white/30'
+                                                    : 'bg-slate-400 dark:bg-slate-500'
+                                        }`}>
+                                            {isCompleted && (
+                                                <HiOutlineCheck className="w-2 h-2 text-white" />
+                                            )}
+                                        </div>
+                                        <span className="text-sm font-semibold">{stepName}</span>
                                     </div>
-                                    <span className="text-sm font-semibold">{stepName}</span>
-                                </div>
-                                {index < stepNames.length - 1 && (
-                                    <HiOutlineArrowRight className={`w-4 h-4 transition-colors duration-300 ${
-                                        index < currentStep ? 'text-green-500' : 'text-slate-400'
-                                    }`} />
-                                )}
-                            </React.Fragment>
-                        ))}
+                                    {index < stepNames.length - 1 && (
+                                        <HiOutlineArrowRight className={`w-4 h-4 transition-colors duration-300 ${
+                                            isCompleted ? 'text-green-500' : 'text-slate-400'
+                                        }`} />
+                                    )}
+                                </React.Fragment>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
@@ -594,10 +618,19 @@ const MappingWizardPage = () => {
     const updateMappingData = useCallback((newData: Partial<MappingDetail>) => { setMappingData(prev => ({ ...prev, ...newData })); }, []);
     const handleNext = useCallback(() => setCurrentStep((prev) => prev + 1), []);
     const handleBack = useCallback(() => setCurrentStep((prev) => prev - 1), []);
-  const handleProjectSelected = useCallback((id: string, lastCompletedStep: string | null) => {
-    setProjectId(id);
-    setCurrentStep(mapEventTypeToStepIndex(lastCompletedStep));
-}, []);
+
+    // Function to navigate to a specific step directly (for clickable breadcrumb)
+    const goToStep = useCallback((targetStep: number) => {
+        if (targetStep >= 0 && targetStep <= 5 && targetStep <= currentStep) {
+            setCurrentStep(targetStep);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    }, [currentStep]);
+
+    const handleProjectSelected = useCallback((id: string, lastCompletedStep: string | null) => {
+        setProjectId(id);
+        setCurrentStep(mapEventTypeToStepIndex(lastCompletedStep));
+    }, []);
 
     const renderStep = () => {
         if (isLoadingProjectData) {
@@ -625,7 +658,7 @@ const MappingWizardPage = () => {
     
     return (
         <div className="space-y-8">
-            <Breadcrumb currentStep={currentStep} projectId={projectId} />
+            <Breadcrumb currentStep={currentStep} projectId={projectId} onStepClick={goToStep} />
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
                     <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500 via-pink-500 to-rose-500 flex items-center justify-center shadow-2xl shadow-purple-500/25">

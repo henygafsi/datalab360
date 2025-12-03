@@ -17,6 +17,7 @@ export const routes = {
     users: '/gouvernance/users',
     roles: '/gouvernance/roles',
     grants: '/gouvernance/grants',
+    policies: '/gouvernance/policies', // Consolidated policies page (RLS, Network, Masking)
     masking: '/gouvernance/masking',
     securityMatrix: '/gouvernance/security-matrix',
     rlsPolicies: '/gouvernance/rls-policies',

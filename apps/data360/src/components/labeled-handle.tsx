@@ -2,7 +2,7 @@
 
 import React from "react";
 import { cn } from "@/lib/utils";
-import { HandleProps } from "@xyflow/react";
+import { HandleProps } from "reactflow";
 
 import { BaseHandle } from "@/components/base-handle";
 

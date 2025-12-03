@@ -391,11 +391,19 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
     }, [selectedSourceTable, selectedTargetTable, mappingData, toast]);
 
     useEffect(() => {
-        // Only fetch if we don't have column attributes yet or if projectId changes
-        if (mappingData.project_id && (!mappingData.column_attributes || Object.keys(mappingData.column_attributes).length === 0)) {
-            fetchAndInitializeColumns();
+        // Only fetch if we don't have internal column attributes and they haven't been loaded before
+        if (mappingData.project_id && Object.keys(internalColumnAttributes).length === 0) {
+            // Check if we have stored column attributes to restore from
+            if (mappingData.column_attributes && Object.keys(mappingData.column_attributes).length > 0) {
+                // Initialize from stored attributes without fetching
+                setInternalColumnAttributes(mappingData.column_attributes);
+            } else {
+                // Only fetch if we truly have no data
+                fetchAndInitializeColumns();
+            }
         }
-    }, [mappingData.project_id, mappingData.column_attributes, fetchAndInitializeColumns]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [mappingData.project_id]);
 
     const handleRequiredToggle = useCallback((tableName: string, columnName: string, isRequired: boolean) => {
         setInternalColumnAttributes(prev => {
@@ -409,7 +417,8 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
 
     const handleSelectAll = useCallback((table: TableSelection | null, columns: ColumnDetail[], select: boolean) => {
         if (!table) return;
-        const tableName = table.table;
+        // Use the fully qualified table name (database.schema.table)
+        const tableName = `${table.database}.${table.schema}.${table.table}`;
         setInternalColumnAttributes(prev => {
             const newAttrs = JSON.parse(JSON.stringify(prev)) as typeof prev;
             if (!newAttrs[tableName]) newAttrs[tableName] = {};
@@ -536,181 +545,243 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                         <summary className="cursor-pointer select-none font-medium">Group {gi + 1}{g.target ? ` — Target: ${g.target.database}.${g.target.schema}.${g.target.table}` : ' (no target yet)'}</summary>
                         <h3 className="text-lg font-semibold">Group {gi + 1}{g.target ? ` — Target: ${g.target.database}.${g.target.schema}.${g.target.table}` : ''}</h3>
 
-                        {/* Sources */}
-                        {(g.sources || []).map((src, si) => {
-                            const sKey = `${src.database}.${src.schema}.${src.table}`;
-                            const srcEntries = Object.entries(internalColumnAttributes[sKey] || {}) as [string, ColumnAttributes][];
-                            const cols = srcEntries.map(([name, attr]) => ({
-                                name,
-                                data_type: attr.data_type || 'UNKNOWN',
-                                is_primary_key: attr.is_primary_key || false,
-                                is_nullable: attr.is_nullable,
-                                is_foreign_key: attr.is_foreign_key,
-                                is_required_for_mapping: attr.is_required_for_mapping,
-                                length: attr.length,
-                                length_text: attr.length_text,
-                            })) as ColumnDetail[];
-                            const filtered = cols.filter(col => col.name.toLowerCase().includes(sourceSearch.toLowerCase()));
-                            return (
-                                <div key={`src-${gi}-${si}`} className="space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <div className="font-medium">Source Table: {src.database}.{src.schema}.{src.table}</div>
-                                        <div className="flex items-center gap-2">
-                                            <Input placeholder="Search columns..." value={sourceSearch} onChange={e => setSourceSearch(e.target.value)} className="w-48" />
-                                            <Button variant="outline" onClick={() => handleSelectAll(src, filtered, false)}>Deselect All</Button>
-                                            <Button onClick={() => handleSelectAll(src, filtered, true)}>Select All</Button>
-                                        </div>
-                                    </div>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Column</TableHead>
-                                                <TableHead>Data Type</TableHead>
-                                                <TableHead>Length</TableHead>
-                                                <TableHead>Required</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {filtered.map(col => (
-                                                <TableRow key={col.name}>
-                                                    <TableCell>{col.name}</TableCell>
-                                                    <TableCell>
-                                                        <Select
-                                                            value={internalColumnAttributes[sKey]?.[col.name]?.data_type || 'UNKNOWN'}
-                                                            onValueChange={(v) => {
-                                                                handleTypeChange(sKey, col.name, v);
-                                                            }}
-                                                        >
-                                                            <SelectTrigger className="h-8 w-44">
-                                                                <SelectValue placeholder="Select type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {/* Ensure current type appears even if not in default list */}
-                                                                {(() => {
-                                                                    const current = internalColumnAttributes[sKey]?.[col.name]?.data_type || 'UNKNOWN';
-                                                                    const list = new Set([current, ...AVAILABLE_TYPES]);
-                                                                    return Array.from(list).map(t => (
-                                                                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                                                                    ));
-                                                                })()}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Input
-                                                            type="text"
-                                                            placeholder="e.g. 255 or 38,0"
-                                                            className="h-8 w-28"
-                                                            value={internalColumnAttributes[sKey]?.[col.name]?.length_text ?? internalColumnAttributes[sKey]?.[col.name]?.length ?? ''}
-                                                            onChange={e => handleLengthChange(sKey, col.name, e.target.value)}
-                                                            disabled={getLengthModeForType(internalColumnAttributes[sKey]?.[col.name]?.data_type) === 'none'}
-                                                        />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Checkbox
-                                                            checked={internalColumnAttributes[sKey]?.[col.name]?.is_required_for_mapping || false}
-                                                            onCheckedChange={checked => handleRequiredToggle(sKey, col.name, !!checked)}
-                                                            disabled={col.is_primary_key}
-                                                        />
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                    <div className="flex justify-end mt-2 gap-2">
-                                        <Button size="sm" onClick={() => handleSaveTypes(src)}>Save Changes</Button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                        {/* Side-by-Side Layout: Source Tables (Left) | Target Table (Right) */}
+                        <div className="grid grid-cols-2 gap-6">
+                            {/* LEFT COLUMN: Source Tables */}
+                            <div className="border-r pr-4">
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                                    <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-400 px-2 py-1 rounded text-xs font-medium">SOURCE</span>
+                                    {(g.sources || []).length > 1 && <span className="text-xs text-slate-500">({(g.sources || []).length} tables)</span>}
+                                </h3>
+                                {(g.sources || []).map((src, si) => {
+                                    const sKey = `${src.database}.${src.schema}.${src.table}`;
+                                    const srcEntries = Object.entries(internalColumnAttributes[sKey] || {}) as [string, ColumnAttributes][];
+                                    const cols = srcEntries.map(([name, attr]) => ({
+                                        name,
+                                        data_type: attr.data_type || 'UNKNOWN',
+                                        is_primary_key: attr.is_primary_key || false,
+                                        is_nullable: attr.is_nullable,
+                                        is_foreign_key: attr.is_foreign_key,
+                                        is_required_for_mapping: attr.is_required_for_mapping,
+                                        length: attr.length,
+                                        length_text: attr.length_text,
+                                    })) as ColumnDetail[];
+                                    const filtered = cols.filter(col => col.name.toLowerCase().includes(sourceSearch.toLowerCase()));
+                                    return (
+                                        <div key={`src-${gi}-${si}`} className="mb-6">
+                                            <div className="mb-3">
+                                                <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 truncate" title={`${src.database}.${src.schema}.${src.table}`}>
+                                                    {src.database}.{src.schema}.{src.table}
+                                                </div>
 
-                        {/* Target */}
-                        {g.target && (() => {
-                            const t = g.target!;
-                            const tKey = `${t.database}.${t.schema}.${t.table}`;
-                            const tgtEntries = Object.entries(internalColumnAttributes[tKey] || {}) as [string, ColumnAttributes][];
-                            const cols = tgtEntries.map(([name, attr]) => ({
-                                name,
-                                data_type: attr.data_type || 'UNKNOWN',
-                                is_primary_key: attr.is_primary_key || false,
-                                is_nullable: attr.is_nullable,
-                                is_foreign_key: attr.is_foreign_key,
-                                is_required_for_mapping: attr.is_required_for_mapping,
-                                length: attr.length,
-                                length_text: attr.length_text,
-                            })) as ColumnDetail[];
-                            const filtered = cols.filter(col => col.name.toLowerCase().includes(targetSearch.toLowerCase()));
-                            return (
-                                <div className="space-y-3">
-                                    <div className="flex justify-between items-center">
-                                        <div className="font-medium">Target Table: {t.database}.{t.schema}.{t.table}</div>
-                                        <div className="flex items-center gap-2">
-                                            <Input placeholder="Search columns..." value={targetSearch} onChange={e => setTargetSearch(e.target.value)} className="w-48" />
-                                            <Button variant="outline" onClick={() => handleSelectAll(t, filtered, false)}>Deselect All</Button>
-                                            <Button onClick={() => handleSelectAll(t, filtered, true)}>Select All</Button>
+                                                {/* Search - Fixed at top */}
+                                                <Input
+                                                    placeholder="Search columns..."
+                                                    value={sourceSearch}
+                                                    onChange={e => setSourceSearch(e.target.value)}
+                                                    className="w-full h-8 text-xs mb-2"
+                                                />
+
+                                                {/* Select All Buttons - Prominent */}
+                                                <div className="flex gap-2 mb-2">
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectAll(src, filtered, true)} className="flex-1 h-7 text-xs">
+                                                        Select All ({filtered.length})
+                                                    </Button>
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectAll(src, filtered, false)} className="flex-1 h-7 text-xs">
+                                                        Deselect All
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            {/* Scrollable Table Container */}
+                                            <div className="border rounded-lg overflow-hidden">
+                                                <div className="max-h-[500px] overflow-y-auto">
+                                                    <Table>
+                                                        <TableHeader className="sticky top-0 bg-white dark:bg-slate-900 z-10 shadow-sm">
+                                                            <TableRow>
+                                                                <TableHead className="text-xs">Column</TableHead>
+                                                                <TableHead className="text-xs">Data Type</TableHead>
+                                                                <TableHead className="text-xs">Length</TableHead>
+                                                                <TableHead className="text-xs">Required</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {filtered.map(col => (
+                                                                <TableRow key={col.name} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                                                                    <TableCell className="text-xs font-mono">{col.name}</TableCell>
+                                                                    <TableCell>
+                                                                        <Select
+                                                                            value={internalColumnAttributes[sKey]?.[col.name]?.data_type || 'UNKNOWN'}
+                                                                            onValueChange={(v) => {
+                                                                                handleTypeChange(sKey, col.name, v);
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="h-7 w-36 text-xs">
+                                                                                <SelectValue placeholder="Select type" />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {/* Ensure current type appears even if not in default list */}
+                                                                                {(() => {
+                                                                                    const current = internalColumnAttributes[sKey]?.[col.name]?.data_type || 'UNKNOWN';
+                                                                                    const list = new Set([current, ...AVAILABLE_TYPES]);
+                                                                                    return Array.from(list).map(t => (
+                                                                                        <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+                                                                                    ));
+                                                                                })()}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Input
+                                                                            type="text"
+                                                                            placeholder="255"
+                                                                            className="h-7 w-20 text-xs"
+                                                                            value={internalColumnAttributes[sKey]?.[col.name]?.length_text ?? internalColumnAttributes[sKey]?.[col.name]?.length ?? ''}
+                                                                            onChange={e => handleLengthChange(sKey, col.name, e.target.value)}
+                                                                            disabled={getLengthModeForType(internalColumnAttributes[sKey]?.[col.name]?.data_type) === 'none'}
+                                                                        />
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Checkbox
+                                                                            checked={internalColumnAttributes[sKey]?.[col.name]?.is_required_for_mapping || false}
+                                                                            onCheckedChange={checked => handleRequiredToggle(sKey, col.name, !!checked)}
+                                                                            disabled={col.is_primary_key}
+                                                                        />
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex justify-end mt-2">
+                                                <Button size="sm" onClick={() => handleSaveTypes(src)} className="h-7 text-xs">
+                                                    Save Changes
+                                                </Button>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <Table>
-                                        <TableHeader>
-                                            <TableRow>
-                                                <TableHead>Column</TableHead>
-                                                <TableHead>Data Type</TableHead>
-                                                <TableHead>Length</TableHead>
-                                                <TableHead>Required</TableHead>
-                                            </TableRow>
-                                        </TableHeader>
-                                        <TableBody>
-                                            {filtered.map(col => (
-                                                <TableRow key={col.name}>
-                                                    <TableCell>{col.name}</TableCell>
-                                                    <TableCell>
-                                                        <Select
-                                                            value={internalColumnAttributes[tKey]?.[col.name]?.data_type || 'UNKNOWN'}
-                                                            onValueChange={(v) => {
-                                                                handleTypeChange(tKey, col.name, v);
-                                                            }}
-                                                        >
-                                                            <SelectTrigger className="h-8 w-44">
-                                                                <SelectValue placeholder="Select type" />
-                                                            </SelectTrigger>
-                                                            <SelectContent>
-                                                                {(() => {
-                                                                    const current = internalColumnAttributes[tKey]?.[col.name]?.data_type || 'UNKNOWN';
-                                                                    const list = new Set([current, ...AVAILABLE_TYPES]);
-                                                                    return Array.from(list).map(t => (
-                                                                        <SelectItem key={t} value={t}>{t}</SelectItem>
-                                                                    ));
-                                                                })()}
-                                                            </SelectContent>
-                                                        </Select>
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Input
-                                                            type="text"
-                                                            placeholder="e.g. 255 or 38,0"
-                                                            className="h-8 w-28"
-                                                            value={internalColumnAttributes[tKey]?.[col.name]?.length_text ?? internalColumnAttributes[tKey]?.[col.name]?.length ?? ''}
-                                                            onChange={e => handleLengthChange(tKey, col.name, e.target.value)}
-                                                            disabled={getLengthModeForType(internalColumnAttributes[tKey]?.[col.name]?.data_type) === 'none'}
-                                                        />
-                                                    </TableCell>
-                                                    <TableCell>
-                                                        <Checkbox
-                                                            checked={internalColumnAttributes[tKey]?.[col.name]?.is_required_for_mapping || false}
-                                                            onCheckedChange={checked => handleRequiredToggle(tKey, col.name, !!checked)}
-                                                            disabled={col.is_primary_key}
-                                                        />
-                                                    </TableCell>
-                                                </TableRow>
-                                            ))}
-                                        </TableBody>
-                                    </Table>
-                                    <div className="flex justify-end mt-2 gap-2">
-                                        <Button size="sm" onClick={() => handleSaveTypes(t)}>Save Changes</Button>
-                                    </div>
-                                </div>
-                            );
-                        })()}
+                                    );
+                                })}
+                            </div>
+
+                            {/* RIGHT COLUMN: Target Table */}
+                            <div className="pl-4">
+                                <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2">
+                                    <span className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-400 px-2 py-1 rounded text-xs font-medium">TARGET</span>
+                                </h3>
+                                {g.target && (() => {
+                                    const t = g.target!;
+                                    const tKey = `${t.database}.${t.schema}.${t.table}`;
+                                    const tgtEntries = Object.entries(internalColumnAttributes[tKey] || {}) as [string, ColumnAttributes][];
+                                    const cols = tgtEntries.map(([name, attr]) => ({
+                                        name,
+                                        data_type: attr.data_type || 'UNKNOWN',
+                                        is_primary_key: attr.is_primary_key || false,
+                                        is_nullable: attr.is_nullable,
+                                        is_foreign_key: attr.is_foreign_key,
+                                        is_required_for_mapping: attr.is_required_for_mapping,
+                                        length: attr.length,
+                                        length_text: attr.length_text,
+                                    })) as ColumnDetail[];
+                                    const filtered = cols.filter(col => col.name.toLowerCase().includes(targetSearch.toLowerCase()));
+                                    return (
+                                        <div>
+                                            <div className="mb-3">
+                                                <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2 truncate" title={`${t.database}.${t.schema}.${t.table}`}>
+                                                    {t.database}.{t.schema}.{t.table}
+                                                </div>
+
+                                                {/* Search - Fixed at top */}
+                                                <Input
+                                                    placeholder="Search columns..."
+                                                    value={targetSearch}
+                                                    onChange={e => setTargetSearch(e.target.value)}
+                                                    className="w-full h-8 text-xs mb-2"
+                                                />
+
+                                                {/* Select All Buttons - Prominent */}
+                                                <div className="flex gap-2 mb-2">
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectAll(t, filtered, true)} className="flex-1 h-7 text-xs">
+                                                        Select All ({filtered.length})
+                                                    </Button>
+                                                    <Button size="sm" variant="outline" onClick={() => handleSelectAll(t, filtered, false)} className="flex-1 h-7 text-xs">
+                                                        Deselect All
+                                                    </Button>
+                                                </div>
+                                            </div>
+
+                                            {/* Scrollable Table Container */}
+                                            <div className="border rounded-lg overflow-hidden">
+                                                <div className="max-h-[500px] overflow-y-auto">
+                                                    <Table>
+                                                        <TableHeader className="sticky top-0 bg-white dark:bg-slate-900 z-10 shadow-sm">
+                                                            <TableRow>
+                                                                <TableHead className="text-xs">Column</TableHead>
+                                                                <TableHead className="text-xs">Data Type</TableHead>
+                                                                <TableHead className="text-xs">Length</TableHead>
+                                                                <TableHead className="text-xs">Required</TableHead>
+                                                            </TableRow>
+                                                        </TableHeader>
+                                                        <TableBody>
+                                                            {filtered.map(col => (
+                                                                <TableRow key={col.name} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                                                                    <TableCell className="text-xs font-mono">{col.name}</TableCell>
+                                                                    <TableCell>
+                                                                        <Select
+                                                                            value={internalColumnAttributes[tKey]?.[col.name]?.data_type || 'UNKNOWN'}
+                                                                            onValueChange={(v) => {
+                                                                                handleTypeChange(tKey, col.name, v);
+                                                                            }}
+                                                                        >
+                                                                            <SelectTrigger className="h-7 w-36 text-xs">
+                                                                                <SelectValue placeholder="Select type" />
+                                                                            </SelectTrigger>
+                                                                            <SelectContent>
+                                                                                {(() => {
+                                                                                    const current = internalColumnAttributes[tKey]?.[col.name]?.data_type || 'UNKNOWN';
+                                                                                    const list = new Set([current, ...AVAILABLE_TYPES]);
+                                                                                    return Array.from(list).map(t => (
+                                                                                        <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>
+                                                                                    ));
+                                                                                })()}
+                                                                            </SelectContent>
+                                                                        </Select>
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Input
+                                                                            type="text"
+                                                                            placeholder="255"
+                                                                            className="h-7 w-20 text-xs"
+                                                                            value={internalColumnAttributes[tKey]?.[col.name]?.length_text ?? internalColumnAttributes[tKey]?.[col.name]?.length ?? ''}
+                                                                            onChange={e => handleLengthChange(tKey, col.name, e.target.value)}
+                                                                            disabled={getLengthModeForType(internalColumnAttributes[tKey]?.[col.name]?.data_type) === 'none'}
+                                                                        />
+                                                                    </TableCell>
+                                                                    <TableCell>
+                                                                        <Checkbox
+                                                                            checked={internalColumnAttributes[tKey]?.[col.name]?.is_required_for_mapping || false}
+                                                                            onCheckedChange={checked => handleRequiredToggle(tKey, col.name, !!checked)}
+                                                                            disabled={col.is_primary_key}
+                                                                        />
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            ))}
+                                                        </TableBody>
+                                                    </Table>
+                                                </div>
+                                            </div>
+
+                                            <div className="flex justify-end mt-2">
+                                                <Button size="sm" onClick={() => handleSaveTypes(t)} className="h-7 text-xs">
+                                                    Save Changes
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+                            </div>
+                        </div>
                     </details>
                 ))}
                 <div className="flex justify-between gap-2 mt-6">

@@ -2,14 +2,28 @@
 
 import { Badge, Button, Select, Modal, Text } from 'rizzui';
 import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
-import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiWarning, PiClock, PiEye } from 'react-icons/pi';
+import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import { useMemo, useState, useEffect } from 'react';
 import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
+import axios from 'axios';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+
+interface ScheduledWorkflow {
+  workflow_name: string;
+  scheduled_date?: string;
+  deployment_method?: string;
+  project_id?: string;
+  created_by: string;
+  created_at?: string;
+  status?: string; // PENDING_APPROVAL, APPROVED, ACTIVE, REJECTED
+  cron_schedule?: string; // For backward compatibility with regular workflows
+  schedule_interval_str?: string;
+}
 
 export default function GouvernanceDashboard() {
   const { data: session } = useSession();
@@ -42,6 +56,87 @@ export default function GouvernanceDashboard() {
     }
   }, [currentUsername]);
 
+  // Fetch scheduled workflows and mapping deployments on component mount
+  useEffect(() => {
+    const fetchScheduledItems = async () => {
+      if (!session?.user?.access_token) return;
+
+      setScheduledWorkflowsLoading(true);
+      try {
+        // Fetch both workflows and mapping deployments in parallel with timeout
+        const [workflowsResponse, deploymentsResponse] = await Promise.all([
+          axios.get(
+            `${API_BASE_URL}/workflow/get_workflows/`,
+            {
+              headers: {
+                Authorization: `Bearer ${session.user.access_token}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 5000, // 5 second timeout
+            }
+          ).catch((err) => {
+            console.warn('Workflows endpoint not available:', err.message);
+            return { data: { workflows: [] } };
+          }),
+          axios.get(
+            `${API_BASE_URL}/mapping/get_scheduled_deployments/`,
+            {
+              headers: {
+                Authorization: `Bearer ${session.user.access_token}`,
+                'Content-Type': 'application/json',
+              },
+              timeout: 5000, // 5 second timeout
+            }
+          ).catch((err) => {
+            console.warn('Mapping deployments endpoint not available:', err.message);
+            return { data: { deployments: [] } };
+          })
+        ]);
+
+        const allScheduled: ScheduledWorkflow[] = [];
+
+        // Add regular workflows with schedules
+        if (workflowsResponse.data?.workflows) {
+          const scheduledWorkflows = workflowsResponse.data.workflows.filter(
+            (wf: any) => wf.schedule_interval_str
+          );
+          allScheduled.push(...scheduledWorkflows);
+        }
+
+        // Add mapping deployments (remove duplicates by workflow_name)
+        if (deploymentsResponse.data?.deployments) {
+          allScheduled.push(...deploymentsResponse.data.deployments);
+        }
+
+        // Remove duplicates by workflow_name, keeping the most recent one
+        const uniqueWorkflows = allScheduled.reduce((acc, workflow) => {
+          const existing = acc.find(w => w.workflow_name === workflow.workflow_name);
+          if (!existing) {
+            acc.push(workflow);
+          } else {
+            // Keep the one with the most recent created_at or event_timestamp
+            const existingTime = new Date(existing.created_at || existing.scheduled_date || 0).getTime();
+            const currentTime = new Date(workflow.created_at || workflow.scheduled_date || 0).getTime();
+            if (currentTime > existingTime) {
+              const index = acc.indexOf(existing);
+              acc[index] = workflow;
+            }
+          }
+          return acc;
+        }, [] as ScheduledWorkflow[]);
+
+        setScheduledWorkflows(uniqueWorkflows);
+      } catch (error: any) {
+        console.error('Error fetching scheduled items:', error);
+        // Silently fail - don't show error to user as this is a non-critical feature
+      } finally {
+        setScheduledWorkflowsLoading(false);
+      }
+    };
+
+    fetchScheduledItems();
+  }, [session]);
+
   // Build complete filters object for API call
   const apiFilters = useMemo(() => {
     const filters: any = {
@@ -62,6 +157,14 @@ export default function GouvernanceDashboard() {
   // Modal state for query text
   const [selectedQuery, setSelectedQuery] = useState<{ text: string; id: string } | null>(null);
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
+
+  // Scheduled workflows and mappings state
+  const [scheduledWorkflows, setScheduledWorkflows] = useState<ScheduledWorkflow[]>([]);
+  const [scheduledWorkflowsLoading, setScheduledWorkflowsLoading] = useState(true);
+  const [approvingWorkflow, setApprovingWorkflow] = useState<string | null>(null);
+  const [activatingWorkflow, setActivatingWorkflow] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'mappings' | 'workflows'>('mappings');
+  const [deploymentError, setDeploymentError] = useState<{ workflow: string; message: string } | null>(null);
 
   // Quick filter presets
   const applyQuickFilter = (preset: string) => {
@@ -84,6 +187,107 @@ export default function GouvernanceDashboard() {
         break;
       default:
         break;
+    }
+  };
+
+  // Approve scheduled deployment (modeler action)
+  const handleApproveDeployment = async (workflowName: string) => {
+    if (!session?.user?.access_token) return;
+
+    setApprovingWorkflow(workflowName);
+    try {
+      await axios.post(
+        `${API_BASE_URL}/mapping/approve_deployment/`,
+        { workflow_name: workflowName },
+        {
+          headers: {
+            Authorization: `Bearer ${session.user.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 10000, // 10 second timeout
+        }
+      );
+
+      // Update local state to mark as approved
+      setScheduledWorkflows((prev) =>
+        prev.map((wf) =>
+          wf.workflow_name === workflowName ? { ...wf, status: 'APPROVED' } : wf
+        )
+      );
+
+      alert(`Successfully approved deployment: ${workflowName}`);
+    } catch (error: any) {
+      console.error('Error approving deployment:', error);
+      const errorMsg = error.code === 'ECONNABORTED'
+        ? 'Request timed out. The backend endpoint may not be implemented yet.'
+        : error.response?.data?.detail || error.message || 'Unknown error';
+      alert(`Failed to approve: ${errorMsg}`);
+    } finally {
+      setApprovingWorkflow(null);
+    }
+  };
+
+  // Activate approved deployment (final execution)
+  const handleActivateDeployment = async (workflowName: string) => {
+    if (!session?.user?.access_token) return;
+
+    setActivatingWorkflow(workflowName);
+    setDeploymentError(null); // Clear previous errors
+    try {
+      // Determine if it's a mapping deployment or workflow
+      const isMappingDeployment = workflowName.startsWith('mapping_deployment_');
+      const endpoint = isMappingDeployment
+        ? `${API_BASE_URL}/mapping/activate_deployment/`
+        : `${API_BASE_URL}/workflow/activate_workflow/`;
+
+      await axios.post(
+        endpoint,
+        { workflow_name: workflowName },
+        {
+          headers: {
+            Authorization: `Bearer ${session.user.access_token}`,
+            'Content-Type': 'application/json',
+          },
+          timeout: 30000, // 30 second timeout (deployment can take longer)
+        }
+      );
+
+      // Update local state to mark as active
+      setScheduledWorkflows((prev) =>
+        prev.map((wf) =>
+          wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
+        )
+      );
+
+      alert(`Successfully activated ${isMappingDeployment ? 'mapping deployment' : 'workflow'}: ${workflowName}`);
+    } catch (error: any) {
+      console.error('Error activating deployment:', error);
+
+      // Extract detailed error message
+      let errorMsg = 'Unknown error';
+      if (error.response?.status === 500) {
+        errorMsg = 'Backend Error (500): ';
+        if (error.response?.data?.detail) {
+          errorMsg += typeof error.response.data.detail === 'string'
+            ? error.response.data.detail
+            : JSON.stringify(error.response.data.detail);
+        } else {
+          errorMsg += 'The activate_deployment endpoint encountered an error.';
+        }
+      } else if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Request timed out. The backend endpoint may not be implemented yet or the deployment is taking too long.';
+      } else if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : JSON.stringify(error.response.data.detail);
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+
+      // Set error state to display in UI
+      setDeploymentError({ workflow: workflowName, message: errorMsg });
+    } finally {
+      setActivatingWorkflow(null);
     }
   };
 
@@ -115,6 +319,47 @@ export default function GouvernanceDashboard() {
     if (!stagesData || !Array.isArray(stagesData)) return 0;
     return stagesData.filter(stage => stage.error || stage.total_mb === null).length;
   }, [stagesData]);
+
+  // Separate and compute deployment metrics
+  const deploymentMetrics = useMemo(() => {
+    const mappingDeployments = scheduledWorkflows.filter(wf =>
+      wf.workflow_name.startsWith('mapping_deployment_')
+    );
+    const regularWorkflows = scheduledWorkflows.filter(wf =>
+      !wf.workflow_name.startsWith('mapping_deployment_')
+    );
+
+    const pendingApprovals = scheduledWorkflows.filter(wf =>
+      wf.status === 'PENDING_APPROVAL'
+    ).length;
+
+    const activeDeployments = scheduledWorkflows.filter(wf =>
+      wf.status === 'ACTIVE'
+    ).length;
+
+    const approvedPending = scheduledWorkflows.filter(wf =>
+      wf.status === 'APPROVED'
+    ).length;
+
+    // Upcoming deployments in next 7 days
+    const now = new Date();
+    const next7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const upcomingDeployments = scheduledWorkflows.filter(wf => {
+      if (!wf.scheduled_date) return false;
+      const scheduledDate = new Date(wf.scheduled_date);
+      return scheduledDate >= now && scheduledDate <= next7Days;
+    }).length;
+
+    return {
+      mappingDeployments,
+      regularWorkflows,
+      pendingApprovals,
+      activeDeployments,
+      approvedPending,
+      upcomingDeployments,
+      totalDeployments: scheduledWorkflows.length
+    };
+  }, [scheduledWorkflows]);
 
   // Group activities by date for timeline
   const activityTimeline = useMemo(() => {
@@ -267,7 +512,371 @@ export default function GouvernanceDashboard() {
           color="amber"
           loading={dashboardLoading}
         />
+
+        <KPICard
+          title="Pending Approvals"
+          value={deploymentMetrics.pendingApprovals}
+          subtitle="Deployments awaiting review"
+          icon={<PiClockCountdown className="w-6 h-6" />}
+          color="amber"
+          loading={scheduledWorkflowsLoading}
+        />
+
+        <KPICard
+          title="Active Deployments"
+          value={deploymentMetrics.activeDeployments}
+          subtitle="Currently running"
+          icon={<PiRocketLaunch className="w-6 h-6" />}
+          color="green"
+          loading={scheduledWorkflowsLoading}
+        />
+
+        <KPICard
+          title="Upcoming"
+          value={deploymentMetrics.upcomingDeployments}
+          subtitle="Next 7 days"
+          icon={<PiPackage className="w-6 h-6" />}
+          color="indigo"
+          loading={scheduledWorkflowsLoading}
+        />
       </div>
+
+      {/* Deployment Plans Section */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-6">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg">
+                <PiCalendarCheck className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold text-slate-900 dark:text-white">
+                  Deployment Plans
+                </h3>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Manage mapping deployments and workflow schedules
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 text-base px-3 py-1.5">
+                {deploymentMetrics.mappingDeployments.length} Mappings
+              </Badge>
+              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-base px-3 py-1.5">
+                {deploymentMetrics.regularWorkflows.length} Workflows
+              </Badge>
+            </div>
+          </div>
+
+          {/* Deployment Error Display */}
+          {deploymentError && (
+            <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-lg">
+              <div className="flex items-start gap-3">
+                <PiWarning className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h4 className="text-base font-semibold text-red-800 dark:text-red-300 mb-2">
+                    Activation Failed: {deploymentError.workflow}
+                  </h4>
+                  <p className="text-sm text-red-700 dark:text-red-400 whitespace-pre-wrap mb-3">
+                    {deploymentError.message}
+                  </p>
+                  <button
+                    onClick={() => setDeploymentError(null)}
+                    className="text-xs font-medium text-red-700 dark:text-red-400 hover:text-red-900 dark:hover:text-red-200 underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {scheduledWorkflowsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+            </div>
+          ) : (
+            <div>
+              {/* Custom Tab Buttons */}
+              <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
+                <button
+                  onClick={() => setActiveTab('mappings')}
+                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all duration-200 border-b-2 ${
+                    activeTab === 'mappings'
+                      ? 'border-purple-600 text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <PiDatabase className="w-4 h-4" />
+                  Mapping Deployments ({deploymentMetrics.mappingDeployments.length})
+                </button>
+                <button
+                  onClick={() => setActiveTab('workflows')}
+                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all duration-200 border-b-2 ${
+                    activeTab === 'workflows'
+                      ? 'border-green-600 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
+                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <PiPlayCircle className="w-4 h-4" />
+                  Scheduled Workflows ({deploymentMetrics.regularWorkflows.length})
+                </button>
+              </div>
+
+              {/* Tab Content */}
+              <div>
+                {/* Mapping Deployments Panel */}
+                {activeTab === 'mappings' && (
+                  <div>
+                  {deploymentMetrics.mappingDeployments.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <PiDatabase className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                      <p>No mapping deployments scheduled</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {deploymentMetrics.mappingDeployments.map((workflow, index) => {
+                        const isApproving = approvingWorkflow === workflow.workflow_name;
+                        const isActivating = activatingWorkflow === workflow.workflow_name;
+                        const status = workflow.status || 'PENDING_APPROVAL';
+
+                        const statusColor = status === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                          : status === 'APPROVED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
+
+                        return (
+                          <div
+                            key={index}
+                            className="border-2 border-purple-200 dark:border-purple-700 rounded-xl p-5 hover:shadow-lg transition-all duration-200 bg-gradient-to-br from-purple-50 to-white dark:from-purple-900/20 dark:to-slate-900"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+                                  <PiDatabase className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                                </div>
+                                <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                                  Mapping
+                                </Badge>
+                              </div>
+                              <Badge className={statusColor}>
+                                {status.replace('_', ' ')}
+                              </Badge>
+                            </div>
+
+                            <h4 className="font-semibold text-slate-900 dark:text-white mb-2 truncate" title={workflow.workflow_name}>
+                              {workflow.workflow_name}
+                            </h4>
+
+                            <div className="space-y-2 mb-4">
+                              {workflow.scheduled_date && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiClock className="w-4 h-4" />
+                                  <span className="font-mono text-xs">
+                                    {new Date(workflow.scheduled_date).toLocaleString()}
+                                  </span>
+                                </div>
+                              )}
+                              {workflow.deployment_method && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiCheckCircle className="w-4 h-4" />
+                                  <span className="font-medium">{workflow.deployment_method.replace('_', ' ')}</span>
+                                </div>
+                              )}
+                              {workflow.created_by && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiUsers className="w-4 h-4" />
+                                  <span>By: {workflow.created_by}</span>
+                                </div>
+                              )}
+                              {workflow.project_id && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiDatabase className="w-4 h-4" />
+                                  <span className="truncate text-xs">Project: {workflow.project_id}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex gap-2">
+                              {status === 'PENDING_APPROVAL' && (
+                                <Button
+                                  onClick={() => handleApproveDeployment(workflow.workflow_name)}
+                                  disabled={isApproving}
+                                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                                  size="sm"
+                                >
+                                  {isApproving ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                      Approving...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PiCheckCircle className="mr-2 h-4 w-4" />
+                                      Approve
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {status === 'APPROVED' && (
+                                <Button
+                                  onClick={() => handleActivateDeployment(workflow.workflow_name)}
+                                  disabled={isActivating}
+                                  className="flex-1 bg-green-600 hover:bg-green-700"
+                                  size="sm"
+                                >
+                                  {isActivating ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                      Activating...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PiPlayCircle className="mr-2 h-4 w-4" />
+                                      Activate
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {status === 'ACTIVE' && (
+                                <Button
+                                  disabled
+                                  className="flex-1 bg-gray-400 cursor-not-allowed"
+                                  size="sm"
+                                >
+                                  <PiCheckCircle className="mr-2 h-4 w-4" />
+                                  Active
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  </div>
+                )}
+
+                {/* Scheduled Workflows Panel */}
+                {activeTab === 'workflows' && (
+                  <div>
+                  {deploymentMetrics.regularWorkflows.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400">
+                      <PiPlayCircle className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                      <p>No workflows scheduled</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {deploymentMetrics.regularWorkflows.map((workflow, index) => {
+                        const isApproving = approvingWorkflow === workflow.workflow_name;
+                        const isActivating = activatingWorkflow === workflow.workflow_name;
+                        const status = workflow.status || 'PENDING_APPROVAL';
+
+                        const statusColor = status === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                          : status === 'APPROVED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
+
+                        return (
+                          <div
+                            key={index}
+                            className="border-2 border-green-200 dark:border-green-700 rounded-xl p-5 hover:shadow-lg transition-all duration-200 bg-gradient-to-br from-green-50 to-white dark:from-green-900/20 dark:to-slate-900"
+                          >
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex items-center gap-2">
+                                <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
+                                  <PiPlayCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                                </div>
+                                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                                  Workflow
+                                </Badge>
+                              </div>
+                              <Badge className={statusColor}>
+                                {status.replace('_', ' ')}
+                              </Badge>
+                            </div>
+
+                            <h4 className="font-semibold text-slate-900 dark:text-white mb-2 truncate" title={workflow.workflow_name}>
+                              {workflow.workflow_name}
+                            </h4>
+
+                            <div className="space-y-2 mb-4">
+                              {(workflow.cron_schedule || workflow.schedule_interval_str) && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiClock className="w-4 h-4" />
+                                  <span className="font-mono text-xs">
+                                    {workflow.cron_schedule || workflow.schedule_interval_str}
+                                  </span>
+                                </div>
+                              )}
+                              {workflow.created_by && (
+                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                                  <PiUsers className="w-4 h-4" />
+                                  <span>By: {workflow.created_by}</span>
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex gap-2">
+                              {status === 'PENDING_APPROVAL' && (
+                                <Button
+                                  onClick={() => handleApproveDeployment(workflow.workflow_name)}
+                                  disabled={isApproving}
+                                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                                  size="sm"
+                                >
+                                  {isApproving ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                      Approving...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PiCheckCircle className="mr-2 h-4 w-4" />
+                                      Approve
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {status === 'APPROVED' && (
+                                <Button
+                                  onClick={() => handleActivateDeployment(workflow.workflow_name)}
+                                  disabled={isActivating}
+                                  className="flex-1 bg-green-600 hover:bg-green-700"
+                                  size="sm"
+                                >
+                                  {isActivating ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                      Activating...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <PiPlayCircle className="mr-2 h-4 w-4" />
+                                      Activate
+                                    </>
+                                  )}
+                                </Button>
+                              )}
+                              {status === 'ACTIVE' && (
+                                <Button
+                                  disabled
+                                  className="flex-1 bg-gray-400 cursor-not-allowed"
+                                  size="sm"
+                                >
+                                  <PiCheckCircle className="mr-2 h-4 w-4" />
+                                  Active
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
 
       {/* Charts Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -26,7 +26,7 @@ export function ObjectSelector({
   schema,
   table,
   onSelect,
-  value,
+  value = '',
   label,
   disabled = false,
 }: ObjectSelectorProps) {
@@ -36,6 +36,7 @@ export function ObjectSelector({
 
   useEffect(() => {
     loadItems();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [level, database, schema, table]);
 
   const loadItems = async () => {
@@ -43,7 +44,8 @@ export function ObjectSelector({
       setLoading(true);
       setError(null);
 
-      let data: any[];
+      let data: any[] = [];
+
       switch (level) {
         case 'database':
           data = await getDatabases();
@@ -51,6 +53,7 @@ export function ObjectSelector({
         case 'schema':
           if (!database) {
             setItems([]);
+            setLoading(false);
             return;
           }
           data = await getSchemas(database);
@@ -58,6 +61,7 @@ export function ObjectSelector({
         case 'table':
           if (!database || !schema) {
             setItems([]);
+            setLoading(false);
             return;
           }
           data = await getTables(database, schema);
@@ -65,6 +69,7 @@ export function ObjectSelector({
         case 'column':
           if (!database || !schema || !table) {
             setItems([]);
+            setLoading(false);
             return;
           }
           data = await getColumns(database, schema, table);
@@ -73,10 +78,10 @@ export function ObjectSelector({
           data = [];
       }
 
-      setItems(data || []);
+      setItems(Array.isArray(data) ? data : []);
     } catch (err: any) {
-      console.error('Error loading ' + level + 's:', err);
-      setError(err.message || 'Failed to load ' + level + 's');
+      console.error(`Error loading ${level}s:`, err);
+      setError(err.message || `Failed to load ${level}s`);
       setItems([]);
     } finally {
       setLoading(false);
@@ -85,27 +90,33 @@ export function ObjectSelector({
 
   const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
-  const options = items.map(item => ({
-    label: level === 'column' ? item.name + ' (' + item.type + ')' : item.name,
-    value: item.name,
-  }));
+  const options = Array.isArray(items) ? items.map(item => ({
+    label: level === 'column' ? `${item?.name || 'Unknown'} (${item?.type || 'Unknown'})` : (item?.name || 'Unknown'),
+    value: item?.name || '',
+  })).filter(opt => opt.value) : [];
+
+  const handleChange = (val: string) => {
+    if (val && typeof val === 'string') {
+      onSelect(val);
+    }
+  };
 
   return (
     <div className="object-selector">
       <Select
-        label={label || 'Select ' + capitalize(level)}
+        label={label || `Select ${capitalize(level)}`}
         options={options}
-        value={value}
-        onChange={onSelect}
-        disabled={disabled || loading || (options.length === 0 && !loading)}
+        value={value || ''}
+        onChange={handleChange}
+        disabled={disabled || loading || options.length === 0}
         placeholder={
           loading
-            ? 'Loading ' + level + 's...'
+            ? `Loading ${level}s...`
             : error
-            ? 'Error loading ' + level + 's'
+            ? `Error loading ${level}s`
             : options.length === 0
-            ? 'No ' + level + 's available'
-            : 'Choose a ' + level
+            ? `No ${level}s available`
+            : `Choose a ${level}`
         }
       />
       {error && (

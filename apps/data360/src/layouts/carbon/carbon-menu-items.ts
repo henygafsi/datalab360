@@ -134,24 +134,15 @@ export const carbonMenuItems: MenuItemsType[] = [
         icon: PiCurrencyDollarDuotone,
       },
       {
-        name: 'Masking Policies',
-        href: routes.gouvernance.masking,
-        icon: PiEyeSlashDuotone,
+        name: 'Policies',
+        description: 'RLS, Network & Masking policies',
+        href: routes.gouvernance.policies,
+        icon: PiShieldCheckDuotone,
       },
       {
         name: 'Security Matrix',
         href: routes.gouvernance.securityMatrix,
         icon: PiShieldCheckDuotone,
-      },
-      {
-        name: 'RLS Policies',
-        href: routes.gouvernance.rlsPolicies,
-        icon: PiLockKeyDuotone,
-      },
-      {
-        name: 'Network Policies',
-        href: routes.gouvernance.networkPolicies,
-        icon: PiGlobeDuotone,
       },
     ],
   },

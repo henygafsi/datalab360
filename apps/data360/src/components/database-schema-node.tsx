@@ -1,4 +1,4 @@
-import { Node, NodeProps, Position } from "@xyflow/react";
+import { Node, NodeProps, Position } from "reactflow";
 
 import { TableBody, TableCell, TableRow } from "@/components/ui/table";
 
