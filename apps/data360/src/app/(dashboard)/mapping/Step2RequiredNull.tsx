@@ -397,10 +397,14 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             if (mappingData.column_attributes && Object.keys(mappingData.column_attributes).length > 0) {
                 // Initialize from stored attributes without fetching
                 setInternalColumnAttributes(mappingData.column_attributes);
+                setLoading(false); // Set loading to false when restoring from stored attributes
             } else {
                 // Only fetch if we truly have no data
                 fetchAndInitializeColumns();
             }
+        } else if (mappingData.project_id && Object.keys(internalColumnAttributes).length > 0) {
+            // We already have data, ensure loading is false
+            setLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [mappingData.project_id]);
