@@ -17,11 +17,8 @@ export const routes = {
     users: '/gouvernance/users',
     roles: '/gouvernance/roles',
     grants: '/gouvernance/grants',
-    policies: '/gouvernance/policies', // Consolidated policies page (RLS, Network, Masking)
-    masking: '/gouvernance/masking',
+    policies: '/gouvernance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
     securityMatrix: '/gouvernance/security-matrix',
-    rlsPolicies: '/gouvernance/rls-policies',
-    networkPolicies: '/gouvernance/network-policies',
   },
   biReporting: {
     viewReporting: '/bi-reporting'

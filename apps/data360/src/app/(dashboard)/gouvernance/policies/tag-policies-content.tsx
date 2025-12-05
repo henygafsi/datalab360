@@ -70,7 +70,7 @@ export default function TagPoliciesContent() {
         tag_name: tagName,
         allowed_values: allowedValues,
         comment,
-        schema: 'GOUVERNANCE',
+        schema: 'cp_data360.GOUVERNANCE',
       });
       toast.success('Tag created successfully!');
       setShowCreateModal(false);

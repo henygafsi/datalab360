@@ -8,7 +8,7 @@
 import axios from 'axios';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const POLICIES_API = `${API_BASE_URL}/governance/policies`;
+const POLICIES_API = `${API_BASE_URL}/gouvernance/policies`;
 
 // Standard response wrapper from backend
 interface StandardResponse<T = any> {
