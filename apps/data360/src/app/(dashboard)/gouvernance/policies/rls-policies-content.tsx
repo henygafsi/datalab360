@@ -50,7 +50,7 @@ export default function RLSPoliciesContent() {
     policy_name: '',
     signature: '',
     expression: '',
-    schema: 'cp_data360.GOUVERNANCE',
+    schema: 'cp_data360.gouvernance',
     description: '',
     database: '',
     table_name: '',
@@ -149,7 +149,7 @@ export default function RLSPoliciesContent() {
         database: applyForm.database,
         schema: applyForm.schema,
         policy_column: applyForm.policy_column,
-        policy_schema: 'cp_data360.GOUVERNANCE',
+        policy_schema: 'cp_data360.gouvernance',
       });
       toast.success('RLS Policy applied successfully');
       setShowApplyModal(false);
@@ -188,7 +188,7 @@ export default function RLSPoliciesContent() {
       policy_name: '',
       signature: '',
       expression: '',
-      schema: 'cp_data360.GOUVERNANCE',
+      schema: 'cp_data360.gouvernance',
       description: '',
       database: '',
       table_name: '',

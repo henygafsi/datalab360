@@ -60,7 +60,7 @@ export default function AggregationPoliciesContent() {
       await createAggregationPolicy({
         policy_name: policyName,
         aggregation_constraint: aggregationConstraint,
-        schema: 'cp_data360.GOUVERNANCE',
+        schema: 'cp_data360.gouvernance',
       });
       toast.success('Aggregation policy created successfully!');
       setShowCreateModal(false);
@@ -83,7 +83,7 @@ export default function AggregationPoliciesContent() {
         database,
         schema,
         table,
-        policy_schema: 'cp_data360.GOUVERNANCE',
+        policy_schema: 'cp_data360.gouvernance',
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}`);
       setShowApplyModal(false);

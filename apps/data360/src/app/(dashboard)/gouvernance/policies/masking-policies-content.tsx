@@ -92,7 +92,7 @@ export default function MaskingPoliciesContent() {
         policy_name: policyName,
         column_type: columnType,
         masking_expression: getMaskingExpression(),
-        schema: 'cp_data360.GOUVERNANCE',
+        schema: 'cp_data360.gouvernance',
       });
       toast.success('Masking policy created successfully!');
       setShowCreateModal(false);
@@ -116,7 +116,7 @@ export default function MaskingPoliciesContent() {
         schema,
         table,
         column,
-        policy_schema: 'cp_data360.GOUVERNANCE',
+        policy_schema: 'cp_data360.gouvernance',
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}.${column}`);
       setShowApplyModal(false);

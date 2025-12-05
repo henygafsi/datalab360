@@ -200,7 +200,7 @@ export interface CreateSessionPolicyRequest {
 
 // ============= ROW ACCESS POLICY (RLS) SERVICES =============
 
-export async function getRLSPolicies(schema: string = 'cp_data360.GOUVERNANCE'): Promise<RLSPolicy[]> {
+export async function getRLSPolicies(schema: string = 'cp_data360.gouvernance'): Promise<RLSPolicy[]> {
   const response = await axios.get<StandardResponse<RLSPolicy[]>>(`${POLICIES_API}/row-access/list`, {
     params: { schema },
   });
@@ -213,7 +213,7 @@ export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLS
       policy_name: data.policy_name,
       signature: data.signature,
       expression: data.expression,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
       description: data.description,
     },
   });
@@ -228,7 +228,7 @@ export async function applyRLSPolicy(data: ApplyRLSPolicyRequest): Promise<any> 
       database: data.database,
       schema: data.schema,
       policy_column: data.policy_column,
-      policy_schema: data.policy_schema || 'cp_data360.GOUVERNANCE',
+      policy_schema: data.policy_schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -251,7 +251,7 @@ export async function removeRLSPolicy(
 
 export async function deleteRLSPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/row-access/${policy_name}`, {
     params: { schema },
@@ -259,9 +259,100 @@ export async function deleteRLSPolicy(
   return response.data.data;
 }
 
+// ============= RLS POLICY HELPERS =============
+
+/**
+ * Helper to create an RLS policy that restricts access by role
+ * @param policyName - Name of the policy (e.g., "ROLE_ADMIN_ONLY")
+ * @param columnName - Column name in the signature (e.g., "user_role")
+ * @param allowedRoles - Array of roles that should have access
+ * @param schema - Schema where the policy will be created
+ */
+export async function createRoleBasedRLSPolicy(
+  policyName: string,
+  columnName: string,
+  allowedRoles: string[],
+  schema: string = 'cp_data360.gouvernance'
+): Promise<RLSPolicy> {
+  const rolesCondition = allowedRoles.map(role => `CURRENT_ROLE() = '${role}'`).join(' OR ');
+  return createRLSPolicy({
+    policy_name: policyName,
+    signature: `${columnName} VARCHAR`,
+    expression: rolesCondition,
+    schema,
+    description: `Restricts access to rows based on user role. Allowed roles: ${allowedRoles.join(', ')}`,
+  });
+}
+
+/**
+ * Helper to create an RLS policy that checks if a role is in session
+ * @param policyName - Name of the policy (e.g., "ADMIN_ACCESS")
+ * @param columnName - Column name in the signature
+ * @param roleName - Role that should have access
+ * @param schema - Schema where the policy will be created
+ */
+export async function createSessionRoleRLSPolicy(
+  policyName: string,
+  columnName: string,
+  roleName: string,
+  schema: string = 'cp_data360.gouvernance'
+): Promise<RLSPolicy> {
+  return createRLSPolicy({
+    policy_name: policyName,
+    signature: `${columnName} VARCHAR`,
+    expression: `IS_ROLE_IN_SESSION('${roleName}')`,
+    schema,
+    description: `Restricts access to rows where ${roleName} role is in session`,
+  });
+}
+
+/**
+ * Helper to create an RLS policy that filters by user
+ * @param policyName - Name of the policy (e.g., "USER_OWN_DATA")
+ * @param columnName - Column name that contains the user identifier
+ * @param schema - Schema where the policy will be created
+ */
+export async function createUserFilterRLSPolicy(
+  policyName: string,
+  columnName: string,
+  schema: string = 'cp_data360.gouvernance'
+): Promise<RLSPolicy> {
+  return createRLSPolicy({
+    policy_name: policyName,
+    signature: `${columnName} VARCHAR`,
+    expression: `${columnName} = CURRENT_USER()`,
+    schema,
+    description: `Restricts access to rows where ${columnName} matches current user`,
+  });
+}
+
+/**
+ * Helper to create an RLS policy with a custom expression
+ * @param policyName - Name of the policy
+ * @param signature - Full signature (e.g., "user_id NUMBER, region VARCHAR")
+ * @param expression - Custom SQL expression
+ * @param description - Description of the policy
+ * @param schema - Schema where the policy will be created
+ */
+export async function createCustomRLSPolicy(
+  policyName: string,
+  signature: string,
+  expression: string,
+  description?: string,
+  schema: string = 'cp_data360.gouvernance'
+): Promise<RLSPolicy> {
+  return createRLSPolicy({
+    policy_name: policyName,
+    signature,
+    expression,
+    schema,
+    description,
+  });
+}
+
 // ============= MASKING POLICY SERVICES =============
 
-export async function getMaskingPolicies(schema: string = 'cp_data360.GOUVERNANCE'): Promise<MaskingPolicy[]> {
+export async function getMaskingPolicies(schema: string = 'cp_data360.gouvernance'): Promise<MaskingPolicy[]> {
   const response = await axios.get<StandardResponse<MaskingPolicy[]>>(`${POLICIES_API}/masking/list`, {
     params: { schema },
   });
@@ -274,7 +365,7 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
       policy_name: data.policy_name,
       data_type: data.data_type,
       masking_type: data.masking_type,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
       authorized_roles: data.authorized_roles?.join(','),
       custom_expression: data.custom_expression,
     },
@@ -290,7 +381,7 @@ export async function applyMaskingPolicy(data: ApplyMaskingPolicyRequest): Promi
       schema: data.schema,
       table: data.table,
       column: data.column,
-      policy_schema: data.policy_schema || 'cp_data360.GOUVERNANCE',
+      policy_schema: data.policy_schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -325,7 +416,7 @@ export async function getMaskedColumns(
 
 export async function deleteMaskingPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/masking/${policy_name}`, {
     params: { schema },
@@ -364,7 +455,7 @@ export async function setNetworkPolicyAsDefault(policy_name: string): Promise<an
 
 // ============= TAG SERVICES =============
 
-export async function getTags(schema: string = 'cp_data360.GOUVERNANCE'): Promise<Tag[]> {
+export async function getTags(schema: string = 'cp_data360.gouvernance'): Promise<Tag[]> {
   const response = await axios.get<StandardResponse<Tag[]>>(`${POLICIES_API}/tags/list`, {
     params: { schema },
   });
@@ -377,7 +468,7 @@ export async function createTag(data: CreateTagRequest): Promise<Tag> {
       tag_name: data.tag_name,
       allowed_values: data.allowed_values,
       comment: data.comment,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -393,7 +484,7 @@ export async function applyTag(data: ApplyTagRequest): Promise<any> {
       schema: data.schema,
       table: data.table,
       column: data.column,
-      tag_schema: data.tag_schema || 'cp_data360.GOUVERNANCE',
+      tag_schema: data.tag_schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -403,7 +494,7 @@ export async function removeTag(
   object_type: string,
   object_name: string,
   tag_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.post<StandardResponse>(`${POLICIES_API}/tags/remove`, null, {
     params: {
@@ -416,7 +507,7 @@ export async function removeTag(
   return response.data.data;
 }
 
-export async function deleteTag(tag_name: string, schema: string = 'cp_data360.GOUVERNANCE'): Promise<any> {
+export async function deleteTag(tag_name: string, schema: string = 'cp_data360.gouvernance'): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/tags/${tag_name}`, {
     params: { schema },
   });
@@ -425,7 +516,7 @@ export async function deleteTag(tag_name: string, schema: string = 'cp_data360.G
 
 // ============= PASSWORD POLICY SERVICES =============
 
-export async function getPasswordPolicies(schema: string = 'cp_data360.GOUVERNANCE'): Promise<PasswordPolicy[]> {
+export async function getPasswordPolicies(schema: string = 'cp_data360.gouvernance'): Promise<PasswordPolicy[]> {
   const response = await axios.get<StandardResponse<PasswordPolicy[]>>(`${POLICIES_API}/password/list`, {
     params: { schema },
   });
@@ -445,7 +536,7 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
       max_age_days: data.max_age_days,
       max_retries: data.max_retries,
       lockout_time_mins: data.lockout_time_mins,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -453,7 +544,7 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
 
 export async function deletePasswordPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/password/${policy_name}`, {
     params: { schema },
@@ -463,7 +554,7 @@ export async function deletePasswordPolicy(
 
 export async function setPasswordPolicyAsDefault(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.post<StandardResponse>(`${POLICIES_API}/password/${policy_name}/set-default`, null, {
     params: { schema },
@@ -473,7 +564,7 @@ export async function setPasswordPolicyAsDefault(
 
 // ============= SESSION POLICY SERVICES =============
 
-export async function getSessionPolicies(schema: string = 'cp_data360.GOUVERNANCE'): Promise<SessionPolicy[]> {
+export async function getSessionPolicies(schema: string = 'cp_data360.gouvernance'): Promise<SessionPolicy[]> {
   const response = await axios.get<StandardResponse<SessionPolicy[]>>(`${POLICIES_API}/session/list`, {
     params: { schema },
   });
@@ -486,7 +577,7 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
       policy_name: data.policy_name,
       session_idle_timeout_mins: data.session_idle_timeout_mins,
       session_ui_idle_timeout_mins: data.session_ui_idle_timeout_mins,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -494,7 +585,7 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
 
 export async function deleteSessionPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/session/${policy_name}`, {
     params: { schema },
@@ -504,7 +595,7 @@ export async function deleteSessionPolicy(
 
 export async function setSessionPolicyAsDefault(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.post<StandardResponse>(`${POLICIES_API}/session/${policy_name}/set-default`, null, {
     params: { schema },
@@ -535,7 +626,7 @@ export interface ApplyAggregationPolicyRequest {
   policy_schema?: string;
 }
 
-export async function getAggregationPolicies(schema: string = 'cp_data360.GOUVERNANCE'): Promise<AggregationPolicy[]> {
+export async function getAggregationPolicies(schema: string = 'cp_data360.gouvernance'): Promise<AggregationPolicy[]> {
   const response = await axios.get<StandardResponse<AggregationPolicy[]>>(`${POLICIES_API}/aggregation/list`, {
     params: { schema },
   });
@@ -547,7 +638,7 @@ export async function createAggregationPolicy(data: CreateAggregationPolicyReque
     params: {
       policy_name: data.policy_name,
       aggregation_constraint: data.aggregation_constraint,
-      schema: data.schema || 'cp_data360.GOUVERNANCE',
+      schema: data.schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -560,7 +651,7 @@ export async function applyAggregationPolicy(data: ApplyAggregationPolicyRequest
       database: data.database,
       schema: data.schema,
       table: data.table,
-      policy_schema: data.policy_schema || 'cp_data360.GOUVERNANCE',
+      policy_schema: data.policy_schema || 'cp_data360.gouvernance',
     },
   });
   return response.data.data;
@@ -579,7 +670,7 @@ export async function removeAggregationPolicy(
 
 export async function deleteAggregationPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.GOUVERNANCE'
+  schema: string = 'cp_data360.gouvernance'
 ): Promise<any> {
   const response = await axios.delete<StandardResponse>(`${POLICIES_API}/aggregation/${policy_name}`, {
     params: { schema },
