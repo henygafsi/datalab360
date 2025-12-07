@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import {
   getMaskingPolicies,
+  getMaskingPolicyDetails,
   createMaskingPolicy,
   applyMaskingPolicy,
   removeMaskingPolicy,
@@ -28,7 +29,10 @@ export default function MaskingPoliciesContent() {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<MaskingPolicy | null>(null);
+  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Form state for creating policy
   const [policyName, setPolicyName] = useState('');
@@ -50,7 +54,8 @@ export default function MaskingPoliciesContent() {
     try {
       setLoading(true);
       const data = await getMaskingPolicies();
-      setPolicies(data || []);
+      // Defensive check: ensure data is an array
+      setPolicies(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Error loading masking policies:', error);
       toast.error(error.response?.data?.message || error.message || 'Failed to load masking policies');
@@ -58,6 +63,51 @@ export default function MaskingPoliciesContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDetails = async (policy: MaskingPolicy) => {
+    setSelectedPolicy(policy);
+    setShowDetailsModal(true);
+    setLoadingDetails(true);
+    setPolicyDetails(null);
+
+    try {
+      const details = await getMaskingPolicyDetails(policy.policy_name);
+      console.log('Masking policy details:', details);
+      setPolicyDetails(details);
+    } catch (error: any) {
+      console.error('Error loading policy details:', error);
+      toast.error('Failed to load policy details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
   };
 
   const getMaskingExpression = () => {
@@ -90,8 +140,9 @@ export default function MaskingPoliciesContent() {
     try {
       await createMaskingPolicy({
         policy_name: policyName,
-        column_type: columnType,
-        masking_expression: getMaskingExpression(),
+        data_type: columnType,
+        masking_type: maskingType === 'CUSTOM' ? undefined : maskingType,
+        custom_expression: maskingType === 'CUSTOM' ? customExpression : getMaskingExpression(),
         schema: 'cp_data360.gouvernance',
       });
       toast.success('Masking policy created successfully!');
@@ -99,7 +150,8 @@ export default function MaskingPoliciesContent() {
       resetCreateForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create policy');
+      console.error('Create masking policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
 
@@ -124,7 +176,8 @@ export default function MaskingPoliciesContent() {
       resetApplyForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to apply policy');
+      console.error('Apply masking policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to apply policy'));
     }
   };
 
@@ -136,7 +189,8 @@ export default function MaskingPoliciesContent() {
       toast.success('Policy deleted successfully');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete policy');
+      console.error('Delete masking policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
     }
   };
 
@@ -185,17 +239,22 @@ export default function MaskingPoliciesContent() {
           {policies.map((policy) => (
             <div
               key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start"
+              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start hover:border-amber-300 transition-colors"
             >
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg">{policy.policy_name}</h3>
+              <div
+                className="flex-1 cursor-pointer"
+                onClick={() => handleViewDetails(policy)}
+              >
+                <h3 className="font-semibold text-lg text-amber-600 hover:text-amber-700">
+                  {String(policy.policy_name || '')}
+                </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  Type: {policy.column_type}
+                  Type: {String(policy.column_type || policy.data_type || 'N/A')}
                 </p>
                 <p className="text-xs text-slate-500 mt-1 font-mono">
-                  {policy.masking_expression}
+                  {String(policy.masking_expression || 'Click to view full expression')}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Schema: {policy.schema}</p>
+                <p className="text-xs text-slate-500 mt-1">Schema: {String(policy.schema || 'N/A')}</p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -237,7 +296,10 @@ export default function MaskingPoliciesContent() {
           <Select
             label="Column Data Type"
             value={columnType}
-            onChange={(val) => setColumnType(val as string)}
+            onChange={(val: any) => {
+              const extractedValue = typeof val === 'object' ? val?.value : val;
+              setColumnType(extractedValue || 'STRING');
+            }}
             options={[
               { label: 'STRING', value: 'STRING' },
               { label: 'VARCHAR', value: 'VARCHAR' },
@@ -249,7 +311,10 @@ export default function MaskingPoliciesContent() {
           <Select
             label="Masking Type"
             value={maskingType}
-            onChange={(val) => setMaskingType(val as string)}
+            onChange={(val: any) => {
+              const extractedValue = typeof val === 'object' ? val?.value : val;
+              setMaskingType(extractedValue || 'FULL');
+            }}
             options={MASKING_TYPES}
           />
 
@@ -356,6 +421,85 @@ export default function MaskingPoliciesContent() {
               className="bg-amber-600 hover:bg-amber-700"
             >
               Apply Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Policy Details Modal */}
+      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
+        <div className="p-6 space-y-4">
+          <h2 className="text-xl font-bold">
+            Policy Details: {selectedPolicy?.policy_name}
+          </h2>
+
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : policyDetails ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Signature
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {policyDetails.details?.signature || policyDetails.signature || 'N/A'}
+                </code>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Return Type
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {policyDetails.details?.return_type || policyDetails.return_type || 'N/A'}
+                </code>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Masking Expression (Body)
+                </label>
+                <pre className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">
+                  {policyDetails.details?.body || policyDetails.body || 'N/A'}
+                </pre>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Schema
+                  </label>
+                  <p className="text-sm">{policyDetails.schema || selectedPolicy?.schema || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Data Type
+                  </label>
+                  <p className="text-sm">{selectedPolicy?.data_type || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              No details available
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-4">
+            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+              Close
+            </Button>
+            <Button
+              className="bg-amber-600 hover:bg-amber-700"
+              onClick={() => {
+                setShowDetailsModal(false);
+                setShowApplyModal(true);
+              }}
+            >
+              Apply to Column
             </Button>
           </div>
         </div>

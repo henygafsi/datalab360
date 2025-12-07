@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
 import {
   getPasswordPolicies,
+  getPasswordPolicyDetails,
   createPasswordPolicy,
   setPasswordPolicyAsDefault,
   deletePasswordPolicy,
@@ -16,6 +17,10 @@ export default function PasswordPoliciesContent() {
   const [policies, setPolicies] = useState<PasswordPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedPolicy, setSelectedPolicy] = useState<PasswordPolicy | null>(null);
+  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -36,7 +41,8 @@ export default function PasswordPoliciesContent() {
     try {
       setLoading(true);
       const data = await getPasswordPolicies();
-      setPolicies(data || []);
+      // Defensive check: ensure data is an array
+      setPolicies(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Error loading password policies:', error);
       toast.error(error.response?.data?.message || error.message || 'Failed to load password policies');
@@ -44,6 +50,51 @@ export default function PasswordPoliciesContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDetails = async (policy: PasswordPolicy) => {
+    setSelectedPolicy(policy);
+    setShowDetailsModal(true);
+    setLoadingDetails(true);
+    setPolicyDetails(null);
+
+    try {
+      const details = await getPasswordPolicyDetails(policy.policy_name);
+      console.log('Password policy details:', details);
+      setPolicyDetails(details);
+    } catch (error: any) {
+      console.error('Error loading policy details:', error);
+      toast.error('Failed to load policy details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -69,7 +120,8 @@ export default function PasswordPoliciesContent() {
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create policy');
+      console.error('Create password policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
 
@@ -81,7 +133,8 @@ export default function PasswordPoliciesContent() {
       toast.success('Password policy set as account default');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to set as default');
+      console.error('Set password policy as default error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to set as default'));
     }
   };
 
@@ -93,7 +146,8 @@ export default function PasswordPoliciesContent() {
       toast.success('Policy deleted successfully');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete policy');
+      console.error('Delete password policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
     }
   };
 
@@ -140,11 +194,16 @@ export default function PasswordPoliciesContent() {
           {policies.map((policy) => (
             <div
               key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4"
+              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-red-300 transition-colors"
             >
               <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-lg">{policy.policy_name}</h3>
+                <div
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => handleViewDetails(policy)}
+                >
+                  <h3 className="font-semibold text-lg text-red-600 hover:text-red-700">
+                    {String(policy.policy_name || '')}
+                  </h3>
                   {policy.is_default && (
                     <Badge variant="flat" className="bg-red-100 text-red-700">
                       Default
@@ -176,27 +235,27 @@ export default function PasswordPoliciesContent() {
               <div className="grid grid-cols-4 gap-3 mt-3">
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Min Length</p>
-                  <p className="text-sm font-semibold">{policy.min_length} chars</p>
+                  <p className="text-sm font-semibold">{String(policy.min_length || 'N/A')} chars</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Uppercase</p>
-                  <p className="text-sm font-semibold">{policy.min_upper_case_chars} min</p>
+                  <p className="text-sm font-semibold">{String(policy.min_upper_case_chars || 'N/A')} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Numeric</p>
-                  <p className="text-sm font-semibold">{policy.min_numeric_chars} min</p>
+                  <p className="text-sm font-semibold">{String(policy.min_numeric_chars || 'N/A')} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Special</p>
-                  <p className="text-sm font-semibold">{policy.min_special_chars} min</p>
+                  <p className="text-sm font-semibold">{String(policy.min_special_chars || 'N/A')} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Max Age</p>
-                  <p className="text-sm font-semibold">{policy.max_age_days} days</p>
+                  <p className="text-sm font-semibold">{String(policy.max_age_days || 'N/A')} days</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Lockout</p>
-                  <p className="text-sm font-semibold">{policy.lockout_time_mins} mins</p>
+                  <p className="text-sm font-semibold">{String(policy.lockout_time_mins || 'N/A')} mins</p>
                 </div>
               </div>
             </div>
@@ -297,6 +356,94 @@ export default function PasswordPoliciesContent() {
             </Button>
             <Button onClick={handleCreate} className="bg-red-600 hover:bg-red-700">
               Create Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Policy Details Modal */}
+      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
+        <div className="p-6 space-y-4">
+          <h2 className="text-xl font-bold">
+            Policy Details: {selectedPolicy?.policy_name}
+          </h2>
+
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : policyDetails ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Policy Name
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                </code>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Min Length</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.min_length ?? selectedPolicy?.min_length ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Max Length</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.max_length ?? selectedPolicy?.max_length ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Min Uppercase</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.min_upper_case_chars ?? selectedPolicy?.min_upper_case_chars ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Min Lowercase</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.min_lower_case_chars ?? selectedPolicy?.min_lower_case_chars ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Min Numeric</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.min_numeric_chars ?? selectedPolicy?.min_numeric_chars ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Min Special</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.min_special_chars ?? selectedPolicy?.min_special_chars ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Max Age (Days)</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.max_age_days ?? selectedPolicy?.max_age_days ?? 'N/A'}
+                  </p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500">Lockout (Mins)</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.lockout_time_mins ?? selectedPolicy?.lockout_time_mins ?? 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              No details available
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-4">
+            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+              Close
             </Button>
           </div>
         </div>

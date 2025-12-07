@@ -35,6 +35,11 @@ export const routes = {
   observability: {
     systemStatus: '/observability/system-status',
   },
+  intelligent: {
+    dashboard: '/intelligent',
+    semanticModels: '/intelligent/semantic-models',
+    cortexChat: '/intelligent/cortex-chat',
+  },
 
   eCommerce: {
     dashboard: '/ecommerce',

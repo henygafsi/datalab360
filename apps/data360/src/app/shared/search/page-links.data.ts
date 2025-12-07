@@ -46,6 +46,10 @@ export const pageLinks = [
     name: 'Grants',
     href: routes.gouvernance.grants,
   },
+    {
+    name: 'Policies',
+    href: routes.gouvernance.policies,
+  },
   {
     name: "KPI's Store",
     label: true,
@@ -61,6 +65,18 @@ export const pageLinks = [
   {
     name: 'DaRquest / DAC',
     href: routes.daRquest.view,
+  },
+  {
+    name: 'Intelligent',
+    label: true,
+  },
+  {
+    name: 'Semantic Models',
+    href: routes.intelligent.dashboard,
+  },
+  {
+    name: 'Cortex Chat',
+    href: routes.intelligent.cortexChat,
   },
   {
     name: 'Observability',

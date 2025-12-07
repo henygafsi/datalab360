@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
 import {
   getNetworkPolicies,
+  getNetworkPolicyDetails,
   createNetworkPolicy,
   setNetworkPolicyAsDefault,
   deleteNetworkPolicy,
@@ -16,6 +17,10 @@ export default function NetworkPoliciesContent() {
   const [policies, setPolicies] = useState<NetworkPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedPolicy, setSelectedPolicy] = useState<NetworkPolicy | null>(null);
+  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -31,7 +36,8 @@ export default function NetworkPoliciesContent() {
     try {
       setLoading(true);
       const data = await getNetworkPolicies();
-      setPolicies(data || []);
+      // Defensive check: ensure data is an array
+      setPolicies(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Error loading network policies:', error);
       toast.error(error.response?.data?.message || error.message || 'Failed to load network policies');
@@ -39,6 +45,51 @@ export default function NetworkPoliciesContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDetails = async (policy: NetworkPolicy) => {
+    setSelectedPolicy(policy);
+    setShowDetailsModal(true);
+    setLoadingDetails(true);
+    setPolicyDetails(null);
+
+    try {
+      const details = await getNetworkPolicyDetails(policy.policy_name);
+      console.log('Network policy details:', details);
+      setPolicyDetails(details);
+    } catch (error: any) {
+      console.error('Error loading policy details:', error);
+      toast.error('Failed to load policy details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -64,7 +115,8 @@ export default function NetworkPoliciesContent() {
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create policy');
+      console.error('Create network policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
 
@@ -76,7 +128,8 @@ export default function NetworkPoliciesContent() {
       toast.success('Network policy set as account default');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to set as default');
+      console.error('Set network policy as default error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to set as default'));
     }
   };
 
@@ -88,7 +141,8 @@ export default function NetworkPoliciesContent() {
       toast.success('Policy deleted successfully');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete policy');
+      console.error('Delete network policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
     }
   };
 
@@ -130,12 +184,17 @@ export default function NetworkPoliciesContent() {
           {policies.map((policy) => (
             <div
               key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4"
+              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-blue-300 transition-colors"
             >
               <div className="flex justify-between items-start mb-3">
-                <div className="flex-1">
+                <div
+                  className="flex-1 cursor-pointer"
+                  onClick={() => handleViewDetails(policy)}
+                >
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-lg">{policy.policy_name}</h3>
+                    <h3 className="font-semibold text-lg text-blue-600 hover:text-blue-700">
+                      {String(policy.policy_name || '')}
+                    </h3>
                     {policy.is_default && (
                       <Badge variant="flat" className="bg-blue-100 text-blue-700">
                         Default
@@ -144,7 +203,7 @@ export default function NetworkPoliciesContent() {
                   </div>
                   {policy.comment && (
                     <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      {policy.comment}
+                      {String(policy.comment)}
                     </p>
                   )}
                 </div>
@@ -177,7 +236,7 @@ export default function NetworkPoliciesContent() {
                       Allowed IPs:
                     </p>
                     <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                      {policy.allowed_ip_list}
+                      {String(policy.allowed_ip_list)}
                     </p>
                   </div>
                 )}
@@ -187,7 +246,7 @@ export default function NetworkPoliciesContent() {
                       Blocked IPs:
                     </p>
                     <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                      {policy.blocked_ip_list}
+                      {String(policy.blocked_ip_list)}
                     </p>
                   </div>
                 )}
@@ -261,6 +320,68 @@ export default function NetworkPoliciesContent() {
             </Button>
             <Button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-700">
               Create Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Policy Details Modal */}
+      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
+        <div className="p-6 space-y-4">
+          <h2 className="text-xl font-bold">
+            Policy Details: {selectedPolicy?.policy_name}
+          </h2>
+
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : policyDetails ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Policy Name
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                </code>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Allowed IP List
+                </label>
+                <pre className="block bg-green-50 dark:bg-green-900/20 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap text-green-700 dark:text-green-300">
+                  {policyDetails.details?.allowed_ip_list || policyDetails.allowed_ip_list || selectedPolicy?.allowed_ip_list || 'None'}
+                </pre>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Blocked IP List
+                </label>
+                <pre className="block bg-red-50 dark:bg-red-900/20 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap text-red-700 dark:text-red-300">
+                  {policyDetails.details?.blocked_ip_list || policyDetails.blocked_ip_list || selectedPolicy?.blocked_ip_list || 'None'}
+                </pre>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Comment
+                </label>
+                <p className="text-sm">{policyDetails.details?.comment || policyDetails.comment || selectedPolicy?.comment || 'No comment'}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              No details available
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-4">
+            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+              Close
             </Button>
           </div>
         </div>

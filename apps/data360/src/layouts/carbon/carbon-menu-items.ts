@@ -16,6 +16,9 @@ import {
   PiShieldCheckDuotone,
   PiLockKeyDuotone,
   PiGlobeDuotone,
+  PiBrainDuotone,
+  PiCubeDuotone,
+  PiChatCircleDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -182,6 +185,26 @@ export const carbonMenuItems: MenuItemsType[] = [
         name: 'System Status',
         href: routes.observability.systemStatus,
         icon: PiBinocularsDuotone,
+      },
+    ],
+  },
+  {
+    id: 10,
+    name: 'Intelligent',
+    title: 'Intelligent',
+    icon: PiBrainDuotone,
+    menuItems: [
+      {
+        name: 'Semantic Models',
+        description: 'YAML models for Cortex Analyst',
+        href: routes.intelligent.dashboard,
+        icon: PiCubeDuotone,
+      },
+      {
+        name: 'Cortex Chat',
+        description: 'Natural language data queries',
+        href: routes.intelligent.cortexChat,
+        icon: PiChatCircleDuotone,
       },
     ],
   },

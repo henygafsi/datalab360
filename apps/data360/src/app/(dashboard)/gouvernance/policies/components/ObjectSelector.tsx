@@ -90,14 +90,24 @@ export function ObjectSelector({
 
   const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
-  const options = Array.isArray(items) ? items.map(item => ({
-    label: level === 'column' ? `${item?.name || 'Unknown'} (${item?.type || 'Unknown'})` : (item?.name || 'Unknown'),
-    value: item?.name || '',
-  })).filter(opt => opt.value) : [];
+  const options = Array.isArray(items) ? items.map(item => {
+    // Handle both object and string formats
+    const itemName = typeof item === 'string' ? item : (item?.name || '');
+    const itemType = typeof item === 'object' && item?.type ? item.type : '';
 
-  const handleChange = (val: string) => {
-    if (val && typeof val === 'string') {
-      onSelect(val);
+    return {
+      label: level === 'column' && itemType
+        ? `${itemName || 'Unknown'} (${itemType})`
+        : (itemName || 'Unknown'),
+      value: itemName || '',
+    };
+  }).filter(opt => opt.value) : [];
+
+  const handleChange = (val: any) => {
+    // Extract value from object if needed (rizzui Select may pass object)
+    const extractedValue = typeof val === 'object' ? val?.value : val;
+    if (extractedValue && typeof extractedValue === 'string') {
+      onSelect(extractedValue);
     }
   };
 

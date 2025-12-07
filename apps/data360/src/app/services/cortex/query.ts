@@ -33,7 +33,9 @@ export async function queryCortex(request: CortexQueryRequest): Promise<CortexQu
     }
     const token = session.user.access_token;
 
-    const response = await axios.post<CortexQueryResponse>(
+    console.log('🔍 Cortex query request:', request);
+
+    const response = await axios.post(
       `${API_BASE_URL}/cortex/query`,
       request,
       {
@@ -44,12 +46,57 @@ export async function queryCortex(request: CortexQueryRequest): Promise<CortexQu
       }
     );
 
-    console.log('Cortex query response:', response.data);
-    return response.data;
+    console.log('🔍 Cortex query raw response:', JSON.stringify(response.data, null, 2));
+    console.log('🔍 Response type:', typeof response.data);
+
+    // Handle wrapped response (StandardResponse format) or direct response
+    const responseData = response.data;
+
+    // If response is wrapped in { status, message, data } format
+    if (responseData.data !== undefined) {
+      console.log('🔍 Found data field:', responseData.data);
+      if (responseData.data.results || responseData.data.request_id) {
+        console.log('✅ Returning responseData.data as CortexQueryResponse');
+        return responseData.data as CortexQueryResponse;
+      }
+    }
+
+    // If response is direct CortexQueryResponse format
+    if (responseData.results !== undefined || responseData.request_id) {
+      console.log('✅ Response is direct CortexQueryResponse format');
+      return responseData as CortexQueryResponse;
+    }
+
+    // Check for response key
+    if (responseData.response) {
+      console.log('🔍 Found response key:', responseData.response);
+      return {
+        request_id: responseData.request_id || 'unknown',
+        results: Array.isArray(responseData.response) ? responseData.response : [{ type: 'text', text: String(responseData.response) }],
+      };
+    }
+
+    // Check for message as result
+    if (responseData.message && !responseData.status) {
+      console.log('🔍 Found message:', responseData.message);
+      return {
+        request_id: responseData.request_id || 'unknown',
+        results: [{ type: 'text', text: responseData.message }],
+      };
+    }
+
+    // Fallback - try to construct response from available data
+    console.log('⚠️ Cortex query - constructing fallback response');
+    console.log('⚠️ Available keys:', Object.keys(responseData));
+    return {
+      request_id: responseData.request_id || 'unknown',
+      results: responseData.results || responseData.data?.results || [],
+    };
   } catch (error) {
-    console.error('Error in cortex query:', error);
+    console.error('❌ Error in cortex query:', error);
     if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.message;
+      console.error('❌ Error response:', error.response?.data);
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Cortex query failed: ${message}`);
     }
     throw error;

@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
 import {
   getSessionPolicies,
+  getSessionPolicyDetails,
   createSessionPolicy,
   setSessionPolicyAsDefault,
   deleteSessionPolicy,
@@ -16,6 +17,10 @@ export default function SessionPoliciesContent() {
   const [policies, setPolicies] = useState<SessionPolicy[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [selectedPolicy, setSelectedPolicy] = useState<SessionPolicy | null>(null);
+  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -30,7 +35,8 @@ export default function SessionPoliciesContent() {
     try {
       setLoading(true);
       const data = await getSessionPolicies();
-      setPolicies(data || []);
+      // Defensive check: ensure data is an array
+      setPolicies(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Error loading session policies:', error);
       toast.error(error.response?.data?.message || error.message || 'Failed to load session policies');
@@ -38,6 +44,51 @@ export default function SessionPoliciesContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDetails = async (policy: SessionPolicy) => {
+    setSelectedPolicy(policy);
+    setShowDetailsModal(true);
+    setLoadingDetails(true);
+    setPolicyDetails(null);
+
+    try {
+      const details = await getSessionPolicyDetails(policy.policy_name);
+      console.log('Session policy details:', details);
+      setPolicyDetails(details);
+    } catch (error: any) {
+      console.error('Error loading policy details:', error);
+      toast.error('Failed to load policy details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -70,7 +121,8 @@ export default function SessionPoliciesContent() {
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create policy');
+      console.error('Create session policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
 
@@ -82,7 +134,8 @@ export default function SessionPoliciesContent() {
       toast.success('Session policy set as account default');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to set as default');
+      console.error('Set session policy as default error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to set as default'));
     }
   };
 
@@ -94,7 +147,8 @@ export default function SessionPoliciesContent() {
       toast.success('Policy deleted successfully');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete policy');
+      console.error('Delete session policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
     }
   };
 
@@ -135,11 +189,16 @@ export default function SessionPoliciesContent() {
           {policies.map((policy) => (
             <div
               key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4"
+              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-300 transition-colors"
             >
               <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-2">
-                  <h3 className="font-semibold text-lg">{policy.policy_name}</h3>
+                <div
+                  className="flex items-center gap-2 cursor-pointer"
+                  onClick={() => handleViewDetails(policy)}
+                >
+                  <h3 className="font-semibold text-lg text-indigo-600 hover:text-indigo-700">
+                    {String(policy.policy_name || '')}
+                  </h3>
                   {policy.is_default && (
                     <Badge variant="flat" className="bg-indigo-100 text-indigo-700">
                       Default
@@ -171,14 +230,14 @@ export default function SessionPoliciesContent() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
                   <p className="text-xs text-slate-500 mb-1">Session Idle Timeout</p>
-                  <p className="text-lg font-semibold">{policy.session_idle_timeout_mins} minutes</p>
+                  <p className="text-lg font-semibold">{String(policy.session_idle_timeout_mins || 'N/A')} minutes</p>
                   <p className="text-xs text-slate-500 mt-1">
                     Maximum inactivity before logout
                   </p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
                   <p className="text-xs text-slate-500 mb-1">UI Idle Timeout</p>
-                  <p className="text-lg font-semibold">{policy.session_ui_idle_timeout_mins} minutes</p>
+                  <p className="text-lg font-semibold">{String(policy.session_ui_idle_timeout_mins || 'N/A')} minutes</p>
                   <p className="text-xs text-slate-500 mt-1">
                     UI inactivity warning threshold
                   </p>
@@ -239,6 +298,67 @@ export default function SessionPoliciesContent() {
             </Button>
             <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700">
               Create Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Policy Details Modal */}
+      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
+        <div className="p-6 space-y-4">
+          <h2 className="text-xl font-bold">
+            Policy Details: {selectedPolicy?.policy_name}
+          </h2>
+
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : policyDetails ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Policy Name
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                </code>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded">
+                  <p className="text-xs text-slate-500 mb-1">Session Idle Timeout</p>
+                  <p className="text-2xl font-semibold">
+                    {policyDetails.details?.session_idle_timeout_mins ?? selectedPolicy?.session_idle_timeout_mins ?? 'N/A'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">minutes</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded">
+                  <p className="text-xs text-slate-500 mb-1">UI Idle Timeout</p>
+                  <p className="text-2xl font-semibold">
+                    {policyDetails.details?.session_ui_idle_timeout_mins ?? selectedPolicy?.session_ui_idle_timeout_mins ?? 'N/A'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">minutes</p>
+                </div>
+              </div>
+
+              <div className="bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded">
+                <p className="text-xs text-indigo-700 dark:text-indigo-300">
+                  <strong>Note:</strong> Session idle timeout is the maximum inactivity time before automatic logout.
+                  UI idle timeout is when the warning prompt appears.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              No details available
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-4">
+            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+              Close
             </Button>
           </div>
         </div>

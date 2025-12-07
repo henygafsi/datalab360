@@ -81,6 +81,20 @@ export default function RLSPoliciesContent() {
     }
   }, [formData.database, formData.schema]);
 
+  // Load schemas for Apply modal when database changes
+  useEffect(() => {
+    if (applyForm.database) {
+      loadSchemas(applyForm.database);
+    }
+  }, [applyForm.database]);
+
+  // Load tables for Apply modal when database/schema changes
+  useEffect(() => {
+    if (applyForm.database && applyForm.schema) {
+      loadTables(applyForm.database, applyForm.schema);
+    }
+  }, [applyForm.database, applyForm.schema]);
+
   const loadDatabases = async () => {
     try {
       const dbs = await getDatabases();
@@ -112,9 +126,29 @@ export default function RLSPoliciesContent() {
     try {
       setLoading(true);
       const data = await getRLSPolicies();
-      setPolicies(data || []); // Ensure we always set an array
+      console.log('=== LOAD RLS POLICIES DEBUG ===');
+      console.log('Raw API response:', data);
+      console.log('Number of policies:', data?.length);
+      console.log('Is array:', Array.isArray(data));
+      if (data && data.length > 0) {
+        console.log('First policy structure:', data[0]);
+        console.log('First policy fields:', {
+          policy_name: data[0]?.policy_name,
+          signature: data[0]?.signature,
+          expression: data[0]?.expression,
+          filter_expression: data[0]?.filter_expression,
+          schema: data[0]?.schema,
+          database: data[0]?.database,
+          table_name: data[0]?.table_name,
+          active: data[0]?.active
+        });
+      }
+      // Defensive check: ensure data is an array
+      setPolicies(Array.isArray(data) ? data : []);
     } catch (error: any) {
-      console.error('Error loading RLS policies:', error);
+      console.error('=== LOAD POLICIES ERROR ===');
+      console.error('Error object:', error);
+      console.error('Error response:', error.response?.data);
       toast.error(error.message || 'Failed to load RLS policies');
       setPolicies([]); // Set empty array on error to prevent crashes
     } finally {
@@ -122,26 +156,67 @@ export default function RLSPoliciesContent() {
     }
   };
 
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
+  };
+
   const handleCreate = async () => {
+    // Validate required fields
+    if (!formData.policy_name || !formData.signature || !formData.expression) {
+      toast.error('Please fill in all required fields: Policy Name, Signature, and Expression');
+      return;
+    }
+
     try {
       await createRLSPolicy({
-        policy_name: formData.policy_name,
-        signature: formData.signature,
-        expression: formData.expression,
-        schema: formData.schema,
-        description: formData.description,
+        policy_name: formData.policy_name.trim().toUpperCase(),
+        signature: formData.signature.trim(),
+        expression: formData.expression.trim(),
+        schema: formData.schema || 'cp_data360.gouvernance',
+        description: formData.description?.trim(),
       });
       toast.success('RLS Policy created successfully');
       setShowCreateModal(false);
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create RLS policy');
+      console.error('Create RLS policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create RLS policy'));
     }
   };
 
   const handleApply = async () => {
     if (!selectedPolicy) return;
+
+    // Validate all required fields
+    if (!applyForm.database || !applyForm.schema || !applyForm.table_name || !applyForm.policy_column) {
+      toast.error('Please fill in all required fields: Database, Schema, Table, and Policy Column');
+      return;
+    }
+
     try {
       await applyRLSPolicy({
         policy_name: selectedPolicy.policy_name,
@@ -149,37 +224,66 @@ export default function RLSPoliciesContent() {
         database: applyForm.database,
         schema: applyForm.schema,
         policy_column: applyForm.policy_column,
-        policy_schema: 'cp_data360.gouvernance',
+        policy_schema: selectedPolicy.schema || 'cp_data360.gouvernance',
       });
-      toast.success('RLS Policy applied successfully');
+      toast.success(`RLS Policy applied to ${applyForm.database}.${applyForm.schema}.${applyForm.table_name}`);
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to apply RLS policy');
+      console.error('Apply RLS policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to apply RLS policy'));
     }
   };
 
   const handleDelete = async (policy: RLSPolicy) => {
     if (!confirm(`Delete RLS policy "${policy.policy_name}"? This cannot be undone.`)) return;
+
+    console.log('=== DELETE RLS POLICY DEBUG ===');
+    console.log('Policy object:', policy);
+    console.log('Policy name:', policy.policy_name);
+    console.log('Policy schema:', policy.schema);
+    console.log('Using schema:', policy.schema || 'cp_data360.gouvernance');
+
     try {
-      await deleteRLSPolicy(policy.policy_name, policy.schema);
+      const result = await deleteRLSPolicy(policy.policy_name, policy.schema || 'cp_data360.gouvernance');
+      console.log('Delete API result:', result);
       toast.success('RLS Policy deleted successfully');
-      loadPolicies();
+      // Wait a bit before reloading to let backend process
+      setTimeout(() => loadPolicies(), 500);
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete RLS policy');
+      console.error('=== DELETE ERROR ===');
+      console.error('Full error object:', error);
+      console.error('Response data:', error.response?.data);
+      console.error('Response status:', error.response?.status);
+      console.error('Error message:', error.message);
+      toast.error(formatErrorMessage(error, 'Failed to delete RLS policy'));
     }
   };
 
   const handleRemove = async (policy: RLSPolicy) => {
-    if (!confirm(`Remove RLS policy from ${policy.table_name}?`)) return;
+    // Validate required fields
+    if (!policy.table_name || !policy.database || !policy.schema) {
+      toast.error('Cannot remove policy: missing table information. Please ensure the policy is applied to a table first.');
+      console.error('Remove RLS policy validation error:', {
+        policy_name: policy.policy_name,
+        table_name: policy.table_name,
+        database: policy.database,
+        schema: policy.schema,
+      });
+      return;
+    }
+
+    if (!confirm(`Remove RLS policy from ${policy.database}.${policy.schema}.${policy.table_name}?`)) return;
+
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to remove RLS policy');
+      console.error('Remove RLS policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to remove RLS policy'));
     }
   };
 
@@ -295,7 +399,7 @@ export default function RLSPoliciesContent() {
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className="flex items-center space-x-3 mb-2">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">{policy.policy_name}</h3>
+                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">{String(policy.policy_name || '')}</h3>
                       {policy.active ? (
                         <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
                           <HiOutlineCheckCircle className="w-3 h-3 mr-1" />
@@ -309,23 +413,37 @@ export default function RLSPoliciesContent() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="space-y-3 text-sm">
                       <div>
-                        <p className="text-slate-500 dark:text-slate-400">Table</p>
-                        <p className="font-medium text-slate-900 dark:text-white">
-                          {policy.database}.{policy.schema}.{policy.table_name}
-                        </p>
+                        <p className="text-slate-500 dark:text-slate-400 mb-1">Signature</p>
+                        <code className="text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-1.5 rounded font-mono">
+                          {String(policy.signature || 'N/A')}
+                        </code>
                       </div>
                       <div>
-                        <p className="text-slate-500 dark:text-slate-400">Filter Expression</p>
-                        <code className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded">
-                          {policy.filter_expression}
+                        <p className="text-slate-500 dark:text-slate-400 mb-1">Expression</p>
+                        <code className="text-sm bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded block font-mono">
+                          {String(policy.expression || policy.filter_expression || 'N/A')}
                         </code>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-slate-500 dark:text-slate-400 mb-1">Schema</p>
+                          <p className="font-medium text-slate-900 dark:text-white">{String(policy.schema || 'N/A')}</p>
+                        </div>
+                        {policy.table_name && (
+                          <div>
+                            <p className="text-slate-500 dark:text-slate-400 mb-1">Applied To</p>
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {String(policy.database || '')}.{String(policy.table_name || '')}
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     {policy.description && (
-                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">{policy.description}</p>
+                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">{String(policy.description)}</p>
                     )}
                   </div>
 
@@ -342,11 +460,23 @@ export default function RLSPoliciesContent() {
                       <HiOutlinePlay className="w-4 h-4 mr-1" />
                       Apply
                     </Button>
+                    {policy.table_name && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleRemove(policy)}
+                        className="text-amber-600 hover:bg-amber-50"
+                        title="Unapply from table"
+                      >
+                        <HiOutlineXCircle className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => handleRemove(policy)}
+                      onClick={() => handleDelete(policy)}
                       className="text-red-600 hover:bg-red-50"
+                      title="Delete policy"
                     >
                       <HiOutlineTrash className="w-4 h-4" />
                     </Button>
@@ -373,69 +503,45 @@ export default function RLSPoliciesContent() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Policy Name</label>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Policy Name <span className="text-red-500">*</span>
+              </label>
               <Input
                 value={formData.policy_name}
                 onChange={(e) => setFormData({ ...formData, policy_name: e.target.value })}
-                placeholder="e.g., restrict_by_region"
+                placeholder="e.g., RESTRICT_BY_REGION"
               />
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Database</label>
-                <Select
-                  value={formData.database}
-                  onChange={(value: string) => setFormData({ ...formData, database: value, schema: '', table_name: '' })}
-                >
-                  <option value="">Select Database</option>
-                  {(databases || []).map(db => (
-                    <option key={db} value={db}>{db}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Schema</label>
-                <Select
-                  value={formData.schema}
-                  onChange={(value: string) => setFormData({ ...formData, schema: value, table_name: '' })}
-                  disabled={!formData.database}
-                >
-                  <option value="">Select Schema</option>
-                  {(schemas || []).map(sch => (
-                    <option key={sch} value={sch}>{sch}</option>
-                  ))}
-                </Select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Table</label>
-                <Select
-                  value={formData.table_name}
-                  onChange={(value: string) => setFormData({ ...formData, table_name: value })}
-                  disabled={!formData.schema}
-                >
-                  <option value="">Select Table</option>
-                  {(tables || []).map(tbl => (
-                    <option key={tbl} value={tbl}>{tbl}</option>
-                  ))}
-                </Select>
-              </div>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                Filter Expression (SQL)
+                Signature <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={formData.signature}
+                onChange={(e) => setFormData({ ...formData, signature: e.target.value })}
+                placeholder="e.g., (val VARCHAR)"
+                className="font-mono"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Function signature defining the input parameter type (e.g., (val VARCHAR), (user_id NUMBER))
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Expression <span className="text-red-500">*</span>
               </label>
               <textarea
-                value={formData.filter_expression}
-                onChange={(e) => setFormData({ ...formData, filter_expression: e.target.value })}
-                placeholder="e.g., region = CURRENT_USER_REGION() AND department = CURRENT_USER_DEPARTMENT()"
+                value={formData.expression}
+                onChange={(e) => setFormData({ ...formData, expression: e.target.value })}
+                placeholder="e.g., CURRENT_ROLE() IN ('ADMIN', 'MANAGER') OR val = CURRENT_USER()"
                 rows={4}
                 className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-sm"
               />
-              <p className="mt-2 text-xs text-slate-500">Use SQL WHERE clause syntax with security matrix functions</p>
+              <p className="mt-2 text-xs text-slate-500">
+                Boolean SQL expression that determines row access. Use context functions like CURRENT_ROLE(), CURRENT_USER()
+              </p>
             </div>
 
             <div>
@@ -454,7 +560,7 @@ export default function RLSPoliciesContent() {
             </Button>
             <Button
               onClick={handleCreate}
-              disabled={!formData.policy_name || !formData.filter_expression || !formData.table_name}
+              disabled={!formData.policy_name || !formData.signature || !formData.expression}
               className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white"
             >
               Create Policy
@@ -481,45 +587,72 @@ export default function RLSPoliciesContent() {
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Database</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Database <span className="text-red-500">*</span>
+                </label>
                 <Select
                   value={applyForm.database}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, database: value, schema: '', table_name: '' })}
-                >
-                  <option value="">Select Database</option>
-                  {(databases || []).map(db => (
-                    <option key={db} value={db}>{db}</option>
-                  ))}
-                </Select>
+                  onChange={(value: any) => {
+                    const dbValue = typeof value === 'object' ? value?.value : value;
+                    setApplyForm({ ...applyForm, database: dbValue || '', schema: '', table_name: '', policy_column: '' });
+                  }}
+                  options={[
+                    { label: 'Select Database', value: '' },
+                    ...(databases || []).map(db => ({ label: db, value: db }))
+                  ]}
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Schema</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Schema <span className="text-red-500">*</span>
+                </label>
                 <Select
                   value={applyForm.schema}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, schema: value, table_name: '' })}
+                  onChange={(value: any) => {
+                    const schValue = typeof value === 'object' ? value?.value : value;
+                    setApplyForm({ ...applyForm, schema: schValue || '', table_name: '', policy_column: '' });
+                  }}
                   disabled={!applyForm.database}
-                >
-                  <option value="">Select Schema</option>
-                  {(schemas || []).map(sch => (
-                    <option key={sch} value={sch}>{sch}</option>
-                  ))}
-                </Select>
+                  options={[
+                    { label: 'Select Schema', value: '' },
+                    ...(schemas || []).map(sch => ({ label: sch, value: sch }))
+                  ]}
+                />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Table</label>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                  Table <span className="text-red-500">*</span>
+                </label>
                 <Select
                   value={applyForm.table_name}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, table_name: value })}
+                  onChange={(value: any) => {
+                    const tblValue = typeof value === 'object' ? value?.value : value;
+                    setApplyForm({ ...applyForm, table_name: tblValue || '', policy_column: '' });
+                  }}
                   disabled={!applyForm.schema}
-                >
-                  <option value="">Select Table</option>
-                  {(tables || []).map(tbl => (
-                    <option key={tbl} value={tbl}>{tbl}</option>
-                  ))}
-                </Select>
+                  options={[
+                    { label: 'Select Table', value: '' },
+                    ...(tables || []).map(tbl => ({ label: tbl, value: tbl }))
+                  ]}
+                />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Policy Column <span className="text-red-500">*</span>
+              </label>
+              <Input
+                value={applyForm.policy_column}
+                onChange={(e) => setApplyForm({ ...applyForm, policy_column: e.target.value })}
+                placeholder="e.g., USER_ID, REGION, DEPARTMENT"
+                disabled={!applyForm.table_name}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                The column name that will be passed to the policy function signature
+              </p>
             </div>
           </div>
 
@@ -529,7 +662,7 @@ export default function RLSPoliciesContent() {
             </Button>
             <Button
               onClick={handleApply}
-              disabled={!applyForm.table_name}
+              disabled={!applyForm.database || !applyForm.schema || !applyForm.table_name || !applyForm.policy_column}
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
             >
               Apply Policy

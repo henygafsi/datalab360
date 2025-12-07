@@ -14,8 +14,9 @@ import dynamic from 'next/dynamic';
 import SimpleBar from 'simplebar-react';
 import { CarbonSidebarMenu } from './carbon-sidebar-menu';
 import { useSession } from 'next-auth/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { normalizeToIds, getAllModuleIds } from '@/config/modules';
 
 const NeedSupport = dynamic(() => import('@/layouts/carbon/need-support'), {
   ssr: false,
@@ -35,11 +36,24 @@ export function CarbonSidebar({ className }: { className?: string }) {
     isArray: Array.isArray(sessionItems)
   });
 
-  // If user is administrator or modeler, grant access to all menus (1-9)
-  // Using toLowerCase() to handle case variations
-  const allowedIds = (userRole === 'administrator' || userRole === 'modeler')
-    ? [1, 2, 3, 4, 5, 6, 7, 8, 9]
-    : sessionItems;
+  // Compute allowed menu IDs based on role
+  // Admin roles get all modules, other users get their assigned modules
+  // Session items can be either numeric IDs or string names - normalizeToIds handles both
+  const allowedIds = useMemo(() => {
+    const isAdminRole = userRole === 'administrator' || userRole === 'modeler' || userRole === 'accountadmin';
+
+    if (isAdminRole) {
+      return getAllModuleIds(); // Returns [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    }
+
+    // For non-admin users, normalize their session items to IDs
+    // This handles both numeric IDs and string module names
+    if (Array.isArray(sessionItems) && sessionItems.length > 0) {
+      return normalizeToIds(sessionItems as (string | number)[]);
+    }
+
+    return []; // No access if no items assigned
+  }, [userRole, sessionItems]);
 
   const username = session?.user?.username || 'Guest';
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -161,7 +175,6 @@ export function CarbonSidebar({ className }: { className?: string }) {
         >
           <CarbonSidebarMenu
             allowedIds={allowedIds}
-            collapsed={sidebarCollapsed}
           />
         </motion.div>
 

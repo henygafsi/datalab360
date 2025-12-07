@@ -6,6 +6,7 @@ import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import {
   getTags,
+  getTagDetails,
   createTag,
   applyTag,
   removeTag,
@@ -26,7 +27,10 @@ export default function TagPoliciesContent() {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedTag, setSelectedTag] = useState<Tag | null>(null);
+  const [tagDetails, setTagDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   // Form state for creating tag
   const [tagName, setTagName] = useState('');
@@ -49,7 +53,8 @@ export default function TagPoliciesContent() {
     try {
       setLoading(true);
       const data = await getTags();
-      setTags(data || []);
+      // Defensive check: ensure data is an array
+      setTags(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.error('Error loading tags:', error);
       toast.error(error.response?.data?.message || error.message || 'Failed to load tags');
@@ -57,6 +62,51 @@ export default function TagPoliciesContent() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleViewDetails = async (tag: Tag) => {
+    setSelectedTag(tag);
+    setShowDetailsModal(true);
+    setLoadingDetails(true);
+    setTagDetails(null);
+
+    try {
+      const details = await getTagDetails(tag.tag_name);
+      console.log('Tag details:', details);
+      setTagDetails(details);
+    } catch (error: any) {
+      console.error('Error loading tag details:', error);
+      toast.error('Failed to load tag details');
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // Helper function to format error messages from API responses
+  const formatErrorMessage = (error: any, defaultMessage: string): string => {
+    // Handle FastAPI validation errors (422) which return detail as an array
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+
+      // If detail is an array of validation errors
+      if (Array.isArray(detail)) {
+        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
+      }
+      // If detail is a string
+      else if (typeof detail === 'string') {
+        return detail;
+      }
+    }
+
+    if (error.response?.data?.message) {
+      return error.response.data.message;
+    }
+
+    if (error.message) {
+      return error.message;
+    }
+
+    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -77,7 +127,8 @@ export default function TagPoliciesContent() {
       resetCreateForm();
       loadTags();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to create tag');
+      console.error('Create tag error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to create tag'));
     }
   };
 
@@ -128,7 +179,8 @@ export default function TagPoliciesContent() {
       resetApplyForm();
       loadTags();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to apply tag');
+      console.error('Apply tag error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to apply tag'));
     }
   };
 
@@ -140,7 +192,8 @@ export default function TagPoliciesContent() {
       toast.success('Tag deleted successfully');
       loadTags();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || error.message || 'Failed to delete tag');
+      console.error('Delete tag error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete tag'));
     }
   };
 
@@ -160,8 +213,9 @@ export default function TagPoliciesContent() {
   };
 
   // Reset object selections when object type changes
-  const handleObjectTypeChange = (newType: string) => {
-    setObjectType(newType);
+  const handleObjectTypeChange = (newType: any) => {
+    const extractedValue = typeof newType === 'object' ? newType?.value : newType;
+    setObjectType(extractedValue || 'TABLE');
     setDatabase('');
     setSchema('');
     setTable('');
@@ -199,24 +253,29 @@ export default function TagPoliciesContent() {
           {tags.map((tag) => (
             <div
               key={tag.tag_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start"
+              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start hover:border-green-300 transition-colors"
             >
-              <div className="flex-1">
-                <h3 className="font-semibold text-lg">{tag.tag_name}</h3>
+              <div
+                className="flex-1 cursor-pointer"
+                onClick={() => handleViewDetails(tag)}
+              >
+                <h3 className="font-semibold text-lg text-green-600 hover:text-green-700">
+                  {String(tag.tag_name || '')}
+                </h3>
                 {tag.comment && (
                   <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {tag.comment}
+                    {String(tag.comment)}
                   </p>
                 )}
                 {tag.allowed_values && (
                   <div className="mt-2">
                     <p className="text-xs text-slate-500">Allowed Values:</p>
                     <p className="text-sm font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded mt-1">
-                      {tag.allowed_values}
+                      {String(tag.allowed_values)}
                     </p>
                   </div>
                 )}
-                <p className="text-xs text-slate-500 mt-1">Schema: {tag.schema}</p>
+                <p className="text-xs text-slate-500 mt-1">Schema: {String(tag.schema || 'N/A')}</p>
               </div>
               <div className="flex gap-2">
                 <Button
@@ -303,7 +362,7 @@ export default function TagPoliciesContent() {
           <Select
             label="Object Type"
             value={objectType}
-            onChange={(val) => handleObjectTypeChange(val as string)}
+            onChange={handleObjectTypeChange}
             options={OBJECT_TYPES}
           />
 
@@ -378,6 +437,85 @@ export default function TagPoliciesContent() {
               onClick={handleApply}
               disabled={!database || !tagValue}
               className="bg-green-600 hover:bg-green-700"
+            >
+              Apply Tag
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Tag Details Modal */}
+      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
+        <div className="p-6 space-y-4">
+          <h2 className="text-xl font-bold">
+            Tag Details: {selectedTag?.tag_name}
+          </h2>
+
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : tagDetails ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Tag Name
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {tagDetails.tag_name || selectedTag?.tag_name || 'N/A'}
+                </code>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Allowed Values
+                </label>
+                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
+                  {tagDetails.details?.allowed_values || tagDetails.allowed_values || selectedTag?.allowed_values || 'Any value allowed'}
+                </code>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Comment / Description
+                </label>
+                <pre className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm overflow-x-auto whitespace-pre-wrap">
+                  {tagDetails.details?.comment || tagDetails.comment || selectedTag?.comment || 'No description'}
+                </pre>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Schema
+                  </label>
+                  <p className="text-sm">{tagDetails.schema || selectedTag?.schema || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+                    Owner
+                  </label>
+                  <p className="text-sm">{tagDetails.details?.owner || tagDetails.owner || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-slate-500">
+              No details available
+            </div>
+          )}
+
+          <div className="flex gap-3 justify-end pt-4">
+            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+              Close
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700"
+              onClick={() => {
+                setShowDetailsModal(false);
+                setShowApplyModal(true);
+              }}
             >
               Apply Tag
             </Button>
