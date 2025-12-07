@@ -563,7 +563,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 updateMappingData({ primary_keys: { source: updatedSource, target: updatedTargetList } });
             }
 
-            toast({ title: 'Primary Keys Saved', description: `PKs saved for ${table_name}.`, variant: 'success' });
+            toast({ title: 'Primary Keys Saved', description: `PKs saved for ${table_name}.` });
         } catch (e: any) {
             const message = typeof e?.message === 'string' ? e.message : 'Unknown error';
             toast({ title: 'Error', description: `Failed to save primary keys: ${message}`, variant: 'destructive' });

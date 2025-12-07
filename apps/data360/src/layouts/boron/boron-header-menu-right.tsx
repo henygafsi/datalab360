@@ -52,7 +52,6 @@ export default function HeaderMenuRight() {
         </ActionIcon>
       </NotificationDropdown>
       <ProfileMenu
-        username
         buttonClassName="w-[unset] sm:w-[unset] flex items-center gap-3 xl:ms-2"
         avatarClassName="!w-8 !h-8"
       />

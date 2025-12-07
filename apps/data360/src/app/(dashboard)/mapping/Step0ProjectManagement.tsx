@@ -110,10 +110,10 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
 
         try {
             const response = await createProject(payload);
-            toast({ title: 'Project Created', description: `Project "${newProjectName}" created successfully!`, variant: 'success' });
+            toast({ title: 'Project Created', description: `Project "${newProjectName}" created successfully!` });
 
             const newProject: Project = {
-                ...(response as Omit<Project, 'last_completed_step'>),
+                project_id: response.project_id,
                 name: newProjectName.trim(),
                 created_by: 'You',
                 shared_with: sharedUsers,

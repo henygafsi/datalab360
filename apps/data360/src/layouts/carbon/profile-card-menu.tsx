@@ -17,6 +17,7 @@ type ProfileCardMenuProps = {
   designation?: string;
   initial?: string;
   image?: string;
+  children?: ReactNode;
 };
 
 const menuItems = [

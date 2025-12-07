@@ -19,7 +19,7 @@ interface EventPayload {
 export const logNavigationEvent = async (payload: EventPayload): Promise<void> => {
     try {
         console.log(`Service: logNavigationEvent - Saving navigation event to local storage:`, payload);
-        const localEvents = JSON.parse(localStorage.getItem('events') || '[]');
+        const localEvents = JSON.parse(localStorage.getItem('events') || '[]') as any[];
         localEvents.push({ ...payload, timestamp: new Date().toISOString() });
         localStorage.setItem('events', JSON.stringify(localEvents));
     } catch (error) {

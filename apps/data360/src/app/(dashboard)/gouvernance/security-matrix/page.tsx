@@ -314,16 +314,17 @@ export default function SecurityMatrixPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Type</label>
               <Select
+                options={[
+                  { label: 'Region', value: 'region' },
+                  { label: 'Store', value: 'store' },
+                  { label: 'Department', value: 'department' },
+                  { label: 'Custom', value: 'custom' },
+                ]}
                 value={formData.type}
-                onChange={(value: any) => setFormData({ ...formData, type: value })}
+                onChange={(value: any) => setFormData({ ...formData, type: value?.value || value })}
                 disabled={!!editingAxis}
                 className="w-full"
-              >
-                <option value="region">Region</option>
-                <option value="store">Store</option>
-                <option value="department">Department</option>
-                <option value="custom">Custom</option>
-              </Select>
+              />
             </div>
 
             <div>

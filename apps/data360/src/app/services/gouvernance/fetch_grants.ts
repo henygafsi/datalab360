@@ -101,7 +101,7 @@ export async function getGrantsForRole(roleName: string): Promise<string[]> {
     }
 
     // Assuming the API returns an array of strings like ["SELECT on DATABASE db", "INSERT on TABLE tbl"]
-    return Array.isArray(response.data) ? response.data : [];
+    return Array.isArray(response.data) ? (response.data as string[]) : [];
   } catch (error: any) {
     console.error(`Error fetching grants for role ${roleName}:`, error.response?.data || error.message);
     throw error;

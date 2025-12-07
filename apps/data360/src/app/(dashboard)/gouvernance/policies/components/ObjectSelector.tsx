@@ -90,10 +90,10 @@ export function ObjectSelector({
 
   const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
 
-  const options = Array.isArray(items) ? items.map(item => {
+  const options = Array.isArray(items) ? items.map((item: any) => {
     // Handle both object and string formats
     const itemName = typeof item === 'string' ? item : (item?.name || '');
-    const itemType = typeof item === 'object' && item?.type ? item.type : '';
+    const itemType = typeof item === 'object' && item !== null && 'type' in item ? item.type : '';
 
     return {
       label: level === 'column' && itemType

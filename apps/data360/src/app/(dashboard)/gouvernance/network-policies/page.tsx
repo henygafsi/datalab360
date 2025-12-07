@@ -376,14 +376,15 @@ export default function NetworkPoliciesPage() {
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Policy Type</label>
               <Select
+                options={[
+                  { label: 'Allow', value: 'allow' },
+                  { label: 'Deny', value: 'deny' },
+                ]}
                 value={formData.type}
-                onChange={(value: any) => setFormData({ ...formData, type: value })}
+                onChange={(value: any) => setFormData({ ...formData, type: value?.value || value })}
                 disabled={!!editingPolicy}
                 className="w-full"
-              >
-                <option value="allow">Allow</option>
-                <option value="deny">Deny</option>
-              </Select>
+              />
               <p className="mt-2 text-xs text-slate-500">
                 Allow policies grant access, Deny policies block access
               </p>

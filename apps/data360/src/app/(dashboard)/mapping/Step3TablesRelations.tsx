@@ -642,7 +642,6 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                     toast({
                         title: "Mapping Validation Passed",
                         description: "All mappings are valid and ready for deployment",
-                        variant: "success",
                     });
                 }
             } else {
@@ -651,7 +650,6 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 toast({
                     title: "Mapping Test Completed",
                     description: "Mapping validation completed successfully",
-                    variant: "success",
                 });
             }
         } catch (error: any) {

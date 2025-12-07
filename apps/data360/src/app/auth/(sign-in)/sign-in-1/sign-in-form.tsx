@@ -9,9 +9,9 @@ import { Checkbox, Password, Button, Input, Text } from 'rizzui';
 import { Form } from '@core/ui/form';
 import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
-import { Login } from '@/app/services/auth/login';
 
 const initialValues: LoginSchema = {
+  account_name: '',
   username: 'admin@admin.com',
   password: 'admin',
   rememberMe: true,

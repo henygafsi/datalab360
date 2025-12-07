@@ -14,6 +14,7 @@ import {
   type Tag,
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
+import { DEFAULTS } from '@/config/database.config';
 
 const OBJECT_TYPES = [
   { label: 'Database', value: 'DATABASE' },
@@ -120,7 +121,7 @@ export default function TagPoliciesContent() {
         tag_name: tagName,
         allowed_values: allowedValues,
         comment,
-        schema: 'cp_data360.GOUVERNANCE',
+        schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success('Tag created successfully!');
       setShowCreateModal(false);
@@ -165,7 +166,7 @@ export default function TagPoliciesContent() {
         table,
         column,
         tag_value: tagValue,
-        tag_schema: 'cp_data360.GOUVERNANCE',
+        tag_schema: DEFAULTS.GOVERNANCE_FQN,
       });
 
       const objectPath = objectType === 'DATABASE' ? database

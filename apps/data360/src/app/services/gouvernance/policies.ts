@@ -7,9 +7,13 @@
 
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
+import { API_CONFIG, DEFAULTS } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-const POLICIES_API = `${API_BASE_URL}/gouvernance/policies`;
+const API_BASE_URL = API_CONFIG.BASE_URL;
+const POLICIES_API = `${API_BASE_URL}${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies`;
+
+// Default governance schema FQN
+const DEFAULT_GOVERNANCE_SCHEMA = DEFAULTS.GOVERNANCE_FQN;
 
 // Standard response wrapper from backend
 interface StandardResponse<T = any> {
@@ -80,6 +84,8 @@ export interface MaskingPolicy {
   schema: string;
   data_type: string;
   masking_type?: string;
+  column_type?: string;
+  masking_expression?: string;
   created_at?: string;
 }
 
@@ -214,7 +220,7 @@ export interface CreateSessionPolicyRequest {
 
 export async function getRLSPolicyDetails(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/row-access/${policy_name}/details`;
@@ -231,7 +237,7 @@ export async function getRLSPolicyDetails(
   }
 }
 
-export async function getRLSPolicies(schema: string = 'cp_data360.gouvernance'): Promise<RLSPolicy[]> {
+export async function getRLSPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<RLSPolicy[]> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/row-access/list`;
   console.log('🔍 GET RLS Policies API Call:', { url, schema });
@@ -291,7 +297,7 @@ export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLS
         policy_name: data.policy_name,
         signature: data.signature,
         expression: data.expression,
-        schema: data.schema || 'cp_data360.gouvernance',
+        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
         description: data.description,
       },
       headers,
@@ -318,7 +324,7 @@ export async function applyRLSPolicy(data: ApplyRLSPolicyRequest): Promise<any> 
         database: data.database,
         schema: data.schema,
         policy_column: data.policy_column,
-        policy_schema: data.policy_schema || 'cp_data360.gouvernance',
+        policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -363,7 +369,7 @@ export async function removeRLSPolicy(
 
 export async function deleteRLSPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/row-access/${policy_name}`;
@@ -413,7 +419,7 @@ export async function createRoleBasedRLSPolicy(
   policyName: string,
   columnName: string,
   allowedRoles: string[],
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   const rolesCondition = allowedRoles.map(role => `CURRENT_ROLE() = '${role}'`).join(' OR ');
   return createRLSPolicy({
@@ -436,7 +442,7 @@ export async function createSessionRoleRLSPolicy(
   policyName: string,
   columnName: string,
   roleName: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   return createRLSPolicy({
     policy_name: policyName,
@@ -456,7 +462,7 @@ export async function createSessionRoleRLSPolicy(
 export async function createUserFilterRLSPolicy(
   policyName: string,
   columnName: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   return createRLSPolicy({
     policy_name: policyName,
@@ -480,7 +486,7 @@ export async function createCustomRLSPolicy(
   signature: string,
   expression: string,
   description?: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   return createRLSPolicy({
     policy_name: policyName,
@@ -495,7 +501,7 @@ export async function createCustomRLSPolicy(
 
 export async function getMaskingPolicyDetails(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/masking/${policy_name}/details`;
@@ -513,7 +519,7 @@ export async function getMaskingPolicyDetails(
   }
 }
 
-export async function getMaskingPolicies(schema: string = 'cp_data360.gouvernance'): Promise<MaskingPolicy[]> {
+export async function getMaskingPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<MaskingPolicy[]> {
   const headers = await getAuthHeaders();
   console.log('🔍 GET Masking Policies API Call:', { schema });
 
@@ -558,7 +564,7 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
   const params: Record<string, any> = {
     policy_name: data.policy_name,
     data_type: data.data_type,
-    schema: data.schema || 'cp_data360.gouvernance',
+    schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
   };
 
   // Only add masking_type if it's defined
@@ -598,7 +604,7 @@ export async function applyMaskingPolicy(data: ApplyMaskingPolicyRequest): Promi
         schema: data.schema,
         table: data.table,
         column: data.column,
-        policy_schema: data.policy_schema || 'cp_data360.gouvernance',
+        policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -659,7 +665,7 @@ export async function getMaskedColumns(
 
 export async function deleteMaskingPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -764,7 +770,7 @@ export async function setNetworkPolicyAsDefault(policy_name: string): Promise<an
 
 export async function getTagDetails(
   tag_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/tags/${tag_name}/details`;
@@ -782,7 +788,7 @@ export async function getTagDetails(
   }
 }
 
-export async function getTags(schema: string = 'cp_data360.gouvernance'): Promise<Tag[]> {
+export async function getTags(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<Tag[]> {
   const headers = await getAuthHeaders();
   console.log('🔍 GET Tags API Call:', { schema });
 
@@ -826,7 +832,7 @@ export async function createTag(data: CreateTagRequest): Promise<Tag> {
         tag_name: data.tag_name,
         allowed_values: data.allowed_values,
         comment: data.comment,
-        schema: data.schema || 'cp_data360.gouvernance',
+        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -854,7 +860,7 @@ export async function applyTag(data: ApplyTagRequest): Promise<any> {
         schema: data.schema,
         table: data.table,
         column: data.column,
-        tag_schema: data.tag_schema || 'cp_data360.gouvernance',
+        tag_schema: data.tag_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -874,7 +880,7 @@ export async function removeTag(
   object_type: string,
   object_name: string,
   tag_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -899,7 +905,7 @@ export async function removeTag(
   }
 }
 
-export async function deleteTag(tag_name: string, schema: string = 'cp_data360.gouvernance'): Promise<any> {
+export async function deleteTag(tag_name: string, schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<any> {
   const headers = await getAuthHeaders();
   try {
     const response = await axios.delete<StandardResponse>(`${POLICIES_API}/tags/${tag_name}`, {
@@ -923,7 +929,7 @@ export async function deleteTag(tag_name: string, schema: string = 'cp_data360.g
 
 export async function getPasswordPolicyDetails(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/password/${policy_name}/details`;
@@ -941,7 +947,7 @@ export async function getPasswordPolicyDetails(
   }
 }
 
-export async function getPasswordPolicies(schema: string = 'cp_data360.gouvernance'): Promise<PasswordPolicy[]> {
+export async function getPasswordPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<PasswordPolicy[]> {
   const headers = await getAuthHeaders();
   const response = await axios.get<StandardResponse<{ policies: PasswordPolicy[] }>>(`${POLICIES_API}/password/list`, {
     params: { schema },
@@ -967,7 +973,7 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
         max_age_days: data.max_age_days,
         max_retries: data.max_retries,
         lockout_time_mins: data.lockout_time_mins,
-        schema: data.schema || 'cp_data360.gouvernance',
+        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -985,7 +991,7 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
 
 export async function deletePasswordPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -1008,7 +1014,7 @@ export async function deletePasswordPolicy(
 
 export async function setPasswordPolicyAsDefault(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -1033,7 +1039,7 @@ export async function setPasswordPolicyAsDefault(
 
 export async function getSessionPolicyDetails(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/session/${policy_name}/details`;
@@ -1051,7 +1057,7 @@ export async function getSessionPolicyDetails(
   }
 }
 
-export async function getSessionPolicies(schema: string = 'cp_data360.gouvernance'): Promise<SessionPolicy[]> {
+export async function getSessionPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<SessionPolicy[]> {
   const headers = await getAuthHeaders();
   const response = await axios.get<StandardResponse<{ policies: SessionPolicy[] }>>(`${POLICIES_API}/session/list`, {
     params: { schema },
@@ -1070,7 +1076,7 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
         policy_name: data.policy_name,
         session_idle_timeout_mins: data.session_idle_timeout_mins,
         session_ui_idle_timeout_mins: data.session_ui_idle_timeout_mins,
-        schema: data.schema || 'cp_data360.gouvernance',
+        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1088,7 +1094,7 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
 
 export async function deleteSessionPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -1111,7 +1117,7 @@ export async function deleteSessionPolicy(
 
 export async function setSessionPolicyAsDefault(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -1157,7 +1163,7 @@ export interface ApplyAggregationPolicyRequest {
 
 export async function getAggregationPolicyDetails(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/aggregation/${policy_name}/details`;
@@ -1175,7 +1181,7 @@ export async function getAggregationPolicyDetails(
   }
 }
 
-export async function getAggregationPolicies(schema: string = 'cp_data360.gouvernance'): Promise<AggregationPolicy[]> {
+export async function getAggregationPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<AggregationPolicy[]> {
   const headers = await getAuthHeaders();
   const response = await axios.get<StandardResponse<{ policies: AggregationPolicy[] }>>(`${POLICIES_API}/aggregation/list`, {
     params: { schema },
@@ -1193,7 +1199,7 @@ export async function createAggregationPolicy(data: CreateAggregationPolicyReque
       params: {
         policy_name: data.policy_name,
         aggregation_constraint: data.aggregation_constraint,
-        schema: data.schema || 'cp_data360.gouvernance',
+        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1218,7 +1224,7 @@ export async function applyAggregationPolicy(data: ApplyAggregationPolicyRequest
         database: data.database,
         schema: data.schema,
         table: data.table,
-        policy_schema: data.policy_schema || 'cp_data360.gouvernance',
+        policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1259,7 +1265,7 @@ export async function removeAggregationPolicy(
 
 export async function deleteAggregationPolicy(
   policy_name: string,
-  schema: string = 'cp_data360.gouvernance'
+  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {

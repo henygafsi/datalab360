@@ -6,18 +6,18 @@ import { BaseNode } from "@/components/base-node";
 import { LabeledHandle } from "@/components/labeled-handle";
 import { useState } from "react"; // For managing hover state
 
-type DatabaseSchemaNode = Node<{
+type DatabaseSchemaNodeData = {
   label: string;
   schema: { title: string; type: string }[];
   sourceDB: string;
   sourceSC: string;
-}>;
+};
 
 export function DatabaseSchemaNode({
   data,
   selected,
-  
-}: NodeProps<DatabaseSchemaNode>) {
+
+}: NodeProps<DatabaseSchemaNodeData>) {
   const [isHovered, setIsHovered] = useState(false);
 
   return (

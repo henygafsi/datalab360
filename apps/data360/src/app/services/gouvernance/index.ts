@@ -17,8 +17,9 @@ import type {
   ActivityFilterParams,
   MfaStatus,
 } from './types';
+import { API_CONFIG, DATABASE_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 async function getAuthToken(): Promise<string> {
   const session = await getSession();
@@ -67,8 +68,8 @@ export async function getStageStorageInfo(): Promise<StageSize[]> {
  * GET /gouvernance/get_dwh_storage_info
  */
 export async function getDwhStorageInfo(
-  databaseName: string = 'CP_DATA360',
-  schemaName: string = 'RETAIL_DW'
+  databaseName: string = DATABASE_CONFIG.PRIMARY_DATABASE,
+  schemaName: string = DATABASE_CONFIG.SCHEMAS.RETAIL
 ): Promise<DwhStorageSummary> {
   const params = new URLSearchParams({
     database_name: databaseName,

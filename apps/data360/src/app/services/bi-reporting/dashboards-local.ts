@@ -6,7 +6,7 @@
 
 export interface DashboardItem {
   id: string;
-  type: 'chart';
+  type: 'chart' | 'metric' | 'table';
   componentId: string;
   position: number;
   config?: any;
@@ -48,7 +48,7 @@ const getAllDashboards = (): Dashboard[] => {
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    return stored ? (JSON.parse(stored) as Dashboard[]) : [];
   } catch (error) {
     console.error('Failed to load dashboards from localStorage:', error);
     return [];
@@ -337,7 +337,7 @@ export const importDashboard = async (
 ): Promise<Dashboard> => {
   return new Promise((resolve, reject) => {
     try {
-      const parsed = JSON.parse(jsonData);
+      const parsed: any = JSON.parse(jsonData);
 
       if (!parsed.dashboard) {
         reject(new Error('Invalid dashboard export format'));

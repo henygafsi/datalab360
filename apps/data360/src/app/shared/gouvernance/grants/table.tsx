@@ -29,6 +29,13 @@ import { IconType } from 'react-icons/lib';
 
 type RoleGrant = { role_name: string; modules: string[] };
 
+// Type used by columns.tsx - represents module with associated roles
+export type GrantTableDataType = {
+  id: string;
+  name: string;
+  roles: string[];
+};
+
 // Module icons mapping
 const MODULE_ICONS: Record<number, IconType> = {
   1: PiUserCircleDuotone,

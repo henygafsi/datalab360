@@ -10,8 +10,7 @@ type TableLayoutProps = {
   data: unknown[];
   header: string;
   fileName: string;
-  accessToken: string | null; // New: accessToken prop
-  onAddUserSuccess: () => void; // New: onAddUserSuccess prop
+  onAddRoleSuccess: () => void;
 } & PageHeaderTypes;
 
 export default function TableLayout({
@@ -19,16 +18,15 @@ export default function TableLayout({
   header,
   fileName,
   children,
-  accessToken, // Destructure accessToken
-  onAddRoleSuccess, // Destructure onAddUserSuccess
+  onAddRoleSuccess,
   ...props
 }: React.PropsWithChildren<TableLayoutProps>) {
   return (
     <>
       <PageHeader {...props}>
         <div className="mt-4 flex items-center gap-3 @lg:mt-0">
-          {/* AddUserButton is now rendered here */}
-          <AddRoleButton onAddRoleSuccess={onAddRoleSuccess} accessToken={accessToken} />
+          {/* AddRoleButton is now rendered here */}
+          <AddRoleButton onAddRoleSuccess={onAddRoleSuccess} />
           <ImportButton title={'Import Users'} />{' '}
           {/* ImportButton for file upload */}
         </div>

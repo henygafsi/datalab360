@@ -14,6 +14,7 @@ import {
   type AggregationPolicy,
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
+import { DEFAULTS } from '@/config/database.config';
 
 export default function AggregationPoliciesContent() {
   const [policies, setPolicies] = useState<AggregationPolicy[]>([]);
@@ -110,7 +111,7 @@ export default function AggregationPoliciesContent() {
       await createAggregationPolicy({
         policy_name: policyName,
         aggregation_constraint: aggregationConstraint,
-        schema: 'cp_data360.gouvernance',
+        schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success('Aggregation policy created successfully!');
       setShowCreateModal(false);
@@ -134,7 +135,7 @@ export default function AggregationPoliciesContent() {
         database,
         schema,
         table,
-        policy_schema: 'cp_data360.gouvernance',
+        policy_schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}`);
       setShowApplyModal(false);

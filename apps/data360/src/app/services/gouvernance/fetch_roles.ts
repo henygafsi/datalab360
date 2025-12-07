@@ -35,11 +35,11 @@ export async function getRoles(): Promise<RoleTableDataType[]> {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData: any = await response.json();
       throw new Error(`Failed to fetch roles: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     console.log("Raw API Response Data (Roles):", data);
 
     const roles: RoleTableDataType[] = data.map((role: any) => ({
@@ -78,12 +78,12 @@ export async function addRole(roleName: string): Promise<string> {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData: any = await response.json();
       const errorMessage = errorData.detail ? JSON.stringify(errorData.detail) : `${response.status} ${response.statusText}`;
       throw new Error(`Failed to add role: ${errorMessage}`);
     }
 
-    const data = await response.json();
+    const data: any = await response.json();
     return data; // Assuming backend returns a success message
   } catch (error) {
     console.error('Error adding role:', error);
@@ -110,11 +110,11 @@ export async function getRolesForUser(username: string): Promise<string[]> {
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
+      const errorData: any = await response.json();
       throw new Error(`Failed to fetch roles for user: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as string[];
     return data; // Assuming it returns an array of role names
   } catch (error) {
     console.error('Error fetching roles for user:', error);

@@ -62,10 +62,10 @@ export async function setupAzureStorageIntegration(
         },
     });
     if (!response.ok) {
-        const errorData :any = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Storage Integration');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -87,10 +87,10 @@ export async function setupAzureNotificationIntegration(
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Notification Integration');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -112,10 +112,10 @@ export async function setupAzureSnowpipe( // This function is not currently used
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Snowpipe');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -140,10 +140,10 @@ export async function createAzureStage(
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to create Azure Stage');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -169,10 +169,10 @@ export async function setupAwsStorageIntegration(
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up AWS Storage Integration');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -196,10 +196,10 @@ export async function createAwsStage(
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to create AWS Stage');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -224,10 +224,10 @@ export async function connectSnowflakeDatalake(
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to connect to Snowflake Datalake');
     }
-    const data = await response.json();
+    const data: any = await response.json();
     return { message: data };
 }
 
@@ -242,7 +242,7 @@ export async function listSnowflakeStages(): Promise<any> {
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list Snowflake stages');
     }
     return await response.json();
@@ -259,7 +259,7 @@ export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list stage files');
     }
     return await response.json();
@@ -280,9 +280,9 @@ export async function getIntegrationDetails(integration_name: string): Promise<A
         },
     });
     if (!response.ok) {
-        const errorData = await response.json();
+        const errorData: any = await response.json();
         throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to get integration details');
     }
-    const data: AzureIntegrationDetailsResponse = await response.json(); // Cast to new interface
+    const data = await response.json() as AzureIntegrationDetailsResponse;
     return data;
 }

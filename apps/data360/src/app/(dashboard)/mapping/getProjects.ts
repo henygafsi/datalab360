@@ -8,6 +8,7 @@ interface Project {
     created_by: string;
     shared_with: string[];
     deployment_version: number;
+    step_name?: string | null;
     last_completed_step: string | null; // e.g., "CREATE_PROJECT", "ADD_PRIMARY_KEY", etc.
 }
 

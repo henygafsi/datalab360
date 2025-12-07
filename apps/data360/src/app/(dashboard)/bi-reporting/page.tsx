@@ -34,7 +34,7 @@ import {
 
 interface DashboardItem {
   id: string;
-  type: 'chart';
+  type: 'chart' | 'metric' | 'table';
   componentId: string;
   position: number;
   config?: ComponentConfig;

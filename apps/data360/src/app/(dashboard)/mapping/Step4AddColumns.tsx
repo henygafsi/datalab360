@@ -256,13 +256,11 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                 toast({
                     title: 'Columns Added',
                     description: 'Additional columns successfully added to target table in database.',
-                    variant: 'success',
                 });
             } else {
                 toast({
                     title: 'No New Columns',
                     description: 'No additional columns to add. Proceeding to deployment step.',
-                    variant: 'info',
                 });
             }
 
@@ -402,7 +400,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <Button onClick={handleAddColumn} disabled={isLoading || !newColumnName.trim()}>
+                                <Button onClick={() => handleAddColumn()} disabled={isLoading || !newColumnName.trim()}>
                                     <PlusCircle className="mr-2 h-4 w-4" />
                                     Add Column
                                 </Button>

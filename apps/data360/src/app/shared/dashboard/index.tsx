@@ -74,7 +74,7 @@ export default function GouvernanceDashboard() {
               },
               timeout: 5000, // 5 second timeout
             }
-          ).catch((err) => {
+          ).catch((err: any) => {
             console.warn('Workflows endpoint not available:', err.message);
             return { data: { workflows: [] } };
           }),
@@ -87,7 +87,7 @@ export default function GouvernanceDashboard() {
               },
               timeout: 5000, // 5 second timeout
             }
-          ).catch((err) => {
+          ).catch((err: any) => {
             console.warn('Mapping deployments endpoint not available:', err.message);
             return { data: { deployments: [] } };
           })

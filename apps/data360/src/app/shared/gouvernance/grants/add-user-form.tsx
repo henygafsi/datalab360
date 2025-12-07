@@ -3,12 +3,16 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 
-export default function AddUserForm({ onAddUser }) {
+interface AddUserFormProps {
+  onAddUser: (user: { id: string; name: string; email: string; createdOn: string; roles: string[]; status: string }) => void;
+}
+
+export default function AddUserForm({ onAddUser }: AddUserFormProps) {
   const [name, setName] = useState('');
   const [firstName, setFirstName] = useState('');
   const [email, setEmail] = useState('');
 
-  function handleSubmit(e) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const newUser = {
       id: Math.random().toString(36).substr(2, 9), // Random ID

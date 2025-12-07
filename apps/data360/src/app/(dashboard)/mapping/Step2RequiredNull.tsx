@@ -169,7 +169,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             });
             updateMappingData({ column_attributes: internalColumnAttributes });
-            toast({ title: 'Lengths Updated', description: `${table.table}: column lengths saved.`, variant: 'success' });
+            toast({ title: 'Lengths Updated', description: `${table.table}: column lengths saved.` });
         } catch (error: any) {
             toast({ title: 'Error', description: error.response?.data?.detail || error.message || 'Failed to update lengths.', variant: 'destructive' });
         }
@@ -277,7 +277,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             });
             originalAttributesRef.current = nextOriginal;
             
-            toast({ title: 'Types Updated', description: `${table.table}: ${changes.length} column(s) updated.`, variant: 'success' });
+            toast({ title: 'Types Updated', description: `${table.table}: ${changes.length} column(s) updated.` });
         } catch (error: any) {
             toast({ title: 'Error', description: error.response?.data?.detail || error.message || 'Failed to update data types.', variant: 'destructive' });
         }
@@ -489,7 +489,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             }
 
             updateMappingData({ column_attributes: internalColumnAttributes });
-            toast({ title: 'Required Columns Saved', description: 'Your selections have been saved.', variant: 'success' });
+            toast({ title: 'Required Columns Saved', description: 'Your selections have been saved.' });
             onNext();
         } catch (error: any) {
             toast({ title: 'Error Saving Selections', description: `Failed to save column requirements: ${error.message}`, variant: 'destructive' });

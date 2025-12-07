@@ -36,7 +36,6 @@ export default function AddUserButton({
             />
           ),
           customSize: '500px',
-          title: title,
         })
       }
       className={cn('w-full @lg:w-auto', className)}

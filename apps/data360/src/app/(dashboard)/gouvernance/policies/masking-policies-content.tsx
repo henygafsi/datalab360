@@ -12,8 +12,10 @@ import {
   removeMaskingPolicy,
   deleteMaskingPolicy,
   type MaskingPolicy,
+  MaskingType,
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
+import { DEFAULTS } from '@/config/database.config';
 
 const MASKING_TYPES = [
   { label: 'Full Masking (****)', value: 'FULL' },
@@ -141,9 +143,9 @@ export default function MaskingPoliciesContent() {
       await createMaskingPolicy({
         policy_name: policyName,
         data_type: columnType,
-        masking_type: maskingType === 'CUSTOM' ? undefined : maskingType,
+        masking_type: maskingType === 'CUSTOM' ? undefined : (maskingType as MaskingType),
         custom_expression: maskingType === 'CUSTOM' ? customExpression : getMaskingExpression(),
-        schema: 'cp_data360.gouvernance',
+        schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success('Masking policy created successfully!');
       setShowCreateModal(false);
@@ -168,7 +170,7 @@ export default function MaskingPoliciesContent() {
         schema,
         table,
         column,
-        policy_schema: 'cp_data360.gouvernance',
+        policy_schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}.${column}`);
       setShowApplyModal(false);

@@ -37,49 +37,30 @@ export const usersColumns = [
     header: 'User ID',
     cell: ({ row }) => <>#{row.original.id}</>,
   }),
-  columnHelper.accessor('fullName', {
-    id: 'fullName',
+  columnHelper.accessor('name', {
+    id: 'name',
     size: 300,
     header: 'Name',
     enableSorting: false,
     cell: ({ row }) => (
       <AvatarCard
-        src={row.original.avatar}
-        name={row.original.fullName}
+        src="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
+        name={row.original.name}
         description={row.original.email}
       />
     ),
   }),
-  columnHelper.accessor('role', {
-    id: 'role',
+  columnHelper.accessor('roles', {
+    id: 'roles',
     size: 150,
     header: 'Role',
-    cell: ({ row }) => row.original.role,
+    cell: ({ row }) => row.original.roles.join(', '),
   }),
-  columnHelper.accessor('createdAt', {
-    id: 'createdAt',
+  columnHelper.accessor('createdOn', {
+    id: 'createdOn',
     size: 200,
     header: 'Created',
-    cell: ({ row }) => <DateCell date={new Date(row.original.createdAt)} />,
-  }),
-  columnHelper.display({
-    id: 'permissions',
-    size: 250,
-    header: 'Permissions',
-    cell: ({ row }) => (
-      <Flex align="center" gap="2">
-        {row.original.permissions.map((permission) => (
-          <Badge
-            rounded="lg"
-            key={permission}
-            variant="outline"
-            className="border-muted font-normal text-gray-500"
-          >
-            {permission}
-          </Badge>
-        ))}
-      </Flex>
-    ),
+    cell: ({ row }) => <DateCell date={new Date(row.original.createdOn)} />,
   }),
   columnHelper.accessor('status', {
     id: 'status',

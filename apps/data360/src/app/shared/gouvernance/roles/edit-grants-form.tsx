@@ -29,7 +29,7 @@ const legacyModuleMapping: Record<string, string> = {
 const availableGrants = availableModules.map(m => m.name);
 
 type EditGrantsFormProps = {
-  roleName: string;
+  roleName?: string;
   initialGrants?: string[];
   onSubmit?: (updatedGrants: string[]) => void;
   onClose?: () => void;
@@ -41,7 +41,7 @@ const normalizeModuleName = (name: string): string => {
 };
 
 export default function EditGrantsForm({
-  roleName,
+  roleName = '',
   initialGrants = [],
   onSubmit,
   onClose,

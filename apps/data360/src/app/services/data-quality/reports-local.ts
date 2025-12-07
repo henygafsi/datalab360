@@ -73,7 +73,7 @@ const getAllReports = (): QualityReport[] => {
 
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? JSON.parse(stored) : [];
+    return stored ? (JSON.parse(stored) as QualityReport[]) : [];
   } catch (error) {
     console.error('Failed to load quality reports from localStorage:', error);
     return [];
@@ -364,7 +364,7 @@ export const importQualityReport = async (
 ): Promise<QualityReport> => {
   return new Promise((resolve, reject) => {
     try {
-      const parsed = JSON.parse(jsonData);
+      const parsed: any = JSON.parse(jsonData);
 
       if (!parsed.report) {
         reject(new Error('Invalid quality report export format'));

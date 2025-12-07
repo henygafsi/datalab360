@@ -74,7 +74,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
           setTableData((prev) => prev.filter((r) => r.id !== row.id));
         },
         handleMultipleDelete: (rows) => {
-          console.log('Attempting to delete multiple rows:', rows.map(r => r.id));
+          console.log('Attempting to delete multiple rows:', rows.map((r: any) => r.id));
           // Example: call a deleteMultipleUsers API then refetch data
           // deleteMultipleUsers(accessToken, rows.map(r => r.id)).then(() => fetchUsersData());
           setTableData((prev) => prev.filter((r) => !rows.includes(r)));

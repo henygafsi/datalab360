@@ -22,6 +22,7 @@ import {
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
+import { DEFAULTS } from '@/config/database.config';
 
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -50,7 +51,7 @@ export default function RLSPoliciesContent() {
     policy_name: '',
     signature: '',
     expression: '',
-    schema: 'cp_data360.gouvernance',
+    schema: DEFAULTS.GOVERNANCE_FQN,
     description: '',
     database: '',
     table_name: '',
@@ -195,7 +196,7 @@ export default function RLSPoliciesContent() {
         policy_name: formData.policy_name.trim().toUpperCase(),
         signature: formData.signature.trim(),
         expression: formData.expression.trim(),
-        schema: formData.schema || 'cp_data360.gouvernance',
+        schema: formData.schema || DEFAULTS.GOVERNANCE_FQN,
         description: formData.description?.trim(),
       });
       toast.success('RLS Policy created successfully');
@@ -224,7 +225,7 @@ export default function RLSPoliciesContent() {
         database: applyForm.database,
         schema: applyForm.schema,
         policy_column: applyForm.policy_column,
-        policy_schema: selectedPolicy.schema || 'cp_data360.gouvernance',
+        policy_schema: selectedPolicy.schema || DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success(`RLS Policy applied to ${applyForm.database}.${applyForm.schema}.${applyForm.table_name}`);
       setShowApplyModal(false);
@@ -244,10 +245,10 @@ export default function RLSPoliciesContent() {
     console.log('Policy object:', policy);
     console.log('Policy name:', policy.policy_name);
     console.log('Policy schema:', policy.schema);
-    console.log('Using schema:', policy.schema || 'cp_data360.gouvernance');
+    console.log('Using schema:', policy.schema || DEFAULTS.GOVERNANCE_FQN);
 
     try {
-      const result = await deleteRLSPolicy(policy.policy_name, policy.schema || 'cp_data360.gouvernance');
+      const result = await deleteRLSPolicy(policy.policy_name, policy.schema || DEFAULTS.GOVERNANCE_FQN);
       console.log('Delete API result:', result);
       toast.success('RLS Policy deleted successfully');
       // Wait a bit before reloading to let backend process
@@ -292,7 +293,7 @@ export default function RLSPoliciesContent() {
       policy_name: '',
       signature: '',
       expression: '',
-      schema: 'cp_data360.gouvernance',
+      schema: DEFAULTS.GOVERNANCE_FQN,
       description: '',
       database: '',
       table_name: '',

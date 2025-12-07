@@ -395,42 +395,39 @@ export default function RLSPoliciesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Database</label>
                 <Select
+                  options={[
+                    { label: 'Select Database', value: '' },
+                    ...databases.map(db => ({ label: db, value: db }))
+                  ]}
                   value={formData.database}
-                  onChange={(value: string) => setFormData({ ...formData, database: value, schema: '', table_name: '' })}
-                >
-                  <option value="">Select Database</option>
-                  {databases.map(db => (
-                    <option key={db} value={db}>{db}</option>
-                  ))}
-                </Select>
+                  onChange={(value: any) => setFormData({ ...formData, database: value?.value || value || '', schema: '', table_name: '' })}
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Schema</label>
                 <Select
+                  options={[
+                    { label: 'Select Schema', value: '' },
+                    ...schemas.map(sch => ({ label: sch, value: sch }))
+                  ]}
                   value={formData.schema}
-                  onChange={(value: string) => setFormData({ ...formData, schema: value, table_name: '' })}
+                  onChange={(value: any) => setFormData({ ...formData, schema: value?.value || value || '', table_name: '' })}
                   disabled={!formData.database}
-                >
-                  <option value="">Select Schema</option>
-                  {schemas.map(sch => (
-                    <option key={sch} value={sch}>{sch}</option>
-                  ))}
-                </Select>
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Table</label>
                 <Select
+                  options={[
+                    { label: 'Select Table', value: '' },
+                    ...tables.map(tbl => ({ label: tbl, value: tbl }))
+                  ]}
                   value={formData.table_name}
-                  onChange={(value: string) => setFormData({ ...formData, table_name: value })}
+                  onChange={(value: any) => setFormData({ ...formData, table_name: value?.value || value || '' })}
                   disabled={!formData.schema}
-                >
-                  <option value="">Select Table</option>
-                  {tables.map(tbl => (
-                    <option key={tbl} value={tbl}>{tbl}</option>
-                  ))}
-                </Select>
+                />
               </div>
             </div>
 
@@ -493,42 +490,39 @@ export default function RLSPoliciesPage() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Database</label>
                 <Select
+                  options={[
+                    { label: 'Select Database', value: '' },
+                    ...databases.map(db => ({ label: db, value: db }))
+                  ]}
                   value={applyForm.database}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, database: value, schema: '', table_name: '' })}
-                >
-                  <option value="">Select Database</option>
-                  {databases.map(db => (
-                    <option key={db} value={db}>{db}</option>
-                  ))}
-                </Select>
+                  onChange={(value: any) => setApplyForm({ ...applyForm, database: value?.value || value || '', schema: '', table_name: '' })}
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Schema</label>
                 <Select
+                  options={[
+                    { label: 'Select Schema', value: '' },
+                    ...schemas.map(sch => ({ label: sch, value: sch }))
+                  ]}
                   value={applyForm.schema}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, schema: value, table_name: '' })}
+                  onChange={(value: any) => setApplyForm({ ...applyForm, schema: value?.value || value || '', table_name: '' })}
                   disabled={!applyForm.database}
-                >
-                  <option value="">Select Schema</option>
-                  {schemas.map(sch => (
-                    <option key={sch} value={sch}>{sch}</option>
-                  ))}
-                </Select>
+                />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Table</label>
                 <Select
+                  options={[
+                    { label: 'Select Table', value: '' },
+                    ...tables.map(tbl => ({ label: tbl, value: tbl }))
+                  ]}
                   value={applyForm.table_name}
-                  onChange={(value: string) => setApplyForm({ ...applyForm, table_name: value })}
+                  onChange={(value: any) => setApplyForm({ ...applyForm, table_name: value?.value || value || '' })}
                   disabled={!applyForm.schema}
-                >
-                  <option value="">Select Table</option>
-                  {tables.map(tbl => (
-                    <option key={tbl} value={tbl}>{tbl}</option>
-                  ))}
-                </Select>
+                />
               </div>
             </div>
           </div>

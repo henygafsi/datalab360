@@ -35,7 +35,7 @@ export const addTableColumns = async (payload: AddColumnsPayload): Promise<any> 
     try {
         const response = await axios.post(`${API_BASE_URL}/mapping/add-columns`, payload);
         return response.data;
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error adding columns:", error);
         // Renvoyer l'erreur pour que le composant puisse la gérer
         throw error.response?.data || new Error("An unknown error occurred while adding columns.");
@@ -51,7 +51,7 @@ export const removeTableColumns = async (payload: RemoveColumnsPayload): Promise
         // Remplacez '/mapping/remove-columns' par votre véritable endpoint
         const response = await axios.post(`${API_BASE_URL}/mapping/remove-columns`, payload);
         return response.data;
-    } catch (error) {
+    } catch (error: any) {
         console.error("Error removing columns:", error);
         throw error.response?.data || new Error("An unknown error occurred while removing columns.");
     }

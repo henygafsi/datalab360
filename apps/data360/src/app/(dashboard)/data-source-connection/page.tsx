@@ -275,7 +275,7 @@ export default function DataSourceConnectionPage() {
       const stored = localStorage.getItem('datalake_connections');
       if (stored) {
         try {
-          setActiveConnections(JSON.parse(stored));
+          setActiveConnections(JSON.parse(stored) as DatalakeConnection[]);
         } catch (e) {
           console.error('Failed to parse stored connections', e);
         }

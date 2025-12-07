@@ -36,7 +36,6 @@ export default function AddRoleButton({
             />
           ),
           customSize: '480px',
-          title: title,
         })
       }
       className={cn('w-full @lg:w-auto', className)}

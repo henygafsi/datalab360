@@ -1,5 +1,5 @@
 import type { Config } from "tailwindcss";
-import plugin from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 import forms from "@tailwindcss/forms";
 import contentQueries from "@tailwindcss/container-queries";
 

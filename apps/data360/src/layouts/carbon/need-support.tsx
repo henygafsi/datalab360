@@ -11,6 +11,7 @@ interface SupportProps {
   prefixIcon?: React.ReactNode;
   title: string;
   text?: string;
+  children?: React.ReactNode;
 }
 
 export default function NeedSupport({
@@ -19,6 +20,7 @@ export default function NeedSupport({
   text,
   suffixIcon,
   prefixIcon,
+  children,
 }: SupportProps) {
   const [value, setValue] = useSessionStorage('need-support', true);
 

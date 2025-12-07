@@ -84,7 +84,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       if (formattedStages.length > 0) {
         toast.success(`Found ${formattedStages.length} total stage(s)`);
       } else {
-        toast.info('No stages found');
+        toast('No stages found', { icon: 'ℹ️' });
       }
     } catch (error: any) {
       toast.error(`Failed to load stages: ${error.message}`);

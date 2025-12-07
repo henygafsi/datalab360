@@ -1,7 +1,7 @@
 // src/components/KeyIndicators.js
 import React from 'react';
 
-export default function KeyIndicators({ reportType }) {
+export default function KeyIndicators({ reportType }: { reportType: string }) {
   const indicators =
     reportType === 'finance'
       ? [

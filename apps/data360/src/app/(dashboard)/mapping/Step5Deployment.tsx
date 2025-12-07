@@ -218,7 +218,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 title: '❌ Test Failed',
                 description: errorMsg,
                 variant: 'destructive',
-                duration: 10000,
             });
         } finally {
             setTesting(false);
@@ -294,7 +293,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 title: '🎉 Deployment Scheduled!',
                 description: `Mapping deployment has been scheduled for ${new Date(scheduledDateTime).toLocaleString()}. It will be available in your account overview for modeler approval and activation.`,
                 variant: 'default',
-                duration: 5000,
             });
 
             setTimeout(() => {
@@ -327,7 +325,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 title: 'Scheduling Failed',
                 description: errorMsg,
                 variant: 'destructive',
-                duration: 10000,
             });
         } finally {
             setScheduling(false);

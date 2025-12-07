@@ -49,12 +49,12 @@ export const getTablesTarget = async (databaseName: string, schemaName: string):
         
         // Handle format [{ "name": "T1" }]
         if (Array.isArray(data) && data.length > 0 && isTableObject(data[0])) {
-            return data.map((table: TableObject) => table.name);
+            return (data as TableObject[]).map((table) => table.name);
         }
-        
+
         // Handle format ["T1", "T2"]
         if (Array.isArray(data) && (data.length === 0 || typeof data[0] === 'string')) {
-            return data;
+            return data as string[];
         }
 
         console.warn(`Unexpected response format for tables in ${databaseName}.${schemaName}:`, data);
@@ -68,6 +68,3 @@ export const getTablesTarget = async (databaseName: string, schemaName: string):
         throw error;
     }
 };
-
-// You can create a getTables.ts that is identical or just use this one for both source and target.
-export const getTables = getTablesTarget;
