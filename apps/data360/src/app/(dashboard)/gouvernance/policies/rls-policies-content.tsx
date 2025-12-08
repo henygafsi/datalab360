@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Badge, Input, Modal, Select } from 'rizzui';
 import {
   HiOutlineLockClosed,
@@ -10,7 +10,10 @@ import {
   HiOutlineXCircle,
   HiOutlinePlay,
 } from 'react-icons/hi2';
+import { RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getRLSPolicies,
   createRLSPolicy,
@@ -39,6 +42,7 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 export default function RLSPoliciesContent() {
   const [policies, setPolicies] = useState<RLSPolicy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
@@ -65,10 +69,51 @@ export default function RLSPoliciesContent() {
     policy_column: '',
   });
 
+  // SSE cache invalidation
+  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
+  const mountedRef = useRef(true);
+
+  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+    try {
+      const data = await getRLSPolicies();
+      if (mountedRef.current) {
+        setPolicies(Array.isArray(data) ? data : []);
+      }
+    } catch (error: any) {
+      console.error('Error loading RLS policies:', error);
+      if (mountedRef.current) {
+        toast.error(error.message || 'Failed to load RLS policies');
+        setPolicies([]);
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
+    mountedRef.current = true;
     loadPolicies();
     loadDatabases();
-  }, []);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [loadPolicies]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !loading) {
+      console.log('[SSE] Policies cache invalidated - refreshing RLS policies...');
+      loadPolicies(true);
+    }
+  }, [wasInvalidated, loading, loadPolicies]);
 
   useEffect(() => {
     if (formData.database) {
@@ -120,40 +165,6 @@ export default function RLSPoliciesContent() {
       setTables(tbls || []);
     } catch (error) {
       console.error('Error loading tables:', error);
-    }
-  };
-
-  const loadPolicies = async () => {
-    try {
-      setLoading(true);
-      const data = await getRLSPolicies();
-      console.log('=== LOAD RLS POLICIES DEBUG ===');
-      console.log('Raw API response:', data);
-      console.log('Number of policies:', data?.length);
-      console.log('Is array:', Array.isArray(data));
-      if (data && data.length > 0) {
-        console.log('First policy structure:', data[0]);
-        console.log('First policy fields:', {
-          policy_name: data[0]?.policy_name,
-          signature: data[0]?.signature,
-          expression: data[0]?.expression,
-          filter_expression: data[0]?.filter_expression,
-          schema: data[0]?.schema,
-          database: data[0]?.database,
-          table_name: data[0]?.table_name,
-          active: data[0]?.active
-        });
-      }
-      // Defensive check: ensure data is an array
-      setPolicies(Array.isArray(data) ? data : []);
-    } catch (error: any) {
-      console.error('=== LOAD POLICIES ERROR ===');
-      console.error('Error object:', error);
-      console.error('Error response:', error.response?.data);
-      toast.error(error.message || 'Failed to load RLS policies');
-      setPolicies([]); // Set empty array on error to prevent crashes
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -371,7 +382,15 @@ export default function RLSPoliciesContent() {
       {/* Policies List */}
       <ModernCard className="p-8">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">RLS Policies</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">RLS Policies</h2>
+            {isRefreshing && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Syncing...</span>
+              </div>
+            )}
+          </div>
           <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
             {policies.length} policies
           </Badge>

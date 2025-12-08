@@ -2,7 +2,22 @@
 
 ## Overview
 
-This document describes the cache usage patterns from backend (FastAPI) to frontend (Next.js/React), including integration points for application-driven events.
+This document describes the cache usage patterns from backend (FastAPI) to frontend (Next.js/React), integrating with the **application-driven event architecture** implemented in FastAPI.
+
+### Key Principle: Freshness-Based Cache Invalidation
+
+The system uses the backend's `/api/events/check-freshness` endpoint to determine if cached data is still valid, preventing unnecessary API calls when data hasn't changed.
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                    FRESHNESS CHECK FLOW                               │
+└──────────────────────────────────────────────────────────────────────┘
+
+1. Frontend has cached data with timestamp
+2. Before refetching, call: GET /api/events/check-freshness
+3. If is_fresh=true → Use cached data (NO API call needed)
+4. If is_fresh=false → Fetch fresh data from API
+```
 
 ---
 
@@ -684,3 +699,330 @@ eventSource.onerror = () => {
   console.warn('[SSE] Disconnected');
 };
 ```
+
+---
+
+## Complete Frontend-to-Backend API Mapping
+
+### FastAPI Backend Event Endpoints (Required)
+
+| Endpoint | Method | Purpose | Frontend Integration |
+|----------|--------|---------|---------------------|
+| `/api/events/log` | POST | Log a generic event | Called after write operations |
+| `/api/events/log-dwh` | POST | Log DWH table modification | Called after data modifications |
+| `/api/events/batch` | POST | Log multiple events | Bulk operations |
+| `/api/events/recent` | GET | Get recent events | Debugging/monitoring |
+| `/api/events/summary` | GET | Get event summary | Dashboard metrics |
+| `/api/events/check-freshness` | GET | **Check if cached data is still fresh** | **Key for cache validation** |
+| `/api/events/trigger-cache-invalidation` | POST | Manually trigger cache invalidation | Admin actions |
+| `/api/events/stats` | GET | Get event statistics | Analytics |
+| `/api/events/stream` | GET (SSE) | Real-time event stream | `useBackendEvents()` hook |
+
+---
+
+## Frontend API Services → Cache Keys Mapping
+
+### GOUVERNANCE MODULE
+
+| Frontend Endpoint | Method | Cache Key | Event Type for Invalidation |
+|------------------|--------|-----------|---------------------------|
+| `/gouvernance/users` | GET | `users` | `GOUVERNANCE.CREATE_USER`, `GOUVERNANCE.UPDATE_USER` |
+| `/gouvernance/add-user` | POST | - | Triggers `users` invalidation |
+| `/gouvernance/roles` | GET | `roles` | `GOUVERNANCE.CREATE_ROLE`, `GOUVERNANCE.UPDATE_ROLE` |
+| `/gouvernance/add-role` | POST | - | Triggers `roles` invalidation |
+| `/gouvernance/grants` | GET | `grants` | `GOUVERNANCE.GRANT_PERMISSION`, `GOUVERNANCE.REVOKE_PERMISSION` |
+| `/gouvernance/grant-permission` | POST | - | Triggers `grants` invalidation |
+| `/gouvernance/update-grants` | PUT | - | Triggers `grants` invalidation |
+| `/gouvernance/policies/*/list` | GET | `policies:{type}` | `GOUVERNANCE.CREATE_POLICY`, `GOUVERNANCE.UPDATE_POLICY` |
+| `/gouvernance/policies/*` | POST | - | Triggers `policies:*` invalidation |
+| `/gouvernance/policies/*` | DELETE | - | Triggers `policies:*` invalidation |
+| `/gouvernance/security-axes` | GET | `security-axes` | `GOUVERNANCE.CREATE_SECURITY_AXIS` |
+| `/gouvernance/client/dashboard` | GET | `dashboard` | Multiple events |
+| `/gouvernance/dashboard/activity` | GET | `activity` | User activity events |
+| `/gouvernance/get_dwh_storage_info` | GET | `dwh-storage` | `DWH.INSERT`, `DWH.DELETE` |
+| `/gouvernance/get_dwh_health_info` | GET | `dwh-health` | `DWH.*` events |
+
+### MAPPING MODULE
+
+| Frontend Endpoint | Method | Cache Key | Event Type for Invalidation |
+|------------------|--------|-----------|---------------------------|
+| `/mapping/databases` | GET | `databases` | `MAPPING.SCHEMA_UPDATE` |
+| `/mapping/schemas/{db}` | GET | `schemas:{db}` | `MAPPING.SCHEMA_UPDATE` |
+| `/mapping/tables/{db}/{schema}` | GET | `tables:{db}:{schema}` | `MAPPING.TABLE_UPDATE` |
+| `/mapping/get_table_columns/` | GET | `columns:{table}` | `MAPPING.COLUMN_UPDATE` |
+| `/mapping/project-state` | GET | `project:{id}` | `MAPPING.UPDATE_PROJECT` |
+| `/mapping/test_mapping/` | POST | - | No cache invalidation needed |
+| `/mapping/add-event/` | POST | - | Triggers `project:*` invalidation |
+
+### BI REPORTING MODULE
+
+| Frontend Endpoint | Method | Cache Key | Event Type for Invalidation |
+|------------------|--------|-----------|---------------------------|
+| `/bi_reporting/charts/data` | POST | `chart:{params_hash}` | `DWH.*` events |
+
+### CORTEX MODULE
+
+| Frontend Endpoint | Method | Cache Key | Event Type for Invalidation |
+|------------------|--------|-----------|---------------------------|
+| `/cortex/semantic-models/list` | GET | `semantic-models` | `CORTEX.CREATE_MODEL`, `CORTEX.DELETE_MODEL` |
+| `/cortex/semantic-models/{name}` | GET | `semantic-model:{name}` | `CORTEX.UPDATE_MODEL` |
+| `/cortex/explore/databases` | GET | `cortex-databases` | `MAPPING.SCHEMA_UPDATE` |
+| `/cortex/explore/schemas` | GET | `cortex-schemas:{db}` | `MAPPING.SCHEMA_UPDATE` |
+| `/cortex/explore/tables` | POST | `cortex-tables:{schema}` | `MAPPING.TABLE_UPDATE` |
+
+---
+
+## Freshness Check Integration
+
+### Hook with Freshness Validation
+
+```typescript
+// apps/data360/src/hooks/use-cached-query-with-freshness.ts
+'use client';
+
+import { useState, useEffect, useCallback, useRef } from 'react';
+import axios from 'axios';
+import { useSession } from 'next-auth/react';
+
+interface FreshnessCheckParams {
+  module_name: string;
+  event_types: string[];
+  cached_at: string;
+}
+
+interface UseFreshCachedQueryOptions<T> {
+  cacheKey: string;
+  moduleName: string;
+  eventTypes: string[];
+  fetcher: () => Promise<T>;
+  ttl?: number;
+  enabled?: boolean;
+}
+
+export function useFreshCachedQuery<T>({
+  cacheKey,
+  moduleName,
+  eventTypes,
+  fetcher,
+  ttl = 5 * 60 * 1000,
+  enabled = true,
+}: UseFreshCachedQueryOptions<T>) {
+  const { data: session } = useSession();
+  const [data, setData] = useState<T | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+  const cachedAtRef = useRef<string | null>(null);
+  const dataRef = useRef<T | null>(null);
+
+  const checkFreshness = useCallback(async (): Promise<boolean> => {
+    if (!cachedAtRef.current || !session?.user?.access_token) {
+      return false; // No cache, need to fetch
+    }
+
+    try {
+      const response = await axios.get(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/events/check-freshness`,
+        {
+          params: {
+            module_name: moduleName,
+            event_types: eventTypes.join(','),
+            cached_at: cachedAtRef.current,
+          },
+          headers: {
+            Authorization: `Bearer ${session.user.access_token}`,
+          },
+        }
+      );
+
+      return response.data?.data?.is_fresh ?? false;
+    } catch (err) {
+      console.warn('[Freshness] Check failed, assuming stale:', err);
+      return false;
+    }
+  }, [moduleName, eventTypes, session?.user?.access_token]);
+
+  const fetchData = useCallback(async (skipFreshnessCheck = false) => {
+    if (!enabled) return;
+
+    // If we have cached data, check freshness first
+    if (!skipFreshnessCheck && dataRef.current && cachedAtRef.current) {
+      const isFresh = await checkFreshness();
+      if (isFresh) {
+        console.log(`[Cache] ${cacheKey} is fresh, skipping fetch`);
+        setData(dataRef.current);
+        setIsLoading(false);
+        return;
+      }
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const result = await fetcher();
+      setData(result);
+      dataRef.current = result;
+      cachedAtRef.current = new Date().toISOString();
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error('Failed to fetch'));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [cacheKey, fetcher, enabled, checkFreshness]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchData(true); // Skip freshness on initial load
+  }, [enabled]);
+
+  // Periodic freshness check
+  useEffect(() => {
+    if (!enabled || !dataRef.current) return;
+
+    const interval = setInterval(() => {
+      fetchData(false); // Check freshness before fetching
+    }, ttl);
+
+    return () => clearInterval(interval);
+  }, [enabled, ttl, fetchData]);
+
+  return {
+    data,
+    isLoading,
+    error,
+    refetch: () => fetchData(true),
+    checkFreshness,
+  };
+}
+```
+
+### Example Usage with Freshness Check
+
+```typescript
+// apps/data360/src/app/(dashboard)/gouvernance/users/page.tsx
+'use client';
+
+import { useFreshCachedQuery } from '@/hooks/use-cached-query-with-freshness';
+import { fetchUsers } from '@/app/services/gouvernance/fetch_users';
+
+export default function UsersPage() {
+  const { data: users, isLoading, error, refetch } = useFreshCachedQuery({
+    cacheKey: 'users',
+    moduleName: 'GOUVERNANCE',
+    eventTypes: ['CREATE_USER', 'UPDATE_USER', 'DELETE_USER'],
+    fetcher: fetchUsers,
+    ttl: 60 * 1000, // Check every minute
+  });
+
+  if (isLoading) return <Loading />;
+  if (error) return <Error message={error.message} />;
+
+  return <UsersTable data={users} onRefresh={refetch} />;
+}
+```
+
+---
+
+## Missing Backend Endpoints (Need Implementation)
+
+Based on frontend service analysis, these backend endpoints may need event logging:
+
+| Frontend Service | Backend Needs | Event Type to Log |
+|-----------------|---------------|-------------------|
+| Data Source Connection `/connect/data_lake` | Event logging | `DATASOURCE.CONNECT` |
+| Workflow endpoints | Not found in services | `WORKFLOW.*` events |
+| Data Quality Reports | Currently localStorage | Migrate to backend with events |
+| BI Dashboards | Currently localStorage | Migrate to backend with events |
+
+---
+
+## Module Event Type Mapping
+
+Map frontend modules to backend event types for `check-freshness`:
+
+```typescript
+// apps/data360/src/lib/cache/event-types.ts
+
+export const MODULE_EVENT_TYPES = {
+  // Gouvernance
+  users: {
+    module: 'GOUVERNANCE',
+    events: ['CREATE_USER', 'UPDATE_USER', 'DELETE_USER', 'ASSIGN_ROLE'],
+  },
+  roles: {
+    module: 'GOUVERNANCE',
+    events: ['CREATE_ROLE', 'UPDATE_ROLE', 'DELETE_ROLE'],
+  },
+  grants: {
+    module: 'GOUVERNANCE',
+    events: ['GRANT_PERMISSION', 'REVOKE_PERMISSION', 'UPDATE_GRANTS'],
+  },
+  policies: {
+    module: 'GOUVERNANCE',
+    events: ['CREATE_POLICY', 'UPDATE_POLICY', 'DELETE_POLICY', 'APPLY_POLICY'],
+  },
+
+  // Mapping
+  databases: {
+    module: 'MAPPING',
+    events: ['SCHEMA_UPDATE', 'DATABASE_ADDED'],
+  },
+  schemas: {
+    module: 'MAPPING',
+    events: ['SCHEMA_UPDATE', 'TABLE_ADDED'],
+  },
+  tables: {
+    module: 'MAPPING',
+    events: ['TABLE_UPDATE', 'COLUMN_ADDED', 'MAPPING_DEPLOYED'],
+  },
+  projects: {
+    module: 'MAPPING',
+    events: ['CREATE_PROJECT', 'UPDATE_PROJECT', 'DELETE_PROJECT', 'DEPLOY_MAPPING'],
+  },
+
+  // DWH Data
+  dwhStorage: {
+    module: 'DWH',
+    events: ['INSERT', 'UPDATE', 'DELETE'],
+  },
+  dwhHealth: {
+    module: 'DWH',
+    events: ['INSERT', 'UPDATE', 'DELETE', 'REFRESH'],
+  },
+
+  // Cortex
+  semanticModels: {
+    module: 'CORTEX',
+    events: ['CREATE_MODEL', 'UPDATE_MODEL', 'DELETE_MODEL'],
+  },
+
+  // Charts
+  charts: {
+    module: 'DWH',
+    events: ['INSERT', 'UPDATE', 'DELETE'],
+  },
+} as const;
+```
+
+---
+
+## Summary
+
+### Current State (Before Implementation)
+- ❌ No frontend caching mechanism
+- ❌ Every page load fetches fresh data
+- ❌ No integration with backend events
+- ❌ Unnecessary API calls on every refresh
+
+### Target State (After Implementation)
+- ✅ Frontend cache with Jotai atoms
+- ✅ Freshness check before fetching (`/api/events/check-freshness`)
+- ✅ SSE connection for real-time invalidation
+- ✅ Skip API calls when data is fresh
+- ✅ ~70-90% reduction in unnecessary API calls
+
+### Implementation Priority
+1. **High**: Implement `use-cached-query-with-freshness.ts` hook
+2. **High**: Add event logging to all write endpoints in FastAPI
+3. **Medium**: Add SSE stream for real-time invalidation
+4. **Low**: Migrate localStorage modules to backend

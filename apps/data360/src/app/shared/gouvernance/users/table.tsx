@@ -8,9 +8,12 @@ import Filters from './filters';
 import { userListColumns } from './columns';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getUsers } from '@/app/services/gouvernance/fetch_users';
 import AddUserButton from './add-user-button';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { RefreshCw } from 'lucide-react';
 
 // Define the UserTableDataType based on your frontend needs, including first and last name
 export type UserTableDataType = {
@@ -32,27 +35,55 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
   const [data, setData] = useState<UserTableDataType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Watch for SSE cache invalidation events on 'users' key
+  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.USERS]);
+  const mountedRef = useRef(true);
 
   // Callback to fetch users data, used for initial load and refreshing
-  const fetchUsersData = useCallback(async () => {
-    setLoading(true);
+  const fetchUsersData = useCallback(async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
     setError(null); // Clear previous errors
     try {
       const users = await getUsers(); // getUsers now handles token internally
-      console.log('Fetched users for table (in table.tsx):', users);
-      setData(users);
-    } catch (err: any) {
-      console.error('Failed to load users:', err);
-      setError(err.message || 'Failed to load users');
+      if (mountedRef.current) {
+        console.log('Fetched users for table (in table.tsx):', users);
+        setData(users);
+      }
+    } catch (err: unknown) {
+      if (mountedRef.current) {
+        console.error('Failed to load users:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load users');
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []); // No dependency on accessToken here
 
   // Effect to run fetchData on component mount
   useEffect(() => {
+    mountedRef.current = true;
     fetchUsersData();
+    return () => {
+      mountedRef.current = false;
+    };
   }, [fetchUsersData]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !loading) {
+      console.log('[SSE] Users cache invalidated - refreshing data...');
+      fetchUsersData(true);
+    }
+  }, [wasInvalidated, loading, fetchUsersData]);
 
   // Initialize TanStack Table
   const { table, setData: setTableData } = useTanStackTable<UserTableDataType>({
@@ -98,7 +129,15 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
   return (
     <>
       <div className="mb-4 flex justify-between items-center">
-        <Filters table={table} />
+        <div className="flex items-center gap-3">
+          <Filters table={table} />
+          {isRefreshing && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              <span>Syncing...</span>
+            </div>
+          )}
+        </div>
         {/* AddUserButton is now rendered in TableLayout, not here */}
       </div>
       <Table

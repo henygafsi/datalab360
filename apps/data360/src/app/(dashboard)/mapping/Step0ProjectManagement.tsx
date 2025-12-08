@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
     Button,
     Card,
@@ -16,10 +16,12 @@ import {
     SelectValue,
 } from '@/components/ui';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2 } from 'lucide-react';
+import { Loader2, RefreshCw } from 'lucide-react';
 import { createProject } from './createProject';
 import { getProjects } from './getProjects';
 import { getProjectLatestEvents } from './getProjectLatestEvents';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 interface Project {
     project_id: string;
@@ -43,47 +45,78 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     const [newProjectSharedWith, setNewProjectSharedWith] = useState('');
     const [loading, setLoading] = useState(true);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    useEffect(() => {
-        const fetchData = async () => {
+    // Watch for SSE cache invalidation events on 'projects' key
+    const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.PROJECTS]);
+    const mountedRef = useRef(true);
+
+    // Fetch projects data
+    const fetchData = useCallback(async (isBackgroundRefresh = false) => {
+        if (!isBackgroundRefresh) {
             setLoading(true);
-            try {
-                const baseProjects = await getProjects();
-                console.log('Step0: Fetched base projects:', baseProjects);
+        } else {
+            setIsRefreshing(true);
+        }
 
-                if (!baseProjects || baseProjects.length === 0) {
-                    setProjects([]);
-                    return;
-                }
+        try {
+            const baseProjects = await getProjects();
+            console.log('Step0: Fetched base projects:', baseProjects);
 
-                const enrichedProjectsPromises = baseProjects.map(async (project) => {
-                    const events = await getProjectLatestEvents(project.project_id);
-                    const lastEvent = events.length > 0 ? events[events.length - 1] : null;
-                    const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || 'None');
-                    return {
-                        ...project,
-                        last_completed_step: finalStep,
-                    };
-                });
+            if (!baseProjects || baseProjects.length === 0) {
+                if (mountedRef.current) setProjects([]);
+                return;
+            }
 
-                const finalProjects = await Promise.all(enrichedProjectsPromises);
+            const enrichedProjectsPromises = baseProjects.map(async (project) => {
+                const events = await getProjectLatestEvents(project.project_id);
+                const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+                const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || 'None');
+                return {
+                    ...project,
+                    last_completed_step: finalStep,
+                };
+            });
+
+            const finalProjects = await Promise.all(enrichedProjectsPromises);
+            if (mountedRef.current) {
                 setProjects(finalProjects);
                 console.log('Step0: Enriched projects with final steps:', finalProjects);
-            } catch (error: any) {
-                console.error("Step0: Error during data fetching:", error);
+            }
+        } catch (error: unknown) {
+            console.error("Step0: Error during data fetching:", error);
+            if (mountedRef.current) {
                 toast({
                     title: 'Error',
-                    description: `Failed to fetch project data: ${error.message || 'An unexpected error occurred.'}`,
+                    description: `Failed to fetch project data: ${error instanceof Error ? error.message : 'An unexpected error occurred.'}`,
                     variant: 'destructive',
                 });
                 setProjects([]);
-            } finally {
-                setLoading(false);
             }
-        };
-
-        fetchData();
+        } finally {
+            if (mountedRef.current) {
+                setLoading(false);
+                setIsRefreshing(false);
+            }
+        }
     }, [toast]);
+
+    // Initial fetch
+    useEffect(() => {
+        mountedRef.current = true;
+        fetchData();
+        return () => {
+            mountedRef.current = false;
+        };
+    }, [fetchData]);
+
+    // Auto-refresh when SSE cache invalidation event is received
+    useEffect(() => {
+        if (wasInvalidated && !loading) {
+            console.log('[SSE] Projects cache invalidated - refreshing data...');
+            fetchData(true);
+        }
+    }, [wasInvalidated, loading, fetchData]);
 
     const handleSelectProject = () => {
         if (!selectedProjectId) {
@@ -145,7 +178,15 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     return (
         <Card className="p-4">
             <CardHeader>
-                <CardTitle>Step 0: Project Management</CardTitle>
+                <div className="flex items-center justify-between">
+                    <CardTitle>Step 0: Project Management</CardTitle>
+                    {isRefreshing && (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <RefreshCw className="h-4 w-4 animate-spin" />
+                            <span>Syncing...</span>
+                        </div>
+                    )}
+                </div>
                 <p className="text-sm text-muted-foreground">
                     Create a new mapping project or select an existing one to continue your work.
                 </p>

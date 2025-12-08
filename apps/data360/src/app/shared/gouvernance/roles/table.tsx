@@ -9,9 +9,12 @@ import { roleListColumns } from './columns';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import { exportToCSV } from '@core/utils/export-to-csv';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { getRoles } from '@/app/services/gouvernance/fetch_roles';
 import AddRoleButton from './add-role-button';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { RefreshCw } from 'lucide-react';
 
 export type RoleTableDataType = {
   id: string; // Changed to string for role name as ID
@@ -25,25 +28,53 @@ export default function RolesTable() {
   const [data, setData] = useState<RoleTableDataType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchRolesData = useCallback(async () => {
-    setLoading(true);
+  // Watch for SSE cache invalidation events on 'roles' key
+  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.ROLES]);
+  const mountedRef = useRef(true);
+
+  const fetchRolesData = useCallback(async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
     setError(null);
     try {
       const roles = await getRoles(); // getRoles now handles token internally
-      console.log('Fetched roles for table:', roles);
-      setData(roles);
-    } catch (err: any) {
-      console.error('Failed to load roles:', err);
-      setError(err.message || 'Failed to load roles');
+      if (mountedRef.current) {
+        console.log('Fetched roles for table:', roles);
+        setData(roles);
+      }
+    } catch (err: unknown) {
+      if (mountedRef.current) {
+        console.error('Failed to load roles:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load roles');
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
   }, []); // No dependency on accessToken here
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchRolesData();
+    return () => {
+      mountedRef.current = false;
+    };
   }, [fetchRolesData]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !loading) {
+      console.log('[SSE] Roles cache invalidated - refreshing data...');
+      fetchRolesData(true);
+    }
+  }, [wasInvalidated, loading, fetchRolesData]);
 
 
   const { table, setData: setTableData } = useTanStackTable<RoleTableDataType>({
@@ -93,7 +124,15 @@ export default function RolesTable() {
   return (
     <>
       <div className="mb-4 flex justify-between items-center">
-        <Filters table={table} />
+        <div className="flex items-center gap-3">
+          <Filters table={table} />
+          {isRefreshing && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              <span>Syncing...</span>
+            </div>
+          )}
+        </div>
       </div>
       <Table
         table={table}

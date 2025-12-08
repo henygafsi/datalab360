@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Button, Input, Modal, Badge } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
+import { RefreshCw } from 'lucide-react';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getPasswordPolicies,
   getPasswordPolicyDetails,
@@ -16,6 +19,7 @@ import {
 export default function PasswordPoliciesContent() {
   const [policies, setPolicies] = useState<PasswordPolicy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<PasswordPolicy | null>(null);
@@ -33,24 +37,50 @@ export default function PasswordPoliciesContent() {
   const [maxAgeDays, setMaxAgeDays] = useState('90');
   const [lockoutThreshold, setLockoutThreshold] = useState('5');
 
-  useEffect(() => {
-    loadPolicies();
-  }, []);
+  // SSE cache invalidation
+  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
+  const mountedRef = useRef(true);
 
-  const loadPolicies = async () => {
-    try {
+  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
       setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+    try {
       const data = await getPasswordPolicies();
-      // Defensive check: ensure data is an array
-      setPolicies(Array.isArray(data) ? data : []);
+      if (mountedRef.current) {
+        setPolicies(Array.isArray(data) ? data : []);
+      }
     } catch (error: any) {
       console.error('Error loading password policies:', error);
-      toast.error(error.response?.data?.message || error.message || 'Failed to load password policies');
-      setPolicies([]);
+      if (mountedRef.current) {
+        toast.error(error.response?.data?.message || error.message || 'Failed to load password policies');
+        setPolicies([]);
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    loadPolicies();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [loadPolicies]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !loading) {
+      console.log('[SSE] Policies cache invalidated - refreshing password policies...');
+      loadPolicies(true);
+    }
+  }, [wasInvalidated, loading, loadPolicies]);
 
   const handleViewDetails = async (policy: PasswordPolicy) => {
     setSelectedPolicy(policy);
@@ -168,7 +198,15 @@ export default function PasswordPoliciesContent() {
       {/* Header Actions */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold">Password Policies</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold">Password Policies</h2>
+            {isRefreshing && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Syncing...</span>
+              </div>
+            )}
+          </div>
           <p className="text-slate-600 dark:text-slate-400">
             Define password complexity and security requirements
           </p>

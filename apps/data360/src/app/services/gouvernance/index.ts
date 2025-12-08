@@ -3,8 +3,7 @@
  * Frontend services for all gouvernance-related APIs
  */
 
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import apiClient, { isAuthError, redirectToLogin } from '@/lib/api-client';
 import type {
   QueryAccessHistory,
   StageSize,
@@ -17,34 +16,31 @@ import type {
   ActivityFilterParams,
   MfaStatus,
 } from './types';
-import { API_CONFIG, DATABASE_CONFIG } from '@/config/database.config';
+import { DATABASE_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = API_CONFIG.BASE_URL;
-
-async function getAuthToken(): Promise<string> {
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return session.user.access_token;
-}
-
+/**
+ * Secure API call wrapper with authentication error handling
+ * Uses the centralized apiClient which automatically:
+ * - Adds authentication headers
+ * - Handles 401 responses by redirecting to login
+ * - Provides consistent error handling
+ */
 async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
-  const token = await getAuthToken();
+  try {
+    const { data } = await apiClient.request<T>({
+      url: endpoint,
+      method,
+      data: body,
+    });
 
-  const url = `${API_BASE_URL}${endpoint}`;
-
-  const { data } = await axios.request<T>({
-    url,
-    method,
-    data: body,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-
-  return data;
+    return data;
+  } catch (error) {
+    // If it's an auth error, trigger redirect
+    if (isAuthError(error)) {
+      await redirectToLogin();
+    }
+    throw error;
+  }
 }
 
 /**

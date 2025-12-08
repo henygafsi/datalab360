@@ -4,8 +4,11 @@ import { Badge, Button, Select, Modal, Text } from 'rizzui';
 import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
 import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
+import { RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
 import axios from 'axios';
@@ -30,7 +33,16 @@ export default function GouvernanceDashboard() {
   const currentUsername = session?.user?.username || '';
 
   const { data: dashboardData, loading: dashboardLoading, refetch: refetchDashboard } = useClientDashboard();
-  const { data: stagesData, loading: stagesLoading } = useStageStorageInfo();
+  const { data: stagesData, loading: stagesLoading, refetch: refetchStages } = useStageStorageInfo();
+
+  // SSE cache invalidation
+  const { wasInvalidated } = useCacheInvalidationWatcher([
+    CACHE_KEYS.DASHBOARD,
+    CACHE_KEYS.ACTIVITY,
+    CACHE_KEYS.DWH_STORAGE,
+  ]);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const mountedRef = useRef(true);
 
   // Default to last 30 days to avoid loading too much data
   const defaultStartDate = useMemo(() => {
@@ -55,6 +67,30 @@ export default function GouvernanceDashboard() {
       setUserFilter(currentUsername);
     }
   }, [currentUsername]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !dashboardLoading && !stagesLoading) {
+      console.log('[SSE] Dashboard cache invalidated - refreshing data...');
+      setIsRefreshing(true);
+      Promise.all([
+        refetchDashboard?.(),
+        refetchStages?.(),
+      ]).finally(() => {
+        if (mountedRef.current) {
+          setIsRefreshing(false);
+        }
+      });
+    }
+  }, [wasInvalidated, dashboardLoading, stagesLoading, refetchDashboard, refetchStages]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   // Fetch scheduled workflows and mapping deployments on component mount
   useEffect(() => {
@@ -433,22 +469,35 @@ export default function GouvernanceDashboard() {
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-            Account Overview
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+              Account Overview
+            </h1>
+            {isRefreshing && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Syncing...</span>
+              </div>
+            )}
+          </div>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
             Monitor your platform activity, storage, and performance metrics
           </p>
         </div>
         <Button
           onClick={() => {
-            refetchDashboard();
+            setIsRefreshing(true);
+            Promise.all([
+              refetchDashboard?.(),
+              refetchStages?.(),
+            ]).finally(() => setIsRefreshing(false));
           }}
           variant="outline"
           className="gap-2"
+          disabled={isRefreshing}
         >
-          <HiOutlineRefresh className="w-4 h-4" />
-          Refresh
+          <HiOutlineRefresh className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          {isRefreshing ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
 

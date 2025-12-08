@@ -784,7 +784,41 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         // Update the previous length
         prevGroupsLengthRef.current = extraGroups.length;
     }, [extraGroups.length, updateGroup, fetchGroupTargetSchemas, fetchGroupTargetTables, TARGET_DB, TARGET_SCHEMA]); // eslint-disable-line react-hooks/exhaustive-deps
-    
+
+    // Ensure target tables are fetched for any group with empty targetTables (handles rehydrated groups on navigation back)
+    useEffect(() => {
+        if (extraGroups.length === 0) return;
+
+        // Find groups that have empty targetTables and haven't been processed for target table fetch
+        const groupsNeedingTargetTables = extraGroups.filter(g =>
+            g.targetTables.length === 0 && !processedGroupsRef.current.has(g.id)
+        );
+
+        if (groupsNeedingTargetTables.length === 0) return;
+
+        groupsNeedingTargetTables.forEach(g => {
+            // Mark as processed to avoid repeated fetches
+            processedGroupsRef.current.add(g.id);
+
+            // Set target database/schema and fetch tables
+            updateGroup(g.id, {
+                target: { database: TARGET_DB, schema: TARGET_SCHEMA, table: g.target?.table || '' }
+            });
+
+            (async () => {
+                try {
+                    await fetchGroupTargetSchemas(g.id, TARGET_DB);
+                    await fetchGroupTargetTables(g.id, TARGET_DB, TARGET_SCHEMA);
+                } catch (error) {
+                    console.warn('Failed to fetch target tables for rehydrated group', g.id, error);
+                }
+            })();
+        });
+
+        // Update the previous length to current
+        prevGroupsLengthRef.current = extraGroups.length;
+    }, [extraGroups, updateGroup, fetchGroupTargetSchemas, fetchGroupTargetTables]); // eslint-disable-line react-hooks/exhaustive-deps
+
     return (
         <Card className="p-4">
             <CardHeader>

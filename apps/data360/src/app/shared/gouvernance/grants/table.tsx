@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -26,6 +26,9 @@ import {
   PiBrainDuotone,
 } from 'react-icons/pi';
 import { IconType } from 'react-icons/lib';
+import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { RefreshCw } from 'lucide-react';
 
 type RoleGrant = { role_name: string; modules: string[] };
 
@@ -64,16 +67,46 @@ export default function GrantsTable() {
   const [modal, setModal] = useState<{ open: boolean; role?: RoleGrant }>(
     { open: false }
   );
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Watch for SSE cache invalidation events on 'grants' key
+  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.GRANTS]);
+  const mountedRef = useRef(true);
 
   /* ------------------------------------------------------------------ */
   /* 1. Fetch                                                            */
   /* ------------------------------------------------------------------ */
-  useEffect(() => {
-    (async () => {
-      try {
-        const roles = await getRoles();
+  const fetchGrantsData = useCallback(async (isBackgroundRefresh = false) => {
+    if (!isBackgroundRefresh) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
+    setError(null);
+
+    try {
+      const roles = await getRoles();
+      if (mountedRef.current) {
         setTableData(roles);
-        setColumns([
+      }
+    } catch (err) {
+      console.error(err);
+      if (mountedRef.current) {
+        setError('Failed to load roles and modules');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+        setIsRefreshing(false);
+      }
+    }
+  }, []);
+
+  // Initial fetch and set columns
+  useEffect(() => {
+    mountedRef.current = true;
+    fetchGrantsData();
+    setColumns([
           {
             header: 'Role',
             accessorKey: 'role_name',
@@ -122,15 +155,18 @@ export default function GrantsTable() {
             ),
           },
         ]);
-        setError(null);
-      } catch (err) {
-        console.error(err);
-        setError('Failed to load roles and modules');
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchGrantsData]);
+
+  // Auto-refresh when SSE cache invalidation event is received
+  useEffect(() => {
+    if (wasInvalidated && !loading) {
+      console.log('[SSE] Grants cache invalidated - refreshing data...');
+      fetchGrantsData(true);
+    }
+  }, [wasInvalidated, loading, fetchGrantsData]);
 
   /* Table instance */
   const table = useReactTable({
@@ -159,7 +195,15 @@ export default function GrantsTable() {
   return (
     <>
       <div className="mb-4 flex items-center justify-between">
-        <Filters table={table} />
+        <div className="flex items-center gap-3">
+          <Filters table={table} />
+          {isRefreshing && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <RefreshCw className="h-4 w-4 animate-spin" />
+              <span>Syncing...</span>
+            </div>
+          )}
+        </div>
       </div>
 
       <Table
