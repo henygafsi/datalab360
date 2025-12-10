@@ -4,14 +4,16 @@ import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { PiCaretDownBold, PiDatabase, PiChartBar } from 'react-icons/pi';
-import { 
-  HiOutlineMap, 
-  HiOutlineCog8Tooth, 
+import {
+  HiOutlineMap,
+  HiOutlineCog8Tooth,
   HiOutlineUsers,
   HiOutlineShieldCheck,
   HiOutlineKey,
   HiOutlineHome,
-  HiOutlineDocumentChartBar
+  HiOutlineDocumentChartBar,
+  HiOutlineSquares2X2,
+  HiOutlineSparkles
 } from 'react-icons/hi2';
 
 
@@ -42,6 +44,12 @@ const modernMenuItems = [
         name: 'Mapping',
         href: '/mapping',
         icon: <HiOutlineMap className="w-4 h-4" />,
+      },
+      {
+        name: 'Explore & Design',
+        href: '/explore-design',
+        icon: <HiOutlineSparkles className="w-4 h-4" />,
+        badge: 'NEW',
       },
       {
         name: 'Workflow',

@@ -12,6 +12,7 @@ import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
 import axios from 'axios';
+import * as ExploreDesignService from '@/app/services/explore-design';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
@@ -26,6 +27,8 @@ interface ScheduledWorkflow {
   status?: string; // PENDING_APPROVAL, APPROVED, ACTIVE, REJECTED
   cron_schedule?: string; // For backward compatibility with regular workflows
   schedule_interval_str?: string;
+  source?: 'workflow' | 'mapping' | 'explore_design'; // Track origin
+  schedule_id?: string; // For explore-design deployments
 }
 
 export default function GouvernanceDashboard() {
@@ -71,11 +74,13 @@ export default function GouvernanceDashboard() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !dashboardLoading && !stagesLoading) {
-      console.log('[SSE] Dashboard cache invalidated - refreshing data...');
+      console.log('[SSE] Dashboard cache invalidated - refreshing all data...');
       setIsRefreshing(true);
       Promise.all([
         refetchDashboard?.(),
         refetchStages?.(),
+        // Also refresh scheduled deployments silently
+        fetchScheduledItems(false),
       ]).finally(() => {
         if (mountedRef.current) {
           setIsRefreshing(false);
@@ -92,15 +97,19 @@ export default function GouvernanceDashboard() {
     };
   }, []);
 
-  // Fetch scheduled workflows and mapping deployments on component mount
-  useEffect(() => {
-    const fetchScheduledItems = async () => {
-      if (!session?.user?.access_token) return;
+  // Track previous deployment count for smart refresh
+  const prevDeploymentCountRef = useRef(0);
 
+  // Fetch scheduled workflows, mapping deployments, and explore-design deployments
+  const fetchScheduledItems = async (showLoadingIndicator = true) => {
+    if (!session?.user?.access_token) return;
+
+    if (showLoadingIndicator) {
       setScheduledWorkflowsLoading(true);
-      try {
-        // Fetch both workflows and mapping deployments in parallel with timeout
-        const [workflowsResponse, deploymentsResponse] = await Promise.all([
+    }
+    try {
+      // Fetch workflows, mapping deployments, and explore-design deployments in parallel
+      const [workflowsResponse, deploymentsResponse, exploreDesignResponse] = await Promise.all([
           axios.get(
             `${API_BASE_URL}/workflow/get_workflows/`,
             {
@@ -108,7 +117,7 @@ export default function GouvernanceDashboard() {
                 Authorization: `Bearer ${session.user.access_token}`,
                 'Content-Type': 'application/json',
               },
-              timeout: 5000, // 5 second timeout
+              timeout: 5000,
             }
           ).catch((err: any) => {
             console.warn('Workflows endpoint not available:', err.message);
@@ -121,11 +130,16 @@ export default function GouvernanceDashboard() {
                 Authorization: `Bearer ${session.user.access_token}`,
                 'Content-Type': 'application/json',
               },
-              timeout: 5000, // 5 second timeout
+              timeout: 5000,
             }
           ).catch((err: any) => {
             console.warn('Mapping deployments endpoint not available:', err.message);
             return { data: { deployments: [] } };
+          }),
+          // Fetch explore-design scheduled deployments
+          ExploreDesignService.getScheduledDeployments().catch((err: any) => {
+            console.warn('Explore-design deployments endpoint not available:', err.message);
+            return { scheduled_deployments: [] };
           })
         ]);
 
@@ -133,15 +147,33 @@ export default function GouvernanceDashboard() {
 
         // Add regular workflows with schedules
         if (workflowsResponse.data?.workflows) {
-          const scheduledWorkflows = workflowsResponse.data.workflows.filter(
-            (wf: any) => wf.schedule_interval_str
-          );
+          const scheduledWorkflows = workflowsResponse.data.workflows
+            .filter((wf: any) => wf.schedule_interval_str)
+            .map((wf: any) => ({ ...wf, source: 'workflow' as const }));
           allScheduled.push(...scheduledWorkflows);
         }
 
-        // Add mapping deployments (remove duplicates by workflow_name)
+        // Add mapping deployments
         if (deploymentsResponse.data?.deployments) {
-          allScheduled.push(...deploymentsResponse.data.deployments);
+          const mappingDeployments = deploymentsResponse.data.deployments
+            .map((d: any) => ({ ...d, source: 'mapping' as const }));
+          allScheduled.push(...mappingDeployments);
+        }
+
+        // Add explore-design scheduled deployments
+        if (exploreDesignResponse?.scheduled_deployments) {
+          const exploreDeployments = exploreDesignResponse.scheduled_deployments.map((d: any) => ({
+            workflow_name: d.workflow_name || `model_deployment_${d.schedule_id}`,
+            scheduled_date: d.scheduled_date,
+            deployment_method: d.deployment_method,
+            project_id: d.project_id,
+            created_by: d.created_by,
+            created_at: d.created_at,
+            status: d.status,
+            source: 'explore_design' as const,
+            schedule_id: d.schedule_id,
+          }));
+          allScheduled.push(...exploreDeployments);
         }
 
         // Remove duplicates by workflow_name, keeping the most recent one
@@ -150,7 +182,6 @@ export default function GouvernanceDashboard() {
           if (!existing) {
             acc.push(workflow);
           } else {
-            // Keep the one with the most recent created_at or event_timestamp
             const existingTime = new Date(existing.created_at || existing.scheduled_date || 0).getTime();
             const currentTime = new Date(workflow.created_at || workflow.scheduled_date || 0).getTime();
             if (currentTime > existingTime) {
@@ -161,17 +192,30 @@ export default function GouvernanceDashboard() {
           return acc;
         }, [] as ScheduledWorkflow[]);
 
+        prevDeploymentCountRef.current = uniqueWorkflows.length;
         setScheduledWorkflows(uniqueWorkflows);
       } catch (error: any) {
         console.error('Error fetching scheduled items:', error);
-        // Silently fail - don't show error to user as this is a non-critical feature
       } finally {
-        setScheduledWorkflowsLoading(false);
+        if (showLoadingIndicator) {
+          setScheduledWorkflowsLoading(false);
+        }
       }
     };
 
-    fetchScheduledItems();
+  // Fetch on mount
+  useEffect(() => {
+    fetchScheduledItems(true);
   }, [session]);
+
+  // Smart refresh: also refresh deployments when SSE cache is invalidated
+  useEffect(() => {
+    if (wasInvalidated && session?.user?.access_token) {
+      console.log('[SSE] Deployment cache invalidated - checking for new deployments...');
+      // Silent refresh (no loading indicator) to check for new deployments
+      fetchScheduledItems(false);
+    }
+  }, [wasInvalidated, session]);
 
   // Build complete filters object for API call
   const apiFilters = useMemo(() => {
@@ -199,7 +243,7 @@ export default function GouvernanceDashboard() {
   const [scheduledWorkflowsLoading, setScheduledWorkflowsLoading] = useState(true);
   const [approvingWorkflow, setApprovingWorkflow] = useState<string | null>(null);
   const [activatingWorkflow, setActivatingWorkflow] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'mappings' | 'workflows'>('mappings');
+  const [activeTab, setActiveTab] = useState<'mappings' | 'workflows' | 'modeling'>('mappings');
   const [deploymentError, setDeploymentError] = useState<{ workflow: string; message: string } | null>(null);
 
   // Quick filter presets
@@ -227,22 +271,27 @@ export default function GouvernanceDashboard() {
   };
 
   // Approve scheduled deployment (modeler action)
-  const handleApproveDeployment = async (workflowName: string) => {
+  const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
     if (!session?.user?.access_token) return;
 
     setApprovingWorkflow(workflowName);
     try {
-      await axios.post(
-        `${API_BASE_URL}/mapping/approve_deployment/`,
-        { workflow_name: workflowName },
-        {
-          headers: {
-            Authorization: `Bearer ${session.user.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 10000, // 10 second timeout
-        }
-      );
+      // Handle explore-design deployments separately
+      if (source === 'explore_design' && scheduleId) {
+        await ExploreDesignService.approveScheduledDeployment(scheduleId);
+      } else {
+        await axios.post(
+          `${API_BASE_URL}/mapping/approve_deployment/`,
+          { workflow_name: workflowName },
+          {
+            headers: {
+              Authorization: `Bearer ${session.user.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          }
+        );
+      }
 
       // Update local state to mark as approved
       setScheduledWorkflows((prev) =>
@@ -263,13 +312,69 @@ export default function GouvernanceDashboard() {
     }
   };
 
+  // Reject scheduled deployment
+  const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
+    if (!session?.user?.access_token) return;
+
+    const reason = prompt('Please provide a reason for rejection:');
+    if (!reason) return;
+
+    setApprovingWorkflow(workflowName);
+    try {
+      if (source === 'explore_design' && scheduleId) {
+        await ExploreDesignService.rejectScheduledDeployment(scheduleId, reason);
+      } else {
+        await axios.post(
+          `${API_BASE_URL}/mapping/reject_deployment/`,
+          { workflow_name: workflowName, reason },
+          {
+            headers: {
+              Authorization: `Bearer ${session.user.access_token}`,
+              'Content-Type': 'application/json',
+            },
+            timeout: 10000,
+          }
+        );
+      }
+
+      // Update local state to mark as rejected
+      setScheduledWorkflows((prev) =>
+        prev.map((wf) =>
+          wf.workflow_name === workflowName ? { ...wf, status: 'REJECTED' } : wf
+        )
+      );
+
+      alert(`Deployment rejected: ${workflowName}`);
+    } catch (error: any) {
+      console.error('Error rejecting deployment:', error);
+      alert(`Failed to reject: ${error.message}`);
+    } finally {
+      setApprovingWorkflow(null);
+    }
+  };
+
   // Activate approved deployment (final execution)
-  const handleActivateDeployment = async (workflowName: string) => {
+  const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
     if (!session?.user?.access_token) return;
 
     setActivatingWorkflow(workflowName);
     setDeploymentError(null); // Clear previous errors
     try {
+      // Handle explore-design deployments
+      if (source === 'explore_design' && scheduleId) {
+        await ExploreDesignService.executeScheduledDeploymentNow(scheduleId);
+
+        setScheduledWorkflows((prev) =>
+          prev.map((wf) =>
+            wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
+          )
+        );
+
+        alert(`Successfully activated model deployment: ${workflowName}`);
+        setActivatingWorkflow(null);
+        return;
+      }
+
       // Determine if it's a mapping deployment or workflow
       const isMappingDeployment = workflowName.startsWith('mapping_deployment_');
       const endpoint = isMappingDeployment
@@ -359,14 +464,17 @@ export default function GouvernanceDashboard() {
   // Separate and compute deployment metrics
   const deploymentMetrics = useMemo(() => {
     const mappingDeployments = scheduledWorkflows.filter(wf =>
-      wf.workflow_name.startsWith('mapping_deployment_')
+      wf.source === 'mapping' || wf.workflow_name.startsWith('mapping_deployment_')
+    );
+    const exploreDesignDeployments = scheduledWorkflows.filter(wf =>
+      wf.source === 'explore_design' || wf.workflow_name.startsWith('model_deployment_')
     );
     const regularWorkflows = scheduledWorkflows.filter(wf =>
-      !wf.workflow_name.startsWith('mapping_deployment_')
+      wf.source === 'workflow' || (!wf.workflow_name.startsWith('mapping_deployment_') && !wf.workflow_name.startsWith('model_deployment_'))
     );
 
     const pendingApprovals = scheduledWorkflows.filter(wf =>
-      wf.status === 'PENDING_APPROVAL'
+      wf.status === 'PENDING_APPROVAL' || wf.status === 'pending_approval'
     ).length;
 
     const activeDeployments = scheduledWorkflows.filter(wf =>
@@ -388,6 +496,7 @@ export default function GouvernanceDashboard() {
 
     return {
       mappingDeployments,
+      exploreDesignDeployments,
       regularWorkflows,
       pendingApprovals,
       activeDeployments,
@@ -490,6 +599,7 @@ export default function GouvernanceDashboard() {
             Promise.all([
               refetchDashboard?.(),
               refetchStages?.(),
+              fetchScheduledItems(false), // Also refresh deployments
             ]).finally(() => setIsRefreshing(false));
           }}
           variant="outline"

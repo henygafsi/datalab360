@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
 
 /**
  * Cache key mapping between backend and frontend
@@ -52,6 +53,17 @@ interface CacheInvalidationOptions {
   debug?: boolean;
   /** Custom SSE endpoint URL */
   sseUrl?: string;
+  /**
+   * Redirect to sign-in page when sync is persistently offline
+   * After maxReconnectAttempts failures, user will be signed out
+   * @default true
+   */
+  redirectOnOffline?: boolean;
+  /**
+   * Maximum reconnection attempts before redirecting to sign-in
+   * @default 5
+   */
+  maxReconnectAttempts?: number;
 }
 
 /**
@@ -70,12 +82,20 @@ interface CacheInvalidationOptions {
  * ```
  */
 export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
-  const { onInvalidate, debug = false, sseUrl } = options;
+  const {
+    onInvalidate,
+    debug = false,
+    sseUrl,
+    redirectOnOffline = true,
+    maxReconnectAttempts = 5,
+  } = options;
   const { data: session, status } = useSession();
+  const router = useRouter();
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttemptsRef = useRef(0);
+  const isRedirectingRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -87,6 +107,31 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       console.log('[SSE]', ...args);
     }
   }, [debug]);
+
+  /**
+   * Handle redirect to sign-in when sync is persistently offline
+   */
+  const handleOfflineRedirect = useCallback(async () => {
+    if (isRedirectingRef.current) return;
+    isRedirectingRef.current = true;
+
+    log('🚪 Sync offline - redirecting to sign-in page');
+
+    try {
+      // Sign out the user and redirect to sign-in page
+      await signOut({
+        redirect: false,
+        callbackUrl: '/signin'
+      });
+
+      // Navigate to sign-in page
+      router.push('/signin?error=sync_offline');
+    } catch (err) {
+      console.error('[SSE] Failed to redirect:', err);
+      // Force redirect even if signOut fails
+      window.location.href = '/signin?error=sync_offline';
+    }
+  }, [log, router]);
 
   const connect = useCallback(() => {
     // Don't connect if not authenticated
@@ -154,6 +199,16 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
         setIsConnected(false);
         setError('Connection lost');
 
+        reconnectAttemptsRef.current++;
+
+        // Check if we should redirect to sign-in after max attempts
+        if (redirectOnOffline && reconnectAttemptsRef.current >= maxReconnectAttempts) {
+          log(`❌ Max reconnect attempts (${maxReconnectAttempts}) exceeded - redirecting to sign-in`);
+          setError('Sync offline - session expired');
+          handleOfflineRedirect();
+          return;
+        }
+
         // Exponential backoff for reconnection
         const maxDelay = 30000; // 30 seconds max
         const baseDelay = 1000; // 1 second base
@@ -162,8 +217,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
           maxDelay
         );
 
-        reconnectAttemptsRef.current++;
-        log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current})`);
+        log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
 
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
@@ -177,7 +231,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       console.error('[SSE] Failed to create EventSource:', err);
       setError('Failed to connect');
     }
-  }, [session, status, sseUrl, onInvalidate, log]);
+  }, [session, status, sseUrl, onInvalidate, log, redirectOnOffline, maxReconnectAttempts, handleOfflineRedirect]);
 
   // Connect when authenticated
   useEffect(() => {

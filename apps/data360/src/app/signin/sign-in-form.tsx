@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { SubmitHandler } from 'react-hook-form';
 import { PiArrowRightBold } from 'react-icons/pi';
@@ -10,7 +9,6 @@ import { Checkbox, Password, Button, Input, Text } from 'rizzui';
 import { Form } from '@core/ui/form';
 import { routes } from '@/config/routes';
 import { loginSchema, LoginSchema } from '@/validators/login.schema';
-import toast from 'react-hot-toast';
 
 const initialValues: LoginSchema = {
   account_name: '',
@@ -20,30 +18,13 @@ const initialValues: LoginSchema = {
 };
 
 export default function SignInForm() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
   const [reset, setReset] = useState({});
 
-  const onSubmit: SubmitHandler<LoginSchema> = async (data) => {
-    setIsLoading(true);
-
-    try {
-      const result = await signIn('credentials', {
-        ...data,
-        redirect: false,
-      });
-
-      if (result?.error) {
-        toast.error(result.error || 'Invalid credentials. Please try again.');
-        setIsLoading(false);
-      } else if (result?.ok) {
-        toast.success('Login successful! Redirecting...');
-        router.push('/account-overview');
-      }
-    } catch (error) {
-      toast.error('An error occurred. Please try again.');
-      setIsLoading(false);
-    }
+  const onSubmit: SubmitHandler<LoginSchema> = (data) => {
+    console.log(data);
+    signIn('credentials', {
+      ...data,
+    });
   };
 
   return (
@@ -100,21 +81,15 @@ export default function SignInForm() {
                 Forget Password?
               </Link>
             </div>
-            <Button
-              className="w-full"
-              type="submit"
-              size="lg"
-              isLoading={isLoading}
-              disabled={isLoading}
-            >
+            <Button className="w-full" type="submit" size="lg">
               <span>Sign in</span>{' '}
-              {!isLoading && <PiArrowRightBold className="ms-2 mt-0.5 h-5 w-5" />}
+              <PiArrowRightBold className="ms-2 mt-0.5 h-5 w-5" />
             </Button>
           </div>
         )}
       </Form>
       <Text className="mt-6 text-center leading-loose text-gray-500 lg:mt-8 lg:text-start">
-        Don’t have an account?{' '}
+        Don't have an account?{' '}
         <Link
           href={routes.auth.signUp1}
           className="font-semibold text-gray-700 transition-colors hover:text-blue"

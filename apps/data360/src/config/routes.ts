@@ -10,6 +10,9 @@ export const routes = {
   mapping: {
     viewMap: '/mapping',
   },
+  exploreDesign: {
+    view: '/explore-design',
+  },
   workflow:{
     ViewWorkflow: '/workflow'
   },

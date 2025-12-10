@@ -428,6 +428,26 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                                 </div>
                             </div>
                         )}
+
+                        {/* Navigation Buttons */}
+                        <div className="flex justify-between gap-2 mt-6">
+                            <Button variant="outline" onClick={onBack} disabled={isLoading}>
+                                Back
+                            </Button>
+                            <Button
+                                onClick={handleSaveAndProceed}
+                                disabled={isLoading || !projectId}
+                            >
+                                {isLoading ? (
+                                    <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Saving & Proceeding...
+                                    </>
+                                ) : (
+                                    'Save Columns & Proceed'
+                                )}
+                            </Button>
+                        </div>
                     </>
                 ) : (
                     <>

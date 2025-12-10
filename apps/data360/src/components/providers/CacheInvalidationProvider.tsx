@@ -3,6 +3,7 @@
 import { createContext, useContext, useCallback, ReactNode } from 'react';
 import { useCacheInvalidation, CACHE_KEYS, CacheKey } from '@/hooks/useCacheInvalidation';
 import { atom, useSetAtom } from 'jotai';
+import Link from 'next/link';
 
 /**
  * Atom to track which cache keys have been invalidated
@@ -154,10 +155,21 @@ function SSEIndicator({ isConnected, error }: { isConnected: boolean; error: str
   }
 
   if (error) {
+    // Check if this is a session expiration error
+    const isSessionExpired = error.includes('session expired') || error.includes('Sync offline');
+
     return (
       <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400 px-3 py-1.5 rounded-full text-xs font-medium shadow-lg border border-red-200 dark:border-red-800">
         <span className="w-2 h-2 bg-red-500 rounded-full" />
-        Sync offline
+        <span>Sync offline</span>
+        {isSessionExpired && (
+          <Link
+            href="/signin"
+            className="ml-1 underline hover:text-red-600 dark:hover:text-red-300"
+          >
+            Sign in
+          </Link>
+        )}
       </div>
     );
   }

@@ -44,5 +44,13 @@
   "packageManager": "pnpm@9.1.4",
   "engines": {
     "node": ">=18"
+  },
+  "dependencies": {
+    "@reactflow/background": "^11.3.14",
+    "@reactflow/controls": "^11.2.14",
+    "@reactflow/core": "^11.11.4",
+    "@reactflow/minimap": "^11.7.14",
+    "@tanstack/react-virtual": "^3.13.13",
+    "reactflow": "^11.11.4"
   }
 }

@@ -1,35 +1,21 @@
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
-import { SAMPLE_DATABASES } from './sampleData';
 
-/**
- * TODO (Backend): Configure CORS headers to allow requests from the frontend
- *
- * Required CORS configuration on backend:
- * ```python
- * from fastapi.middleware.cors import CORSMiddleware
- *
- * app.add_middleware(
- *     CORSMiddleware,
- *     allow_origins=["http://localhost:3000"],  # Frontend URL
- *     allow_credentials=True,
- *     allow_methods=["*"],
- *     allow_headers=["*"],
- * )
- * ```
- */
+interface DatabaseObject {
+  name: string;
+}
+
+function isDatabaseObject(obj: unknown): obj is DatabaseObject {
+  return typeof obj === 'object' && obj !== null && 'name' in obj && typeof (obj as DatabaseObject).name === 'string';
+}
 
 /**
  * Fetches the list of databases from the API.
- * Falls back to sample data if API fails (e.g., CORS error)
- *
- * Expected API Response Format:
- * {
- *   "databases": [
- *     { "name": "RETAIL_DB" },
- *     { "name": "ANALYTICS_DB" }
- *   ]
- * }
+ * Handles multiple response formats:
+ * - { databases: [{ name: "..." }] }
+ * - { databases: ["..."] }
+ * - [{ name: "..." }]
+ * - ["..."]
  *
  * @returns {Promise<string[]>} - A promise that resolves to the list of database names.
  */
@@ -49,10 +35,61 @@ export const getDatabases = async (): Promise<string[]> => {
         'Content-Type': 'application/json'
       },
     });
-    // Extracting the database names from the response data
-    const databases = response.data.databases.map((db: { name: string }) => db.name);
-    return databases;
+
+    console.log('[getDatabases] Raw response:', response.data);
+
+    // Handle different response formats
+    const data = response.data;
+
+    // If response is an array directly
+    if (Array.isArray(data)) {
+      // Array of objects with 'name' property
+      if (data.length > 0 && isDatabaseObject(data[0])) {
+        return data.filter(isDatabaseObject).map(db => db.name);
+      }
+      // Array of strings
+      if (data.length > 0 && typeof data[0] === 'string') {
+        return data.filter((item): item is string => typeof item === 'string');
+      }
+      // Empty array
+      return [];
+    }
+
+    // If response is an object with 'databases' property
+    if (data && typeof data === 'object' && 'databases' in data) {
+      const databases = data.databases;
+      if (Array.isArray(databases)) {
+        // Array of objects with 'name' property
+        if (databases.length > 0 && isDatabaseObject(databases[0])) {
+          return databases.filter(isDatabaseObject).map(db => db.name);
+        }
+        // Array of strings
+        if (databases.length > 0 && typeof databases[0] === 'string') {
+          return databases.filter((item): item is string => typeof item === 'string');
+        }
+        return [];
+      }
+    }
+
+    // If response is an object with 'data' property (nested)
+    if (data && typeof data === 'object' && 'data' in data) {
+      const nestedData = data.data;
+      if (Array.isArray(nestedData)) {
+        if (nestedData.length > 0 && isDatabaseObject(nestedData[0])) {
+          return nestedData.filter(isDatabaseObject).map(db => db.name);
+        }
+        if (nestedData.length > 0 && typeof nestedData[0] === 'string') {
+          return nestedData.filter((item): item is string => typeof item === 'string');
+        }
+        return [];
+      }
+    }
+
+    console.warn('[getDatabases] Unexpected response format:', data);
+    return [];
   } catch (error: any) {
+    console.error('[getDatabases] Error:', error);
+
     // Detect CORS errors
     const isCorsError =
       error.message?.includes('CORS') ||
