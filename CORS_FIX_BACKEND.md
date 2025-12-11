@@ -37,7 +37,7 @@ app = FastAPI()
 # Configuration CORS
 origins = [
     "http://localhost:3000",      # Next.js dev server
-    "http://localhost:3001",      # Backup port
+    "http://localhost:3000",      # Backup port
     "https://datalab360.io",      # Production frontend (adjust as needed)
     "https://www.datalab360.io",  # Production www
 ]

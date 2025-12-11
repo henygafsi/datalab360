@@ -220,14 +220,13 @@ export interface CreateSessionPolicyRequest {
 
 export async function getRLSPolicyDetails(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/row-access/${policy_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     return response.data.data;
@@ -237,13 +236,13 @@ export async function getRLSPolicyDetails(
   }
 }
 
-export async function getRLSPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<RLSPolicy[]> {
+export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/row-access/list`;
-  console.log('🔍 GET RLS Policies API Call:', { url, schema });
+  console.log('🔍 GET RLS Policies API Call:', { url });
 
   const response = await axios.get<StandardResponse<{ policies: any[] }>>(url, {
-    params: { schema },
+    params: {  },
     headers,
   });
 
@@ -265,7 +264,7 @@ export async function getRLSPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA)
   const mappedPolicies: RLSPolicy[] = await Promise.all(
     backendPolicies.map(async (policy: any) => {
       // Try to fetch details for signature and expression
-      const details = await getRLSPolicyDetails(policy.name, schema);
+      const details = await getRLSPolicyDetails(policy.name);
 
       return {
         policy_name: policy.name || policy.policy_name || '',
@@ -297,7 +296,6 @@ export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLS
         policy_name: data.policy_name,
         signature: data.signature,
         expression: data.expression,
-        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
         description: data.description,
       },
       headers,
@@ -501,14 +499,13 @@ export async function createCustomRLSPolicy(
 
 export async function getMaskingPolicyDetails(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/masking/${policy_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     console.log('✅ GET Masking Policy Details Response:', response.data.data);
@@ -519,12 +516,12 @@ export async function getMaskingPolicyDetails(
   }
 }
 
-export async function getMaskingPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<MaskingPolicy[]> {
+export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Masking Policies API Call:', { schema });
+  console.log('🔍 GET Masking Policies API Call:', {  });
 
   const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/masking/list`, {
-    params: { schema },
+    params: {  },
     headers,
   });
 
@@ -564,7 +561,6 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
   const params: Record<string, any> = {
     policy_name: data.policy_name,
     data_type: data.data_type,
-    schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
   };
 
   // Only add masking_type if it's defined
@@ -1310,8 +1306,8 @@ export interface TableObject {
 }
 
 export interface ColumnObject {
-  name: string;
-  type: string;
+  column_name: string;
+  data_type: string;
   nullable?: boolean;
   primary_key?: boolean;
 }
@@ -1343,13 +1339,20 @@ export async function getTables(database: string, schema: string): Promise<Table
   return response.data.data.tables || [];
 }
 
-export async function getColumns(database: string, schema: string, table: string): Promise<ColumnObject[]> {
+export async function getColumns(database: string, schema: string, table: string): Promise<string[]> {
   const headers = await getAuthHeaders();
   const response = await axios.get<StandardResponse<{ columns: ColumnObject[] }>>(
     `${POLICIES_API}/objects/columns/${database}/${schema}/${table}`,
     { headers }
   );
-  return response.data.data.columns || [];
+  console.log('✅ GET Columns Response:', {
+    status: response.status,
+    fullData: response.data,
+    columnsArray: response.data.data?.columns
+  });
+  const columns = response.data.data?.columns || [];
+
+  return columns.map(col => col.column_name);
 }
 
 // ============= UTILITY SERVICES =============
@@ -1359,3 +1362,4 @@ export async function healthCheck(): Promise<{ status: string; service: string }
   const response = await axios.get(`${POLICIES_API}/health`, { headers });
   return response.data;
 }
+

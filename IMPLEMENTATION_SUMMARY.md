@@ -137,7 +137,7 @@ export default function AccountOverviewPage() {
 ### Current Behavior (✅ Verified)
 
 #### Unauthenticated User:
-1. User visits `http://localhost:3001/`
+1. User visits `http://localhost:3000/`
    → Middleware intercepts (307 redirect)
    → Redirects to `/signin`
 
@@ -422,11 +422,11 @@ cd /Users/henygafsi/git/datalab360Front
 pnpm run iso:dev
 ```
 
-Server runs on: `http://localhost:3001` (or 3000 if available)
+Server runs on: `http://localhost:3000` (or 3000 if available)
 
 ### 2. Test Authentication Flow
 
-1. **Open browser** to `http://localhost:3001`
+1. **Open browser** to `http://localhost:3000`
 2. **Verify**: You are redirected to `/signin`
 3. **Login** with valid credentials:
    - Account Name
@@ -629,5 +629,5 @@ The application is now production-ready for authentication and account overview 
 
 ---
 
-**Server**: Running on `http://localhost:3001`
+**Server**: Running on `http://localhost:3000`
 **Status**: ✅ Ready for testing

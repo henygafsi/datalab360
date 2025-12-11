@@ -204,7 +204,7 @@ On page load, the activity data automatically filters to the logged-in user.
    ```
 
 2. **Test Authentication Flow**:
-   - Open browser to `http://localhost:3001`
+   - Open browser to `http://localhost:3000`
    - Verify redirect to `/signin`
    - Login with credentials
    - Verify redirect to `/account-overview`
@@ -228,9 +228,9 @@ On page load, the activity data automatically filters to the logged-in user.
 
 ```bash
 # Test unauthenticated access
-curl -s -o /dev/null -w "Root Status: %{http_code}\n" http://localhost:3001/
-curl -s -o /dev/null -w "Account Overview: %{http_code}\n" http://localhost:3001/account-overview
-curl -s -o /dev/null -w "Signin: %{http_code}\n" http://localhost:3001/signin
+curl -s -o /dev/null -w "Root Status: %{http_code}\n" http://localhost:3000/
+curl -s -o /dev/null -w "Account Overview: %{http_code}\n" http://localhost:3000/account-overview
+curl -s -o /dev/null -w "Signin: %{http_code}\n" http://localhost:3000/signin
 
 # Expected results (without session):
 # Root Status: 307 (redirect to signin)
