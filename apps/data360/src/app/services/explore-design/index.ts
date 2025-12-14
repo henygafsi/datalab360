@@ -6,9 +6,9 @@
  */
 
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
 
 // Types
@@ -145,15 +145,18 @@ export interface RelationDetection {
   value_overlap_percent?: number;
 }
 
-// Helper to get auth headers
+// Helper to get auth headers with Snowflake account context
+// Works in both server-side (SSR) and client-side contexts
 async function getAuthHeaders() {
-  const session = await getSession() as any;
+  const session = await getAuthSession();
   if (!session?.user?.access_token) {
     throw new Error('No authentication token available');
   }
   return {
     'Authorization': `Bearer ${session.user.access_token}`,
     'Content-Type': 'application/json',
+    'X-Account-Name': session.user.account_name || '',
+    'X-Username': session.user.username || '',
   };
 }
 
@@ -1338,12 +1341,7 @@ export interface IngestionAdaptationRequest {
  * POST /explore-design/schema-clone
  */
 export async function createSchemaClone(request: SchemaCloneRequest): Promise<SchemaCloneResponse> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post<SchemaCloneResponse>(
     `${EXPLORE_DESIGN_BASE}/schema-clone`,
     request,
@@ -1357,11 +1355,7 @@ export async function createSchemaClone(request: SchemaCloneRequest): Promise<Sc
  * GET /explore-design/schema-clone/{clone_id}/status
  */
 export async function getSchemaCloneStatus(clone_id: string): Promise<SchemaCloneResponse> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.get<SchemaCloneResponse>(
     `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/status`,
     { headers }
@@ -1379,12 +1373,7 @@ export async function executeSchemaClone(clone_id: string, warehouse?: string): 
   execution_time_ms: number;
   errors?: string[];
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/execute`,
     { warehouse },
@@ -1401,12 +1390,7 @@ export async function rollbackSchemaClone(clone_id: string): Promise<{
   success: boolean;
   message: string;
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/rollback`,
     {},
@@ -1420,11 +1404,7 @@ export async function rollbackSchemaClone(clone_id: string): Promise<{
  * GET /explore-design/schema-clone/list
  */
 export async function listSchemaClones(project_id?: string): Promise<SchemaCloneResponse[]> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-  };
-
+  const headers = await getAuthHeaders();
   const params = project_id ? { project_id } : {};
   const response = await axios.get<SchemaCloneResponse[]>(
     `${EXPLORE_DESIGN_BASE}/schema-clone/list`,
@@ -1443,12 +1423,7 @@ export async function previewSchemaCloneDDL(request: Omit<SchemaCloneRequest, 'w
   estimated_tables: number;
   estimated_size_bytes?: number;
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/schema-clone/preview`,
     request,
@@ -1474,12 +1449,7 @@ export async function adaptIngestionForVersion(
     ddl_statements: string[];
   }>;
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/ingestion/adapt`,
     { version_id, source_schema, target_schema },
@@ -1504,12 +1474,7 @@ export async function pauseIngestionForClone(
     pipes: string[];
   };
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/ingestion/pause`,
     { database, schema, table },
@@ -1535,12 +1500,7 @@ export async function resumeIngestionAfterClone(
     pipes: string[];
   };
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/ingestion/resume`,
     { database, schema, table, target_schema },
@@ -1569,12 +1529,7 @@ export async function createVersionedIngestion(
   }>;
   ddl_executed: string[];
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/ingestion/create-versioned`,
     { version_id, database, source_schema, target_schema, tables },
@@ -1607,11 +1562,7 @@ export async function compareSchemaVersions(
     policies_removed: Array<{ type: string; name: string; table?: string }>;
   };
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.get(
     `${EXPLORE_DESIGN_BASE}/versions/${from_version_id}/compare/${to_version_id}`,
     { headers }
@@ -1633,12 +1584,7 @@ export async function promoteVersion(
   target_schema: string;
   promoted_at: string;
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-    'Content-Type': 'application/json',
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.post(
     `${EXPLORE_DESIGN_BASE}/versions/${version_id}/promote`,
     { target_environment, target_database },
@@ -1660,11 +1606,7 @@ export async function getVersionMigrationScript(
   estimated_downtime_seconds?: number;
   requires_data_migration: boolean;
 }> {
-  const session = await getSession();
-  const headers = {
-    Authorization: `Bearer ${(session?.user as any)?.access_token}`,
-  };
-
+  const headers = await getAuthHeaders();
   const response = await axios.get(
     `${EXPLORE_DESIGN_BASE}/versions/${from_version_id}/migration/${to_version_id}`,
     { headers }
@@ -1720,6 +1662,49 @@ export function generateBatchSQL(events: DesignEvent[]): string {
 }
 
 // ============================================
+// PROJECT MANAGEMENT HELPERS
+// ============================================
+
+/**
+ * Ensure project exists before adding events
+ * Creates the project if it doesn't exist, otherwise returns existing project_id
+ */
+export async function ensureProjectExists(
+  projectName: string
+): Promise<{ project_id: string; created: boolean }> {
+  const headers = await getAuthHeaders();
+
+  try {
+    // Try to create the project - if it already exists, backend may return it
+    const response = await axios.post(
+      `${API_URL}/mapping/create_project`,
+      { name: projectName },
+      { headers }
+    );
+
+    return {
+      project_id: response.data.project_id || projectName,
+      created: true,
+    };
+  } catch (error: any) {
+    // If project already exists (409 or similar), return existing
+    if (error.response?.status === 409 || error.response?.data?.detail?.includes('already exists')) {
+      return {
+        project_id: projectName,
+        created: false,
+      };
+    }
+
+    // For other errors, log but continue - the project might exist
+    console.warn('[ensureProjectExists] Warning:', error.response?.data?.detail || error.message);
+    return {
+      project_id: projectName,
+      created: false,
+    };
+  }
+}
+
+// ============================================
 // SCHEDULED DEPLOYMENT APIs (Unified with Mapping Module)
 // ============================================
 
@@ -1772,17 +1757,17 @@ export interface ScheduledDeployment {
 }
 
 // ============================================
-// UNIFIED DEPLOYMENT API (Uses /mapping/ endpoints for backend compatibility)
+// UNIFIED DEPLOYMENT API (Uses /explore-design/ endpoints)
 // ============================================
 
 /**
- * Schedule a deployment using the unified /mapping/schedule_deployment/ endpoint
- * This ensures compatibility with the existing mapping module backend
+ * Schedule a deployment using the /explore-design/deployments endpoint
+ * This creates a deployment with type='scheduled' for explore-design events
  *
- * Backend expects: { project_id, workflow_name, scheduled_date, deployment_method, mappings, created_by, status }
- * The mappings array format: [{ project_id, mappings: MappingPayload[] }]
- * MappingPayload: { source_database, source_schema, source_table, source_columns, pk_source,
- *                   target_database, target_schema, target_table, target_columns, pk_target }
+ * For 'with_approval' deployments, we set requires_approval=true
+ *
+ * Backend endpoint: POST /explore-design/deployments
+ * Request body: { project_id, version, type, event_ids, config, scheduled_at }
  */
 export async function scheduleDeploymentUnified(
   config: {
@@ -1794,6 +1779,7 @@ export async function scheduleDeploymentUnified(
     created_by: string;
     description?: string;
     module_type: 'explore-design' | 'mapping' | 'workflow';
+    requires_approval?: boolean;
   }
 ): Promise<{
   schedule_id: string;
@@ -1802,77 +1788,105 @@ export async function scheduleDeploymentUnified(
   message: string;
   workflow_name: string;
   event_id?: string;
+  deployment_id?: string;
 }> {
   const headers = await getAuthHeaders();
 
-  // Convert explore-design events to mapping payload format expected by backend
-  // Backend expects MappingPayload structure with source/target columns arrays
-  const mappingsPayload = config.events.map(event => ({
-    // Source info from event target
-    source_database: event.target?.database || '',
-    source_schema: event.target?.schema || '',
-    source_table: event.target?.table || '',
-    source_columns: event.target?.column ? [event.target.column] : [],
-    pk_source: event.payload?.primary_keys || [],
-    // Target info (same as source for explore-design DDL events)
-    target_database: event.target?.database || '',
-    target_schema: event.target?.schema || '',
-    target_table: event.target?.table || '',
-    target_columns: event.target?.column ? [event.target.column] : [],
-    pk_target: event.payload?.primary_keys || [],
-    // Include explore-design metadata for tracking
-    explore_design_event: {
-      event_id: event.event_id,
-      event_type: event.event_type,
-      module_type: config.module_type,
-      payload: event.payload,
-      sql: generateEventSQL(event),
-      description: config.description,
-    }
-  }));
+  // First, record all events to the backend using POST /explore-design/add-event
+  // Backend expects: { project_id, event_type, event_details, module_type }
+  const eventIds: string[] = [];
+  for (const event of config.events) {
+    try {
+      const eventPayload = {
+        project_id: config.project_id,
+        event_type: event.event_type,
+        event_details: {
+          // Target information
+          database: event.target?.database,
+          schema: event.target?.schema,
+          table: event.target?.table,
+          column: event.target?.column,
+          // Event payload (contains oldName, newName, policyName, etc.)
+          ...event.payload,
+          // Generated SQL for reference
+          sql: generateEventSQL(event),
+        },
+        module_type: config.module_type || 'explore-design',
+      };
 
-  // Structure matches ScheduleDeploymentRequest in backend exactly
-  const deploymentData = {
-    workflow_name: config.workflow_name,
-    scheduled_date: config.scheduled_date,
-    deployment_method: config.deployment_method,
+      console.log('[scheduleDeploymentUnified] Recording event:', JSON.stringify(eventPayload, null, 2));
+
+      const response = await axios.post(
+        `${EXPLORE_DESIGN_BASE}/add-event`,
+        eventPayload,
+        { headers }
+      );
+      eventIds.push(response.data.event_id || response.data.project_id || event.event_id);
+    } catch (e: any) {
+      const errorDetail = e.response?.data?.detail || e.message;
+      console.warn(`Failed to record event ${event.event_id}:`, errorDetail);
+      eventIds.push(event.event_id); // Use local ID as fallback
+    }
+  }
+
+  // Create the scheduled deployment
+  const deploymentPayload = {
     project_id: config.project_id,
-    mappings: [{
-      project_id: config.project_id,
-      mappings: mappingsPayload,
-    }],
-    created_by: config.created_by,
-    status: 'PENDING_APPROVAL',
+    version: config.workflow_name,
+    type: 'scheduled',
+    event_ids: eventIds,
+    scheduled_at: config.scheduled_date,
+    config: {
+      immediate: false,
+      scheduled_at: config.scheduled_date,
+      rollback_on_error: true,
+      notification_channels: ['email'],
+      approvers: config.requires_approval ? ['DATA_MODELER', 'DATA_ADMIN'] : [],
+      requires_approval: config.requires_approval || false,
+      deployment_method: config.deployment_method,
+      created_by: config.created_by,
+      description: config.description || `Scheduled deployment: ${config.workflow_name}`,
+      events: config.events.map(event => ({
+        event_id: event.event_id,
+        event_type: event.event_type,
+        sql: generateEventSQL(event),
+        target: event.target,
+        payload: event.payload,
+      })),
+    },
   };
 
+  console.log('[scheduleDeploymentUnified] Creating scheduled deployment:', JSON.stringify(deploymentPayload, null, 2));
+
   const response = await axios.post(
-    `${API_URL}/mapping/schedule_deployment/`,
-    deploymentData,
+    `${EXPLORE_DESIGN_BASE}/deployments`,
+    deploymentPayload,
     { headers }
   );
 
+  const deploymentId = response.data.deployment_id || response.data.id;
+
   return {
-    schedule_id: response.data.event_id || `sched_${Date.now()}`,
-    status: 'PENDING_APPROVAL',
+    schedule_id: deploymentId || `sched_${Date.now()}`,
+    status: config.requires_approval ? 'PENDING_APPROVAL' : 'SCHEDULED',
     scheduled_date: config.scheduled_date,
     message: response.data.message || 'Deployment scheduled successfully',
-    workflow_name: response.data.workflow_name || config.workflow_name,
-    event_id: response.data.event_id,
+    workflow_name: config.workflow_name,
+    event_id: deploymentId,
+    deployment_id: deploymentId,
   };
 }
 
 /**
- * Record design events to the backend using /mapping/add-event/ endpoint
- * This stores events persistently in the database
+ * Record design events to the backend using POST /explore-design/add-event endpoint
+ * This stores events persistently in the database and auto-creates project if needed
  *
- * Backend AddEventRequest schema:
+ * Backend schema:
  * {
  *   "project_id": "string",
- *   "event_details": {
- *     "group_index": 0,
- *     "sources": [{ "database": "string", "schema": "string", "table": "string" }],
- *     "target": { "database": "string", "schema": "string", "table": "string" }
- *   }
+ *   "event_type": "TABLE_RENAMED | COLUMN_RENAMED | etc.",
+ *   "event_details": { ... event-specific data ... },
+ *   "module_type": "explore-design" | "mapping" | "workflow"
  * }
  */
 export async function recordDesignEvents(
@@ -1885,42 +1899,37 @@ export async function recordDesignEvents(
   event_ids: string[];
 }> {
   const headers = await getAuthHeaders();
-
   const recordedIds: string[] = [];
 
   for (const event of events) {
     try {
-      // Backend AddEventRequest expects ONLY: project_id, event_details
-      // event_details must have: group_index, sources[], target
+      // Use POST /explore-design/add-event endpoint
+      // Backend expects: { project_id, event_type, event_details, module_type }
       const eventPayload = {
         project_id: projectId,
+        event_type: event.event_type,
         event_details: {
-          group_index: 0,
-          sources: [{
-            database: event.target?.database || '',
-            schema: event.target?.schema || '',
-            table: event.target?.table || '',
-          }],
-          target: event.target ? {
-            database: event.target.database,
-            schema: event.target.schema,
-            table: event.target.table,
-          } : {
-            database: '',
-            schema: '',
-            table: '',
-          },
-        }
+          // Target information
+          database: event.target?.database,
+          schema: event.target?.schema,
+          table: event.target?.table,
+          column: event.target?.column,
+          // Event payload (contains oldName, newName, policyName, etc.)
+          ...event.payload,
+          // Generated SQL for reference
+          sql: generateEventSQL(event),
+        },
+        module_type: moduleType,
       };
 
-      console.log('[recordDesignEvents] Sending payload:', JSON.stringify(eventPayload, null, 2));
+      console.log('[recordDesignEvents] Sending to /explore-design/add-event:', JSON.stringify(eventPayload, null, 2));
 
-      await axios.post(
-        `${API_URL}/mapping/add-event/`,
+      const response = await axios.post(
+        `${EXPLORE_DESIGN_BASE}/add-event`,
         eventPayload,
         { headers }
       );
-      recordedIds.push(event.event_id);
+      recordedIds.push(response.data?.event_id || response.data?.project_id || event.event_id);
     } catch (error: any) {
       // Log full error details for debugging
       const errorDetail = error.response?.data?.detail || error.message;
@@ -1937,7 +1946,7 @@ export async function recordDesignEvents(
 
 /**
  * Deploy events immediately by executing SQL through the backend
- * Uses /mapping/deploy-model/ endpoint
+ * Uses /explore-design/deployments + /explore-design/deployments/{id}/execute endpoints
  */
 export async function deployEventsImmediate(
   projectId: string,
@@ -1965,34 +1974,67 @@ export async function deployEventsImmediate(
 }> {
   const headers = await getAuthHeaders();
 
-  // Generate SQL statements from events
-  const statements = events.map(event => ({
-    event_id: event.event_id,
-    sql: generateEventSQL(event),
-    event_type: event.event_type,
-    target: event.target,
-  }));
-
-  const deployPayload = {
+  // Step 1: Create a deployment
+  const createPayload = {
     project_id: projectId,
-    module_type: 'explore-design',
-    deployment_mode: 'immediate',
-    statements,
-    rollback_on_error: options?.rollback_on_error ?? true,
-    created_by: options?.created_by || 'system',
+    version: `v${Date.now()}`,
+    type: 'immediate',
+    event_ids: events.map(e => e.event_id),
+    config: {
+      rollback_on_error: options?.rollback_on_error ?? true,
+      created_by: options?.created_by || 'system',
+      events: events.map(event => ({
+        event_id: event.event_id,
+        event_type: event.event_type,
+        sql: generateEventSQL(event),
+        target: event.target,
+        payload: event.payload,
+      })),
+    },
   };
 
+  console.log('[deployEventsImmediate] Creating deployment:', JSON.stringify(createPayload, null, 2));
+
   try {
-    const response = await axios.post(
-      `${API_URL}/mapping/deploy-model/`,
-      deployPayload,
+    // Create the deployment
+    const createResponse = await axios.post(
+      `${API_URL}/explore-design/deployments`,
+      createPayload,
       { headers }
     );
-    return response.data;
+
+    const deploymentId = createResponse.data.deployment_id || createResponse.data.id;
+    console.log('[deployEventsImmediate] Deployment created:', deploymentId);
+
+    // Step 2: Execute the deployment
+    const executeResponse = await axios.post(
+      `${API_URL}/explore-design/deployments/${deploymentId}/execute`,
+      { rollback_on_error: options?.rollback_on_error ?? true },
+      { headers }
+    );
+
+    console.log('[deployEventsImmediate] Deployment executed:', executeResponse.data);
+
+    return {
+      deployment_id: deploymentId,
+      status: executeResponse.data.status || 'success',
+      results: executeResponse.data.results || events.map(e => ({
+        event_id: e.event_id,
+        status: 'applied' as const,
+        sql_executed: generateEventSQL(e),
+      })),
+      summary: executeResponse.data.summary || {
+        total: events.length,
+        applied: events.length,
+        failed: 0,
+        skipped: 0,
+      },
+    };
   } catch (error: any) {
     // Handle deployment errors gracefully
     console.error('Deployment error:', error);
-    throw new Error(error.response?.data?.detail || 'Deployment failed');
+    const errorDetail = error.response?.data?.detail || error.response?.data || error.message;
+    throw new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail));
   }
 }
 
@@ -2244,7 +2286,8 @@ export async function scheduleDeployment(
 
 /**
  * Get all scheduled deployments for a project
- * GET /explore-design/scheduled-deployments
+ * Uses /mapping/get_scheduled_deployments/ which is the working backend endpoint
+ * Filters for explore-design module deployments
  */
 export async function getScheduledDeployments(
   projectId?: string,
@@ -2258,17 +2301,51 @@ export async function getScheduledDeployments(
   total: number;
 }> {
   const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (projectId) params.append('project_id', projectId);
-  if (filters?.status) params.append('status', filters.status);
-  if (filters?.from_date) params.append('from_date', filters.from_date);
-  if (filters?.to_date) params.append('to_date', filters.to_date);
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments?${params.toString()}`,
-    { headers }
-  );
-  return response.data;
+  try {
+    // Use the working /mapping/get_scheduled_deployments/ endpoint
+    const response = await axios.get(
+      `${API_URL}/mapping/get_scheduled_deployments/`,
+      { headers }
+    );
+
+    // Filter deployments for explore-design module if needed
+    let deployments = response.data?.deployments || [];
+
+    // Apply filters
+    if (projectId) {
+      deployments = deployments.filter((d: any) => d.project_id === projectId);
+    }
+    if (filters?.status) {
+      deployments = deployments.filter((d: any) => d.status === filters.status);
+    }
+
+    // Map to ScheduledDeployment format
+    const scheduled_deployments: ScheduledDeployment[] = deployments.map((d: any) => ({
+      schedule_id: d.event_id || d.deployment_id || `sched_${Date.now()}`,
+      workflow_name: d.workflow_name,
+      project_id: d.project_id,
+      version_id: d.version_id,
+      scheduled_date: d.scheduled_date,
+      deployment_method: d.deployment_method,
+      status: d.status,
+      created_by: d.created_by,
+      created_at: d.created_at,
+      approved_by: d.approved_by,
+      approved_at: d.approved_at,
+      executed_at: d.executed_at,
+      completed_at: d.completed_at,
+      error: d.error,
+    }));
+
+    return {
+      scheduled_deployments,
+      total: scheduled_deployments.length,
+    };
+  } catch (error: any) {
+    console.warn('Failed to get scheduled deployments:', error.message);
+    return { scheduled_deployments: [], total: 0 };
+  }
 }
 
 /**

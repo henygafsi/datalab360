@@ -2,18 +2,20 @@
  * Secure API Client with Authentication Handling
  *
  * This module provides a centralized axios instance that:
- * - Automatically adds authentication headers
- * - Handles 401 responses by redirecting to login
- * - Handles token expiration
- * - Provides consistent error handling
+ * - Automatically adds authentication headers from NextAuth session
+ * - Works in both server-side (SSR) and client-side contexts
+ * - Handles 401/403 responses with appropriate error classes
+ * - Provides consistent error handling without auto-signout
+ * - Lets components handle auth errors gracefully
  */
 
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
-import { getSession, signOut } from 'next-auth/react';
 import { API_CONFIG } from '@/config/database.config';
-
-// Track if we're already redirecting to prevent multiple redirects
-let isRedirecting = false;
+import {
+  getAuthSession,
+  AuthError,
+  TokenExpiredError,
+} from '@/lib/auth';
 
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
@@ -24,20 +26,37 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
-// Request interceptor - Add authentication token to all requests
+// Request interceptor - Add authentication token and account context to all requests
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
     try {
-      const session = await getSession();
+      // Use unified auth helper that works in both server and client
+      const session = await getAuthSession();
 
       if (session?.user?.access_token) {
+        // Check for token expiration
+        if (session.tokenExpired) {
+          console.warn('[API Client] Token expired, request may fail');
+        }
+
+        // Add Bearer token for authentication
         config.headers.Authorization = `Bearer ${session.user.access_token}`;
-      } else {
-        // No token available - this will be caught by response interceptor
-        console.warn('[API Client] No access token available for request:', config.url);
+
+        // Add account context for Snowflake multi-tenant support
+        if (session.user.account_name) {
+          config.headers['X-Account-Name'] = session.user.account_name;
+        }
+
+        // Add username context if available
+        if (session.user.username) {
+          config.headers['X-Username'] = session.user.username;
+        }
       }
     } catch (error) {
-      console.error('[API Client] Error getting session:', error);
+      // Log only in development
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API Client] Error getting session:', error);
+      }
     }
 
     return config;
@@ -50,38 +69,24 @@ apiClient.interceptors.request.use(
 // Response interceptor - Handle authentication errors
 apiClient.interceptors.response.use(
   (response) => {
-    // Successful response - return as is
     return response;
   },
   async (error: AxiosError) => {
     const status = error.response?.status;
-    const originalRequest = error.config;
 
     // Handle 401 Unauthorized - Token expired or invalid
     if (status === 401) {
-      console.warn('[API Client] 401 Unauthorized - Redirecting to login');
-
-      if (!isRedirecting && typeof window !== 'undefined') {
-        isRedirecting = true;
-
-        // Sign out and redirect to login
-        await signOut({
-          callbackUrl: '/signin',
-          redirect: true
-        });
-
-        // Reset flag after a delay
-        setTimeout(() => {
-          isRedirecting = false;
-        }, 5000);
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[API Client] 401 Unauthorized - Token may be expired or invalid');
       }
-
       return Promise.reject(new AuthenticationError('Session expired. Please sign in again.'));
     }
 
     // Handle 403 Forbidden - Insufficient permissions
     if (status === 403) {
-      console.warn('[API Client] 403 Forbidden - Access denied');
+      if (process.env.NODE_ENV === 'development') {
+        console.warn('[API Client] 403 Forbidden - Access denied');
+      }
       return Promise.reject(new AuthorizationError('You do not have permission to access this resource.'));
     }
 
@@ -121,8 +126,10 @@ export class NetworkError extends Error {
 /**
  * Helper function to check if an error is an authentication error
  */
-export function isAuthError(error: unknown): boolean {
+export function isAuthClientError(error: unknown): boolean {
   if (error instanceof AuthenticationError) return true;
+  if (error instanceof AuthError) return true;
+  if (error instanceof TokenExpiredError) return true;
   if (error instanceof AxiosError && error.response?.status === 401) return true;
   if (error instanceof Error && error.message.includes('No access token')) return true;
   return false;
@@ -130,16 +137,103 @@ export function isAuthError(error: unknown): boolean {
 
 /**
  * Helper function to redirect to login page
- * Can be called from anywhere in the app
+ * Can be called from anywhere in the app (client-side only)
  */
-export async function redirectToLogin(): Promise<void> {
-  if (!isRedirecting && typeof window !== 'undefined') {
-    isRedirecting = true;
-    await signOut({ callbackUrl: '/signin', redirect: true });
-    setTimeout(() => {
-      isRedirecting = false;
-    }, 5000);
+export function redirectToLogin(): void {
+  if (typeof window !== 'undefined') {
+    window.location.href = '/signin';
   }
+}
+
+/**
+ * Create a server-side API client for use in Server Components and API routes
+ * This creates a fresh axios instance with auth headers pre-configured
+ *
+ * @param headers - Optional pre-computed auth headers
+ */
+export async function createServerApiClient(headers?: Record<string, string>): Promise<AxiosInstance> {
+  const serverClient = axios.create({
+    baseURL: API_CONFIG.BASE_URL,
+    timeout: 300000,
+    headers: {
+      'Content-Type': 'application/json',
+      ...headers,
+    },
+  });
+
+  // If headers not provided, get them from session
+  if (!headers) {
+    try {
+      const session = await getAuthSession();
+      if (session?.user?.access_token) {
+        serverClient.defaults.headers.common['Authorization'] = `Bearer ${session.user.access_token}`;
+        serverClient.defaults.headers.common['X-Account-Name'] = session.user.account_name || '';
+        serverClient.defaults.headers.common['X-Username'] = session.user.username || '';
+      }
+    } catch (error) {
+      console.error('[Server API Client] Failed to get auth headers:', error);
+    }
+  }
+
+  return serverClient;
+}
+
+/**
+ * Make an authenticated fetch request (works in both server and client)
+ * This is useful for Server Components where axios may not be ideal
+ */
+export async function authFetch(
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> {
+  const session = await getAuthSession();
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (session?.user?.access_token) {
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${session.user.access_token}`;
+    (headers as Record<string, string>)['X-Account-Name'] = session.user.account_name || '';
+    (headers as Record<string, string>)['X-Username'] = session.user.username || '';
+  }
+
+  const fullUrl = url.startsWith('http') ? url : `${API_CONFIG.BASE_URL}${url}`;
+
+  const response = await fetch(fullUrl, {
+    ...options,
+    headers,
+    cache: options.cache || 'no-store', // Default to no caching for API calls
+  });
+
+  if (response.status === 401) {
+    throw new AuthenticationError('Session expired. Please sign in again.');
+  }
+
+  if (response.status === 403) {
+    throw new AuthorizationError('You do not have permission to access this resource.');
+  }
+
+  return response;
+}
+
+/**
+ * Make an authenticated JSON fetch request
+ * Returns parsed JSON response
+ */
+export async function authFetchJson<T>(
+  url: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const response = await authFetch(url, options);
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => 'Unknown error');
+    throw new Error(`API request failed: ${response.status} - ${errorText}`);
+  }
+
+  return response.json() as Promise<T>;
 }
 
 export default apiClient;

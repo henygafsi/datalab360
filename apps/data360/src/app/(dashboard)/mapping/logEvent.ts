@@ -1,6 +1,4 @@
-'use client';
-
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 interface EventPayload {
     project_id: string;
@@ -19,9 +17,11 @@ interface EventPayload {
 export const logNavigationEvent = async (payload: EventPayload): Promise<void> => {
     try {
         console.log(`Service: logNavigationEvent - Saving navigation event to local storage:`, payload);
-        const localEvents = JSON.parse(localStorage.getItem('events') || '[]') as any[];
-        localEvents.push({ ...payload, timestamp: new Date().toISOString() });
-        localStorage.setItem('events', JSON.stringify(localEvents));
+        if (typeof window !== 'undefined') {
+            const localEvents = JSON.parse(localStorage.getItem('events') || '[]') as any[];
+            localEvents.push({ ...payload, timestamp: new Date().toISOString() });
+            localStorage.setItem('events', JSON.stringify(localEvents));
+        }
     } catch (error) {
         console.error('Service: logNavigationEvent - Error saving to local storage:', error);
     }
@@ -31,7 +31,7 @@ export const logNavigationEvent = async (payload: EventPayload): Promise<void> =
  * Fetches the auth token for API requests.
  */
 export const getAuthToken = async (): Promise<string | null> => {
-    const session = await getSession();
+    const session = await getAuthSession();
     if (!session?.user?.access_token) {
         console.error('Service: getAuthToken - No access token available.');
         return null;

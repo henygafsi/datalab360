@@ -157,7 +157,7 @@ const ConditionBuilder: React.FC<ConditionBuilderProps> = ({
     };
 
     onChange([...conditions, newCondition]);
-    setExpandedConditions((prev) => new Set([...prev, newCondition.id]));
+    setExpandedConditions((prev) => new Set([...Array.from(prev), newCondition.id]));
     setShowAddMenu(false);
   }, [conditions, onChange]);
 

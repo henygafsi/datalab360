@@ -1,7 +1,8 @@
-'use client';
-
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
+/**
+ * Mapping Service - Get Schemas
+ * Works in both server-side (SSR) and client-side contexts
+ */
+import apiClient from '@/lib/api-client';
 
 interface SchemaObject {
   name: string;
@@ -23,24 +24,8 @@ function isSchemaObject(obj: unknown): obj is SchemaObject {
  * @returns {Promise<string[]>} - A promise that resolves to the list of schema names.
  */
 export const getSchemas = async (databaseName: string): Promise<string[]> => {
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  const token = session.user.access_token;
-
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${databaseName}`;
-
   try {
-    const response = await axios.get(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-    });
-
-    console.log(`[getSchemas] Raw response for ${databaseName}:`, response.data);
-
+    const response = await apiClient.get(`/mapping/schemas/${databaseName}`);
     const data = response.data;
 
     // If response is an array directly
@@ -82,7 +67,9 @@ export const getSchemas = async (databaseName: string): Promise<string[]> => {
       }
     }
 
-    console.warn(`[getSchemas] Unexpected response format for ${databaseName}:`, data);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`[getSchemas] Unexpected response format for ${databaseName}:`, data);
+    }
     return [];
   } catch (error) {
     console.error(`[getSchemas] Error fetching schemas for ${databaseName}:`, error);

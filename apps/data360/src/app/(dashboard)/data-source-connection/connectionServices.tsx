@@ -2,7 +2,7 @@
 
 import { getSession } from "next-auth/react";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 interface ApiResponse {
     message: string; // Generic message
@@ -22,13 +22,32 @@ interface AzureIntegrationDetailsResponse {
     };
 }
 
-async function getAuthToken(): Promise<string> {
+interface AuthInfo {
+    token: string;
+    account_name: string;
+    username: string;
+}
+
+async function getAuthInfo(): Promise<AuthInfo> {
     const session = await getSession();
     if (!session?.user?.access_token) {
         console.error('No access token available in session.');
         throw new Error('Not authenticated');
     }
-    return session.user.access_token as string;
+    return {
+        token: session.user.access_token as string,
+        account_name: session.user.account_name || '',
+        username: session.user.username || '',
+    };
+}
+
+function getAuthHeaders(auth: AuthInfo): Record<string, string> {
+    return {
+        'Authorization': `Bearer ${auth.token}`,
+        'Content-Type': 'application/json',
+        'X-Account-Name': auth.account_name,
+        'X-Username': auth.username,
+    };
 }
 
 function buildUrlWithQueryParams(baseUrl: string, params: Record<string, string | boolean | null | undefined>): string {
@@ -53,13 +72,10 @@ export async function setupAzureStorageIntegration(
         `${API_BASE_URL}/connect/azure/storage_integration`,
         { integration_name, tenant_id, url }
     );
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -78,13 +94,10 @@ export async function setupAzureNotificationIntegration(
         `${API_BASE_URL}/connect/azure/notification_integration`,
         { integration_name, tenant_id, queue_url }
     );
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -99,17 +112,14 @@ export async function setupAzureSnowpipe( // This function is not currently used
     tenant_id: string,
     queue_url: string
 ): Promise<ApiResponse> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/azure/snowpipe`,
         { integration_name, tenant_id, queue_url }
     );
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -127,17 +137,14 @@ export async function createAzureStage(
     auto_update: boolean,
     notification_integration?: string | null
 ): Promise<ApiResponse> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/azure/stage`,
         { stage_name, url, integration_name, load_data, auto_update, notification_integration }
     );
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -156,17 +163,14 @@ export async function setupAwsStorageIntegration(
     aws_role_arn: string,
     external_id: string
 ): Promise<ApiResponse> {
-    const token = await getAuthToken(); // Added token for AWS too
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/aws/storage_integration`,
         { integration_name, bucket_name, aws_role_arn, external_id }
     );
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`, // Add Authorization header
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -183,17 +187,14 @@ export async function createAwsStage(
     load_data: boolean,
     auto_update: boolean
 ): Promise<ApiResponse> {
-    const token = await getAuthToken(); // Added token for AWS too
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/aws/stage`,
         { stage_name, bucket_name, integration_name, load_data, auto_update }
     );
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`, // Add Authorization header
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -211,17 +212,14 @@ export async function connectSnowflakeDatalake(
     datalake_account: string,
     datalake_role: string
 ): Promise<ApiResponse> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/snowflake_lake/datalake/connect`,
         { datalake_username, datalake_password, datalake_account, datalake_role }
     );
     const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -232,14 +230,11 @@ export async function connectSnowflakeDatalake(
 }
 
 export async function listSnowflakeStages(): Promise<any> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = `${API_BASE_URL}/connect/stages`;
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -249,14 +244,11 @@ export async function listSnowflakeStages(): Promise<any> {
 }
 
 export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files`;
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -267,17 +259,14 @@ export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
 
 // --- Common Integration Details ---
 export async function getIntegrationDetails(integration_name: string): Promise<AzureIntegrationDetailsResponse> {
-    const token = await getAuthToken();
+    const auth = await getAuthInfo();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/integration`,
         { integration_name }
     );
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-        },
+        headers: getAuthHeaders(auth),
     });
     if (!response.ok) {
         const errorData: any = await response.json();

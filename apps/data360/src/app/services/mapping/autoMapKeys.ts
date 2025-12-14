@@ -1,6 +1,21 @@
-import { API_BASE_URL } from '@/config/constants';
-import { getSession } from 'next-auth/react';
 import axios from 'axios';
+import { getAuthSession } from '@/lib/auth';
+
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getAuthSession();
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': session.user.account_name || '',
+    'X-Username': session.user.username || '',
+  };
+}
 
 export interface AutoMapRequestPayload {
   source_database: string;
@@ -43,22 +58,13 @@ export interface AutoMapResponse {
 
 export async function autoMapKeys(payload: AutoMapRequestPayload): Promise<AutoMapResponse> {
   try {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-      throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
+    const headers = await getAuthHeaders();
 
     // Use the proxied endpoint instead of direct backend URL
     const response = await axios.post(
       '/api/mapping/auto_map_keys/',
       payload,
-      {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      }
+      { headers }
     );
 
     const data = response.data;

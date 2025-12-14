@@ -45,6 +45,8 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
+        // Add timeout to prevent hanging
+        timeout: 30000,
       }
     );
 

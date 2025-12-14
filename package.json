@@ -51,6 +51,7 @@
     "@reactflow/core": "^11.11.4",
     "@reactflow/minimap": "^11.7.14",
     "@tanstack/react-virtual": "^3.13.13",
+    "date-fns": "^4.1.0",
     "reactflow": "^11.11.4"
   }
 }

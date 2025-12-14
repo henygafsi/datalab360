@@ -337,6 +337,7 @@ interface DeploymentValidationProps {
   onClose?: () => void;
   database?: string;
   schemas?: string[];
+  projectId?: string | null;
 }
 
 // Local storage key for scheduled deployments
@@ -346,19 +347,23 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   className,
   onClose,
   database,
-  schemas = []
+  schemas = [],
+  projectId: projectIdProp
 }) => {
   const { data: session } = useSession();
   const { events, pendingEvents, updateEventStatus, clearEvents, cleanupAppliedEvents } = useEventStore();
   const currentUser = (session?.user as any)?.username || session?.user?.email || 'current_user';
 
-  // Generate project ID from database context
+  // Use provided projectId prop, or generate from database context as fallback
   const projectId = useMemo(() => {
+    if (projectIdProp) {
+      return projectIdProp;
+    }
     if (database) {
       return `${database.toLowerCase()}_project`;
     }
     return 'default_project';
-  }, [database]);
+  }, [projectIdProp, database]);
 
   const [isValidating, setIsValidating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -717,7 +722,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         toast.loading('Submitting for approval...');
 
         try {
-          // Use unified backend endpoint with PENDING_APPROVAL status
+          // Use unified backend endpoint with requires_approval flag
           const result = await scheduleDeploymentUnified({
             workflow_name: `explore_design_approval_v${versionNumber}`,
             scheduled_date: new Date().toISOString(),
@@ -727,6 +732,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             created_by: currentUser,
             description: changelogSummary || `Explore & Design approval request with ${validatedEvents.length} changes`,
             module_type: 'explore-design',
+            requires_approval: true,
           });
 
           // Also save locally

@@ -423,8 +423,8 @@ export const compareVersionsAtom = atom(
     const fromTables = new Set(fromVersion.snapshot.tables.map((t) => t.id));
     const toTables = new Set(toVersion.snapshot.tables.map((t) => t.id));
 
-    const tablesAdded = [...toTables].filter((t) => !fromTables.has(t));
-    const tablesRemoved = [...fromTables].filter((t) => !toTables.has(t));
+    const tablesAdded = Array.from(toTables).filter((t) => !fromTables.has(t));
+    const tablesRemoved = Array.from(fromTables).filter((t) => !toTables.has(t));
 
     // Find modified tables
     const tablesModified: VersionComparison['diff']['tables_modified'] = [];
@@ -437,21 +437,21 @@ export const compareVersionsAtom = atom(
 
       const changes: ChangelogEntry[] = [];
 
-      // Check columns
-      const fromCols = new Set(fromTable.columns);
-      const toCols = new Set(toTable.columns);
+      // Check columns - compare by column name
+      const fromColNames = new Set(fromTable.columns.map(c => c.name));
+      const toColNames = new Set(toTable.columns.map(c => c.name));
 
-      toCols.forEach((col) => {
-        if (!fromCols.has(col)) {
-          changes.push({ type: 'column_added', table: toTable.table, column: col });
-          columnsAdded.push({ table: toTable.table, column: col });
+      toTable.columns.forEach((col) => {
+        if (!fromColNames.has(col.name)) {
+          changes.push({ type: 'column_added', table: toTable.table, column: col.name });
+          columnsAdded.push({ table: toTable.table, column: col.name });
         }
       });
 
-      fromCols.forEach((col) => {
-        if (!toCols.has(col)) {
-          changes.push({ type: 'column_removed', table: toTable.table, column: col });
-          columnsRemoved.push({ table: toTable.table, column: col });
+      fromTable.columns.forEach((col) => {
+        if (!toColNames.has(col.name)) {
+          changes.push({ type: 'column_removed', table: toTable.table, column: col.name });
+          columnsRemoved.push({ table: toTable.table, column: col.name });
         }
       });
 

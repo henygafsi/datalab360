@@ -2,7 +2,7 @@
 
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { routes } from '@/config/routes';
 
 interface SessionGuardProps {
@@ -13,73 +13,56 @@ interface SessionGuardProps {
 /**
  * SessionGuard Component
  *
- * Protects routes by checking authentication status.
- * Redirects to login page if user is not authenticated.
+ * Protects routes by checking authentication status and token validity.
+ * Redirects to login page if user is not authenticated or token is expired.
  *
- * This provides a second layer of protection after middleware,
- * handling edge cases like:
- * - Session expiration during use
- * - Backend token invalidation
- * - Race conditions during authentication
+ * Features:
+ * - Checks session status via NextAuth
+ * - Monitors token expiration
+ * - Handles graceful redirect on auth failures
  */
 export default function SessionGuard({ children, fallback }: SessionGuardProps) {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [isChecking, setIsChecking] = useState(true);
+  const [isReady, setIsReady] = useState(false);
+
+  // Handle token expiration
+  const handleTokenExpired = useCallback(async () => {
+    console.warn('[SessionGuard] Token expired, signing out...');
+    await signOut({ redirect: false });
+    router.replace(routes.signIn);
+  }, [router]);
 
   useEffect(() => {
-    // Wait for session to be loaded
     if (status === 'loading') {
       return;
     }
 
-    // If unauthenticated, redirect to login
     if (status === 'unauthenticated') {
-      console.warn('[SessionGuard] User not authenticated, redirecting to login');
       router.replace(routes.signIn);
       return;
     }
 
-    // Check if session is valid
-    if (status === 'authenticated' && session) {
-      // Check token expiration
-      const token = session.user?.access_token;
-      // Cast user to include potential exp property from JWT
-      const user = session.user as { exp?: number } | undefined;
-      const tokenExp = user?.exp;
-
-      if (!token) {
-        console.warn('[SessionGuard] No access token in session, redirecting to login');
-        signOut({ callbackUrl: routes.signIn, redirect: true });
+    if (status === 'authenticated') {
+      // Check for token expiration flag from session callback
+      if (session?.tokenExpired || session?.error === 'TokenExpired') {
+        handleTokenExpired();
         return;
       }
-
-      // Check if token is expired
-      if (tokenExp && typeof tokenExp === 'number') {
-        const now = Date.now() / 1000;
-        if (now > tokenExp) {
-          console.warn('[SessionGuard] Token expired, redirecting to login');
-          signOut({ callbackUrl: routes.signIn, redirect: true });
-          return;
-        }
-      }
-
-      // Session is valid
-      setIsChecking(false);
+      setIsReady(true);
     }
-  }, [session, status, router]);
+  }, [status, session, router, handleTokenExpired]);
 
-  // Show loading state while checking authentication
-  if (status === 'loading' || isChecking) {
+  // Show loading state while session is being determined
+  if (status === 'loading' || !isReady) {
     return fallback || <SessionGuardLoadingFallback />;
   }
 
-  // If not authenticated after check, show nothing (redirect is happening)
-  if (status === 'unauthenticated' || !session) {
+  // If not authenticated, show loading (redirect is happening)
+  if (status === 'unauthenticated') {
     return fallback || <SessionGuardLoadingFallback />;
   }
 
-  // User is authenticated, render children
   return <>{children}</>;
 }
 

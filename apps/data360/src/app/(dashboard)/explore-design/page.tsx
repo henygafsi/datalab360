@@ -25,6 +25,7 @@ import ModelingCanvas from './components/ModelingCanvas';
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
+import ProjectSelector from './components/ProjectSelector';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
   useEventStore,
@@ -440,6 +441,10 @@ export default function ExploreDesignPage() {
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
 
+  // Project State
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [selectedProjectName, setSelectedProjectName] = useState<string>('');
+
   // State
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDatabase, setSelectedDatabase] = useState<string>('');
@@ -803,6 +808,13 @@ export default function ExploreDesignPage() {
     setSelectedColumns(new Set());
   }, []);
 
+  // Handle project selection
+  const handleProjectSelect = useCallback((projectId: string, projectName: string) => {
+    setSelectedProjectId(projectId);
+    setSelectedProjectName(projectName);
+    toast.success(`Project "${projectName}" selected`);
+  }, []);
+
   const handleConfigChange = useCallback((configUpdate: Partial<TableConfig>) => {
     if (!selectedTable) return;
 
@@ -977,11 +989,16 @@ export default function ExploreDesignPage() {
       {!isFullscreen && (
       <div className="px-3 lg:px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <div className="min-w-0 flex items-center gap-2">
+          <div className="min-w-0 flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
               Explore & Design
               <Badge className="bg-blue-100 text-blue-600 text-[10px] px-1.5 py-0">NEW</Badge>
             </h1>
+            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+            <ProjectSelector
+              selectedProjectId={selectedProjectId}
+              onProjectSelect={handleProjectSelect}
+            />
           </div>
           <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
             {/* View Mode Toggle */}
@@ -1737,6 +1754,7 @@ export default function ExploreDesignPage() {
           onClose={() => setShowDeploymentModal(false)}
           database={selectedDatabase}
           schemas={Array.from(selectedSchemas)}
+          projectId={selectedProjectId}
         />
       </Modal>
     </div>

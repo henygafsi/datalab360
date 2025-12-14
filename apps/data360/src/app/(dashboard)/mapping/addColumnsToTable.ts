@@ -1,7 +1,5 @@
-'use client';
-
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 interface NewColumn {
     name: string;
@@ -31,7 +29,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
  * @returns The API response indicating success or failure.
  */
 export const addColumnsToTable = async (payload: AddColumnsPayload): Promise<AddColumnsResponse> => {
-    const session = await getSession();
+    const session = await getAuthSession();
     if (!session?.user?.access_token) {
         console.error('Service: addColumnsToTable - No access token available.');
         throw new Error('No access token available');

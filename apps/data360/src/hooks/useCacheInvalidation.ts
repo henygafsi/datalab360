@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useSession, signOut } from 'next-auth/react';
-import { useRouter } from 'next/navigation';
+import { useSession } from 'next-auth/react';
 
 /**
  * Cache key mapping between backend and frontend
@@ -90,7 +89,6 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
     maxReconnectAttempts = 5,
   } = options;
   const { data: session, status } = useSession();
-  const router = useRouter();
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -109,29 +107,15 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
   }, [debug]);
 
   /**
-   * Handle redirect to sign-in when sync is persistently offline
+   * Handle when sync is persistently offline
+   * Note: We don't auto-signout - just show error state
    */
-  const handleOfflineRedirect = useCallback(async () => {
+  const handleOfflineError = useCallback(() => {
     if (isRedirectingRef.current) return;
     isRedirectingRef.current = true;
-
-    log('🚪 Sync offline - redirecting to sign-in page');
-
-    try {
-      // Sign out the user and redirect to sign-in page
-      await signOut({
-        redirect: false,
-        callbackUrl: '/signin'
-      });
-
-      // Navigate to sign-in page
-      router.push('/signin?error=sync_offline');
-    } catch (err) {
-      console.error('[SSE] Failed to redirect:', err);
-      // Force redirect even if signOut fails
-      window.location.href = '/signin?error=sync_offline';
-    }
-  }, [log, router]);
+    log('⚠️ Sync offline - SSE connection failed');
+    setError('Sync offline');
+  }, [log]);
 
   const connect = useCallback(() => {
     // Don't connect if not authenticated
@@ -145,7 +129,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       eventSourceRef.current.close();
     }
 
-    const apiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+    const apiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
     const streamUrl = `${apiUrl}/api/cache/stream`;
 
     log('🔌 Connecting to SSE:', streamUrl);
@@ -201,11 +185,10 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
 
         reconnectAttemptsRef.current++;
 
-        // Check if we should redirect to sign-in after max attempts
+        // Check if we should stop reconnecting after max attempts
         if (redirectOnOffline && reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          log(`❌ Max reconnect attempts (${maxReconnectAttempts}) exceeded - redirecting to sign-in`);
-          setError('Sync offline - session expired');
-          handleOfflineRedirect();
+          log(`❌ Max reconnect attempts (${maxReconnectAttempts}) exceeded`);
+          handleOfflineError();
           return;
         }
 
@@ -231,7 +214,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       console.error('[SSE] Failed to create EventSource:', err);
       setError('Failed to connect');
     }
-  }, [session, status, sseUrl, onInvalidate, log, redirectOnOffline, maxReconnectAttempts, handleOfflineRedirect]);
+  }, [session, status, sseUrl, onInvalidate, log, redirectOnOffline, maxReconnectAttempts, handleOfflineError]);
 
   // Connect when authenticated
   useEffect(() => {

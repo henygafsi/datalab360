@@ -1,5 +1,21 @@
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
+
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getAuthSession();
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': session.user.account_name || '',
+    'X-Username': session.user.username || '',
+  };
+}
 
 /**
  * The shape of the test mapping payload
@@ -26,22 +42,11 @@ export interface TestMappingPayload {
  * The endpoint expects a TestMappingPayload with project_id and mappings array.
  */
 export async function postMapping(payload: TestMappingPayload) {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-            throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/test_mapping/`; // e.g., http://api.datalab360.io/mapping
+    const headers = await getAuthHeaders();
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/test_mapping/`;
     try {
-        //const response = await axios.post(url, payload);
-        const response = await axios.post<TestMappingPayload>(url, payload,{
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-
-            }
-          });
-        return response.data; // Return response from server
+        const response = await axios.post<TestMappingPayload>(url, payload, { headers });
+        return response.data;
     } catch (error) {
         console.error('Error saving mapping:', error);
         throw error;

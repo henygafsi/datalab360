@@ -1,5 +1,8 @@
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
+/**
+ * Mapping Service - Get Databases
+ * Works in both server-side (SSR) and client-side contexts
+ */
+import apiClient from '@/lib/api-client';
 
 interface DatabaseObject {
   name: string;
@@ -20,25 +23,8 @@ function isDatabaseObject(obj: unknown): obj is DatabaseObject {
  * @returns {Promise<string[]>} - A promise that resolves to the list of database names.
  */
 export const getDatabases = async (): Promise<string[]> => {
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available. Please log in again.');
-  }
-  const token = session.user.access_token;
-
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`;
-
   try {
-    const response = await axios.get(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-    });
-
-    console.log('[getDatabases] Raw response:', response.data);
-
-    // Handle different response formats
+    const response = await apiClient.get('/mapping/databases');
     const data = response.data;
 
     // If response is an array directly
@@ -85,30 +71,12 @@ export const getDatabases = async (): Promise<string[]> => {
       }
     }
 
-    console.warn('[getDatabases] Unexpected response format:', data);
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[getDatabases] Unexpected response format:', data);
+    }
     return [];
   } catch (error: any) {
     console.error('[getDatabases] Error:', error);
-
-    // Detect CORS errors
-    const isCorsError =
-      error.message?.includes('CORS') ||
-      error.message?.includes('Network Error') ||
-      error.code === 'ERR_NETWORK' ||
-      (error.response === undefined && error.request);
-
-    if (isCorsError) {
-      throw new Error('Unable to connect to the server. Please check your network connection or contact your administrator.');
-    }
-
-    if (error.response?.status === 401) {
-      throw new Error('Your session has expired. Please log in again.');
-    }
-
-    if (error.response?.status === 403) {
-      throw new Error('You do not have permission to access databases.');
-    }
-
-    throw new Error(error.response?.data?.message || error.message || 'Failed to fetch databases. Please try again.');
+    throw error;
   }
 };

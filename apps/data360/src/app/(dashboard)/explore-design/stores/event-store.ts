@@ -364,6 +364,47 @@ export const eventsByTableAtom = atom((get) => {
   return byTable;
 });
 
+// Helper to check if two events are on the same target
+const isSameTarget = (a: DesignEvent['target'], b: DesignEvent['target']): boolean => {
+  return a.database === b.database &&
+         a.schema === b.schema &&
+         a.table === b.table &&
+         a.column === b.column;
+};
+
+// Helper to find a conflicting/mergeable event
+const findMergeableEvent = (
+  events: DesignEvent[],
+  newEvent: Omit<DesignEvent, 'id' | 'timestamp' | 'status'>
+): { index: number; event: DesignEvent } | null => {
+  // Only look at pending events that can be merged
+  for (let i = events.length - 1; i >= 0; i--) {
+    const existing = events[i];
+    if (existing.status !== 'pending') continue;
+    if (!isSameTarget(existing.target, newEvent.target)) continue;
+
+    // Same type events can be consolidated
+    if (existing.type === newEvent.type) {
+      return { index: i, event: existing };
+    }
+
+    // Rename chain detection: TABLE_RENAMED A→B + TABLE_RENAMED B→C = TABLE_RENAMED A→C
+    if (existing.type === 'TABLE_RENAMED' && newEvent.type === 'TABLE_RENAMED') {
+      if (existing.payload.newName === newEvent.payload.oldName) {
+        return { index: i, event: existing };
+      }
+    }
+
+    // Column rename chain detection
+    if (existing.type === 'COLUMN_RENAMED' && newEvent.type === 'COLUMN_RENAMED') {
+      if (existing.payload.newName === newEvent.payload.oldName) {
+        return { index: i, event: existing };
+      }
+    }
+  }
+  return null;
+};
+
 // Actions
 export const addEventAtom = atom(
   null,
@@ -375,6 +416,72 @@ export const addEventAtom = atom(
     }
 
     const store = get(eventStoreAtom);
+
+    // Smart deduplication: Check for mergeable/conflicting events
+    const mergeable = findMergeableEvent(store.events, event);
+
+    if (mergeable) {
+      const { index, event: existingEvent } = mergeable;
+
+      // Handle rename chain consolidation
+      if ((existingEvent.type === 'TABLE_RENAMED' || existingEvent.type === 'COLUMN_RENAMED') &&
+          existingEvent.type === event.type) {
+        // Chain: A→B + B→C becomes A→C
+        if (existingEvent.payload.newName === event.payload.oldName) {
+          const consolidatedPayload = {
+            oldName: existingEvent.payload.oldName,
+            newName: event.payload.newName,
+          };
+
+          // Check if this results in a no-op (A→B→A = no change)
+          if (consolidatedPayload.oldName === consolidatedPayload.newName) {
+            // Remove the original event - no net change
+            const newEvents = store.events.filter((_, i) => i !== index);
+            set(eventStoreAtom, {
+              ...store,
+              events: newEvents,
+              redoStack: [],
+            });
+            console.debug(`[EventStore] Removed no-op rename: ${existingEvent.payload.oldName}→${event.payload.newName}→${existingEvent.payload.oldName}`);
+            return null;
+          }
+
+          // Update the existing event with consolidated payload
+          const updatedEvents = [...store.events];
+          updatedEvents[index] = {
+            ...existingEvent,
+            payload: consolidatedPayload,
+            timestamp: new Date(),
+          };
+          set(eventStoreAtom, {
+            ...store,
+            events: updatedEvents,
+            redoStack: [],
+          });
+          console.debug(`[EventStore] Consolidated rename: ${existingEvent.payload.oldName}→${event.payload.newName}`);
+          return existingEvent.id;
+        }
+      }
+
+      // For other same-type events on same target, replace the old with new
+      if (existingEvent.type === event.type) {
+        const updatedEvents = [...store.events];
+        updatedEvents[index] = {
+          ...existingEvent,
+          payload: event.payload,
+          timestamp: new Date(),
+        };
+        set(eventStoreAtom, {
+          ...store,
+          events: updatedEvents,
+          redoStack: [],
+        });
+        console.debug(`[EventStore] Replaced event: ${event.type} (kept ${existingEvent.id})`);
+        return existingEvent.id;
+      }
+    }
+
+    // No merge needed - add as new event
     const newEvent: DesignEvent = {
       ...event,
       id: generateEventId(),

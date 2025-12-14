@@ -8,6 +8,23 @@ interface TableObject {
     name: string;
 }
 
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getSession() as any;
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  const snowflakeAccount = session.user.account_name || '';
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': snowflakeAccount,
+    'X-Username': session.user.username || '',
+  };
+}
+
 function isTableObject(obj: unknown): obj is TableObject {
     return typeof obj === 'object' && obj !== null && 'name' in obj && typeof (obj as TableObject).name === 'string';
 }
@@ -20,19 +37,11 @@ function isTableObject(obj: unknown): obj is TableObject {
  * @returns {Promise<string[]>} - A promise that resolves to an array of table names.
  */
 export const getTablesTarget = async (databaseName: string, schemaName: string): Promise<string[]> => {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-        throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
+    const headers = await getAuthHeaders();
     const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${databaseName}/${schemaName}`;
 
     try {
-        const response = await axios.get(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-            },
-        });
+        const response = await axios.get(url, { headers });
 
         const data = response.data;
 

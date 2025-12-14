@@ -1,6 +1,6 @@
 // src/app/services/mapping/logWizardEvent.ts
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 interface LogWizardEventPayload {
     project_id: string;
@@ -18,7 +18,7 @@ interface LogWizardEventResponse {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export const logWizardEvent = async (payload: LogWizardEventPayload): Promise<LogWizardEventResponse | null> => {
-    const session = await getSession();
+    const session = await getAuthSession();
     if (!session?.user?.access_token) {
         console.warn('Service: logWizardEvent - No access token available for logging wizard event');
         return null;

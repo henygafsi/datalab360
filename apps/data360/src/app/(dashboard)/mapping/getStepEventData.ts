@@ -1,6 +1,6 @@
 // src/app/services/mapping/getLatestStepEvent.ts
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
 
@@ -21,7 +21,7 @@ interface LatestStepEventResponse {
  * @returns The latest event details for the step, or null if not found.
  */
 export const getLatestStepEvent = async (projectId: string, stepType: string): Promise<LatestStepEventResponse['latest_event']> => {
-    const session = await getSession();
+    const session = await getAuthSession();
     if (!session?.user?.access_token) {
         console.error('Service: getLatestStepEvent - No access token available.');
         throw new Error('No access token available');

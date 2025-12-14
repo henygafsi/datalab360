@@ -1,6 +1,6 @@
 // src/app/services/mapping/storeSelectedColumns.ts
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 interface StoreSelectedColumnsPayload {
     project_id: string;
@@ -18,7 +18,7 @@ interface StoreSelectedColumnsResponse {
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload): Promise<StoreSelectedColumnsResponse> => {
-    const session = await getSession();
+    const session = await getAuthSession();
     if (!session?.user?.access_token) {
         console.error('Service: storeSelectedColumns - No access token available.');
         throw new Error('No access token available');

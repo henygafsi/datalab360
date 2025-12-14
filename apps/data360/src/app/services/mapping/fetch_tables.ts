@@ -4,6 +4,23 @@
 import axios from "axios";
 import { getSession } from "next-auth/react";
 
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getSession() as any;
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  const snowflakeAccount = session.user.account_name || '';
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': snowflakeAccount,
+    'X-Username': session.user.username || '',
+  };
+}
+
 export interface TableColumn {
     name?: string;
     COLUMN_NAME?: string;
@@ -35,18 +52,11 @@ export const getTableColumns = async (
     schemaName: string,
     tableName: string
 ): Promise<TableColumn[]> => {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-        throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
+    const headers = await getAuthHeaders();
 
     try {
         const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/mapping/get_table_columns/`, {
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-            },
+            headers,
             params: { database_name: databaseName, schema_name: schemaName, table_name: tableName },
         });
 

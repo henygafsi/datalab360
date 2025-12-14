@@ -5,44 +5,66 @@ import { env } from '@/env.mjs';
 import { pagesOptions } from './pages-options';
 import { login, LoginData, LoginResponse } from '@/app/services/auth/login';
 
+// Snowflake token typically expires in 1 hour, but we'll use a conservative 55 minutes
+const SNOWFLAKE_TOKEN_LIFETIME_MS = 55 * 60 * 1000;
+
 export const authOptions: NextAuthOptions = {
-  // debug: true,
+  debug: process.env.NODE_ENV === 'development',
   pages: {
     ...pagesOptions,
   },
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    // Session max age should match or be less than Snowflake token lifetime
+    // We use 8 hours as a reasonable session length with token refresh handling
+    maxAge: 8 * 60 * 60, // 8 hours
   },
   callbacks: {
     async session({ session, token }) {
+      // Build session from JWT token - runs on every authenticated request
+      // Check if token might be expired
+      const tokenExpired = token.token_issued_at
+        ? Date.now() - (token.token_issued_at as number) > SNOWFLAKE_TOKEN_LIFETIME_MS
+        : false;
+
       return {
         ...session,
         user: {
           ...session.user,
-          //id: access_token.idaccess_token as string, // This line seems like a leftover or typo
-          access_token: token.access_token as string, // Set access_token in session
-          account_name: token.account_name as string, // Add account_name to session from JWT access_token
-          username: token.username as string, // Add username to session from JWT access_token
+          id: token.sub || token.username as string,
+          access_token: token.access_token as string,
+          account_name: token.account_name as string,
+          username: token.username as string,
           role: token.role as string,
-          items: token.items as any  // Keep as array, not string
-
+          items: token.items as any[],
         },
+        // Expose token status for client-side handling
+        tokenExpired,
+        error: tokenExpired ? 'TokenExpired' : undefined,
       };
     },
-    async jwt({ token, user }) {
+    async jwt({ token, user, trigger }) {
+      // Handle initial sign-in
       if (user) {
-        token.account_name = (user as any).account_name;  // Add account_name from user to token
-        token.username = (user as any).username; // Add username from user to token
+        token.account_name = (user as any).account_name;
+        token.username = (user as any).username;
         token.role = (user as any).role;
-        token.items = (user as any).items
-        token.access_token = (user as any).access_token; // ✅ THIS LINE IS CRUCIAL AND NOW INCLUDED
+        token.items = (user as any).items;
+        token.access_token = (user as any).access_token;
+        token.token_type = (user as any).token_type;
+        token.token_issued_at = Date.now();
       }
+
+      // Handle session update trigger (for token refresh)
+      if (trigger === 'update' && token.access_token) {
+        // Token refresh logic can be added here if backend supports it
+        token.token_issued_at = Date.now();
+      }
+
       return token;
     },
     async redirect({ url, baseUrl }) {
-      // After login, always redirect to account-overview page
-      // Handle callback URLs
+      // Handle callback URLs securely
       if (url.startsWith('/')) {
         // If it's just the root or sign-in page, redirect to account-overview
         if (url === '/' || url.startsWith('/signin')) {
@@ -59,7 +81,7 @@ export const authOptions: NextAuthOptions = {
         }
         return url;
       }
-      // Default to account-overview
+      // Default to account-overview (don't allow external redirects)
       return `${baseUrl}/account-overview`;
     },
   },
@@ -73,40 +95,45 @@ export const authOptions: NextAuthOptions = {
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
+        // Validate required credentials
         if (!credentials?.account_name || !credentials?.username || !credentials?.password) {
-          return null;
+          throw new Error('Missing credentials');
         }
 
+        // Sanitize inputs (basic XSS prevention)
         const loginData: LoginData = {
-          account_name: credentials.account_name,
-          username: credentials.username,
-          password: credentials.password,
+          account_name: credentials.account_name.trim(),
+          username: credentials.username.trim(),
+          password: credentials.password, // Don't trim password
         };
 
         try {
-          // Call the login service
+          // Call the FastAPI backend for Snowflake authentication
           const response: LoginResponse = await login(loginData);
 
-          // If login is successful, return the user object
-          if (response.access_token) {
-            // The object returned here is the 'user' object that gets passed to the 'jwt' callback
-            return {
-              id: response.username, // Ensure you pass an 'id' property if your session expects it
-              account_name: credentials.account_name,
-              access_token: response.access_token, // Pass the access_token here
-              token_type: response.token_type, // Pass token_type if needed in session
-              username: credentials.username,
-              role: response.role,
-              items: response.items,
-              message: response.message, // Pass message if needed
-            };
+          // Validate response has required fields
+          if (!response.access_token) {
+            throw new Error('Invalid response from authentication server');
           }
-        } catch (error) {
-          console.error('Login failed:', error);
+
+          // Return user object for JWT callback
+          return {
+            id: response.username,
+            account_name: loginData.account_name,
+            access_token: response.access_token,
+            token_type: response.token_type || 'Bearer',
+            username: response.username,
+            role: response.role || 'user',
+            items: response.items || [],
+          };
+        } catch (error: any) {
+          // Log error for debugging (not in production)
+          if (process.env.NODE_ENV === 'development') {
+            console.error('[Auth] Login failed:', error.message);
+          }
+          // Return null triggers NextAuth error handling
           return null;
         }
-
-        return null; // Return null if login fails
       },
     }),
     GoogleProvider({
@@ -115,4 +142,12 @@ export const authOptions: NextAuthOptions = {
       allowDangerousEmailAccountLinking: true,
     }),
   ],
+  events: {
+    async signOut({ token }) {
+      // Optional: Notify backend to invalidate Snowflake session
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Auth] User signed out:', token?.username);
+      }
+    },
+  },
 };

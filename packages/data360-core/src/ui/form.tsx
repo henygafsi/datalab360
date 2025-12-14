@@ -52,6 +52,7 @@ export const Form = <
   return (
     <form
       noValidate
+      method="post"
       onSubmit={methods.handleSubmit(onSubmit)}
       {...formProps}
       className={className}

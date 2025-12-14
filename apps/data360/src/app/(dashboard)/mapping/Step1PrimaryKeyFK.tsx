@@ -91,7 +91,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     targetTables, isLoadingOptions, projectId, username, mappingData,
 }) => {
     const { toast } = useToast();
-    const TARGET_DB = 'DATA360';
+    const TARGET_DB = 'CP_DATA360';
     const TARGET_SCHEMA = 'RETAIL_DW';
     const [currentSourceSelection, setCurrentSourceSelection] = useState<TableSelection>({ database: '', schema: '', table: '' });
     const [allSourceColumnsData, setAllSourceColumnsData] = useState<{ [key: string]: ColumnDetail[] }>({});

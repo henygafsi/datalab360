@@ -27,6 +27,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { storeSelectedColumns } from './storeSelectedColumns';
 import axios from 'axios';
+import { getAuthSession } from '@/lib/auth';
 import { getSession } from 'next-auth/react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;

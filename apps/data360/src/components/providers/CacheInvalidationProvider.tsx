@@ -104,6 +104,7 @@ export function CacheInvalidationProvider({
   const { isConnected, clientId, error, reconnect } = useCacheInvalidation({
     onInvalidate: handleInvalidate,
     debug,
+    redirectOnOffline: false, // Never auto-signout on SSE failure
   });
 
   const markStale = useCallback((keys: CacheKey[]) => {

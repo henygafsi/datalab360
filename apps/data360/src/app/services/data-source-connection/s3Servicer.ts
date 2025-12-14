@@ -1,5 +1,8 @@
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
+/**
+ * Data Source Connection Service - S3
+ * Works in both server-side (SSR) and client-side contexts
+ */
+import apiClient from '@/lib/api-client';
 
 interface S3FormData {
   integration_name: string;
@@ -15,21 +18,8 @@ interface S3FormData {
  * @returns {Promise<any>} - The Axios response promise.
  */
 export const submitS3Form = async (formData: S3FormData): Promise<any> => {
-  //const params = new URLSearchParams(formData as Record<string, string>);
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  const token = session.user.access_token;
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/connect/data_lake`;
-
   try {
-    const response = await axios.get(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-    });
+    const response = await apiClient.get('/connect/data_lake');
     return response.data;
   } catch (error) {
     console.error('Error submitting the S3 form:', error);

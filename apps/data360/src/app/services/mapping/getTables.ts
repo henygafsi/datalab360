@@ -1,7 +1,8 @@
-'use client'; // <--- ADD THIS LINE AT THE VERY TOP
-// app/services/mapping/getTables.ts
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
+/**
+ * Mapping Service - Get Tables
+ * Works in both server-side (SSR) and client-side contexts
+ */
+import apiClient from '@/lib/api-client';
 
 interface TableObject {
   name: string;
@@ -19,23 +20,8 @@ function isTableObject(obj: unknown): obj is TableObject {
  * @returns {Promise<string[]>} - A promise that resolves to the list of table names.
  */
 export const getTables = async (databaseName: string, schemaName: string): Promise<string[]> => {
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  const token = session.user.access_token;
-
-  const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${databaseName}/${schemaName}`;
-
   try {
-    const response = await axios.get(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
-      },
-    });
-
-    console.log(`Response for tables in ${databaseName}.${schemaName}:`, response.data);
+    const response = await apiClient.get(`/mapping/tables/${databaseName}/${schemaName}`);
 
     // Handle different response formats and always return string[]
     if (Array.isArray(response.data)) {
@@ -52,7 +38,7 @@ export const getTables = async (databaseName: string, schemaName: string): Promi
         return [];
       }
     }
-    
+
     // If response.data is an object with a tables property
     if (response.data && typeof response.data === 'object' && 'tables' in response.data) {
       const tables = response.data.tables;
@@ -67,8 +53,10 @@ export const getTables = async (databaseName: string, schemaName: string): Promi
         }
       }
     }
-    
-    console.warn(`Unexpected response format for tables in ${databaseName}.${schemaName}:`, response.data);
+
+    if (process.env.NODE_ENV === 'development') {
+      console.warn(`Unexpected response format for tables in ${databaseName}.${schemaName}:`, response.data);
+    }
     return [];
 
   } catch (error) {

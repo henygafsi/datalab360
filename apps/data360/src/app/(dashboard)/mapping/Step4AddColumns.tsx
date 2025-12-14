@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, XCircle } from 'lucide-react';
+import { getAuthSession } from '@/lib/auth';
 import { getSession } from 'next-auth/react';
 import axios from 'axios';
 // Removed: import { getStepEventData } from './getStepEventData'; // Removed

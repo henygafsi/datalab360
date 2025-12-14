@@ -35,6 +35,19 @@ export default function GouvernanceDashboard() {
   const { data: session } = useSession();
   const currentUsername = session?.user?.username || '';
 
+  // Helper to get auth headers with Snowflake account context
+  // Backend handles the uchsfvb- prefix internally
+  const getAuthHeaders = () => {
+    if (!session?.user?.access_token) return null;
+    const snowflakeAccount = session.user.account_name || '';
+    return {
+      Authorization: `Bearer ${session.user.access_token}`,
+      'Content-Type': 'application/json',
+      'X-Account-Name': snowflakeAccount,
+      'X-Username': session.user.username || '',
+    };
+  };
+
   const { data: dashboardData, loading: dashboardLoading, refetch: refetchDashboard } = useClientDashboard();
   const { data: stagesData, loading: stagesLoading, refetch: refetchStages } = useStageStorageInfo();
 
@@ -74,7 +87,6 @@ export default function GouvernanceDashboard() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !dashboardLoading && !stagesLoading) {
-      console.log('[SSE] Dashboard cache invalidated - refreshing all data...');
       setIsRefreshing(true);
       Promise.all([
         refetchDashboard?.(),
@@ -99,24 +111,35 @@ export default function GouvernanceDashboard() {
 
   // Track previous deployment count for smart refresh
   const prevDeploymentCountRef = useRef(0);
+  // Track if we've already fetched to prevent infinite loops
+  const hasFetchedRef = useRef(false);
+  // Store access token as stable reference
+  const accessToken = session?.user?.access_token;
 
   // Fetch scheduled workflows, mapping deployments, and explore-design deployments
   const fetchScheduledItems = async (showLoadingIndicator = true) => {
-    if (!session?.user?.access_token) return;
+    if (!accessToken) return;
 
     if (showLoadingIndicator) {
       setScheduledWorkflowsLoading(true);
     }
     try {
+      // Build common headers with account context for Snowflake multi-tenant support
+      // Backend handles the uchsfvb- prefix internally
+      const snowflakeAccount = session?.user?.account_name || '';
+      const authHeaders = {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        'X-Account-Name': snowflakeAccount,
+        'X-Username': session?.user?.username || '',
+      };
+
       // Fetch workflows, mapping deployments, and explore-design deployments in parallel
       const [workflowsResponse, deploymentsResponse, exploreDesignResponse] = await Promise.all([
           axios.get(
             `${API_BASE_URL}/workflow/get_workflows/`,
             {
-              headers: {
-                Authorization: `Bearer ${session.user.access_token}`,
-                'Content-Type': 'application/json',
-              },
+              headers: authHeaders,
               timeout: 5000,
             }
           ).catch((err: any) => {
@@ -126,10 +149,7 @@ export default function GouvernanceDashboard() {
           axios.get(
             `${API_BASE_URL}/mapping/get_scheduled_deployments/`,
             {
-              headers: {
-                Authorization: `Bearer ${session.user.access_token}`,
-                'Content-Type': 'application/json',
-              },
+              headers: authHeaders,
               timeout: 5000,
             }
           ).catch((err: any) => {
@@ -203,19 +223,21 @@ export default function GouvernanceDashboard() {
       }
     };
 
-  // Fetch on mount
+  // Fetch on mount - only once when we have a valid token
   useEffect(() => {
-    fetchScheduledItems(true);
-  }, [session]);
+    if (accessToken && !hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchScheduledItems(true);
+    }
+  }, [accessToken]);
 
   // Smart refresh: also refresh deployments when SSE cache is invalidated
   useEffect(() => {
-    if (wasInvalidated && session?.user?.access_token) {
-      console.log('[SSE] Deployment cache invalidated - checking for new deployments...');
+    if (wasInvalidated && accessToken) {
       // Silent refresh (no loading indicator) to check for new deployments
       fetchScheduledItems(false);
     }
-  }, [wasInvalidated, session]);
+  }, [wasInvalidated, accessToken]);
 
   // Build complete filters object for API call
   const apiFilters = useMemo(() => {
@@ -272,7 +294,8 @@ export default function GouvernanceDashboard() {
 
   // Approve scheduled deployment (modeler action)
   const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
-    if (!session?.user?.access_token) return;
+    const headers = getAuthHeaders();
+    if (!headers) return;
 
     setApprovingWorkflow(workflowName);
     try {
@@ -283,13 +306,7 @@ export default function GouvernanceDashboard() {
         await axios.post(
           `${API_BASE_URL}/mapping/approve_deployment/`,
           { workflow_name: workflowName },
-          {
-            headers: {
-              Authorization: `Bearer ${session.user.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 10000,
-          }
+          { headers, timeout: 10000 }
         );
       }
 
@@ -314,7 +331,8 @@ export default function GouvernanceDashboard() {
 
   // Reject scheduled deployment
   const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
-    if (!session?.user?.access_token) return;
+    const headers = getAuthHeaders();
+    if (!headers) return;
 
     const reason = prompt('Please provide a reason for rejection:');
     if (!reason) return;
@@ -327,13 +345,7 @@ export default function GouvernanceDashboard() {
         await axios.post(
           `${API_BASE_URL}/mapping/reject_deployment/`,
           { workflow_name: workflowName, reason },
-          {
-            headers: {
-              Authorization: `Bearer ${session.user.access_token}`,
-              'Content-Type': 'application/json',
-            },
-            timeout: 10000,
-          }
+          { headers, timeout: 10000 }
         );
       }
 
@@ -355,7 +367,8 @@ export default function GouvernanceDashboard() {
 
   // Activate approved deployment (final execution)
   const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
-    if (!session?.user?.access_token) return;
+    const headers = getAuthHeaders();
+    if (!headers) return;
 
     setActivatingWorkflow(workflowName);
     setDeploymentError(null); // Clear previous errors
@@ -384,13 +397,7 @@ export default function GouvernanceDashboard() {
       await axios.post(
         endpoint,
         { workflow_name: workflowName },
-        {
-          headers: {
-            Authorization: `Bearer ${session.user.access_token}`,
-            'Content-Type': 'application/json',
-          },
-          timeout: 30000, // 30 second timeout (deployment can take longer)
-        }
+        { headers, timeout: 30000 } // 30 second timeout (deployment can take longer)
       );
 
       // Update local state to mark as active
@@ -610,6 +617,33 @@ export default function GouvernanceDashboard() {
           {isRefreshing ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
+
+      {/* Account Info Card */}
+      {session?.user && (
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center">
+                <PiUsers className="w-6 h-6" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold">{session.user.username}</h2>
+                <p className="text-blue-100 text-sm">
+                  Account: <span className="font-medium">uchsfvb-{session.user.account_name}</span>
+                </p>
+              </div>
+            </div>
+            <div className="text-right">
+              <Badge className="bg-white/20 text-white border-white/30 px-3 py-1">
+                {session.user.role || 'User'}
+              </Badge>
+              <p className="text-blue-100 text-xs mt-2">
+                Snowflake Organization: uchsfvb
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">

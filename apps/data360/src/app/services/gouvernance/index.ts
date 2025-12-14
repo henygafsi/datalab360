@@ -3,7 +3,7 @@
  * Frontend services for all gouvernance-related APIs
  */
 
-import apiClient, { isAuthError, redirectToLogin } from '@/lib/api-client';
+import apiClient from '@/lib/api-client';
 import type {
   QueryAccessHistory,
   StageSize,
@@ -21,26 +21,17 @@ import { DATABASE_CONFIG } from '@/config/database.config';
 /**
  * Secure API call wrapper with authentication error handling
  * Uses the centralized apiClient which automatically:
- * - Adds authentication headers
- * - Handles 401 responses by redirecting to login
+ * - Adds authentication headers from NextAuth session
  * - Provides consistent error handling
+ * - Lets components handle errors (no auto-redirect)
  */
 async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
-  try {
-    const { data } = await apiClient.request<T>({
-      url: endpoint,
-      method,
-      data: body,
-    });
-
-    return data;
-  } catch (error) {
-    // If it's an auth error, trigger redirect
-    if (isAuthError(error)) {
-      await redirectToLogin();
-    }
-    throw error;
-  }
+  const { data } = await apiClient.request<T>({
+    url: endpoint,
+    method,
+    data: body,
+  });
+  return data;
 }
 
 /**
@@ -136,13 +127,8 @@ export async function getAllUsersActivity(
     ? `/gouvernance/dashboard/activity?${queryString}`
     : '/gouvernance/dashboard/activity';
 
-  console.log('📊 Fetching activity data from:', endpoint);
-  console.log('📊 Filters:', filters);
-
   // API returns array directly
-  const result = await apiCall<UserActivityWithQuery[]>(endpoint);
-  console.log('📊 Activity data received:', result?.length || 0, 'items');
-  return result;
+  return apiCall<UserActivityWithQuery[]>(endpoint);
 }
 
 /**

@@ -1,9 +1,11 @@
 /**
  * React hooks for Gouvernance APIs
  * Fetches once and uses Next.js cache
+ * Waits for session to be ready before making API calls
  */
 
 import { useState, useEffect, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
 import * as GouvernanceService from '../app/services/gouvernance';
 import type {
   ClientDashboardInfo,
@@ -25,6 +27,7 @@ function useGouvernanceQuery<T>(
   options: UseGouvernanceOptions = {}
 ) {
   const { enabled = true } = options;
+  const { data: session, status } = useSession();
 
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -33,9 +36,29 @@ function useGouvernanceQuery<T>(
   // Create stable key from dependencies
   const depsKey = useMemo(() => JSON.stringify(deps), [deps]);
 
+  // Only fetch when session is authenticated and has access token
+  const isReady = status === 'authenticated' && !!session?.user?.access_token;
+
   useEffect(() => {
+    // Don't fetch if disabled
     if (!enabled) {
       setLoading(false);
+      return;
+    }
+
+    // Wait for session to load
+    if (status === 'loading') {
+      return;
+    }
+
+    // If unauthenticated, stop loading but don't fetch
+    if (status === 'unauthenticated') {
+      setLoading(false);
+      return;
+    }
+
+    // If authenticated but no token yet, keep waiting
+    if (!isReady) {
       return;
     }
 
@@ -65,10 +88,10 @@ function useGouvernanceQuery<T>(
     return () => {
       cancelled = true;
     };
-  }, [enabled, depsKey]); // Only depsKey changes when filters change, not fetchFn
+  }, [enabled, depsKey, isReady, status]); // Depend on session readiness
 
   const refetch = async () => {
-    if (!enabled) return;
+    if (!enabled || !isReady) return;
     setLoading(true);
     setError(null);
     try {

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 // This interface defines a single event object
 export interface StepEvent {
@@ -23,7 +23,7 @@ interface ApiResponse {
  */
 export const getAllProjectEvents = async (projectId: string): Promise<StepEvent[]> => {
     try {
-        const session = await getSession();
+        const session = await getAuthSession();
         const accessToken = session?.user?.access_token;
 
         if (!accessToken) {

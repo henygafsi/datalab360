@@ -2,6 +2,23 @@
 import axios from "axios";
 import { getSession } from "next-auth/react";
 
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getSession() as any;
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  const snowflakeAccount = session.user.account_name || '';
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': snowflakeAccount,
+    'X-Username': session.user.username || '',
+  };
+}
+
 interface Project {
     project_id: string;
     name: string;
@@ -24,22 +41,13 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
  * @returns A list of project objects with their details and last completed step.
  */
 export const getProjects = async (): Promise<Project[]> => {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-        throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
+    const headers = await getAuthHeaders();
 
     try {
         const response = await axios.post<GetProjectsResponse>(
             `${API_BASE_URL}/mapping/get_projects`,
             {}, // POST request with empty body as per backend
-            {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                },
-            }
+            { headers }
         );
         return response.data.projects;
     } catch (error) {

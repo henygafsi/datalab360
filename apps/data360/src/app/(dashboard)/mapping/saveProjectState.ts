@@ -1,12 +1,12 @@
 // saveProjectState.ts
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 export const saveProjectState = async (projectId: string | null, mappingData: any, currentStep: number): Promise<void> => {
     if (!projectId) return;
 
     try {
-        const session = await getSession();
+        const session = await getAuthSession();
         const accessToken = session?.user?.access_token;
 
         if (!accessToken) {

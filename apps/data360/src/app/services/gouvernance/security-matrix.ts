@@ -4,18 +4,20 @@
  */
 
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 async function getAuthHeaders() {
-  const session = await getSession();
+  const session = await getAuthSession();
   if (!session?.user?.access_token) {
     throw new Error('No access token available');
   }
   return {
     'Authorization': `Bearer ${session.user.access_token}`,
     'Content-Type': 'application/json',
+    'X-Account-Name': session.user.account_name || '',
+    'X-Username': session.user.username || '',
   };
 }
 

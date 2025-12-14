@@ -1,7 +1,21 @@
-'use client';
-
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthSession } from '@/lib/auth';
+
+/**
+ * Helper to get authentication headers with Snowflake account context
+ */
+async function getAuthHeaders() {
+  const session = await getAuthSession();
+  if (!session?.user?.access_token) {
+    throw new Error('No access token available');
+  }
+  return {
+    'Authorization': `Bearer ${session.user.access_token}`,
+    'Content-Type': 'application/json',
+    'X-Account-Name': session.user.account_name || '',
+    'X-Username': session.user.username || '',
+  };
+}
 
 export interface TableSelection { database: string; schema: string; table: string; }
 
@@ -34,11 +48,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
  * NOTE: Endpoint path may need adjusting to your backend.
  */
 export async function getProjectState(projectId: string): Promise<MappingState> {
-  const session = await getSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  const token = session.user.access_token;
+  const headers = await getAuthHeaders();
 
   // Try common patterns; adjust as needed
   const endpoints = [
@@ -51,7 +61,7 @@ export async function getProjectState(projectId: string): Promise<MappingState> 
   for (const url of endpoints) {
     try {
       const res = await axios.get(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers,
         params: { project_id: projectId },
       });
       return res.data as MappingState;
