@@ -368,16 +368,26 @@ export default function SessionPoliciesContent() {
                 <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded">
                   <p className="text-xs text-slate-500 mb-1">Session Idle Timeout</p>
                   <p className="text-2xl font-semibold">
-                    {policyDetails.details?.session_idle_timeout_mins ?? selectedPolicy?.session_idle_timeout_mins ?? 'N/A'}
+                    {policyDetails.details?.SESSION_IDLE_TIMEOUT_MINS ??
+                     policyDetails.details?.session_idle_timeout_mins ??
+                     selectedPolicy?.session_idle_timeout_mins ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">minutes</p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Maximum inactivity before automatic logout
+                  </p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-4 rounded">
                   <p className="text-xs text-slate-500 mb-1">UI Idle Timeout</p>
                   <p className="text-2xl font-semibold">
-                    {policyDetails.details?.session_ui_idle_timeout_mins ?? selectedPolicy?.session_ui_idle_timeout_mins ?? 'N/A'}
+                    {policyDetails.details?.SESSION_UI_IDLE_TIMEOUT_MINS ??
+                     policyDetails.details?.session_ui_idle_timeout_mins ??
+                     selectedPolicy?.session_ui_idle_timeout_mins ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">minutes</p>
+                  <p className="text-xs text-slate-500 mt-2">
+                    UI inactivity before warning appears
+                  </p>
                 </div>
               </div>
 

@@ -273,27 +273,39 @@ export default function PasswordPoliciesContent() {
               <div className="grid grid-cols-4 gap-3 mt-3">
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Min Length</p>
-                  <p className="text-sm font-semibold">{String(policy.min_length || 'N/A')} chars</p>
+                  <p className="text-sm font-semibold">{policy.min_length ?? 'N/A'} chars</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                  <p className="text-xs text-slate-500">Max Length</p>
+                  <p className="text-sm font-semibold">{policy.max_length ?? 'N/A'} chars</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Uppercase</p>
-                  <p className="text-sm font-semibold">{String(policy.min_upper_case_chars || 'N/A')} min</p>
+                  <p className="text-sm font-semibold">{policy.min_upper_case_chars ?? 'N/A'} min</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                  <p className="text-xs text-slate-500">Lowercase</p>
+                  <p className="text-sm font-semibold">{policy.min_lower_case_chars ?? 'N/A'} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Numeric</p>
-                  <p className="text-sm font-semibold">{String(policy.min_numeric_chars || 'N/A')} min</p>
+                  <p className="text-sm font-semibold">{policy.min_numeric_chars ?? 'N/A'} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Special</p>
-                  <p className="text-sm font-semibold">{String(policy.min_special_chars || 'N/A')} min</p>
+                  <p className="text-sm font-semibold">{policy.min_special_chars ?? 'N/A'} min</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
                   <p className="text-xs text-slate-500">Max Age</p>
-                  <p className="text-sm font-semibold">{String(policy.max_age_days || 'N/A')} days</p>
+                  <p className="text-sm font-semibold">{policy.max_age_days ?? 'N/A'} days</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Lockout</p>
-                  <p className="text-sm font-semibold">{String(policy.lockout_time_mins || 'N/A')} mins</p>
+                  <p className="text-xs text-slate-500">Max Retries</p>
+                  <p className="text-sm font-semibold">{policy.max_retries ?? 'N/A'} attempts</p>
+                </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                  <p className="text-xs text-slate-500">Lockout Time</p>
+                  <p className="text-sm font-semibold">{policy.lockout_time_mins ?? 'N/A'} mins</p>
                 </div>
               </div>
             </div>
@@ -422,55 +434,95 @@ export default function PasswordPoliciesContent() {
                 </code>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-3 gap-4">
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Min Length</p>
+                  <p className="text-xs text-slate-500 mb-1">Min Length</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.min_length ?? selectedPolicy?.min_length ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MIN_LENGTH ??
+                     policyDetails.details?.min_length ??
+                     selectedPolicy?.min_length ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Max Length</p>
+                  <p className="text-xs text-slate-500 mb-1">Max Length</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.max_length ?? selectedPolicy?.max_length ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MAX_LENGTH ??
+                     policyDetails.details?.max_length ??
+                     selectedPolicy?.max_length ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Min Uppercase</p>
+                  <p className="text-xs text-slate-500 mb-1">Min Uppercase</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.min_upper_case_chars ?? selectedPolicy?.min_upper_case_chars ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MIN_UPPER_CASE_CHARS ??
+                     policyDetails.details?.min_upper_case_chars ??
+                     selectedPolicy?.min_upper_case_chars ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Min Lowercase</p>
+                  <p className="text-xs text-slate-500 mb-1">Min Lowercase</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.min_lower_case_chars ?? selectedPolicy?.min_lower_case_chars ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MIN_LOWER_CASE_CHARS ??
+                     policyDetails.details?.min_lower_case_chars ??
+                     selectedPolicy?.min_lower_case_chars ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Min Numeric</p>
+                  <p className="text-xs text-slate-500 mb-1">Min Numeric</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.min_numeric_chars ?? selectedPolicy?.min_numeric_chars ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MIN_NUMERIC_CHARS ??
+                     policyDetails.details?.min_numeric_chars ??
+                     selectedPolicy?.min_numeric_chars ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Min Special</p>
+                  <p className="text-xs text-slate-500 mb-1">Min Special</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.min_special_chars ?? selectedPolicy?.min_special_chars ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MIN_SPECIAL_CHARS ??
+                     policyDetails.details?.min_special_chars ??
+                     selectedPolicy?.min_special_chars ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">characters</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Max Age (Days)</p>
+                  <p className="text-xs text-slate-500 mb-1">Max Age</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.max_age_days ?? selectedPolicy?.max_age_days ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MAX_AGE_DAYS ??
+                     policyDetails.details?.max_age_days ??
+                     selectedPolicy?.max_age_days ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">days</p>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500">Lockout (Mins)</p>
+                  <p className="text-xs text-slate-500 mb-1">Max Retries</p>
                   <p className="text-lg font-semibold">
-                    {policyDetails.details?.lockout_time_mins ?? selectedPolicy?.lockout_time_mins ?? 'N/A'}
+                    {policyDetails.details?.PASSWORD_MAX_RETRIES ??
+                     policyDetails.details?.max_retries ??
+                     selectedPolicy?.max_retries ?? 'N/A'}
                   </p>
+                  <p className="text-xs text-slate-500">attempts</p>
                 </div>
+                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
+                  <p className="text-xs text-slate-500 mb-1">Lockout Time</p>
+                  <p className="text-lg font-semibold">
+                    {policyDetails.details?.PASSWORD_LOCKOUT_TIME_MINS ??
+                     policyDetails.details?.lockout_time_mins ??
+                     selectedPolicy?.lockout_time_mins ?? 'N/A'}
+                  </p>
+                  <p className="text-xs text-slate-500">minutes</p>
+                </div>
+              </div>
+
+              <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded">
+                <p className="text-xs text-red-700 dark:text-red-300">
+                  <strong>Note:</strong> This password policy defines complexity requirements for user passwords.
+                  The policy is account-wide and affects all users when set as default.
+                </p>
               </div>
             </div>
           ) : (

@@ -391,14 +391,7 @@ export default function AggregationPoliciesContent() {
             </div>
           ) : policyDetails ? (
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Signature
-                </label>
-                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.details?.signature || policyDetails.signature || 'N/A'}
-                </code>
-              </div>
+              
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">

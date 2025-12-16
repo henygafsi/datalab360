@@ -216,7 +216,6 @@ export interface CreateSessionPolicyRequest {
   policy_name: string;
   session_idle_timeout_mins?: number;
   session_ui_idle_timeout_mins?: number;
-  schema?: string;
 }
 
 // ============= ROW ACCESS POLICY (RLS) SERVICES =============
@@ -420,14 +419,12 @@ export async function createRoleBasedRLSPolicy(
   policyName: string,
   columnName: string,
   allowedRoles: string[],
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   const rolesCondition = allowedRoles.map(role => `CURRENT_ROLE() = '${role}'`).join(' OR ');
   return createRLSPolicy({
     policy_name: policyName,
     signature: `${columnName} VARCHAR`,
     expression: rolesCondition,
-    schema,
     description: `Restricts access to rows based on user role. Allowed roles: ${allowedRoles.join(', ')}`,
   });
 }
@@ -443,13 +440,11 @@ export async function createSessionRoleRLSPolicy(
   policyName: string,
   columnName: string,
   roleName: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<RLSPolicy> {
   return createRLSPolicy({
     policy_name: policyName,
     signature: `${columnName} VARCHAR`,
     expression: `IS_ROLE_IN_SESSION('${roleName}')`,
-    schema,
     description: `Restricts access to rows where ${roleName} role is in session`,
   });
 }
@@ -703,10 +698,45 @@ export async function getNetworkPolicyDetails(policy_name: string): Promise<any>
 
 export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
   const headers = await getAuthHeaders();
-  const response = await axios.get<StandardResponse<{ policies: NetworkPolicy[] }>>(`${POLICIES_API}/network/list`, { headers });
+  console.log('🔍 GET Network Policies API Call:', {  });
+
+  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/network/list`, {
+    params: {  },
+    headers,
+  });
+
+  console.log('✅ GET Network Policies Response:', {
+    status: response.status,
+    fullData: response.data,
+    policiesArray: response.data.data?.policies
+  });
+
   // Defensive check: ensure we always return an array
-  const policies = response.data.data?.policies;
-  return Array.isArray(policies) ? policies : [];
+  const backendPolicies = response.data.data?.policies;
+  if (!Array.isArray(backendPolicies)) {
+    return [];
+  }
+
+  // Map backend response to frontend interface
+  // Handle field name variations between backend and frontend
+  const mappedPolicies: NetworkPolicy[] = backendPolicies.map((policy: any) => ({
+    policy_name: policy.policy_name || policy.name || '',
+    id: policy.id || policy.policy_name || policy.name || '',
+    name: policy.name || policy.policy_name || '',
+    type: policy.type || 'allow',
+    ip_ranges: policy.ip_ranges || [],
+    description: policy.description || policy.comment || undefined,
+    is_default: policy.is_default || false,
+    allowed_ip_list: policy.allowed_ip_list || policy.allowedIpList || undefined,
+    blocked_ip_list: policy.blocked_ip_list || policy.blockedIpList || undefined,
+    comment: policy.comment || policy.description || undefined,
+    created_at: policy.created_at || policy.created_on || '',
+    updated_at: policy.updated_at || policy.updated_on || '',
+  }));
+
+  console.log('🔄 Mapped network policies:', mappedPolicies);
+
+  return mappedPolicies;
 }
 
 export async function createNetworkPolicy(data: CreateNetworkPolicyRequest): Promise<NetworkPolicy> {
@@ -769,14 +799,13 @@ export async function setNetworkPolicyAsDefault(policy_name: string): Promise<an
 
 export async function getTagDetails(
   tag_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/tags/${tag_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     console.log('✅ GET Tag Details Response:', response.data.data);
@@ -787,12 +816,11 @@ export async function getTagDetails(
   }
 }
 
-export async function getTags(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<Tag[]> {
+export async function getTags(): Promise<Tag[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Tags API Call:', { schema });
 
   const response = await axios.get<StandardResponse<{ tags: any[] }>>(`${POLICIES_API}/tags/list`, {
-    params: { schema },
+    params: {  },
     headers,
   });
 
@@ -831,7 +859,7 @@ export async function createTag(data: CreateTagRequest): Promise<Tag> {
         tag_name: data.tag_name,
         allowed_values: data.allowed_values,
         comment: data.comment,
-        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
+        //schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -858,8 +886,7 @@ export async function applyTag(data: ApplyTagRequest): Promise<any> {
         database: data.database,
         schema: data.schema,
         table: data.table,
-        column: data.column,
-        tag_schema: data.tag_schema || DEFAULT_GOVERNANCE_SCHEMA,
+        //column: data.column,
       },
       headers,
     });
@@ -879,7 +906,6 @@ export async function removeTag(
   object_type: string,
   object_name: string,
   tag_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
@@ -888,7 +914,6 @@ export async function removeTag(
         object_type,
         object_name,
         tag_name,
-        schema,
       },
       headers,
     });
@@ -898,17 +923,17 @@ export async function removeTag(
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
       status: error.response?.status,
-      params: { object_type, object_name, tag_name, schema },
+      params: { object_type, object_name, tag_name },
     });
     throw error;
   }
 }
 
-export async function deleteTag(tag_name: string, schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<any> {
+export async function deleteTag(tag_name: string): Promise<any> {
   const headers = await getAuthHeaders();
   try {
     const response = await axios.delete<StandardResponse>(`${POLICIES_API}/tags/${tag_name}`, {
-      params: { schema },
+      params: {  },
       headers,
     });
     return response.data.data;
@@ -918,7 +943,6 @@ export async function deleteTag(tag_name: string, schema: string = DEFAULT_GOVER
       detail: error.response?.data?.detail,
       status: error.response?.status,
       tag_name,
-      schema,
     });
     throw error;
   }
@@ -928,14 +952,13 @@ export async function deleteTag(tag_name: string, schema: string = DEFAULT_GOVER
 
 export async function getPasswordPolicyDetails(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/password/${policy_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     console.log('✅ GET Password Policy Details Response:', response.data.data);
@@ -946,15 +969,48 @@ export async function getPasswordPolicyDetails(
   }
 }
 
-export async function getPasswordPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<PasswordPolicy[]> {
+export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
   const headers = await getAuthHeaders();
-  const response = await axios.get<StandardResponse<{ policies: PasswordPolicy[] }>>(`${POLICIES_API}/password/list`, {
-    params: { schema },
+  console.log('🔍 GET Password Policies API Call:', {  });
+
+  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/password/list`, {
+    params: {  },
     headers,
   });
+
+  console.log('✅ GET Password Policies Response:', {
+    status: response.status,
+    fullData: response.data,
+    policiesArray: response.data.data?.policies
+  });
+
   // Defensive check: ensure we always return an array
-  const policies = response.data.data?.policies;
-  return Array.isArray(policies) ? policies : [];
+  const backendPolicies = response.data.data?.policies;
+  if (!Array.isArray(backendPolicies)) {
+    return [];
+  }
+
+  // Map backend response to frontend interface
+  // Handle field name variations between backend and frontend
+  const mappedPolicies: PasswordPolicy[] = backendPolicies.map((policy: any) => ({
+    policy_name: policy.policy_name || policy.name || '',
+    schema: policy.schema || policy.schema_name || '',
+    min_length: policy.min_length || policy.PASSWORD_MIN_LENGTH || 8,
+    max_length: policy.max_length || policy.PASSWORD_MAX_LENGTH || 256,
+    min_upper_case_chars: policy.min_upper_case_chars || policy.PASSWORD_MIN_UPPER_CASE_CHARS || 0,
+    min_lower_case_chars: policy.min_lower_case_chars || policy.PASSWORD_MIN_LOWER_CASE_CHARS || 0,
+    min_numeric_chars: policy.min_numeric_chars || policy.PASSWORD_MIN_NUMERIC_CHARS || 0,
+    min_special_chars: policy.min_special_chars || policy.PASSWORD_MIN_SPECIAL_CHARS || 0,
+    max_age_days: policy.max_age_days || policy.PASSWORD_MAX_AGE_DAYS || 90,
+    max_retries: policy.max_retries || policy.PASSWORD_MAX_RETRIES || 5,
+    lockout_time_mins: policy.lockout_time_mins || policy.PASSWORD_LOCKOUT_TIME_MINS || 15,
+    is_default: policy.is_default || false,
+    created_at: policy.created_at || policy.created_on || '',
+  }));
+
+  console.log('🔄 Mapped password policies:', mappedPolicies);
+
+  return mappedPolicies;
 }
 
 export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): Promise<PasswordPolicy> {
@@ -972,7 +1028,6 @@ export async function createPasswordPolicy(data: CreatePasswordPolicyRequest): P
         max_age_days: data.max_age_days,
         max_retries: data.max_retries,
         lockout_time_mins: data.lockout_time_mins,
-        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1038,14 +1093,13 @@ export async function setPasswordPolicyAsDefault(
 
 export async function getSessionPolicyDetails(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/session/${policy_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     console.log('✅ GET Session Policy Details Response:', response.data.data);
@@ -1056,15 +1110,41 @@ export async function getSessionPolicyDetails(
   }
 }
 
-export async function getSessionPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<SessionPolicy[]> {
+export async function getSessionPolicies(): Promise<SessionPolicy[]> {
   const headers = await getAuthHeaders();
-  const response = await axios.get<StandardResponse<{ policies: SessionPolicy[] }>>(`${POLICIES_API}/session/list`, {
-    params: { schema },
+  console.log('🔍 GET Session Policies API Call:', {  });
+
+  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/session/list`, {
+    params: {  },
     headers,
   });
+
+  console.log('✅ GET Session Policies Response:', {
+    status: response.status,
+    fullData: response.data,
+    policiesArray: response.data.data?.policies
+  });
+
   // Defensive check: ensure we always return an array
-  const policies = response.data.data?.policies;
-  return Array.isArray(policies) ? policies : [];
+  const backendPolicies = response.data.data?.policies;
+  if (!Array.isArray(backendPolicies)) {
+    return [];
+  }
+
+  // Map backend response to frontend interface
+  // Handle field name variations between backend and frontend
+  const mappedPolicies: SessionPolicy[] = backendPolicies.map((policy: any) => ({
+    policy_name: policy.policy_name || policy.name || '',
+    schema: policy.schema || policy.schema_name || '',
+    session_idle_timeout_mins: policy.session_idle_timeout_mins || policy.SESSION_IDLE_TIMEOUT_MINS || 60,
+    session_ui_idle_timeout_mins: policy.session_ui_idle_timeout_mins || policy.SESSION_UI_IDLE_TIMEOUT_MINS || 30,
+    is_default: policy.is_default || false,
+    created_at: policy.created_at || policy.created_on || '',
+  }));
+
+  console.log('🔄 Mapped session policies:', mappedPolicies);
+
+  return mappedPolicies;
 }
 
 export async function createSessionPolicy(data: CreateSessionPolicyRequest): Promise<SessionPolicy> {
@@ -1075,7 +1155,6 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
         policy_name: data.policy_name,
         session_idle_timeout_mins: data.session_idle_timeout_mins,
         session_ui_idle_timeout_mins: data.session_ui_idle_timeout_mins,
-        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1093,12 +1172,11 @@ export async function createSessionPolicy(data: CreateSessionPolicyRequest): Pro
 
 export async function deleteSessionPolicy(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
     const response = await axios.delete<StandardResponse>(`${POLICIES_API}/session/${policy_name}`, {
-      params: { schema },
+      params: {  },
       headers,
     });
     return response.data.data;
@@ -1108,7 +1186,6 @@ export async function deleteSessionPolicy(
       detail: error.response?.data?.detail,
       status: error.response?.status,
       policy_name,
-      schema,
     });
     throw error;
   }
@@ -1116,12 +1193,11 @@ export async function deleteSessionPolicy(
 
 export async function setSessionPolicyAsDefault(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   try {
     const response = await axios.post<StandardResponse>(`${POLICIES_API}/session/${policy_name}/set-default`, null, {
-      params: { schema },
+      params: {  },
       headers,
     });
     return response.data.data;
@@ -1131,7 +1207,6 @@ export async function setSessionPolicyAsDefault(
       detail: error.response?.data?.detail,
       status: error.response?.status,
       policy_name,
-      schema,
     });
     throw error;
   }
@@ -1149,6 +1224,7 @@ export interface AggregationPolicy {
 export interface CreateAggregationPolicyRequest {
   policy_name: string;
   aggregation_constraint: string;
+  database?: string;
   schema?: string;
 }
 
@@ -1157,19 +1233,17 @@ export interface ApplyAggregationPolicyRequest {
   database: string;
   schema: string;
   table: string;
-  policy_schema?: string;
 }
 
 export async function getAggregationPolicyDetails(
   policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
 ): Promise<any> {
   const headers = await getAuthHeaders();
   const url = `${POLICIES_API}/aggregation/${policy_name}/details`;
 
   try {
     const response = await axios.get<StandardResponse>(url, {
-      params: { schema },
+      params: {  },
       headers,
     });
     console.log('✅ GET Aggregation Policy Details Response:', response.data.data);
@@ -1180,15 +1254,40 @@ export async function getAggregationPolicyDetails(
   }
 }
 
-export async function getAggregationPolicies(schema: string = DEFAULT_GOVERNANCE_SCHEMA): Promise<AggregationPolicy[]> {
+
+export async function getAggregationPolicies(): Promise<AggregationPolicy[]> {
   const headers = await getAuthHeaders();
-  const response = await axios.get<StandardResponse<{ policies: AggregationPolicy[] }>>(`${POLICIES_API}/aggregation/list`, {
-    params: { schema },
+  console.log('🔍 GET Aggregation Policies API Call:', {  });
+
+  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/aggregation/list`, {
+    params: {  },
     headers,
   });
+
+  console.log('✅ GET Aggregation Policies Response:', {
+    status: response.status,
+    fullData: response.data,
+    policiesArray: response.data.data?.policies
+  });
+
   // Defensive check: ensure we always return an array
-  const policies = response.data.data?.policies;
-  return Array.isArray(policies) ? policies : [];
+  const backendPolicies = response.data.data?.policies;
+  if (!Array.isArray(backendPolicies)) {
+    return [];
+  }
+
+  // Map backend response to frontend interface
+  // Handle field name variations between backend and frontend
+  const mappedPolicies: AggregationPolicy[] = backendPolicies.map((policy: any) => ({
+    policy_name: policy.policy_name || policy.name || '',
+    schema: policy.schema || policy.schema_name || '',
+    aggregation_constraint: policy.aggregation_constraint || policy.body || policy.expression || '',
+    created_at: policy.created_at || policy.created_on || '',
+  }));
+
+  console.log('🔄 Mapped aggregation policies:', mappedPolicies);
+
+  return mappedPolicies;
 }
 
 export async function createAggregationPolicy(data: CreateAggregationPolicyRequest): Promise<AggregationPolicy> {
@@ -1198,7 +1297,6 @@ export async function createAggregationPolicy(data: CreateAggregationPolicyReque
       params: {
         policy_name: data.policy_name,
         aggregation_constraint: data.aggregation_constraint,
-        schema: data.schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1223,7 +1321,6 @@ export async function applyAggregationPolicy(data: ApplyAggregationPolicyRequest
         database: data.database,
         schema: data.schema,
         table: data.table,
-        policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
       headers,
     });
@@ -1263,23 +1360,32 @@ export async function removeAggregationPolicy(
 }
 
 export async function deleteAggregationPolicy(
-  policy_name: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
+  policy_name: string
 ): Promise<any> {
   const headers = await getAuthHeaders();
+  console.log('🗑️ DELETE Aggregation Policy API Call:', {
+    url: `${POLICIES_API}/aggregation/${policy_name}`,
+    policy_name,
+  });
+  
   try {
     const response = await axios.delete<StandardResponse>(`${POLICIES_API}/aggregation/${policy_name}`, {
-      params: { schema },
       headers,
     });
+    
+    console.log('✅ DELETE Aggregation Policy Response:', {
+      status: response.status,
+      data: response.data
+    });
+    
     return response.data.data;
   } catch (error: any) {
-    console.error('Delete aggregation policy error:', {
+    console.error('❌ DELETE Aggregation Policy Error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
       status: error.response?.status,
       policy_name,
-      schema,
+      fullError: error.response?.data
     });
     throw error;
   }
@@ -1365,4 +1471,3 @@ export async function healthCheck(): Promise<{ status: string; service: string }
   const response = await axios.get(`${POLICIES_API}/health`, { headers });
   return response.data;
 }
-
