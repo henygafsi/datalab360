@@ -64,8 +64,16 @@ const EventRow: React.FC<{
   isExpanded: boolean;
   onToggle: () => void;
 }> = ({ event, onRemove, onValidate, isExpanded, onToggle }) => {
-  const config = eventTypeConfig[event.type];
-  const status = statusConfig[event.status];
+  const config = eventTypeConfig[event.type] || {
+    icon: Table2,
+    label: event.type,
+    color: 'bg-slate-100 text-slate-600'
+  };
+  const status = statusConfig[event.status] || {
+    icon: Clock4,
+    label: event.status,
+    color: 'bg-slate-100 text-slate-600'
+  };
   const Icon = config.icon;
   const StatusIcon = status.icon;
 
@@ -269,7 +277,11 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact }) => {
             </div>
           ) : (
             events.slice(-5).reverse().map((event) => {
-              const config = eventTypeConfig[event.type];
+              const config = eventTypeConfig[event.type] || {
+                icon: Table2,
+                label: event.type,
+                color: 'bg-slate-100 text-slate-600'
+              };
               const Icon = config.icon;
               return (
                 <div

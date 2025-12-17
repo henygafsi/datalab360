@@ -46,6 +46,7 @@ export interface DesignEvent {
   type: EventType;
   timestamp: Date;
   status: EventStatus;
+  projectId?: string; // Project ID to group events by project
   target: {
     database: string;
     schema: string;
@@ -629,6 +630,46 @@ export const getBackendEventIdsAtom = atom((get) => {
     .map((e) => e.backendId || e.id);
 });
 
+// Filter events by project ID
+export const eventsByProjectAtom = atom((get) => {
+  return (projectId: string | null) => {
+    if (!projectId) return [];
+    const store = get(eventStoreAtom);
+    return store.events.filter((e) => e.projectId === projectId);
+  };
+});
+
+// Load project events from backend
+export const loadProjectEventsAtom = atom(
+  null,
+  async (get, set, { projectId, events }: { projectId: string; events: DesignEvent[] }) => {
+    const store = get(eventStoreAtom);
+
+    // Remove existing events for this project
+    const otherProjectEvents = store.events.filter((e) => e.projectId !== projectId);
+
+    // Add new events for this project
+    set(eventStoreAtom, {
+      ...store,
+      events: [...otherProjectEvents, ...events],
+      undoStack: [],
+      redoStack: [],
+    });
+
+    console.log(`[EventStore] Loaded ${events.length} events for project ${projectId}`);
+  }
+);
+
+// Save project events to backend
+export const saveProjectEventsAtom = atom(
+  null,
+  async (get, set, projectId: string) => {
+    const store = get(eventStoreAtom);
+    const projectEvents = store.events.filter((e) => e.projectId === projectId && !e.synced);
+    return projectEvents;
+  }
+);
+
 // Bulk validate events
 export const validateEventsAtom = atom(null, async (get, set) => {
   const store = get(eventStoreAtom);
@@ -652,13 +693,16 @@ export const validateEventsAtom = atom(null, async (get, set) => {
 });
 
 // Custom hook for event operations
-export function useEventStore() {
+export function useEventStore(projectId?: string | null) {
   const [store, setStore] = useAtom(eventStoreAtom);
   const pendingEvents = useAtomValue(pendingEventsAtom);
   const unsyncedEvents = useAtomValue(unsyncedEventsAtom);
   const eventsByTable = useAtomValue(eventsByTableAtom);
   const eventCounts = useAtomValue(eventCountByTypeAtom);
   const backendEventIds = useAtomValue(getBackendEventIdsAtom);
+  const getEventsByProject = useAtomValue(eventsByProjectAtom);
+  const loadProjectEvents = useSetAtom(loadProjectEventsAtom);
+  const saveProjectEvents = useSetAtom(saveProjectEventsAtom);
   const addEvent = useSetAtom(addEventAtom);
   const undoEvent = useSetAtom(undoEventAtom);
   const redoEvent = useSetAtom(redoEventAtom);
@@ -675,14 +719,20 @@ export function useEventStore() {
   // Helper to get backend ID for an event (returns backendId if synced, else local id)
   const getBackendId = (event: DesignEvent) => event.backendId || event.id;
 
+  // Filter events by project if projectId is provided
+  const projectEvents = projectId ? getEventsByProject(projectId) : store.events;
+  const projectPendingEvents = projectId ? pendingEvents.filter(e => e.projectId === projectId) : pendingEvents;
+  const projectUnsyncedEvents = projectId ? unsyncedEvents.filter(e => e.projectId === projectId) : unsyncedEvents;
+
   return {
-    events: store.events,
-    pendingEvents,
-    unsyncedEvents,
+    events: projectEvents,
+    allEvents: store.events,
+    pendingEvents: projectPendingEvents,
+    unsyncedEvents: projectUnsyncedEvents,
     eventsByTable,
     eventCounts,
     backendEventIds,
-    canUndo: store.events.length > 0,
+    canUndo: projectEvents.length > 0,
     canRedo: store.undoStack.length > 0,
     addEvent,
     undoEvent,
@@ -697,6 +747,9 @@ export function useEventStore() {
     resetEventStatus,
     markEventSynced,
     getBackendId,
+    loadProjectEvents,
+    saveProjectEvents,
+    getEventsByProject,
   };
 }
 

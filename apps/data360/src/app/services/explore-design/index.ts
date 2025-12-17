@@ -1922,18 +1922,32 @@ export async function recordDesignEvents(
         module_type: moduleType,
       };
 
-      console.log('[recordDesignEvents] Sending to /explore-design/add-event:', JSON.stringify(eventPayload, null, 2));
+      console.log('[recordDesignEvents] 🔍 DEBUG - Sending to /explore-design/add-event:', {
+        url: `${EXPLORE_DESIGN_BASE}/add-event`,
+        payload: JSON.stringify(eventPayload, null, 2),
+        headers: Object.keys(headers),
+      });
 
       const response = await axios.post(
         `${EXPLORE_DESIGN_BASE}/add-event`,
         eventPayload,
         { headers }
       );
+
+      console.log('[recordDesignEvents] ✅ SUCCESS - Response:', response.data);
       recordedIds.push(response.data?.event_id || response.data?.project_id || event.event_id);
     } catch (error: any) {
-      // Log full error details for debugging
-      const errorDetail = error.response?.data?.detail || error.message;
-      console.error(`Failed to record event ${event.event_id}:`, errorDetail, error.response?.data);
+      // Enhanced error logging
+      console.error('[recordDesignEvents] ❌ ERROR - Failed to record event:', {
+        event_id: event.event_id,
+        event_type: event.event_type,
+        url: `${EXPLORE_DESIGN_BASE}/add-event`,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        errorMessage: error.message,
+        errorDetail: error.response?.data?.detail,
+        fullResponse: error.response?.data,
+      });
     }
   }
 
@@ -3220,4 +3234,58 @@ export async function getImpactAnalysis(
     { headers }
   );
   return response.data;
+}
+
+
+// ============= PRIMARY KEY SERVICES =============
+
+export interface AddPrimaryKeyRequest {
+  project_id: string;
+  database: string;
+  schema: string;
+  table: string;
+  columns: string[];
+}
+
+/**
+ * Add a primary key (simple or composite) to a table
+ * @param data - Request payload with database, schema, table, and columns
+ * @returns Response from the backend API
+ */
+export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
+  const headers = await getAuthHeaders();
+  const url = `${EXPLORE_DESIGN_BASE}/primary-key/add`;
+
+  const payload = {
+    project_id: data.project_id,
+    database: data.database,
+    schema: data.schema,
+    table: data.table,
+    columns: data.columns,
+  };
+
+  console.log('🔑 ADD Primary Key API Call:', {
+    url,
+    payload,
+  });
+
+  try {
+    const response = await axios.post(url, payload, { headers });
+
+    console.log('✅ ADD Primary Key Response:', {
+      status: response.status,
+      data: response.data,
+    });
+
+    return response.data.data || response.data;
+  } catch (error: any) {
+    console.error('❌ ADD Primary Key Error:', {
+      message: error.response?.data?.message || error.message,
+      detail: error.response?.data?.detail,
+      status: error.response?.status,
+      requestData: payload,
+      fullError: error.response?.data,
+    });
+    throw error;
+  }
 }

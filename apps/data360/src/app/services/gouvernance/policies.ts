@@ -1464,6 +1464,7 @@ export async function getColumns(database: string, schema: string, table: string
   return columns.map(col => col.column_name);
 }
 
+
 // ============= UTILITY SERVICES =============
 
 export async function healthCheck(): Promise<{ status: string; service: string }> {

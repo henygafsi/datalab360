@@ -165,7 +165,6 @@ export default function AggregationPoliciesContent() {
         database,
         schema,
         table,
-        policy_schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}`);
       setShowApplyModal(false);

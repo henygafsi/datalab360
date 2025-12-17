@@ -54,6 +54,7 @@ interface ModelingCanvasProps {
   tables: TableItem[];
   tableColumns: Map<string, ColumnInfo[]>;
   onTableSelect?: (table: TableItem) => void;
+  onTableExclude?: (tableId: string) => void;
   onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string) => void;
   className?: string;
 }
@@ -79,6 +80,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   tables,
   tableColumns,
   onTableSelect,
+  onTableExclude,
   onRelationCreate,
   className,
 }) => {
@@ -284,9 +286,13 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         toast('Click another table to create a relation');
         break;
       case 'exclude':
-        // Remove node
+        // Remove node and call parent callback
         setNodes((nds) => nds.filter((n) => n.id !== nodeId));
-        toast.success('Table excluded from model');
+        if (onTableExclude) {
+          onTableExclude(nodeId);
+        } else {
+          toast.success('Table excluded from model');
+        }
         break;
       case 'duplicate':
         // Duplicate node
