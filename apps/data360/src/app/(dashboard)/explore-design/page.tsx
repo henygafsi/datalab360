@@ -20,10 +20,10 @@ import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
 import {
-  addPrimaryKey,
-  AddPrimaryKeyRequest,
   getProjectEvents,
-  recordDesignEvents
+  recordDesignEvents,
+  executePendingEvents,
+  LocalDesignEvent
 } from '@/app/services/explore-design';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
@@ -35,8 +35,6 @@ import ProjectSelector from './components/ProjectSelector';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
   useEventStore,
-  createTableRenameEvent,
-  createColumnRenameEvent,
   createPrimaryKeyEvent,
   createMaskingPolicyEvent
 } from './stores/event-store';
@@ -501,6 +499,10 @@ export default function ExploreDesignPage() {
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
 
+  // Execution state
+  const [isExecutingChanges, setIsExecutingChanges] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   // Event store with project filtering
   const {
     events,
@@ -513,7 +515,8 @@ export default function ExploreDesignPage() {
     addEvent,
     loadProjectEvents,
     saveProjectEvents,
-    getEventsByProject
+    getEventsByProject,
+    updateEventStatus
   } = useEventStore(selectedProjectId);
 
   // Clean up empty events on mount (one-time cleanup of any legacy empty events)
@@ -666,7 +669,7 @@ export default function ExploreDesignPage() {
       }
     };
     loadTables();
-  }, [selectedDatabase, selectedSchemas, allTableConfigs]);
+  }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger]);
 
   // Load columns when a table is selected
   useEffect(() => {
@@ -686,13 +689,28 @@ export default function ExploreDesignPage() {
         );
 
         if (columns) {
-          const formattedColumns: ColumnInfo[] = columns.map((col: any) => ({
-            name: col.name || col.COLUMN_NAME || 'unknown',
-            dataType: col.type || col.DATA_TYPE || col.data_type || 'VARCHAR',
-            isPrimaryKey: col.is_primary_key || col.CONSTRAINT_TYPE === 'PRIMARY KEY',
-            isNullable: col.is_nullable !== 'NO',
-            isSensitive: detectSensitiveColumn(col.name || col.COLUMN_NAME || ''),
-          }));
+          const formattedColumns: ColumnInfo[] = columns.map((col: any) => {
+            // Check for primary key - backend returns isPk: "Y" or "N"
+            const isPK = col.isPk === 'Y' ||
+              col.isPk === true ||
+              col.is_primary_key === true ||
+              col.is_primary_key === 'Y' ||
+              col.IS_PRIMARY_KEY === 'Y' ||
+              col.CONSTRAINT_TYPE === 'PRIMARY KEY';
+
+            // Check for nullable - backend returns isNull: "Y" or "N"
+            const isNullable = col.isNull === 'Y' ||
+              col.is_nullable === 'YES' ||
+              col.IS_NULLABLE === 'YES';
+
+            return {
+              name: col.name || col.COLUMN_NAME || col.column_name || 'unknown',
+              dataType: col.data_type || col.type || col.DATA_TYPE || 'VARCHAR',
+              isPrimaryKey: isPK,
+              isNullable: isNullable,
+              isSensitive: detectSensitiveColumn(col.name || col.COLUMN_NAME || col.column_name || ''),
+            };
+          });
           setTableColumns(formattedColumns);
 
           // Update columns map for modeling view
@@ -841,7 +859,16 @@ export default function ExploreDesignPage() {
       if (selectedProjectId && pendingEvents.length > 0) {
         const unsyncedEvents = await saveProjectEvents(selectedProjectId);
         if (unsyncedEvents.length > 0) {
-          await recordDesignEvents(selectedProjectId, unsyncedEvents);
+          // Transform events to API format
+          const apiEvents = unsyncedEvents.map(e => ({
+            event_id: e.id,
+            event_type: e.type,
+            target: e.target,
+            payload: e.payload,
+            status: e.status,
+            created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
+          }));
+          await recordDesignEvents(selectedProjectId, apiEvents as any);
           toast.success(`Saved ${unsyncedEvents.length} events for previous project`);
         }
       }
@@ -899,23 +926,70 @@ export default function ExploreDesignPage() {
 
           console.log('📊 Total converted events:', backendEvents.length);
           await loadProjectEvents({ projectId, events: backendEvents });
-          toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
+
+          // Extract unique database and schemas from loaded events to restore selections
+          const uniqueDatabases = new Set<string>();
+          const uniqueSchemas = new Set<string>();
+
+          backendEvents.forEach((event: any) => {
+            if (event.target?.database) {
+              uniqueDatabases.add(event.target.database);
+            }
+            if (event.target?.schema) {
+              uniqueSchemas.add(event.target.schema);
+            }
+          });
+
+          // If we found database/schema info from events, restore the selections
+          if (uniqueDatabases.size > 0) {
+            const dbToSelect = Array.from(uniqueDatabases)[0]; // Use the first database found
+            console.log('🔄 Restoring database selection:', dbToSelect);
+
+            // Show loading toast while restoring project context
+            const loadingToast = toast.loading(`Restoring project context...`);
+
+            try {
+              // Set the database first
+              setSelectedDatabase(dbToSelect);
+
+              // Load schemas for the selected database
+              const schemaList = await getSchemas(dbToSelect);
+              setSchemas(schemaList || []);
+
+              // Filter schemas to only those that exist in the loaded schema list
+              const validSchemas = Array.from(uniqueSchemas).filter(s => schemaList?.includes(s));
+              if (validSchemas.length > 0) {
+                console.log('🔄 Restoring schema selections:', validSchemas);
+                setSelectedSchemas(new Set(validSchemas));
+                setExpandedSchemas(new Set(validSchemas));
+              }
+
+              toast.dismiss(loadingToast);
+              toast.success(`Loaded ${backendEvents.length} events for "${projectName}" - Database: ${dbToSelect}`);
+            } catch (schemaError) {
+              console.error('Failed to load schemas for restored database:', schemaError);
+              toast.dismiss(loadingToast);
+              toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
+            }
+          } else {
+            toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
+          }
         } else {
           // No events for this project, clear local events
           await loadProjectEvents({ projectId, events: [] });
-          toast.info(`No existing events for "${projectName}"`);
+          toast.error(`No existing events for "${projectName}"`);
         }
       } catch (error) {
         console.error('❌ Error loading project events:', error);
         // Initialize with empty events if load fails
         await loadProjectEvents({ projectId, events: [] });
-        toast.info(`Project "${projectName}" selected`);
+        toast.error(`Project "${projectName}" selected`);
       }
     } catch (error: any) {
       console.error('Error in handleProjectSelect:', error);
       toast.error('Failed to switch projects');
     }
-  }, [selectedProjectId, pendingEvents, saveProjectEvents, loadProjectEvents, recordDesignEvents]);
+  }, [selectedProjectId, pendingEvents, saveProjectEvents, loadProjectEvents]);
 
   const handleConfigChange = useCallback((configUpdate: Partial<TableConfig>) => {
     if (!selectedTable) return;
@@ -998,7 +1072,7 @@ export default function ExploreDesignPage() {
     const tablesToAdd = Array.from(selectedTables).filter(id => !modelingTableIds.has(id));
 
     if (tablesToAdd.length === 0) {
-      toast.info('Selected tables are already in modeling');
+      toast.success('Selected tables are already in modeling');
       return;
     }
 
@@ -1056,8 +1130,8 @@ export default function ExploreDesignPage() {
     toast.success(`Removed ${table.table} from modeling`);
   }, [tables, selectedProjectId, addEvent]);
 
-  // Add primary key to a table
-  const handleAddPrimaryKey = useCallback(async (
+  // Add primary key to a table - saves event for later execution
+  const handleAddPrimaryKey = useCallback((
     database: string,
     schema: string,
     tableName: string,
@@ -1073,49 +1147,156 @@ export default function ExploreDesignPage() {
       return;
     }
 
-    try {
-      const request: AddPrimaryKeyRequest = {
-        project_id: selectedProjectId,
+    // Create PRIMARY_KEY_SET event (will be executed on validation)
+    addEvent({
+      type: 'PRIMARY_KEY_SET',
+      projectId: selectedProjectId || undefined,
+      target: {
         database: database,
         schema: schema,
         table: tableName,
+      },
+      payload: {
         columns: columns,
-      };
+      },
+    });
 
-      await addPrimaryKey(request);
+    const pkType = columns.length > 1 ? 'composite' : 'simple';
+    toast.success(`${pkType} primary key for "${tableName}" added to pending changes`);
+  }, [addEvent, selectedProjectId]);
 
-      // Create PRIMARY_KEY_SET event
-      const tableId = `${database}.${schema}.${tableName}`;
-      const table = tables.find(t => t.id === tableId);
-      if (table) {
-        addEvent({
-          type: 'PRIMARY_KEY_SET',
-          projectId: selectedProjectId || undefined,
-          target: {
-            database: database,
-            schema: schema,
-            table: tableName,
-          },
-          payload: {
-            columns: columns,
-          },
+  // Rename table handler - saves event for later execution
+  const handleRenameTable = useCallback((
+    database: string,
+    schema: string,
+    tableName: string,
+    newName: string
+  ) => {
+    if (!newName || newName === tableName) {
+      toast.error('Please provide a different name');
+      return;
+    }
+
+    // Create TABLE_RENAMED event (will be executed on validation)
+    addEvent({
+      type: 'TABLE_RENAMED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database,
+        schema,
+        table: tableName,
+      },
+      payload: {
+        oldName: tableName,
+        newName: newName,
+      },
+    });
+
+    toast.success(`Table rename "${tableName}" → "${newName}" added to pending changes`);
+  }, [addEvent, selectedProjectId]);
+
+  // Rename column handler - saves event for later execution
+  const handleRenameColumn = useCallback((
+    database: string,
+    schema: string,
+    tableName: string,
+    columnName: string,
+    newName: string
+  ) => {
+    if (!newName || newName === columnName) {
+      toast.error('Please provide a different name');
+      return;
+    }
+
+    // Create COLUMN_RENAMED event (will be executed on validation)
+    addEvent({
+      type: 'COLUMN_RENAMED',
+      projectId: selectedProjectId || undefined,
+      target: {
+        database,
+        schema,
+        table: tableName,
+        column: columnName,
+      },
+      payload: {
+        oldName: columnName,
+        newName: newName,
+      },
+    });
+
+    toast.success(`Column rename "${columnName}" → "${newName}" added to pending changes`);
+  }, [addEvent, selectedProjectId]);
+
+  // Execute all pending events (validate and apply changes)
+  const handleExecutePendingEvents = useCallback(async () => {
+    if (!selectedProjectId) {
+      toast.error('Please select a project first');
+      return;
+    }
+
+    if (pendingEvents.length === 0) {
+      toast('No pending changes to execute', { icon: 'ℹ️' });
+      return;
+    }
+
+    setIsExecutingChanges(true);
+    const toastId = toast.loading(`Executing ${pendingEvents.length} pending changes...`);
+
+    try {
+      // Convert events to LocalDesignEvent format
+      const eventsToExecute: LocalDesignEvent[] = pendingEvents.map(e => ({
+        id: e.id,
+        type: e.type,
+        timestamp: e.timestamp,
+        status: e.status,
+        projectId: e.projectId,
+        target: e.target,
+        payload: e.payload,
+        backendId: e.backendId,
+        synced: e.synced,
+        userId: e.userId,
+        error: e.error,
+      }));
+
+      const result = await executePendingEvents(selectedProjectId, eventsToExecute);
+
+      toast.dismiss(toastId);
+
+      // Update event statuses based on execution results
+      result.results.forEach((res) => {
+        updateEventStatus({
+          eventId: res.eventId,
+          status: res.success ? 'applied' : 'failed',
+          error: res.error,
         });
+      });
 
-        // Update table status
-        setTables(prevTables => prevTables.map(t =>
-          t.id === tableId
-            ? { ...t, status: 'configured' as const, hasPrimaryKey: true }
-            : t
-        ));
+      if (result.failed === 0) {
+        toast.success(`Successfully executed ${result.success} changes`);
+      } else {
+        toast.error(`Executed ${result.success} changes, ${result.failed} failed`);
       }
 
-      const pkType = columns.length > 1 ? 'composite' : 'simple';
-      toast.success(`${pkType} primary key added successfully to ${tableName}`);
+      // Log detailed results
+      console.log('📊 Execution results:', result);
+
+      // Refresh tables and columns data after successful execution
+      if (result.success > 0) {
+        setRefreshTrigger(prev => prev + 1);
+        // Also refresh columns if a table is selected
+        if (selectedTable) {
+          setSelectedTable({ ...selectedTable }); // Trigger column reload
+        }
+      }
+
     } catch (error: any) {
-      console.error('Error adding primary key:', error);
-      toast.error(error.response?.data?.message || 'Failed to add primary key');
+      toast.dismiss(toastId);
+      console.error('Error executing events:', error);
+      toast.error(error.message || 'Failed to execute pending changes');
+    } finally {
+      setIsExecutingChanges(false);
     }
-  }, [tables, addEvent, selectedProjectId]);
+  }, [selectedProjectId, pendingEvents, updateEventStatus, selectedTable]);
 
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
@@ -1567,13 +1748,12 @@ export default function ExploreDesignPage() {
                             onClick={() => {
                               const newName = prompt('Enter new table name:', selectedTable.table);
                               if (newName && newName !== selectedTable.table) {
-                                const target = {
-                                  database: selectedTable.database,
-                                  schema: selectedTable.schema,
-                                  table: selectedTable.table,
-                                };
-                                addEvent(createTableRenameEvent(target, selectedTable.table, newName));
-                                toast.success(`Table rename queued: ${selectedTable.table} → ${newName}`);
+                                handleRenameTable(
+                                  selectedTable.database,
+                                  selectedTable.schema,
+                                  selectedTable.table,
+                                  newName
+                                );
                               }
                             }}
                           >
@@ -1603,7 +1783,7 @@ export default function ExploreDesignPage() {
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={async () => {
+                            onClick={() => {
                               if (!selectedTable) return;
 
                               // Allow user to select multiple columns for composite PK
@@ -1615,7 +1795,7 @@ export default function ExploreDesignPage() {
                               if (columnsString) {
                                 const columns = columnsString.split(',').map(c => c.trim()).filter(c => c);
                                 if (columns.length > 0) {
-                                  await handleAddPrimaryKey(
+                                  handleAddPrimaryKey(
                                     selectedTable.database,
                                     selectedTable.schema,
                                     selectedTable.table,
@@ -1647,7 +1827,42 @@ export default function ExploreDesignPage() {
                           <span className="font-medium">{tableColumns.length} Columns</span>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Button variant="outline" size="sm" className="gap-1 text-xs">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="gap-1 text-xs"
+                            onClick={() => {
+                              if (!selectedTable) return;
+                              if (!selectedProjectId) {
+                                toast.error('Please select a project first');
+                                return;
+                              }
+
+                              // Prompt for column name and type
+                              const columnName = prompt('Enter column name:');
+                              if (!columnName) return;
+
+                              const columnType = prompt('Enter column type (e.g., VARCHAR, NUMBER, DATE, BOOLEAN):', 'VARCHAR');
+                              if (!columnType) return;
+
+                              // Create ADD_COLUMN event
+                              addEvent({
+                                type: 'ADD_COLUMN',
+                                projectId: selectedProjectId,
+                                target: {
+                                  database: selectedTable.database,
+                                  schema: selectedTable.schema,
+                                  table: selectedTable.table,
+                                },
+                                payload: {
+                                  columnName: columnName.trim(),
+                                  columnType: columnType.trim().toUpperCase(),
+                                },
+                              });
+
+                              toast.success(`Add column "${columnName}" added to pending changes`);
+                            }}
+                          >
                             <Plus className="h-3.5 w-3.5" />
                             Add Column
                           </Button>
@@ -1669,17 +1884,30 @@ export default function ExploreDesignPage() {
                               <div className="flex items-center gap-3">
                                 <div className="flex items-center gap-2 min-w-[200px]">
                                   {col.isPrimaryKey && (
-                                    <Key className="h-4 w-4 text-amber-500 flex-shrink-0" />
+                                    <Tooltip content="Primary Key">
+                                      <div className="p-1 bg-amber-100 dark:bg-amber-900/30 rounded">
+                                        <Key className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
+                                      </div>
+                                    </Tooltip>
                                   )}
                                   {col.isSensitive && !col.isPrimaryKey && (
-                                    <Shield className="h-4 w-4 text-red-500 flex-shrink-0" />
+                                    <Tooltip content="Sensitive Column">
+                                      <div className="p-1 bg-red-100 dark:bg-red-900/30 rounded">
+                                        <Shield className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                                      </div>
+                                    </Tooltip>
                                   )}
                                   {!col.isPrimaryKey && !col.isSensitive && (
-                                    <div className="w-4" />
+                                    <div className="w-6" />
                                   )}
-                                  <span className="font-mono text-sm">{col.name}</span>
+                                  <span className="font-mono text-xs">{col.name}</span>
                                 </div>
-                                <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-xs font-mono">
+                                {col.isPrimaryKey && (
+                                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-medium">
+                                    PK
+                                  </Badge>
+                                )}
+                                <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-mono px-1 py-0">
                                   {col.dataType}
                                 </Badge>
                                 {!col.isNullable && (
@@ -1695,26 +1923,26 @@ export default function ExploreDesignPage() {
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       col.isPrimaryKey && "bg-amber-100 dark:bg-amber-900/30"
                                     )}
-                                    onClick={async () => {
+                                    onClick={() => {
                                       if (!selectedTable) return;
 
                                       if (!col.isPrimaryKey) {
-                                        // Adding primary key - call API
-                                        await handleAddPrimaryKey(
+                                        // Adding primary key - create event for later execution
+                                        handleAddPrimaryKey(
                                           selectedTable.database,
                                           selectedTable.schema,
                                           selectedTable.table,
                                           [col.name]
                                         );
                                       } else {
-                                        // Removing primary key - just create event for now
+                                        // Removing primary key - create event for later execution
                                         const target = {
                                           database: selectedTable.database,
                                           schema: selectedTable.schema,
                                           table: selectedTable.table,
                                         };
                                         addEvent(createPrimaryKeyEvent(target, [col.name], false));
-                                        toast.success(`Removed ${col.name} from primary key`);
+                                        toast.success(`Remove PK "${col.name}" added to pending changes`);
                                       }
                                     }}
                                   >
@@ -1736,7 +1964,7 @@ export default function ExploreDesignPage() {
                                         table: selectedTable.table,
                                       };
                                       addEvent(createMaskingPolicyEvent(target, policyName, [col.name], true));
-                                      toast.success(`Applied masking policy to ${col.name}`);
+                                      toast.success(`Masking policy for "${col.name}" added to pending changes`);
                                     }}
                                   >
                                     <Shield className="h-4 w-4 text-slate-400 hover:text-green-500" />
@@ -1749,13 +1977,13 @@ export default function ExploreDesignPage() {
                                       if (!selectedTable) return;
                                       const newName = prompt(`Rename column "${col.name}" to:`, col.name);
                                       if (newName && newName !== col.name) {
-                                        const target = {
-                                          database: selectedTable.database,
-                                          schema: selectedTable.schema,
-                                          table: selectedTable.table,
-                                        };
-                                        addEvent(createColumnRenameEvent(target, col.name, newName));
-                                        toast.success(`Column renamed: ${col.name} → ${newName}`);
+                                        handleRenameColumn(
+                                          selectedTable.database,
+                                          selectedTable.schema,
+                                          selectedTable.table,
+                                          col.name,
+                                          newName
+                                        );
                                       }
                                     }}
                                   >
@@ -1894,7 +2122,12 @@ export default function ExploreDesignPage() {
         {/* Right Event Panel (collapsible) - hidden in fullscreen */}
         {showEventPanel && !isFullscreen && (
           <div className="w-44 lg:w-52 xl:w-60 border-l dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 overflow-hidden flex flex-col flex-shrink-0">
-            <EventTable compact className="flex-1 m-1.5 overflow-hidden" />
+            <EventTable
+              compact
+              className="flex-1 m-1.5 overflow-hidden"
+              onExecuteChanges={handleExecutePendingEvents}
+              isExecuting={isExecutingChanges}
+            />
           </div>
         )}
       </div>

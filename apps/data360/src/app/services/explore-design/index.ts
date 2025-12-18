@@ -21,9 +21,12 @@ export type IngestionMode =
   | 'scd_type3';
 
 export type EventType =
+  | 'TABLE_SELECTED'
   | 'TABLE_RENAMED'
   | 'COLUMN_RENAMED'
   | 'COLUMN_TYPE_CHANGED'
+  | 'ADD_COLUMN'
+  | 'REMOVE_COLUMN'
   | 'PRIMARY_KEY_SET'
   | 'PRIMARY_KEY_REMOVED'
   | 'FOREIGN_KEY_ADDED'
@@ -32,6 +35,8 @@ export type EventType =
   | 'SCD_CONFIGURED'
   | 'MASKING_POLICY_APPLIED'
   | 'MASKING_POLICY_REMOVED'
+  | 'RLS_POLICY_APPLIED'
+  | 'RLS_POLICY_REMOVED'
   | 'AGGREGATION_POLICY_APPLIED'
   | 'AGGREGATION_POLICY_REMOVED'
   | 'RELATION_CREATED'
@@ -41,7 +46,8 @@ export type EventType =
   | 'TABLE_EXCLUDED'
   | 'TABLE_INCLUDED'
   | 'COLUMN_EXCLUDED'
-  | 'COLUMN_INCLUDED';
+  | 'COLUMN_INCLUDED'
+  | 'BATCH_OPERATION';
 
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
 
@@ -3288,4 +3294,384 @@ export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
     });
     throw error;
   }
+}
+
+// ============= TABLE SCHEMA MANAGEMENT SERVICES =============
+
+export type ConstraintType =
+  | 'RENAME_TAB'
+  | 'RENAME_COL'
+  | 'ADD_COLUMN'
+  | 'DROP_COLUMN'
+  | 'CHANGE_TYPE'
+  | 'ADD_PK'
+  | 'DROP_PK'
+  | 'ADD_FK'
+  | 'DROP_FK'
+  | 'ADD_UNIQUE'
+  | 'DROP_UNIQUE'
+  | 'SET_DEFAULT'
+  | 'SET_NULL'
+  | 'SET_NOT_NULL'
+  | 'SWAP'
+  | 'ADD_CHECK_CONSTRAINT'
+  | 'DROP_CHECK_CONSTRAINT'
+  | 'COMMENT_ON_COLUMN'
+  | 'AUTO_INCREMENT';
+
+export interface ManageTableRequest {
+  SOURCE_TABLE: string; // Format: DATABASE.SCHEMA.TABLE
+  CONSTRAINT_TYPE: ConstraintType;
+  COLUMN_NAME?: string;
+  COLUMN_TYPE?: string;
+  NEW_NAME?: string;
+  TABLE_REF?: string;
+  COLUMN_REF?: string;
+  DEFAULT_VALUE?: string;
+  TARGET_TABLE?: string;
+  COLUMN_COMMENT?: string;
+}
+
+/**
+ * Manage table schema - rename tables/columns, add/drop constraints, etc.
+ * Uses POST /mapping/manage_table endpoint
+ */
+export async function manageTable(request: ManageTableRequest): Promise<any> {
+  const headers = await getAuthHeaders();
+  const url = `${API_URL}/mapping/manage_table`;
+
+  // Build query params
+  const params = new URLSearchParams();
+  params.append('SOURCE_TABLE', request.SOURCE_TABLE);
+  params.append('CONSTRAINT_TYPE', request.CONSTRAINT_TYPE);
+
+  if (request.COLUMN_NAME) params.append('COLUMN_NAME', request.COLUMN_NAME);
+  if (request.COLUMN_TYPE) params.append('COLUMN_TYPE', request.COLUMN_TYPE);
+  if (request.NEW_NAME) params.append('NEW_NAME', request.NEW_NAME);
+  if (request.TABLE_REF) params.append('TABLE_REF', request.TABLE_REF);
+  if (request.COLUMN_REF) params.append('COLUMN_REF', request.COLUMN_REF);
+  if (request.DEFAULT_VALUE) params.append('DEFAULT_VALUE', request.DEFAULT_VALUE);
+  if (request.TARGET_TABLE) params.append('TARGET_TABLE', request.TARGET_TABLE);
+  if (request.COLUMN_COMMENT) params.append('COLUMN_COMMENT', request.COLUMN_COMMENT);
+
+  console.log('🔧 Manage Table API Call:', {
+    url: `${url}?${params.toString()}`,
+    request,
+  });
+
+  try {
+    const response = await axios.post(`${url}?${params.toString()}`, null, { headers });
+
+    console.log('✅ Manage Table Response:', {
+      status: response.status,
+      data: response.data,
+    });
+
+    return response.data;
+  } catch (error: any) {
+    console.error('❌ Manage Table Error:', {
+      message: error.response?.data?.message || error.message,
+      detail: error.response?.data?.detail,
+      status: error.response?.status,
+      request,
+      fullError: error.response?.data,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Rename a table
+ */
+export async function renameTable(
+  database: string,
+  schema: string,
+  tableName: string,
+  newName: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'RENAME_TAB',
+    NEW_NAME: newName,
+  });
+}
+
+/**
+ * Rename a column
+ */
+export async function renameColumn(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string,
+  newName: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'RENAME_COL',
+    COLUMN_NAME: columnName,
+    NEW_NAME: newName,
+  });
+}
+
+/**
+ * Add a column to a table
+ */
+export async function addColumn(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string,
+  columnType: string,
+  defaultValue?: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'ADD_COLUMN',
+    COLUMN_NAME: columnName,
+    COLUMN_TYPE: columnType,
+    DEFAULT_VALUE: defaultValue,
+  });
+}
+
+/**
+ * Drop a column from a table
+ */
+export async function dropColumn(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'DROP_COLUMN',
+    COLUMN_NAME: columnName,
+  });
+}
+
+/**
+ * Change column type
+ */
+export async function changeColumnType(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string,
+  newType: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'CHANGE_TYPE',
+    COLUMN_NAME: columnName,
+    COLUMN_TYPE: newType,
+  });
+}
+
+/**
+ * Add foreign key constraint
+ */
+export async function addForeignKey(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string,
+  refTable: string,
+  refColumn: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'ADD_FK',
+    COLUMN_NAME: columnName,
+    TABLE_REF: refTable,
+    COLUMN_REF: refColumn,
+  });
+}
+
+/**
+ * Add comment to a column
+ */
+export async function addColumnComment(
+  database: string,
+  schema: string,
+  tableName: string,
+  columnName: string,
+  comment: string
+): Promise<any> {
+  return manageTable({
+    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
+    CONSTRAINT_TYPE: 'COMMENT_ON_COLUMN',
+    COLUMN_NAME: columnName,
+    COLUMN_COMMENT: comment,
+  });
+}
+
+// ============= EVENT EXECUTION SERVICE =============
+
+// Local event format (from frontend event store)
+export interface LocalDesignEvent {
+  id: string;
+  type: EventType;
+  timestamp: Date;
+  status: 'pending' | 'validated' | 'failed' | 'applied';
+  projectId?: string;
+  target: {
+    database: string;
+    schema: string;
+    table: string;
+    column?: string;
+  };
+  payload: Record<string, any>;
+  backendId?: string;
+  synced?: boolean;
+  userId?: string;
+  error?: string;
+}
+
+/**
+ * Execute a single event action based on event type
+ * This is called during validation/deployment to actually apply the changes
+ */
+export async function executeEventAction(event: LocalDesignEvent, projectId?: string): Promise<{
+  success: boolean;
+  message: string;
+  error?: string;
+}> {
+  const { type, target, payload } = event;
+  const { database, schema, table, column } = target;
+
+  console.log('🚀 Executing event action:', { type, target, payload });
+
+  try {
+    switch (type) {
+      case 'TABLE_RENAMED':
+        await renameTable(database, schema, table, payload.newName);
+        return { success: true, message: `Table renamed to ${payload.newName}` };
+
+      case 'COLUMN_RENAMED':
+        await renameColumn(database, schema, table, payload.oldName || column!, payload.newName);
+        return { success: true, message: `Column renamed to ${payload.newName}` };
+
+      case 'COLUMN_TYPE_CHANGED':
+        await changeColumnType(database, schema, table, column!, payload.newType);
+        return { success: true, message: `Column type changed to ${payload.newType}` };
+
+      case 'ADD_COLUMN':
+        await addColumn(database, schema, table, payload.columnName, payload.columnType, payload.defaultValue);
+        return { success: true, message: `Column ${payload.columnName} added` };
+
+      case 'REMOVE_COLUMN':
+        await dropColumn(database, schema, table, payload.columnName || column!);
+        return { success: true, message: `Column ${payload.columnName || column} dropped` };
+
+      case 'PRIMARY_KEY_SET':
+        await addPrimaryKey({
+          project_id: event.projectId || projectId || '',
+          database,
+          schema,
+          table,
+          columns: payload.columns || [column!],
+        });
+        return { success: true, message: `Primary key set on ${payload.columns?.join(', ')}` };
+
+      case 'FOREIGN_KEY_ADDED':
+        await addForeignKey(
+          database,
+          schema,
+          table,
+          payload.columnName || column!,
+          payload.refTable,
+          payload.refColumn
+        );
+        return { success: true, message: `Foreign key added` };
+
+      // Events that don't require direct SQL execution (handled by other services)
+      case 'MASKING_POLICY_APPLIED':
+      case 'MASKING_POLICY_REMOVED':
+      case 'RLS_POLICY_APPLIED':
+      case 'RLS_POLICY_REMOVED':
+      case 'AGGREGATION_POLICY_APPLIED':
+      case 'AGGREGATION_POLICY_REMOVED':
+      case 'TAG_APPLIED':
+      case 'TAG_REMOVED':
+      case 'INGESTION_MODE_SET':
+      case 'SCD_CONFIGURED':
+        return { success: true, message: `${type} - handled by policy service` };
+
+      // Metadata-only events (no SQL execution needed)
+      case 'TABLE_SELECTED':
+      case 'TABLE_EXCLUDED':
+      case 'TABLE_INCLUDED':
+      case 'COLUMN_EXCLUDED':
+      case 'COLUMN_INCLUDED':
+      case 'RELATION_CREATED':
+      case 'RELATION_REMOVED':
+      case 'BATCH_OPERATION':
+        return { success: true, message: `${type} - metadata only` };
+
+      default:
+        console.warn(`Unknown event type: ${type}`);
+        return { success: true, message: `Unknown event type: ${type}` };
+    }
+  } catch (error: any) {
+    console.error(`❌ Failed to execute ${type}:`, error);
+    return {
+      success: false,
+      message: `Failed to execute ${type}`,
+      error: error.response?.data?.detail || error.message,
+    };
+  }
+}
+
+/**
+ * Execute all pending events for a project
+ * Returns summary of executed/failed events
+ */
+export async function executePendingEvents(
+  projectId: string,
+  events: LocalDesignEvent[]
+): Promise<{
+  total: number;
+  success: number;
+  failed: number;
+  results: Array<{
+    eventId: string;
+    type: string;
+    success: boolean;
+    message: string;
+    error?: string;
+  }>;
+}> {
+  const results: Array<{
+    eventId: string;
+    type: string;
+    success: boolean;
+    message: string;
+    error?: string;
+  }> = [];
+
+  let successCount = 0;
+  let failedCount = 0;
+
+  for (const event of events) {
+    const result = await executeEventAction(event, projectId);
+    results.push({
+      eventId: event.id || event.backendId || 'unknown',
+      type: event.type,
+      ...result,
+    });
+
+    if (result.success) {
+      successCount++;
+    } else {
+      failedCount++;
+    }
+  }
+
+  return {
+    total: events.length,
+    success: successCount,
+    failed: failedCount,
+    results,
+  };
 }
