@@ -63,6 +63,47 @@ interface MaskingPolicyDisplay {
   type: string;
 }
 
+// Collapsible Schema Badge - shows schema name, expands to show database
+const SchemaBadge: React.FC<{
+  schemaName: string;
+  dbName: string;
+  onSettings: (e: React.MouseEvent) => void;
+  onRemove: () => void;
+}> = ({ schemaName, dbName, onSettings, onRemove }) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  return (
+    <div
+      className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs group"
+    >
+      <button
+        className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-transform"
+        onClick={() => setIsExpanded(!isExpanded)}
+      >
+        <ChevronRight className={cn('h-3 w-3 transition-transform', isExpanded && 'rotate-90')} />
+      </button>
+      <span className="flex items-center">
+        {isExpanded && (
+          <span className="text-[10px] text-blue-500 dark:text-blue-400 mr-0.5">{dbName}.</span>
+        )}
+        <span className="font-medium">{schemaName}</span>
+      </span>
+      <button
+        className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
+        onClick={onSettings}
+      >
+        <Settings className="h-3 w-3" />
+      </button>
+      <button
+        className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
+        onClick={onRemove}
+      >
+        <X className="h-3 w-3" />
+      </button>
+    </div>
+  );
+};
+
 // Bulk Actions Component
 const BulkActionsBar: React.FC<{
   selectedCount: number;
@@ -175,7 +216,7 @@ const CompactSourceSelector: React.FC<{
   selectedDatabase: string;
   onDatabaseChange: (db: string) => void;
   schemas: string[];
-  selectedSchemas: Set<string>;
+  selectedSchemas: Map<string, string>; // Map<schemaName, databaseName>
   onSchemaToggle: (schema: string) => void;
   onSchemaAction: (schema: string, action: string) => void;
   isLoadingDatabases: boolean;
@@ -248,7 +289,7 @@ const CompactSourceSelector: React.FC<{
               <span className="truncate">
                 {selectedSchemas.size > 0
                   ? selectedSchemas.size === 1
-                    ? Array.from(selectedSchemas)[0]
+                    ? Array.from(selectedSchemas.keys())[0]
                     : `${selectedSchemas.size} schemas`
                   : 'Select schemas'}
               </span>
@@ -305,31 +346,20 @@ const CompactSourceSelector: React.FC<{
         </div>
       )}
 
-      {/* Selected schemas tags with actions */}
+      {/* Selected schemas tags with actions - collapsible to show DB */}
       {selectedSchemas.size > 0 && selectedSchemas.size <= 3 && (
         <div className="flex items-center gap-1">
-          {Array.from(selectedSchemas).map((schema) => (
-            <div
-              key={schema}
-              className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs group"
-            >
-              <span>{schema}</span>
-              <button
-                className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSchemaContextMenu({ schema, x: e.clientX, y: e.clientY });
-                }}
-              >
-                <Settings className="h-3 w-3" />
-              </button>
-              <button
-                className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
-                onClick={() => onSchemaToggle(schema)}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
+          {Array.from(selectedSchemas.entries()).map(([schemaName, dbName]) => (
+            <SchemaBadge
+              key={`${dbName}.${schemaName}`}
+              schemaName={schemaName}
+              dbName={dbName}
+              onSettings={(e) => {
+                e.stopPropagation();
+                setSchemaContextMenu({ schema: schemaName, x: e.clientX, y: e.clientY });
+              }}
+              onRemove={() => onSchemaToggle(schemaName)}
+            />
           ))}
         </div>
       )}
@@ -458,7 +488,8 @@ export default function ExploreDesignPage() {
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDatabase, setSelectedDatabase] = useState<string>('');
   const [schemas, setSchemas] = useState<string[]>([]);
-  const [selectedSchemas, setSelectedSchemas] = useState<Set<string>>(new Set());
+  // Map<schemaName, databaseName> - tracks which database each schema belongs to
+  const [selectedSchemas, setSelectedSchemas] = useState<Map<string, string>>(new Map());
   const [tables, setTables] = useState<TableItem[]>([]);
   const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set());
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
@@ -632,24 +663,25 @@ export default function ExploreDesignPage() {
     }
 
     const loadTables = async () => {
-      console.log('[Explore-Design] Loading tables for schemas:', Array.from(selectedSchemas));
+      console.log('[Explore-Design] Loading tables for schemas:', Object.fromEntries(selectedSchemas));
       setIsLoadingTables(true);
       try {
         const allTables: TableItem[] = [];
 
-        for (const schema of Array.from(selectedSchemas)) {
-          console.log(`[Explore-Design] Fetching tables for ${selectedDatabase}.${schema}`);
-          const tableList = await getTables(selectedDatabase, schema);
-          console.log(`[Explore-Design] Tables for ${schema}:`, tableList);
+        // Iterate over schema->database map entries
+        for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
+          console.log(`[Explore-Design] Fetching tables for ${dbName}.${schemaName}`);
+          const tableList = await getTables(dbName, schemaName);
+          console.log(`[Explore-Design] Tables for ${schemaName}:`, tableList);
           if (tableList) {
             tableList.forEach((tableName: string) => {
-              const tableId = `${selectedDatabase}.${schema}.${tableName}`;
+              const tableId = `${dbName}.${schemaName}.${tableName}`;
               const existingConfig = allTableConfigs.get(tableId);
 
               allTables.push({
                 id: tableId,
-                database: selectedDatabase,
-                schema,
+                database: dbName,
+                schema: schemaName,
                 table: tableName,
                 columnCount: 0,
                 hasPrimaryKey: existingConfig?.primaryKeys?.length ? true : false,
@@ -661,7 +693,8 @@ export default function ExploreDesignPage() {
         }
 
         setTables(allTables);
-        setExpandedSchemas(new Set(selectedSchemas));
+        // Expanded schemas is still Set<string> of schema names
+        setExpandedSchemas(new Set(selectedSchemas.keys()));
       } catch (error) {
         toast.error('Failed to load tables');
       } finally {
@@ -797,30 +830,44 @@ export default function ExploreDesignPage() {
   }, [searchQuery, tables, tableColumns, selectedTable, maskingPolicies]);
 
   // Handlers
+  // handleSchemaToggle now stores schema with its database (selectedDatabase is the current DB in dropdown)
   const handleSchemaToggle = useCallback((schema: string) => {
+    // When user selects a schema, selectedDatabase is the database that schema belongs to
+    // (because schemas dropdown only shows schemas for the currently selected database)
+    const databaseForSchema = selectedDatabase;
+
     setSelectedSchemas(prev => {
-      const next = new Set(prev);
-      if (next.has(schema)) {
-        next.delete(schema);
+      const next = new Map(prev);
+      const isAdding = !next.has(schema);
+
+      if (isAdding) {
+        // Store schema with its database
+        next.set(schema, databaseForSchema);
       } else {
-        next.add(schema);
-        // Record SCHEMA_SELECTED event when a schema is selected
-        if (selectedProjectId && selectedDatabase) {
+        next.delete(schema);
+      }
+
+      // Record SCHEMA_SELECTED event when a schema is selected (after state update)
+      if (isAdding && selectedProjectId && databaseForSchema) {
+        // Use setTimeout to ensure this runs after state update
+        setTimeout(() => {
           addEvent({
             type: 'SCHEMA_SELECTED',
             projectId: selectedProjectId,
             target: {
-              database: selectedDatabase,
+              database: databaseForSchema,
               schema: schema,
               table: '',
             },
             payload: {
               schemaName: schema,
-              database: selectedDatabase,
+              database: databaseForSchema,
             },
           });
-        }
+          console.log('📌 SCHEMA_SELECTED event created for:', databaseForSchema + '.' + schema);
+        }, 0);
       }
+
       return next;
     });
   }, [selectedProjectId, selectedDatabase, addEvent]);
@@ -903,12 +950,17 @@ export default function ExploreDesignPage() {
         console.log('📥 Raw events details:', eventsResponse.events?.map((e: any) => ({
           type: e.event_type,
           schema: e.details?.schema,
+          schemaName: e.details?.schemaName,
           table: e.details?.table
         })));
 
+        // Log SCHEMA_SELECTED events specifically
+        const schemaEvents = eventsResponse.events?.filter((e: any) => e.event_type === 'SCHEMA_SELECTED');
+        console.log('📥 SCHEMA_SELECTED events:', schemaEvents);
+
         // Extract unique database and schemas from ALL events
-        const uniqueDatabases = new Set<string>();
-        const uniqueSchemas = new Set<string>();
+        // Track schemas per database: Map<database, Set<schema>>
+        const schemasByDatabase = new Map<string, Set<string>>();
 
         // Convert backend events to local event format
         let backendEvents: any[] = [];
@@ -950,31 +1002,45 @@ export default function ExploreDesignPage() {
               error: e.error_message,
             };
 
-            // Extract database and schema from EVERY event
-            if (convertedEvent.target?.database) {
-              uniqueDatabases.add(convertedEvent.target.database);
+            // Extract database and schema pairs from EVERY event
+            const db = convertedEvent.target?.database;
+            const schema = convertedEvent.target?.schema;
+            if (db && schema) {
+              if (!schemasByDatabase.has(db)) {
+                schemasByDatabase.set(db, new Set());
+              }
+              schemasByDatabase.get(db)!.add(schema);
             }
-            if (convertedEvent.target?.schema) {
-              uniqueSchemas.add(convertedEvent.target.schema);
-            }
+
             // Also check payload for SCHEMA_SELECTED events
-            if (e.event_type === 'SCHEMA_SELECTED' && details.schemaName) {
-              uniqueSchemas.add(details.schemaName);
+            if (e.event_type === 'SCHEMA_SELECTED') {
+              const eventDb = details.database || db;
+              const eventSchema = details.schemaName || details.schema || schema;
+              if (eventDb && eventSchema) {
+                if (!schemasByDatabase.has(eventDb)) {
+                  schemasByDatabase.set(eventDb, new Set());
+                }
+                schemasByDatabase.get(eventDb)!.add(eventSchema);
+              }
             }
 
             return convertedEvent;
           });
 
           console.log('📊 Total converted events:', backendEvents.length);
-          console.log('📊 Unique schemas from events:', Array.from(uniqueSchemas));
+          console.log('📊 Schemas by database:', Object.fromEntries(
+            Array.from(schemasByDatabase.entries()).map(([db, schemas]) => [db, Array.from(schemas)])
+          ));
         }
 
         await loadProjectEvents({ projectId, events: backendEvents });
 
         // If we found database/schema info, restore the selections
-        if (uniqueDatabases.size > 0) {
-          const dbToSelect = Array.from(uniqueDatabases)[0]; // Use the first database found
+        if (schemasByDatabase.size > 0) {
+          // Use the first database as the selected one (user can switch later)
+          const dbToSelect = Array.from(schemasByDatabase.keys())[0];
           console.log('🔄 Restoring database selection:', dbToSelect);
+          console.log('🔄 All databases with schemas:', Array.from(schemasByDatabase.keys()));
 
           try {
             // Set the database first
@@ -984,17 +1050,55 @@ export default function ExploreDesignPage() {
             const schemaList = await getSchemas(dbToSelect);
             setSchemas(schemaList || []);
 
-            // Filter schemas to only those that exist in the loaded schema list
-            const validSchemas = Array.from(uniqueSchemas).filter(s => schemaList?.includes(s));
+            // Build the Map<schemaName, databaseName> for ALL schemas from ALL databases
+            const allSchemasMap = new Map<string, string>();
+            schemasByDatabase.forEach((schemasSet, dbName) => {
+              schemasSet.forEach(schemaName => {
+                allSchemasMap.set(schemaName, dbName);
+              });
+            });
+
+            console.log('🔄 Restoring ALL schema selections:', Object.fromEntries(allSchemasMap));
+            setSelectedSchemas(allSchemasMap);
+
+            // Expanded schemas - only those in the selected database's schema list
+            const schemasForSelectedDb = schemasByDatabase.get(dbToSelect) || new Set();
+            const validSchemas = Array.from(schemasForSelectedDb).filter(s => schemaList?.includes(s));
             if (validSchemas.length > 0) {
-              console.log('🔄 Restoring schema selections:', validSchemas);
-              setSelectedSchemas(new Set(validSchemas));
               setExpandedSchemas(new Set(validSchemas));
             }
 
+            // Restore modeling tables from TABLE_ADDED_TO_MODELING events
+            // Get all added tables, then remove the ones that were removed
+            const addedTableIds = new Set<string>();
+            const removedTableIds = new Set<string>();
+
+            backendEvents.forEach((event: any) => {
+              if (event.type === 'TABLE_ADDED_TO_MODELING' && event.payload?.tableId) {
+                addedTableIds.add(event.payload.tableId);
+              }
+              if (event.type === 'TABLE_REMOVED_FROM_MODELING' && event.payload?.tableId) {
+                removedTableIds.add(event.payload.tableId);
+              }
+            });
+
+            // Final modeling tables = added - removed
+            const modelingTables = new Set(
+              Array.from(addedTableIds).filter(id => !removedTableIds.has(id))
+            );
+
+            if (modelingTables.size > 0) {
+              console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
+              setModelingTableIds(modelingTables);
+            }
+
+            // Count total schemas across all databases
+            const totalSchemas = Array.from(schemasByDatabase.values()).reduce((sum, s) => sum + s.size, 0);
+
             toast.dismiss(loadingToast);
             const eventInfo = backendEvents.length > 0 ? ` (${backendEvents.length} events)` : '';
-            toast.success(`Loaded "${projectName}"${eventInfo} - ${validSchemas.length} schema(s)`);
+            const dbInfo = schemasByDatabase.size > 1 ? ` across ${schemasByDatabase.size} databases` : '';
+            toast.success(`Loaded "${projectName}"${eventInfo} - ${totalSchemas} schema(s)${dbInfo}`);
           } catch (schemaError) {
             console.error('Failed to load schemas for restored database:', schemaError);
             toast.dismiss(loadingToast);
@@ -1113,19 +1217,22 @@ export default function ExploreDesignPage() {
       return next;
     });
 
-    // Create TABLE_INCLUDED events for each table
+    // Create TABLE_ADDED_TO_MODELING events for each table
     tablesToAdd.forEach(tableId => {
       const table = tables.find(t => t.id === tableId);
       if (table) {
         addEvent({
-          type: 'TABLE_INCLUDED',
+          type: 'TABLE_ADDED_TO_MODELING',
           projectId: selectedProjectId || undefined,
           target: {
             database: table.database,
             schema: table.schema,
             table: table.table,
           },
-          payload: {},
+          payload: {
+            tableId: tableId,
+            tableName: table.table,
+          },
         });
       }
     });
@@ -1145,16 +1252,19 @@ export default function ExploreDesignPage() {
       return next;
     });
 
-    // Create TABLE_EXCLUDED event
+    // Create TABLE_REMOVED_FROM_MODELING event
     addEvent({
-      type: 'TABLE_EXCLUDED',
+      type: 'TABLE_REMOVED_FROM_MODELING',
       projectId: selectedProjectId || undefined,
       target: {
         database: table.database,
         schema: table.schema,
         table: table.table,
       },
-      payload: {},
+      payload: {
+        tableId: tableId,
+        tableName: table.table,
+      },
     });
 
     toast.success(`Removed ${table.table} from modeling`);
@@ -2295,7 +2405,7 @@ export default function ExploreDesignPage() {
         <DeploymentValidation
           onClose={() => setShowDeploymentModal(false)}
           database={selectedDatabase}
-          schemas={Array.from(selectedSchemas)}
+          schemas={Array.from(selectedSchemas.keys())}
           projectId={selectedProjectId}
         />
       </Modal>

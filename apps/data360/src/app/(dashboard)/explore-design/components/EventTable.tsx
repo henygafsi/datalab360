@@ -41,6 +41,8 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   COLUMN_EXCLUDED: { icon: Trash2, label: 'Column Excluded', color: 'bg-red-100 text-red-600' },
   COLUMN_INCLUDED: { icon: Check, label: 'Column Included', color: 'bg-green-100 text-green-600' },
   BATCH_OPERATION: { icon: Table2, label: 'Batch Operation', color: 'bg-slate-100 text-slate-600' },
+  TABLE_ADDED_TO_MODELING: { icon: Plus, label: 'Added to Modeling', color: 'bg-green-100 text-green-600' },
+  TABLE_REMOVED_FROM_MODELING: { icon: Minus, label: 'Removed from Modeling', color: 'bg-red-100 text-red-600' },
 };
 
 // Status config
@@ -206,6 +208,11 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
     'RLS_POLICY_APPLIED',
     'RLS_POLICY_REMOVED',
   ];
+
+  // Filter pending events to only count displayable ones
+  const displayablePendingEvents = useMemo(() => {
+    return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
+  }, [pendingEvents]);
 
   // Filtered events
   const filteredEvents = useMemo(() => {
@@ -379,7 +386,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-slate-400" />
             <span className="font-medium text-sm">Changes</span>
-            <Badge className="bg-amber-100 text-amber-600 text-xs">{pendingEvents.length}</Badge>
+            <Badge className="bg-amber-100 text-amber-600 text-xs">{displayablePendingEvents.length}</Badge>
           </div>
           <div className="flex items-center gap-1">
             <Tooltip content="Undo Last">
@@ -529,7 +536,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
           )}
         </div>
         {/* Execute Changes Button */}
-        {pendingEvents.length > 0 && onExecuteChanges && (
+        {displayablePendingEvents.length > 0 && onExecuteChanges && (
           <div className="px-3 py-2 border-t dark:border-slate-700">
             <Button
               size="sm"
@@ -545,7 +552,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
               ) : (
                 <>
                   <Play className="h-3.5 w-3.5" />
-                  Execute ({pendingEvents.length})
+                  Execute ({displayablePendingEvents.length})
                 </>
               )}
             </Button>
@@ -564,8 +571,8 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
             <History className="h-5 w-5 text-slate-400" />
             <h3 className="font-semibold">Event History</h3>
             <Badge className="bg-slate-100 text-slate-600">{events.length} total</Badge>
-            {pendingEvents.length > 0 && (
-              <Badge className="bg-amber-100 text-amber-600">{pendingEvents.length} pending</Badge>
+            {displayablePendingEvents.length > 0 && (
+              <Badge className="bg-amber-100 text-amber-600">{displayablePendingEvents.length} pending</Badge>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -573,7 +580,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
               <Button
                 size="sm"
                 onClick={onExecuteChanges}
-                disabled={pendingEvents.length === 0 || isExecuting}
+                disabled={displayablePendingEvents.length === 0 || isExecuting}
                 className="gap-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
               >
                 {isExecuting ? (
@@ -593,7 +600,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
               variant="outline"
               size="sm"
               onClick={() => validateEvents()}
-              disabled={pendingEvents.length === 0}
+              disabled={displayablePendingEvents.length === 0}
               className="gap-1"
             >
               <Check className="h-4 w-4" />
@@ -669,7 +676,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-4">
             <span className="text-slate-500">
-              <span className="font-medium text-amber-600">{pendingEvents.length}</span> pending
+              <span className="font-medium text-amber-600">{displayablePendingEvents.length}</span> pending
             </span>
             <span className="text-slate-500">
               <span className="font-medium text-green-600">

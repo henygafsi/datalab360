@@ -36,7 +36,9 @@ export type EventType =
   | 'COLUMN_EXCLUDED'
   | 'COLUMN_INCLUDED'
   | 'BATCH_OPERATION'
-  | 'SCHEMA_SELECTED';
+  | 'SCHEMA_SELECTED'
+  | 'TABLE_ADDED_TO_MODELING'
+  | 'TABLE_REMOVED_FROM_MODELING';
 
 // Event Status
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
@@ -302,6 +304,15 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
       // Schema selection - must have schema name in target or payload
       if (!payload.schemaName && !payload.schema) {
         console.debug(`[EventStore] Rejecting ${type}: no schema name`);
+        return false;
+      }
+      return true;
+
+    case 'TABLE_ADDED_TO_MODELING':
+    case 'TABLE_REMOVED_FROM_MODELING':
+      // Table modeling events - must have table info in target
+      if (!payload.tableId && !payload.tableName) {
+        console.debug(`[EventStore] Rejecting ${type}: no table info`);
         return false;
       }
       return true;
