@@ -35,7 +35,8 @@ export type EventType =
   | 'TABLE_INCLUDED'
   | 'COLUMN_EXCLUDED'
   | 'COLUMN_INCLUDED'
-  | 'BATCH_OPERATION';
+  | 'BATCH_OPERATION'
+  | 'SCHEMA_SELECTED';
 
 // Event Status
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
@@ -295,6 +296,14 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
     case 'COLUMN_EXCLUDED':
     case 'COLUMN_INCLUDED':
       // These are valid with just target info (no payload needed)
+      return true;
+
+    case 'SCHEMA_SELECTED':
+      // Schema selection - must have schema name in target or payload
+      if (!payload.schemaName && !payload.schema) {
+        console.debug(`[EventStore] Rejecting ${type}: no schema name`);
+        return false;
+      }
       return true;
 
     case 'TABLE_SELECTED':
@@ -720,9 +729,11 @@ export function useEventStore(projectId?: string | null) {
   const getBackendId = (event: DesignEvent) => event.backendId || event.id;
 
   // Filter events by project if projectId is provided
-  const projectEvents = projectId ? getEventsByProject(projectId) : store.events;
-  const projectPendingEvents = projectId ? pendingEvents.filter(e => e.projectId === projectId) : pendingEvents;
-  const projectUnsyncedEvents = projectId ? unsyncedEvents.filter(e => e.projectId === projectId) : unsyncedEvents;
+  // When no project is selected, return empty arrays (not all events)
+  // Use store.events directly to ensure reactivity when events are loaded
+  const projectEvents = projectId ? store.events.filter(e => e.projectId === projectId) : [];
+  const projectPendingEvents = projectId ? store.events.filter(e => e.projectId === projectId && e.status === 'pending') : [];
+  const projectUnsyncedEvents = projectId ? store.events.filter(e => e.projectId === projectId && !e.synced && e.status === 'pending') : [];
 
   return {
     events: projectEvents,

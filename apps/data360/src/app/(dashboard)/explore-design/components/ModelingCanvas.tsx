@@ -33,6 +33,7 @@ import { toast } from 'react-hot-toast';
 import TableNode, { TableNodeData, TableNodeColumn } from './TableNode';
 import PolicyAssignmentPanel from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
+import ColumnMappingModal from './ColumnMappingModal';
 import { useEventStore, createRelationEvent, createTableRenameEvent } from '../stores/event-store';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -57,6 +58,7 @@ interface ModelingCanvasProps {
   onTableExclude?: (tableId: string) => void;
   onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string) => void;
   className?: string;
+  projectId?: string | null;
 }
 
 // Auto-layout helper
@@ -83,12 +85,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onTableExclude,
   onRelationCreate,
   className,
+  projectId,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
-  const { addEvent, undoEvent, redoEvent, canUndo, canRedo, events } = useEventStore();
+  const { addEvent, undoEvent, redoEvent, canUndo, canRedo, events } = useEventStore(projectId);
 
-  // Convert tables to nodes
+  // Use ref for addEvent to avoid dependency issues in useMemo
+  const addEventRef = useRef(addEvent);
+  addEventRef.current = addEvent;
+
+  // Use ref for events to avoid infinite loop in useMemo
+  const eventsRef = useRef(events);
+  eventsRef.current = events;
+
+  // Use ref for context action handler (defined later in component)
+  const handleNodeContextActionRef = useRef<(nodeId: string, action: string) => void>(() => {});
+
+  // Convert tables to nodes - only depend on tables and tableColumns, not events
   const initialNodes: Node<TableNodeData>[] = useMemo(() => {
     const nodes = tables.map((table, idx) => {
       const cols = tableColumns.get(table.id) || [];
@@ -109,14 +123,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             isSensitive: c.isSensitive,
           })),
           status: table.status,
-          hasChanges: events.some((e) =>
-            e.target.database === table.database &&
-            e.target.schema === table.schema &&
-            e.target.table === table.table &&
-            e.status === 'pending'
-          ),
+          hasChanges: false, // Will be updated dynamically via ref if needed
           onRename: (newName: string) => {
-            addEvent(createTableRenameEvent(
+            addEventRef.current(createTableRenameEvent(
               { database: table.database, schema: table.schema, table: table.table },
               table.table,
               newName
@@ -127,21 +136,22 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             // Handle column click - could open column detail modal
           },
           onContextMenu: (e: React.MouseEvent, action: string) => {
-            handleNodeContextAction(table.id, action);
+            handleNodeContextActionRef.current(table.id, action);
           },
         },
       };
     });
     return autoLayout(nodes);
-  }, [tables, tableColumns, events, addEvent]);
+  }, [tables, tableColumns]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  // Update nodes when initialNodes change
+  // Update nodes only when tables or tableColumns change (not on every event change)
   useEffect(() => {
     setNodes(initialNodes);
-  }, [initialNodes, setNodes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialNodes]);
 
   // State
   const [showMinimap, setShowMinimap] = useState(true);
@@ -156,10 +166,16 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Policy and column modals state
   const [showPolicyPanel, setShowPolicyPanel] = useState(false);
   const [showAddColumnModal, setShowAddColumnModal] = useState(false);
+  const [showColumnMappingModal, setShowColumnMappingModal] = useState(false);
   const [selectedTableForPanel, setSelectedTableForPanel] = useState<TableItem | null>(null);
   const [selectedTableColumns, setSelectedTableColumns] = useState<ColumnInfo[]>([]);
 
-  // Connection handler
+  // Column mapping state
+  const [mappingSourceTable, setMappingSourceTable] = useState<TableItem | null>(null);
+  const [mappingTargetTable, setMappingTargetTable] = useState<TableItem | null>(null);
+  const [pendingConnectionParams, setPendingConnectionParams] = useState<Connection | null>(null);
+
+  // Connection handler - opens modal for column selection
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target) return;
@@ -168,47 +184,47 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const targetTable = tables.find((t) => t.id === params.target);
       if (!sourceTable || !targetTable) return;
 
-      // Get columns for both tables
-      const sourceColumns = tableColumns.get(sourceTable.id) || [];
-      const targetColumns = tableColumns.get(targetTable.id) || [];
+      // Store tables and connection params, then open modal
+      setMappingSourceTable(sourceTable);
+      setMappingTargetTable(targetTable);
+      setPendingConnectionParams(params);
+      setShowColumnMappingModal(true);
+    },
+    [tables]
+  );
 
-      // Prompt for column selection
-      const sourceColOptions = sourceColumns.map(c => c.name).join(', ');
-      const targetColOptions = targetColumns.filter(c => c.isPrimaryKey).map(c => c.name);
-      const targetPKs = targetColOptions.length > 0 ? targetColOptions.join(', ') : targetColumns.slice(0, 3).map(c => c.name).join(', ');
+  // Handle column mapping from modal
+  const handleColumnMapping = useCallback(
+    (sourceColumns: string[], targetColumn: string) => {
+      if (!mappingSourceTable || !mappingTargetTable || !pendingConnectionParams) return;
 
-      const sourceCol = prompt(
-        `Select source column from ${sourceTable.table}:\nAvailable: ${sourceColOptions}\n\nEnter column name:`,
-        sourceColumns.find(c => c.name.toLowerCase().includes('id'))?.name || sourceColumns[0]?.name || 'id'
-      );
-      if (!sourceCol) return;
+      // Create relation event for each source column mapping
+      sourceColumns.forEach((sourceCol) => {
+        addEventRef.current(createRelationEvent(
+          { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
+          sourceCol,
+          { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table },
+          targetColumn,
+          sourceColumns.length > 1 ? 'many_to_one' : 'one_to_one',
+          true
+        ));
+      });
 
-      const targetCol = prompt(
-        `Select target column from ${targetTable.table}:\nPrimary keys: ${targetPKs || 'none'}\nAll columns: ${targetColumns.map(c => c.name).join(', ')}\n\nEnter column name:`,
-        targetColOptions[0] || targetColumns[0]?.name || 'id'
-      );
-      if (!targetCol) return;
-
-      // Create relation event
-      addEvent(createRelationEvent(
-        { database: sourceTable.database, schema: sourceTable.schema, table: sourceTable.table },
-        sourceCol,
-        { database: targetTable.database, schema: targetTable.schema, table: targetTable.table },
-        targetCol,
-        'many_to_one',
-        true
-      ));
+      // Create edge label showing mapping
+      const mappingLabel = sourceColumns.length > 1
+        ? `[${sourceColumns.join(', ')}] → ${targetColumn}`
+        : `${sourceColumns[0]} → ${targetColumn}`;
 
       // Add edge with label showing column mapping
       setEdges((eds) =>
         addEdge(
           {
-            ...params,
+            ...pendingConnectionParams,
             type: 'smoothstep',
             animated: true,
             markerEnd: { type: MarkerType.ArrowClosed },
-            style: edgeStyles['many_to_one'],
-            label: `${sourceCol} → ${targetCol}`,
+            style: edgeStyles[sourceColumns.length > 1 ? 'many_to_one' : 'one_to_one'],
+            label: mappingLabel,
             labelStyle: { fontSize: 10, fontWeight: 500 },
             labelBgStyle: { fill: '#fff', fillOpacity: 0.9 },
           },
@@ -216,10 +232,25 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         )
       );
 
-      onRelationCreate?.(params.source, params.target, sourceCol, targetCol);
-      toast.success(`FK created: ${sourceTable.table}.${sourceCol} → ${targetTable.table}.${targetCol}`);
+      onRelationCreate?.(
+        pendingConnectionParams.source!,
+        pendingConnectionParams.target!,
+        sourceColumns.join(','),
+        targetColumn
+      );
+
+      toast.success(
+        sourceColumns.length > 1
+          ? `Mapping created: ${sourceColumns.length} columns → ${targetColumn}`
+          : `Mapping created: ${sourceColumns[0]} → ${targetColumn}`
+      );
+
+      // Reset state
+      setMappingSourceTable(null);
+      setMappingTargetTable(null);
+      setPendingConnectionParams(null);
     },
-    [tables, tableColumns, addEvent, setEdges, onRelationCreate]
+    [mappingSourceTable, mappingTargetTable, pendingConnectionParams, setEdges, onRelationCreate]
   );
 
   // Helper to open policy panel for a table
@@ -315,6 +346,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         break;
     }
   }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, tableColumns, addEvent]);
+
+  // Update ref for context action handler
+  handleNodeContextActionRef.current = handleNodeContextAction;
 
   // Node click handler
   const onNodeClick = useCallback(
@@ -593,6 +627,32 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           }}
         />
       )}
+
+      {/* Column Mapping Modal */}
+      <ColumnMappingModal
+        isOpen={showColumnMappingModal}
+        onClose={() => {
+          setShowColumnMappingModal(false);
+          setMappingSourceTable(null);
+          setMappingTargetTable(null);
+          setPendingConnectionParams(null);
+        }}
+        sourceTable={mappingSourceTable}
+        targetTable={mappingTargetTable}
+        sourceColumns={(mappingSourceTable ? tableColumns.get(mappingSourceTable.id) || [] : []).map(c => ({
+          name: c.name,
+          dataType: c.dataType,
+          isPrimaryKey: c.isPrimaryKey,
+          isNullable: c.isNullable,
+        }))}
+        targetColumns={(mappingTargetTable ? tableColumns.get(mappingTargetTable.id) || [] : []).map(c => ({
+          name: c.name,
+          dataType: c.dataType,
+          isPrimaryKey: c.isPrimaryKey,
+          isNullable: c.isNullable,
+        }))}
+        onCreateMapping={handleColumnMapping}
+      />
     </div>
   );
 };

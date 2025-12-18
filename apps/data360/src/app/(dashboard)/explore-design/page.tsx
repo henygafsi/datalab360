@@ -804,10 +804,26 @@ export default function ExploreDesignPage() {
         next.delete(schema);
       } else {
         next.add(schema);
+        // Record SCHEMA_SELECTED event when a schema is selected
+        if (selectedProjectId && selectedDatabase) {
+          addEvent({
+            type: 'SCHEMA_SELECTED',
+            projectId: selectedProjectId,
+            target: {
+              database: selectedDatabase,
+              schema: schema,
+              table: '',
+            },
+            payload: {
+              schemaName: schema,
+              database: selectedDatabase,
+            },
+          });
+        }
       }
       return next;
     });
-  }, []);
+  }, [selectedProjectId, selectedDatabase, addEvent]);
 
   const handleTableSelection = useCallback((tableId: string, selected: boolean) => {
     setSelectedTables(prev => {
@@ -877,14 +893,27 @@ export default function ExploreDesignPage() {
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
 
+      // Show loading toast while restoring project context
+      const loadingToast = toast.loading(`Restoring project context...`);
+
       // Load events for the new project from backend
       try {
-        const response = await getProjectEvents(projectId);
-        console.log('📥 Backend events response:', response);
+        const eventsResponse = await getProjectEvents(projectId);
+        console.log('📥 Backend events response:', eventsResponse);
+        console.log('📥 Raw events details:', eventsResponse.events?.map((e: any) => ({
+          type: e.event_type,
+          schema: e.details?.schema,
+          table: e.details?.table
+        })));
 
-        if (response.events && response.events.length > 0) {
-          // Convert backend events to local event format
-          const backendEvents = response.events.map((e: any) => {
+        // Extract unique database and schemas from ALL events
+        const uniqueDatabases = new Set<string>();
+        const uniqueSchemas = new Set<string>();
+
+        // Convert backend events to local event format
+        let backendEvents: any[] = [];
+        if (eventsResponse.events && eventsResponse.events.length > 0) {
+          backendEvents = eventsResponse.events.map((e: any) => {
             // Backend structure:
             // - details: { database, schema, table, columns, sql }
             // - event_id, event_type, status, timestamp, username, error_message
@@ -921,66 +950,67 @@ export default function ExploreDesignPage() {
               error: e.error_message,
             };
 
+            // Extract database and schema from EVERY event
+            if (convertedEvent.target?.database) {
+              uniqueDatabases.add(convertedEvent.target.database);
+            }
+            if (convertedEvent.target?.schema) {
+              uniqueSchemas.add(convertedEvent.target.schema);
+            }
+            // Also check payload for SCHEMA_SELECTED events
+            if (e.event_type === 'SCHEMA_SELECTED' && details.schemaName) {
+              uniqueSchemas.add(details.schemaName);
+            }
+
             return convertedEvent;
           });
 
           console.log('📊 Total converted events:', backendEvents.length);
-          await loadProjectEvents({ projectId, events: backendEvents });
+          console.log('📊 Unique schemas from events:', Array.from(uniqueSchemas));
+        }
 
-          // Extract unique database and schemas from loaded events to restore selections
-          const uniqueDatabases = new Set<string>();
-          const uniqueSchemas = new Set<string>();
+        await loadProjectEvents({ projectId, events: backendEvents });
 
-          backendEvents.forEach((event: any) => {
-            if (event.target?.database) {
-              uniqueDatabases.add(event.target.database);
+        // If we found database/schema info, restore the selections
+        if (uniqueDatabases.size > 0) {
+          const dbToSelect = Array.from(uniqueDatabases)[0]; // Use the first database found
+          console.log('🔄 Restoring database selection:', dbToSelect);
+
+          try {
+            // Set the database first
+            setSelectedDatabase(dbToSelect);
+
+            // Load schemas for the selected database
+            const schemaList = await getSchemas(dbToSelect);
+            setSchemas(schemaList || []);
+
+            // Filter schemas to only those that exist in the loaded schema list
+            const validSchemas = Array.from(uniqueSchemas).filter(s => schemaList?.includes(s));
+            if (validSchemas.length > 0) {
+              console.log('🔄 Restoring schema selections:', validSchemas);
+              setSelectedSchemas(new Set(validSchemas));
+              setExpandedSchemas(new Set(validSchemas));
             }
-            if (event.target?.schema) {
-              uniqueSchemas.add(event.target.schema);
-            }
-          });
 
-          // If we found database/schema info from events, restore the selections
-          if (uniqueDatabases.size > 0) {
-            const dbToSelect = Array.from(uniqueDatabases)[0]; // Use the first database found
-            console.log('🔄 Restoring database selection:', dbToSelect);
-
-            // Show loading toast while restoring project context
-            const loadingToast = toast.loading(`Restoring project context...`);
-
-            try {
-              // Set the database first
-              setSelectedDatabase(dbToSelect);
-
-              // Load schemas for the selected database
-              const schemaList = await getSchemas(dbToSelect);
-              setSchemas(schemaList || []);
-
-              // Filter schemas to only those that exist in the loaded schema list
-              const validSchemas = Array.from(uniqueSchemas).filter(s => schemaList?.includes(s));
-              if (validSchemas.length > 0) {
-                console.log('🔄 Restoring schema selections:', validSchemas);
-                setSelectedSchemas(new Set(validSchemas));
-                setExpandedSchemas(new Set(validSchemas));
-              }
-
-              toast.dismiss(loadingToast);
-              toast.success(`Loaded ${backendEvents.length} events for "${projectName}" - Database: ${dbToSelect}`);
-            } catch (schemaError) {
-              console.error('Failed to load schemas for restored database:', schemaError);
-              toast.dismiss(loadingToast);
-              toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
-            }
-          } else {
+            toast.dismiss(loadingToast);
+            const eventInfo = backendEvents.length > 0 ? ` (${backendEvents.length} events)` : '';
+            toast.success(`Loaded "${projectName}"${eventInfo} - ${validSchemas.length} schema(s)`);
+          } catch (schemaError) {
+            console.error('Failed to load schemas for restored database:', schemaError);
+            toast.dismiss(loadingToast);
             toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
           }
         } else {
-          // No events for this project, clear local events
-          await loadProjectEvents({ projectId, events: [] });
-          toast.error(`No existing events for "${projectName}"`);
+          toast.dismiss(loadingToast);
+          if (backendEvents.length > 0) {
+            toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
+          } else {
+            toast.error(`Project "${projectName}" selected (no saved data)`);
+          }
         }
       } catch (error) {
         console.error('❌ Error loading project events:', error);
+        toast.dismiss(loadingToast);
         // Initialize with empty events if load fails
         await loadProjectEvents({ projectId, events: [] });
         toast.error(`Project "${projectName}" selected`);
@@ -1243,20 +1273,23 @@ export default function ExploreDesignPage() {
     const toastId = toast.loading(`Executing ${pendingEvents.length} pending changes...`);
 
     try {
-      // Convert events to LocalDesignEvent format
-      const eventsToExecute: LocalDesignEvent[] = pendingEvents.map(e => ({
-        id: e.id,
-        type: e.type,
-        timestamp: e.timestamp,
-        status: e.status,
-        projectId: e.projectId,
-        target: e.target,
-        payload: e.payload,
-        backendId: e.backendId,
-        synced: e.synced,
-        userId: e.userId,
-        error: e.error,
-      }));
+      // Filter and convert events to LocalDesignEvent format - only include executable event types
+      const executableEventTypes = ['PRIMARY_KEY_SET', 'TABLE_RENAMED', 'COLUMN_RENAMED', 'ADD_COLUMN', 'TABLE_INCLUDED', 'TABLE_EXCLUDED'];
+      const eventsToExecute: LocalDesignEvent[] = pendingEvents
+        .filter(e => executableEventTypes.includes(e.type))
+        .map(e => ({
+          id: e.id,
+          type: e.type as any, // Type assertion needed due to type mismatch between stores
+          timestamp: e.timestamp,
+          status: e.status,
+          projectId: e.projectId,
+          target: e.target,
+          payload: e.payload,
+          backendId: e.backendId,
+          synced: e.synced,
+          userId: e.userId,
+          error: e.error,
+        }));
 
       const result = await executePendingEvents(selectedProjectId, eventsToExecute);
 
@@ -2114,6 +2147,7 @@ export default function ExploreDesignPage() {
                   toast.success('Relation created');
                 }}
                 className={cn("h-full", isFullscreen && "pt-14")}
+                projectId={selectedProjectId}
               />
             </div>
           )}
@@ -2127,6 +2161,7 @@ export default function ExploreDesignPage() {
               className="flex-1 m-1.5 overflow-hidden"
               onExecuteChanges={handleExecutePendingEvents}
               isExecuting={isExecutingChanges}
+              projectId={selectedProjectId}
             />
           </div>
         )}

@@ -13,6 +13,7 @@ import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/ev
 
 // Event type icons and labels
 const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label: string; color: string }> = {
+  SCHEMA_SELECTED: { icon: Table2, label: 'Schema Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_SELECTED: { icon: Table2, label: 'Table Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_RENAMED: { icon: Edit2, label: 'Table Renamed', color: 'bg-blue-100 text-blue-600' },
   COLUMN_RENAMED: { icon: Edit2, label: 'Column Renamed', color: 'bg-blue-100 text-blue-600' },
@@ -178,18 +179,40 @@ interface EventTableProps {
   compact?: boolean;
   onExecuteChanges?: () => void;
   isExecuting?: boolean;
+  projectId?: string | null;
 }
 
-const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteChanges, isExecuting }) => {
-  const { events, pendingEvents, removeEvent, updateEventStatus, clearEvents, validateEvents, undoEvent, canUndo } = useEventStore();
+const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteChanges, isExecuting, projectId }) => {
+  const { events, pendingEvents, removeEvent, updateEventStatus, clearEvents, validateEvents, undoEvent, canUndo } = useEventStore(projectId);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<EventType | 'all'>('all');
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
 
+  // Event types that should be displayed in the Changes panel
+  // Only show actual schema changes, not UI state events like SCHEMA_SELECTED
+  const displayableEventTypes: EventType[] = [
+    'TABLE_RENAMED',
+    'COLUMN_RENAMED',
+    'INGESTION_MODE_SET',
+    'MASKING_POLICY_APPLIED',
+    'MASKING_POLICY_REMOVED',
+    'AGGREGATION_POLICY_APPLIED',
+    'AGGREGATION_POLICY_REMOVED',
+    'PRIMARY_KEY_SET',
+    'PRIMARY_KEY_REMOVED',
+    'ADD_COLUMN',
+    'REMOVE_COLUMN',
+    'RLS_POLICY_APPLIED',
+    'RLS_POLICY_REMOVED',
+  ];
+
   // Filtered events
   const filteredEvents = useMemo(() => {
     return events.filter((event) => {
+      // Only show displayable event types (exclude SCHEMA_SELECTED, TABLE_SELECTED, etc.)
+      if (!displayableEventTypes.includes(event.type)) return false;
+
       // Search filter
       if (searchQuery) {
         const query = searchQuery.toLowerCase();
@@ -505,11 +528,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
             })
           )}
         </div>
-        {events.length > 5 && (
-          <div className="px-3 py-1.5 text-center border-t dark:border-slate-700">
-            <span className="text-xs text-slate-500">+{events.length - 5} more events</span>
-          </div>
-        )}
         {/* Execute Changes Button */}
         {pendingEvents.length > 0 && onExecuteChanges && (
           <div className="px-3 py-2 border-t dark:border-slate-700">
