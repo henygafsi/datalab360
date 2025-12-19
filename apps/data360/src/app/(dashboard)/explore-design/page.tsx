@@ -23,7 +23,9 @@ import {
   getProjectEvents,
   recordDesignEvents,
   executePendingEvents,
-  LocalDesignEvent
+  LocalDesignEvent,
+  fetchRelationships,
+  TableRelationship
 } from '@/app/services/explore-design';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
@@ -530,6 +532,13 @@ export default function ExploreDesignPage() {
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
 
+  // Target table IDs - tracks which tables are DWH/target tables (default tables from DATA360.RETAIL_DWH)
+  // These are the tables that user-added source tables must map TO
+  const [targetTableIds, setTargetTableIds] = useState<Set<string>>(new Set());
+
+  // Default relationships for modeling view
+  const [defaultRelationships, setDefaultRelationships] = useState<TableRelationship[]>([]);
+
   // Execution state
   const [isExecutingChanges, setIsExecutingChanges] = useState(false);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -558,15 +567,16 @@ export default function ExploreDesignPage() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stats
+  // Stats - exclude default DWH tables from catalog stats
   const stats = useMemo(() => {
-    const configured = tables.filter(t => t.status === 'configured').length;
+    const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
+    const configured = catalogTables.filter(t => t.status === 'configured').length;
     return {
-      total: tables.length,
+      total: catalogTables.length,
       configured,
-      pending: tables.length - configured,
+      pending: catalogTables.length - configured,
     };
-  }, [tables]);
+  }, [tables, targetTableIds]);
 
   // Redirect to sign-in when offline
   useEffect(() => {
@@ -631,6 +641,100 @@ export default function ExploreDesignPage() {
     loadMaskingPolicies();
   }, []);
 
+  // Load default tables for Modeling view (CP_DATA360.RETAIL_DW) - ALWAYS loaded
+  const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
+
+  useEffect(() => {
+    // Load default tables when switching to modeling view (only once per session)
+    if (viewMode !== 'modeling' || defaultModelingTablesLoaded) {
+      return;
+    }
+
+    const loadDefaultModelingTables = async () => {
+      const DEFAULT_DB = 'DATA360';
+      const DEFAULT_SCHEMA = 'RETAIL_DWH';
+
+      console.log(`[Modeling] Loading default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
+
+      try {
+        // Load tables from default schema
+        const tableList = await getTables(DEFAULT_DB, DEFAULT_SCHEMA);
+
+        if (tableList && tableList.length > 0) {
+          const newTables: TableItem[] = [];
+          const newTableIds = new Set<string>();
+
+          tableList.forEach((tableName: string) => {
+            const tableId = `${DEFAULT_DB}.${DEFAULT_SCHEMA}.${tableName}`;
+            newTableIds.add(tableId);
+
+            newTables.push({
+              id: tableId,
+              database: DEFAULT_DB,
+              schema: DEFAULT_SCHEMA,
+              table: tableName,
+              columnCount: 0,
+              hasPrimaryKey: false,
+              status: 'pending',
+              sensitiveColumns: 0,
+            });
+          });
+
+          // Add tables to the main tables state
+          setTables(prev => {
+            const existingIds = new Set(prev.map(t => t.id));
+            const tablesToAdd = newTables.filter(t => !existingIds.has(t.id));
+            return [...prev, ...tablesToAdd];
+          });
+
+          // Add default tables to modeling view (merge with any existing)
+          setModelingTableIds(prev => {
+            const merged = new Set(prev);
+            newTableIds.forEach(id => merged.add(id));
+            return merged;
+          });
+
+          // Mark these default tables as TARGET tables (DWH)
+          // User-added source tables must map TO these target tables
+          setTargetTableIds(prev => {
+            const merged = new Set(prev);
+            newTableIds.forEach(id => merged.add(id));
+            return merged;
+          });
+
+          // Set database/schema for UI but DON'T add to selectedSchemas (no badge)
+          if (!selectedDatabase) {
+            setSelectedDatabase(DEFAULT_DB);
+            // Don't set selectedSchemas - we don't want the badge to show
+
+            // Load schemas for the database
+            const schemaList = await getSchemas(DEFAULT_DB);
+            setSchemas(schemaList || []);
+          }
+
+          console.log(`[Modeling] Loaded ${newTableIds.size} default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
+
+          // Load relationships for the default schema
+          try {
+            const relationshipsData = await fetchRelationships(DEFAULT_DB, DEFAULT_SCHEMA);
+            if (relationshipsData.relationships && relationshipsData.relationships.length > 0) {
+              setDefaultRelationships(relationshipsData.relationships);
+              console.log(`[Modeling] Loaded ${relationshipsData.relationships.length} relationships`);
+            }
+          } catch (relError) {
+            console.error('[Modeling] Failed to load relationships:', relError);
+          }
+        }
+      } catch (error) {
+        console.error('[Modeling] Failed to load default tables:', error);
+      }
+
+      setDefaultModelingTablesLoaded(true);
+    };
+
+    loadDefaultModelingTables();
+  }, [viewMode, defaultModelingTablesLoaded, selectedDatabase]);
+
   // Load schemas when database changes
   useEffect(() => {
     if (!selectedDatabase) {
@@ -658,7 +762,8 @@ export default function ExploreDesignPage() {
   // Load tables when schemas are selected
   useEffect(() => {
     if (selectedSchemas.size === 0) {
-      setTables([]);
+      // Keep default DWH tables (targetTableIds), only remove user-selected schema tables
+      setTables(prev => prev.filter(t => targetTableIds.has(t.id)));
       return;
     }
 
@@ -666,7 +771,7 @@ export default function ExploreDesignPage() {
       console.log('[Explore-Design] Loading tables for schemas:', Object.fromEntries(selectedSchemas));
       setIsLoadingTables(true);
       try {
-        const allTables: TableItem[] = [];
+        const newTables: TableItem[] = [];
 
         // Iterate over schema->database map entries
         for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
@@ -678,7 +783,7 @@ export default function ExploreDesignPage() {
               const tableId = `${dbName}.${schemaName}.${tableName}`;
               const existingConfig = allTableConfigs.get(tableId);
 
-              allTables.push({
+              newTables.push({
                 id: tableId,
                 database: dbName,
                 schema: schemaName,
@@ -692,7 +797,17 @@ export default function ExploreDesignPage() {
           }
         }
 
-        setTables(allTables);
+        // Merge with existing tables: keep target/DWH tables, add new schema tables
+        setTables(prev => {
+          // Keep existing target/DWH tables (default tables)
+          const existingTargetTables = prev.filter(t => targetTableIds.has(t.id));
+          // Get IDs of tables we're adding
+          const newTableIds = new Set(newTables.map(t => t.id));
+          // Filter out any existing target tables that are also in newTables (avoid duplicates)
+          const uniqueTargetTables = existingTargetTables.filter(t => !newTableIds.has(t.id));
+          // Combine: existing DWH tables + new schema tables
+          return [...uniqueTargetTables, ...newTables];
+        });
         // Expanded schemas is still Set<string> of schema names
         setExpandedSchemas(new Set(selectedSchemas.keys()));
       } catch (error) {
@@ -702,7 +817,7 @@ export default function ExploreDesignPage() {
       }
     };
     loadTables();
-  }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger]);
+  }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger, targetTableIds]);
 
   // Load columns when a table is selected
   useEffect(() => {
@@ -1089,7 +1204,12 @@ export default function ExploreDesignPage() {
 
             if (modelingTables.size > 0) {
               console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
-              setModelingTableIds(modelingTables);
+              // Merge with existing modeling tables (including default DWH tables)
+              setModelingTableIds(prev => {
+                const merged = new Set(prev);
+                modelingTables.forEach(id => merged.add(id));
+                return merged;
+              });
             }
 
             // Count total schemas across all databases
@@ -1751,7 +1871,7 @@ export default function ExploreDesignPage() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2">
                   <Table2 className="h-4 w-4 text-slate-500" />
-                  <span className="font-medium text-sm">{tables.length} Tables</span>
+                  <span className="font-medium text-sm">{tables.filter(t => !targetTableIds.has(t.id)).length} Tables</span>
                   {selectedTables.size > 0 && (
                     <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5">
                       {selectedTables.size}
@@ -1759,18 +1879,19 @@ export default function ExploreDesignPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
-                  <Tooltip content={selectedTables.size === tables.length ? 'Deselect All' : 'Select All'}>
+                  <Tooltip content={selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? 'Deselect All' : 'Select All'}>
                     <button
                       className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                       onClick={() => {
-                        if (selectedTables.size === tables.length) {
+                        const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
+                        if (selectedTables.size === catalogTables.length) {
                           setSelectedTables(new Set());
                         } else {
-                          setSelectedTables(new Set(tables.map(t => t.id)));
+                          setSelectedTables(new Set(catalogTables.map(t => t.id)));
                         }
                       }}
                     >
-                      {selectedTables.size === tables.length ? (
+                      {selectedTables.size > 0 && selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? (
                         <CheckSquare className="h-4 w-4 text-blue-500" />
                       ) : (
                         <Square className="h-4 w-4 text-slate-400" />
@@ -1806,9 +1927,9 @@ export default function ExploreDesignPage() {
                 <div className="flex items-center justify-center h-full">
                   <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
                 </div>
-              ) : tables.length > 0 ? (
+              ) : tables.filter(t => !targetTableIds.has(t.id)).length > 0 ? (
                 <VirtualizedTableList
-                  tables={tables}
+                  tables={tables.filter(t => !targetTableIds.has(t.id))}
                   selectedTables={selectedTables}
                   onSelectionChange={handleTableSelection}
                   onSelectAll={handleSelectAllTables}
@@ -2258,6 +2379,8 @@ export default function ExploreDesignPage() {
                 }}
                 className={cn("h-full", isFullscreen && "pt-14")}
                 projectId={selectedProjectId}
+                defaultRelationships={defaultRelationships}
+                targetTableIds={targetTableIds}
               />
             </div>
           )}

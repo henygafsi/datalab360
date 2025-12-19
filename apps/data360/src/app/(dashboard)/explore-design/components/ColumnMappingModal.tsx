@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Modal, Button, Badge, Input, Text } from 'rizzui';
+import { Modal, Button, Badge, Input, Text, Tooltip } from 'rizzui';
 import { X, ArrowRight, Plus, Trash2, Search, Check, Link2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -216,20 +216,27 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                           NEW
                         </Badge>
                       )}
+                      {isExisting && (
+                        <Badge size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-400 text-[10px]">
+                          FK
+                        </Badge>
+                      )}
                     </div>
-                    <button
-                      onClick={() => {
-                        if (isLocal) {
-                          handleRemoveLocalMapping(mapping.id);
-                        } else if (onRemoveMapping) {
-                          onRemoveMapping(mapping.id);
-                        }
-                      }}
-                      className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 ml-2"
-                      title="Remove mapping"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {isLocal ? (
+                      <button
+                        onClick={() => handleRemoveLocalMapping(mapping.id)}
+                        className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500 ml-2"
+                        title="Remove mapping"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <Tooltip content="FK constraint from database">
+                        <div className="p-1.5 text-slate-400 ml-2">
+                          <Link2 className="h-4 w-4" />
+                        </div>
+                      </Tooltip>
+                    )}
                   </div>
                 );
               })}

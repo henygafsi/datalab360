@@ -32,6 +32,7 @@ export interface TableNodeData {
   ingestionMode?: 'full_refresh' | 'incremental' | 'snapshot' | 'scd_type1' | 'scd_type2' | 'scd_type3';
   hasChanges?: boolean;
   isSelected?: boolean;
+  isTargetTable?: boolean; // True if this is a DWH/target table (default tables), false for source tables
   onRename?: (newName: string) => void;
   onDelete?: () => void;
   onColumnClick?: (column: TableNodeColumn) => void;
@@ -202,22 +203,37 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
     error: 'border-red-400 bg-red-50 dark:bg-red-900/20',
   };
 
+  // Target tables (DWH) get a distinct purple-ish theme
+  const targetTableStyles = data.isTargetTable
+    ? 'border-indigo-400 dark:border-indigo-500 bg-indigo-50/50 dark:bg-indigo-900/20'
+    : '';
+
   return (
     <>
       <div
         className={cn(
           'min-w-[220px] rounded-lg border-2 shadow-lg transition-all',
           selected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900' : '',
-          statusColors[data.status] || 'border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600',
+          data.isTargetTable
+            ? targetTableStyles // Target/DWH tables get special styling
+            : (statusColors[data.status] || 'border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600'),
           data.hasChanges && 'ring-2 ring-amber-400'
         )}
         onContextMenu={handleContextMenu}
       >
         {/* Header */}
-        <div className="px-3 py-2 bg-slate-100 dark:bg-slate-700 rounded-t-md border-b dark:border-slate-600">
+        <div className={cn(
+          "px-3 py-2 rounded-t-md border-b dark:border-slate-600",
+          data.isTargetTable
+            ? "bg-indigo-100 dark:bg-indigo-900/40"
+            : "bg-slate-100 dark:bg-slate-700"
+        )}>
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2 flex-1 min-w-0">
-              <Table2 className="h-4 w-4 text-blue-500 flex-shrink-0" />
+              <Table2 className={cn(
+                "h-4 w-4 flex-shrink-0",
+                data.isTargetTable ? "text-indigo-600 dark:text-indigo-400" : "text-blue-500"
+              )} />
               {isRenaming ? (
                 <input
                   type="text"
@@ -243,6 +259,14 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
               )}
             </div>
             <div className="flex items-center gap-1">
+              {data.isTargetTable && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-200 dark:bg-indigo-800 text-indigo-700 dark:text-indigo-300"
+                  title="Data Warehouse Target Table"
+                >
+                  DWH
+                </span>
+              )}
               {data.ingestionMode && (
                 <span className="p-1 rounded bg-slate-200 dark:bg-slate-600" title={data.ingestionMode.replace('_', ' ')}>
                   {ingestionModeIcons[data.ingestionMode]}

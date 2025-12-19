@@ -3675,3 +3675,48 @@ export async function executePendingEvents(
     results,
   };
 }
+
+// ============================================
+// TABLE RELATIONSHIPS APIs
+// ============================================
+
+export interface ColumnMapping {
+  source_column: string;
+  target_column: string;
+}
+
+export interface TableRelationship {
+  constraint_name: string;
+  child_schema: string;
+  child_table: string;
+  child_column: string;
+  parent_schema: string;
+  parent_table: string;
+  parent_column: string;
+}
+
+export interface FetchRelationshipsResponse {
+  database: string;
+  schema: string;
+  relationships: TableRelationship[];
+}
+
+/**
+ * Fetch table relationships (foreign keys) for a Snowflake schema
+ *
+ * @param database - Database name (e.g., 'DATA360')
+ * @param schema - Schema name (e.g., 'RETAIL_DWH')
+ * @returns Promise with relationships data
+ */
+export async function fetchRelationships(
+  database: string,
+  schema: string
+): Promise<FetchRelationshipsResponse> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/fetch_relationships`,
+    { database, schema },
+    { headers }
+  );
+  return response.data;
+}

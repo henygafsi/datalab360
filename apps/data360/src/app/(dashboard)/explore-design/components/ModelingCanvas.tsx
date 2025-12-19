@@ -50,6 +50,17 @@ const edgeStyles: Record<string, React.CSSProperties> = {
   'many_to_many': { stroke: '#f59e0b', strokeWidth: 2 },
 };
 
+// Table relationship from backend
+interface TableRelationship {
+  constraint_name: string;
+  child_schema: string;
+  child_table: string;
+  child_column: string;
+  parent_schema: string;
+  parent_table: string;
+  parent_column: string;
+}
+
 // Props
 interface ModelingCanvasProps {
   tables: TableItem[];
@@ -59,6 +70,8 @@ interface ModelingCanvasProps {
   onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string) => void;
   className?: string;
   projectId?: string | null;
+  defaultRelationships?: TableRelationship[];
+  targetTableIds?: Set<string>; // IDs of target/DWH tables (default tables)
 }
 
 // Auto-layout helper
@@ -86,6 +99,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onRelationCreate,
   className,
   projectId,
+  defaultRelationships = [],
+  targetTableIds = new Set(),
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
@@ -103,9 +118,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const handleNodeContextActionRef = useRef<(nodeId: string, action: string) => void>(() => {});
 
   // Convert tables to nodes - only depend on tables and tableColumns, not events
+  // Mark tables as 'target' (DWH) or 'source' for visual distinction
   const initialNodes: Node<TableNodeData>[] = useMemo(() => {
     const nodes = tables.map((table, idx) => {
       const cols = tableColumns.get(table.id) || [];
+      const isTargetTable = targetTableIds.has(table.id);
+
       return {
         id: table.id,
         type: 'tableNode',
@@ -124,6 +142,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           })),
           status: table.status,
           hasChanges: false, // Will be updated dynamically via ref if needed
+          isTargetTable, // Flag to indicate DWH/target table
           onRename: (newName: string) => {
             addEventRef.current(createTableRenameEvent(
               { database: table.database, schema: table.schema, table: table.table },
@@ -142,7 +161,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       };
     });
     return autoLayout(nodes);
-  }, [tables, tableColumns]);
+  }, [tables, tableColumns, targetTableIds]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -152,6 +171,89 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     setNodes(initialNodes);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialNodes]);
+
+  // Create edges from default relationships
+  useEffect(() => {
+    console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
+    console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
+
+    if (defaultRelationships.length === 0 || tables.length === 0) {
+      console.log('[ModelingCanvas] Skipping - no relationships or tables');
+      return;
+    }
+
+    // Get the database from the first table
+    const firstTable = tables[0];
+    if (!firstTable) return;
+
+    const { database } = firstTable;
+    console.log('[ModelingCanvas] Using database:', database);
+
+    // Group relationships by child_table + parent_table to create single edges with multiple column mappings
+    const relationshipGroups = new Map<string, TableRelationship[]>();
+
+    defaultRelationships.forEach(rel => {
+      const key = `${rel.child_table}->${rel.parent_table}`;
+      if (!relationshipGroups.has(key)) {
+        relationshipGroups.set(key, []);
+      }
+      relationshipGroups.get(key)!.push(rel);
+    });
+
+    console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
+
+    // Create edges from grouped relationships
+    const newEdges: Edge[] = [];
+
+    relationshipGroups.forEach((rels, key) => {
+      const firstRel = rels[0];
+      // Use child_schema and parent_schema from the relationship data
+      const sourceId = `${database}.${firstRel.child_schema}.${firstRel.child_table}`;
+      const targetId = `${database}.${firstRel.parent_schema}.${firstRel.parent_table}`;
+
+      // Only create edge if both tables exist in our nodes
+      const sourceExists = tables.some(t => t.id === sourceId);
+      const targetExists = tables.some(t => t.id === targetId);
+
+      console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
+
+      if (sourceExists && targetExists) {
+        // Create label showing all column mappings
+        const mappingLabel = rels.length === 1
+          ? `${rels[0].child_column} → ${rels[0].parent_column}`
+          : rels.map(r => `${r.child_column}→${r.parent_column}`).join(', ');
+
+        newEdges.push({
+          id: `rel-${firstRel.constraint_name || key}`,
+          source: sourceId,
+          target: targetId,
+          type: 'smoothstep',
+          animated: true,
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: edgeStyles['many_to_one'],
+          label: mappingLabel,
+          labelStyle: { fontSize: 10, fill: '#64748b' },
+          labelBgStyle: { fill: '#f8fafc', fillOpacity: 0.9 },
+          data: {
+            relationType: 'many_to_one',
+            columnMappings: rels.map(r => ({
+              source_column: r.child_column,
+              target_column: r.parent_column,
+            })),
+            constraintName: firstRel.constraint_name,
+          },
+        });
+      } else {
+        console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
+      }
+    });
+
+    console.log(`[ModelingCanvas] Created ${newEdges.length} edges:`, newEdges);
+
+    if (newEdges.length > 0) {
+      setEdges(newEdges);
+    }
+  }, [defaultRelationships, tables, setEdges]);
 
   // State
   const [showMinimap, setShowMinimap] = useState(true);
@@ -176,6 +278,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const [pendingConnectionParams, setPendingConnectionParams] = useState<Connection | null>(null);
 
   // Connection handler - opens modal for column selection
+  // ENFORCES: Source tables (user-added) → Target tables (DWH/default)
   const onConnect = useCallback(
     (params: Connection) => {
       if (!params.source || !params.target) return;
@@ -184,13 +287,40 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const targetTable = tables.find((t) => t.id === params.target);
       if (!sourceTable || !targetTable) return;
 
-      // Store tables and connection params, then open modal
-      setMappingSourceTable(sourceTable);
-      setMappingTargetTable(targetTable);
-      setPendingConnectionParams(params);
+      const sourceIsTarget = targetTableIds.has(params.source);
+      const targetIsTarget = targetTableIds.has(params.target);
+
+      // Validate: Source must be a source table (not DWH), Target must be a target table (DWH)
+      if (sourceIsTarget && targetIsTarget) {
+        toast.error('Cannot connect two target tables (DWH). Connect from a source table.');
+        return;
+      }
+
+      if (!sourceIsTarget && !targetIsTarget) {
+        toast.error('Cannot connect two source tables. Connect to a target table (DWH).');
+        return;
+      }
+
+      if (sourceIsTarget && !targetIsTarget) {
+        // User connected backwards: DWH → Source, swap them
+        toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
+        setMappingSourceTable(targetTable);
+        setMappingTargetTable(sourceTable);
+        setPendingConnectionParams({
+          ...params,
+          source: params.target,
+          target: params.source,
+        });
+      } else {
+        // Correct direction: Source → DWH
+        setMappingSourceTable(sourceTable);
+        setMappingTargetTable(targetTable);
+        setPendingConnectionParams(params);
+      }
+
       setShowColumnMappingModal(true);
     },
-    [tables]
+    [tables, targetTableIds]
   );
 
   // Handle column mapping from modal
@@ -652,6 +782,26 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           isNullable: c.isNullable,
         }))}
         onCreateMapping={handleColumnMapping}
+        existingMappings={
+          // Get existing mappings from defaultRelationships for these two tables
+          mappingSourceTable && mappingTargetTable
+            ? defaultRelationships
+                .filter(rel =>
+                  rel.child_table === mappingSourceTable.table &&
+                  rel.parent_table === mappingTargetTable.table
+                )
+                .map(rel => ({
+                  id: `existing-${rel.constraint_name}`,
+                  sourceColumns: [rel.child_column],
+                  targetColumn: rel.parent_column,
+                }))
+            : []
+        }
+        onRemoveMapping={(mappingId) => {
+          // For now, just log - removing FK constraints would need backend support
+          console.log('Remove mapping requested:', mappingId);
+          toast.error('Removing existing FK constraints requires database changes');
+        }}
       />
     </div>
   );
