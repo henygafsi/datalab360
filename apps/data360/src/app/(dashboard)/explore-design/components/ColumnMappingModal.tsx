@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Modal, Button, Badge, Input, Text, Tooltip } from 'rizzui';
-import { X, ArrowRight, Plus, Trash2, Search, Check, Link2 } from 'lucide-react';
+import { X, ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface Column {
@@ -11,6 +11,67 @@ interface Column {
   isPrimaryKey?: boolean;
   isNullable?: boolean;
 }
+
+// Data type compatibility matrix
+const TYPE_COMPATIBILITY: Record<string, string[]> = {
+  // Exact matches
+  'VARCHAR': ['VARCHAR', 'TEXT', 'STRING', 'CHAR'],
+  'TEXT': ['VARCHAR', 'TEXT', 'STRING', 'CHAR'],
+  'STRING': ['VARCHAR', 'TEXT', 'STRING', 'CHAR'],
+  'CHAR': ['VARCHAR', 'TEXT', 'STRING', 'CHAR'],
+  'NUMBER': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE'],
+  'INTEGER': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC'],
+  'INT': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC'],
+  'BIGINT': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'DECIMAL', 'NUMERIC'],
+  'SMALLINT': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC'],
+  'DECIMAL': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE'],
+  'NUMERIC': ['NUMBER', 'INTEGER', 'INT', 'BIGINT', 'SMALLINT', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE'],
+  'FLOAT': ['NUMBER', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE'],
+  'DOUBLE': ['NUMBER', 'DECIMAL', 'NUMERIC', 'FLOAT', 'DOUBLE'],
+  'BOOLEAN': ['BOOLEAN', 'BOOL'],
+  'BOOL': ['BOOLEAN', 'BOOL'],
+  'DATE': ['DATE', 'TIMESTAMP', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ', 'TIMESTAMP_TZ'],
+  'TIMESTAMP': ['TIMESTAMP', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ', 'TIMESTAMP_TZ', 'DATE'],
+  'TIMESTAMP_NTZ': ['TIMESTAMP', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ', 'TIMESTAMP_TZ'],
+  'TIMESTAMP_LTZ': ['TIMESTAMP', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ', 'TIMESTAMP_TZ'],
+  'TIMESTAMP_TZ': ['TIMESTAMP', 'TIMESTAMP_NTZ', 'TIMESTAMP_LTZ', 'TIMESTAMP_TZ'],
+  'TIME': ['TIME'],
+  'VARIANT': ['VARIANT', 'OBJECT', 'ARRAY'],
+  'OBJECT': ['VARIANT', 'OBJECT'],
+  'ARRAY': ['VARIANT', 'ARRAY'],
+  'BINARY': ['BINARY', 'VARBINARY'],
+  'VARBINARY': ['BINARY', 'VARBINARY'],
+};
+
+// Check if two data types are compatible
+const checkTypeCompatibility = (sourceType: string, targetType: string): { compatible: boolean; warning?: string } => {
+  // Normalize types (remove size info like VARCHAR(255) -> VARCHAR)
+  const normalizeType = (t: string) => t.toUpperCase().split('(')[0].trim();
+  const src = normalizeType(sourceType);
+  const tgt = normalizeType(targetType);
+
+  // Same type is always compatible
+  if (src === tgt) return { compatible: true };
+
+  // Check compatibility matrix
+  const compatibleTypes = TYPE_COMPATIBILITY[src] || [];
+  if (compatibleTypes.includes(tgt)) {
+    // Compatible but might need attention
+    if ((src.includes('INT') || src === 'NUMBER') && (tgt === 'FLOAT' || tgt === 'DOUBLE')) {
+      return { compatible: true, warning: 'Integer to float conversion - possible precision change' };
+    }
+    if (src === 'DATE' && tgt.includes('TIMESTAMP')) {
+      return { compatible: true, warning: 'Date to timestamp - time will be 00:00:00' };
+    }
+    return { compatible: true };
+  }
+
+  // Incompatible types
+  return {
+    compatible: false,
+    warning: `Incompatible types: ${src} → ${tgt}. May require transformation.`
+  };
+};
 
 interface TableInfo {
   id: string;
@@ -82,6 +143,34 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
     return new Set(allMappings.map(m => m.targetColumn));
   }, [allMappings]);
 
+  // Check type compatibility for current selection
+  const currentCompatibility = useMemo(() => {
+    if (selectedSourceColumns.length === 0 || !selectedTargetColumn) {
+      return { hasWarnings: false, hasErrors: false, warnings: [] as string[] };
+    }
+
+    const targetCol = targetColumns.find(c => c.name === selectedTargetColumn);
+    if (!targetCol) return { hasWarnings: false, hasErrors: false, warnings: [] as string[] };
+
+    const warnings: string[] = [];
+    let hasErrors = false;
+
+    selectedSourceColumns.forEach(srcColName => {
+      const srcCol = sourceColumns.find(c => c.name === srcColName);
+      if (srcCol) {
+        const result = checkTypeCompatibility(srcCol.dataType, targetCol.dataType);
+        if (!result.compatible) {
+          hasErrors = true;
+          warnings.push(`${srcColName}: ${result.warning}`);
+        } else if (result.warning) {
+          warnings.push(`${srcColName}: ${result.warning}`);
+        }
+      }
+    });
+
+    return { hasWarnings: warnings.length > 0, hasErrors, warnings };
+  }, [selectedSourceColumns, selectedTargetColumn, sourceColumns, targetColumns]);
+
   const handleSourceColumnToggle = (columnName: string) => {
     setSelectedSourceColumns(prev => {
       if (prev.includes(columnName)) {
@@ -102,7 +191,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
     if (selectedSourceColumns.length === 0 || !selectedTargetColumn) return;
 
     const newMapping: ColumnMapping = {
-      id: `mapping-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: `mapping-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       sourceColumns: [...selectedSourceColumns],
       targetColumn: selectedTargetColumn,
     };
@@ -217,8 +306,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                         </Badge>
                       )}
                       {isExisting && (
-                        <Badge size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-400 text-[10px]">
-                          FK
+                        <Badge size="sm" className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 text-[10px]">
+                          ETL
                         </Badge>
                       )}
                     </div>
@@ -231,8 +320,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                         <Trash2 className="h-4 w-4" />
                       </button>
                     ) : (
-                      <Tooltip content="FK constraint from database">
-                        <div className="p-1.5 text-slate-400 ml-2">
+                      <Tooltip content="Saved ETL column mapping">
+                        <div className="p-1.5 text-green-500 ml-2">
                           <Link2 className="h-4 w-4" />
                         </div>
                       </Tooltip>
@@ -410,7 +499,14 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
 
         {/* Current Selection Preview & Add Button */}
         {selectedSourceColumns.length > 0 && selectedTargetColumn && (
-          <div className="mt-4 p-4 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className={cn(
+            "mt-4 p-4 rounded-lg border",
+            currentCompatibility.hasErrors
+              ? "bg-gradient-to-r from-red-50 to-amber-50 dark:from-red-900/20 dark:to-amber-900/20 border-red-300 dark:border-red-800"
+              : currentCompatibility.hasWarnings
+                ? "bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-300 dark:border-amber-800"
+                : "bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 border-blue-200 dark:border-blue-800"
+          )}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <Text className="text-sm font-medium text-slate-600 dark:text-slate-300">New Mapping:</Text>
@@ -430,16 +526,69 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                 <Badge size="sm" className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400">
                   {selectedTargetColumn}
                 </Badge>
+                {/* Compatibility indicator */}
+                {currentCompatibility.hasErrors && (
+                  <Tooltip content="Incompatible data types detected">
+                    <div className="flex items-center gap-1 px-2 py-0.5 bg-red-100 dark:bg-red-900/40 rounded text-red-600 dark:text-red-400">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <span className="text-xs font-medium">Error</span>
+                    </div>
+                  </Tooltip>
+                )}
+                {!currentCompatibility.hasErrors && currentCompatibility.hasWarnings && (
+                  <Tooltip content="Check type compatibility warnings">
+                    <div className="flex items-center gap-1 px-2 py-0.5 bg-amber-100 dark:bg-amber-900/40 rounded text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <span className="text-xs font-medium">Warning</span>
+                    </div>
+                  </Tooltip>
+                )}
               </div>
               <Button
                 size="sm"
                 onClick={handleAddMapping}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
+                className={cn(
+                  currentCompatibility.hasErrors
+                    ? "bg-red-600 hover:bg-red-700 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white"
+                )}
               >
                 <Plus className="h-4 w-4 mr-1" />
-                Add Mapping
+                {currentCompatibility.hasErrors ? 'Add Anyway' : 'Add Mapping'}
               </Button>
             </div>
+
+            {/* Compatibility warnings list */}
+            {currentCompatibility.warnings.length > 0 && (
+              <div className={cn(
+                "mt-3 pt-3 border-t",
+                currentCompatibility.hasErrors
+                  ? "border-red-200 dark:border-red-800"
+                  : "border-amber-200 dark:border-amber-800"
+              )}>
+                <Text className={cn(
+                  "text-xs font-medium mb-1.5",
+                  currentCompatibility.hasErrors
+                    ? "text-red-600 dark:text-red-400"
+                    : "text-amber-600 dark:text-amber-400"
+                )}>
+                  {currentCompatibility.hasErrors ? 'Type Compatibility Errors:' : 'Type Compatibility Warnings:'}
+                </Text>
+                <ul className="space-y-1">
+                  {currentCompatibility.warnings.map((warning, idx) => (
+                    <li key={idx} className={cn(
+                      "flex items-start gap-2 text-xs",
+                      currentCompatibility.hasErrors
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-amber-600 dark:text-amber-400"
+                    )}>
+                      <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+                      <span>{warning}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 

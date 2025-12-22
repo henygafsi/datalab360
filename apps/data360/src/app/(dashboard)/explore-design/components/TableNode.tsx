@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import {
   Table2, Key, Shield, Lock, RefreshCw, Clock, History, Layers,
   MoreVertical, Edit2, Trash2, Eye, Link2, Copy, ArrowRight,
-  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag, Code
+  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag
 } from 'lucide-react';
 
 // Column info for the node
@@ -33,6 +33,7 @@ export interface TableNodeData {
   hasChanges?: boolean;
   isSelected?: boolean;
   isTargetTable?: boolean; // True if this is a DWH/target table (default tables), false for source tables
+  mappedColumns?: Set<string>; // For target tables: columns that have been mapped from source columns
   onRename?: (newName: string) => void;
   onDelete?: () => void;
   onColumnClick?: (column: TableNodeColumn) => void;
@@ -176,6 +177,15 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
   const visibleColumns = isExpanded ? data.columns : data.columns.slice(0, 5);
   const hasMoreColumns = data.columns.length > 5;
 
+  // Calculate unmapped columns count for target tables
+  const mappedColumnsSet = data.mappedColumns || new Set<string>();
+  const unmappedCount = data.isTargetTable
+    ? data.columns.filter(col => !mappedColumnsSet.has(col.name)).length
+    : 0;
+  const mappedCount = data.isTargetTable
+    ? data.columns.filter(col => mappedColumnsSet.has(col.name)).length
+    : 0;
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -292,45 +302,66 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
 
         {/* Columns */}
         <div className="px-2 py-1">
-          {visibleColumns.map((col, idx) => (
-            <div
-              key={col.name}
-              className={cn(
-                'flex items-center justify-between gap-2 px-2 py-1.5 rounded text-sm hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer',
-                col.isPrimaryKey && 'bg-amber-50 dark:bg-amber-900/20'
-              )}
-              onClick={() => data.onColumnClick?.(col)}
-            >
-              <div className="flex items-center gap-2 min-w-0 flex-1">
-                {col.isPrimaryKey && (
-                  <span title="Primary Key">
-                    <Key className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                  </span>
+          {visibleColumns.map((col) => {
+            const isMapped = data.isTargetTable && mappedColumnsSet.has(col.name);
+            const isUnmapped = data.isTargetTable && !mappedColumnsSet.has(col.name);
+
+            return (
+              <div
+                key={col.name}
+                className={cn(
+                  'flex items-center justify-between gap-2 px-2 py-1.5 rounded text-sm hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer',
+                  col.isPrimaryKey && 'bg-amber-50 dark:bg-amber-900/20',
+                  isMapped && 'bg-green-50 dark:bg-green-900/20',
+                  isUnmapped && data.isTargetTable && 'bg-orange-50/50 dark:bg-orange-900/10'
                 )}
-                {col.isForeignKey && (
-                  <span title="Foreign Key">
-                    <Link2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
+                onClick={() => data.onColumnClick?.(col)}
+              >
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {col.isPrimaryKey && (
+                    <span title="Primary Key">
+                      <Key className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                    </span>
+                  )}
+                  {col.isForeignKey && (
+                    <span title="Foreign Key">
+                      <Link2 className="h-3 w-3 text-purple-500 flex-shrink-0" />
+                    </span>
+                  )}
+                  <span className={cn(
+                    "truncate",
+                    isUnmapped && data.isTargetTable && "text-orange-600 dark:text-orange-400"
+                  )}>{col.name}</span>
+                </div>
+                <div className="flex items-center gap-1 flex-shrink-0">
+                  {/* Mapped/Unmapped indicator for target tables */}
+                  {isMapped && (
+                    <span title="Mapped from source">
+                      <Check className="h-3 w-3 text-green-500" />
+                    </span>
+                  )}
+                  {isUnmapped && data.isTargetTable && (
+                    <span title="Needs mapping">
+                      <AlertTriangle className="h-3 w-3 text-orange-400" />
+                    </span>
+                  )}
+                  {col.isSensitive && (
+                    <span title="Sensitive Data">
+                      <Shield className="h-3 w-3 text-red-400" />
+                    </span>
+                  )}
+                  {col.maskingPolicy && (
+                    <span title={`Masked: ${col.maskingPolicy}`}>
+                      <Lock className="h-3 w-3 text-green-500" />
+                    </span>
+                  )}
+                  <span className="text-xs text-slate-400 font-mono">
+                    {(col.dataType || 'unknown').split('(')[0]}
                   </span>
-                )}
-                <span className="truncate">{col.name}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-1 flex-shrink-0">
-                {col.isSensitive && (
-                  <span title="Sensitive Data">
-                    <Shield className="h-3 w-3 text-red-400" />
-                  </span>
-                )}
-                {col.maskingPolicy && (
-                  <span title={`Masked: ${col.maskingPolicy}`}>
-                    <Lock className="h-3 w-3 text-green-500" />
-                  </span>
-                )}
-                <span className="text-xs text-slate-400 font-mono">
-                  {(col.dataType || 'unknown').split('(')[0]}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* Expand/Collapse for many columns */}
           {hasMoreColumns && (
@@ -356,12 +387,27 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
         {/* Footer */}
         <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 rounded-b-md border-t dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
           <span>{data.columns.length} columns</span>
-          {data.status === 'configured' && (
-            <span className="flex items-center gap-1 text-green-600">
-              <Check className="h-3 w-3" />
-              Configured
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Mapping status for target tables */}
+            {data.isTargetTable && mappedCount > 0 && (
+              <span className="flex items-center gap-1 text-green-600" title={`${mappedCount} columns mapped`}>
+                <Check className="h-3 w-3" />
+                {mappedCount}
+              </span>
+            )}
+            {data.isTargetTable && unmappedCount > 0 && (
+              <span className="flex items-center gap-1 text-orange-500" title={`${unmappedCount} columns need mapping`}>
+                <AlertTriangle className="h-3 w-3" />
+                {unmappedCount}
+              </span>
+            )}
+            {data.status === 'configured' && !data.isTargetTable && (
+              <span className="flex items-center gap-1 text-green-600">
+                <Check className="h-3 w-3" />
+                Configured
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Connection Handles */}

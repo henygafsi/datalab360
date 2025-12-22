@@ -10,7 +10,7 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff
+  WifiOff, BarChart3, MinusCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -38,8 +38,13 @@ import { useCacheInvalidationContext } from '@/components/providers/CacheInvalid
 import {
   useEventStore,
   createPrimaryKeyEvent,
-  createMaskingPolicyEvent
+  createMaskingPolicyEvent,
+  createColumnExclusionEvent,
+  createSensitiveColumnEvent
 } from './stores/event-store';
+import ColumnPreviewModal from './components/ColumnPreviewModal';
+import SensitiveColumnModal from './components/SensitiveColumnModal';
+import ColumnExclusionModal from './components/ColumnExclusionModal';
 
 // Types
 interface SourceConfig {
@@ -521,6 +526,23 @@ export default function ExploreDesignPage() {
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
 
+  // Column action modals
+  const [columnPreviewModal, setColumnPreviewModal] = useState<{
+    isOpen: boolean;
+    column: ColumnInfo | null;
+  }>({ isOpen: false, column: null });
+  const [sensitiveColumnModal, setSensitiveColumnModal] = useState<{
+    isOpen: boolean;
+    column: ColumnInfo | null;
+  }>({ isOpen: false, column: null });
+  const [columnExclusionModal, setColumnExclusionModal] = useState<{
+    isOpen: boolean;
+    column: ColumnInfo | null;
+  }>({ isOpen: false, column: null });
+
+  // Track excluded columns per table
+  const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
+
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   const [showEventPanel, setShowEventPanel] = useState(true);
@@ -577,6 +599,33 @@ export default function ExploreDesignPage() {
       pending: catalogTables.length - configured,
     };
   }, [tables, targetTableIds]);
+
+  // Extract column mappings from COLUMN_MAPPING_CREATED events for ModelingCanvas
+  const initialColumnMappings = useMemo(() => {
+    const mappingEvents = events.filter(e => e.type === 'COLUMN_MAPPING_CREATED');
+    console.log('[initialColumnMappings] Found mapping events:', mappingEvents.length);
+    mappingEvents.forEach((e, i) => {
+      console.log(`[initialColumnMappings] Event ${i}:`, {
+        id: e.id,
+        type: e.type,
+        target: e.target,
+        payload: e.payload,
+        sourceColumn: e.payload?.sourceColumn,
+        targetTable: e.payload?.targetTable,
+        targetColumn: e.payload?.targetColumn,
+      });
+    });
+    return mappingEvents.map(e => ({
+      id: e.id,
+      sourceTable: e.target?.table || '',
+      sourceSchema: e.target?.schema || '',
+      sourceColumn: e.payload?.sourceColumn || '',
+      targetTable: e.payload?.targetTable?.table || '',
+      targetSchema: e.payload?.targetTable?.schema || '',
+      targetColumn: e.payload?.targetColumn || '',
+      transformation: e.payload?.transformation,
+    }));
+  }, [events]);
 
   // Redirect to sign-in when offline
   useEffect(() => {
@@ -1085,7 +1134,8 @@ export default function ExploreDesignPage() {
             // - details: { database, schema, table, columns, sql }
             // - event_id, event_type, status, timestamp, username, error_message
 
-            const details = e.details || {};
+            // Backend might return as 'details' or 'event_details' depending on endpoint
+            const details = e.details || e.event_details || {};
 
             // Map backend status to frontend status
             let status: 'pending' | 'validated' | 'failed' | 'applied' = 'pending';
@@ -1109,6 +1159,12 @@ export default function ExploreDesignPage() {
               payload: {
                 columns: details.columns,
                 sql: details.sql,
+                // For COLUMN_MAPPING events, ensure proper structure
+                sourceColumn: details.sourceColumn,
+                targetTable: details.targetTable,
+                targetColumn: details.targetColumn,
+                transformation: details.transformation,
+                // Spread remaining details
                 ...details,
               },
               backendId: e.event_id,
@@ -1116,6 +1172,15 @@ export default function ExploreDesignPage() {
               userId: e.username,
               error: e.error_message,
             };
+
+            // Debug logging for COLUMN_MAPPING events
+            if (e.event_type === 'COLUMN_MAPPING_CREATED' || e.event_type === 'COLUMN_MAPPING_REMOVED') {
+              console.log('[handleProjectSelect] Converting COLUMN_MAPPING event:', {
+                rawEvent: e,
+                details,
+                convertedPayload: convertedEvent.payload,
+              });
+            }
 
             // Extract database and schema pairs from EVERY event
             const db = convertedEvent.target?.database;
@@ -1188,6 +1253,10 @@ export default function ExploreDesignPage() {
             const addedTableIds = new Set<string>();
             const removedTableIds = new Set<string>();
 
+            // Also collect tables from COLUMN_MAPPING_CREATED events
+            // These tables need to be in the modeling view for edges to render
+            const mappingTableIds = new Set<string>();
+
             backendEvents.forEach((event: any) => {
               if (event.type === 'TABLE_ADDED_TO_MODELING' && event.payload?.tableId) {
                 addedTableIds.add(event.payload.tableId);
@@ -1195,12 +1264,30 @@ export default function ExploreDesignPage() {
               if (event.type === 'TABLE_REMOVED_FROM_MODELING' && event.payload?.tableId) {
                 removedTableIds.add(event.payload.tableId);
               }
+              // Extract source table from COLUMN_MAPPING events
+              if (event.type === 'COLUMN_MAPPING_CREATED') {
+                // Source table ID: database.schema.table from event.target
+                const srcDb = event.target?.database;
+                const srcSchema = event.target?.schema;
+                const srcTable = event.target?.table;
+                if (srcDb && srcSchema && srcTable) {
+                  mappingTableIds.add(`${srcDb}.${srcSchema}.${srcTable}`);
+                }
+                // Target table ID: database.schema.table from event.payload.targetTable
+                const tgtTable = event.payload?.targetTable;
+                if (tgtTable?.database && tgtTable?.schema && tgtTable?.table) {
+                  mappingTableIds.add(`${tgtTable.database}.${tgtTable.schema}.${tgtTable.table}`);
+                }
+              }
             });
 
-            // Final modeling tables = added - removed
-            const modelingTables = new Set(
-              Array.from(addedTableIds).filter(id => !removedTableIds.has(id))
-            );
+            console.log('🔄 Tables from COLUMN_MAPPING events:', Array.from(mappingTableIds));
+
+            // Final modeling tables = added - removed + mapping tables
+            const modelingTables = new Set([
+              ...Array.from(addedTableIds).filter(id => !removedTableIds.has(id)),
+              ...Array.from(mappingTableIds)
+            ]);
 
             if (modelingTables.size > 0) {
               console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
@@ -2181,6 +2268,16 @@ export default function ExploreDesignPage() {
                                 )}
                               </div>
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {/* Preview & Profile Button */}
+                                <Tooltip content="Preview Data & Profile">
+                                  <button
+                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                                    onClick={() => setColumnPreviewModal({ isOpen: true, column: col })}
+                                  >
+                                    <BarChart3 className="h-4 w-4 text-slate-400 hover:text-purple-500" />
+                                  </button>
+                                </Tooltip>
+                                {/* Primary Key Button */}
                                 <Tooltip content={col.isPrimaryKey ? "Remove Primary Key" : "Set as Primary Key"}>
                                   <button
                                     className={cn(
@@ -2191,7 +2288,6 @@ export default function ExploreDesignPage() {
                                       if (!selectedTable) return;
 
                                       if (!col.isPrimaryKey) {
-                                        // Adding primary key - create event for later execution
                                         handleAddPrimaryKey(
                                           selectedTable.database,
                                           selectedTable.schema,
@@ -2199,7 +2295,6 @@ export default function ExploreDesignPage() {
                                           [col.name]
                                         );
                                       } else {
-                                        // Removing primary key - create event for later execution
                                         const target = {
                                           database: selectedTable.database,
                                           schema: selectedTable.schema,
@@ -2213,27 +2308,36 @@ export default function ExploreDesignPage() {
                                     <Key className={cn("h-4 w-4", col.isPrimaryKey ? "text-amber-500" : "text-slate-400 hover:text-amber-500")} />
                                   </button>
                                 </Tooltip>
-                                <Tooltip content="Apply Masking Policy">
+                                {/* Sensitive Column Button */}
+                                <Tooltip content={col.isSensitive ? "Manage Sensitive Marking" : "Mark as Sensitive"}>
                                   <button
-                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                    onClick={() => {
-                                      if (!selectedTable) return;
-                                      // Show masking policy selection
-                                      const policyName = maskingPolicies.length > 0
-                                        ? maskingPolicies[0].name
-                                        : 'default_mask';
-                                      const target = {
-                                        database: selectedTable.database,
-                                        schema: selectedTable.schema,
-                                        table: selectedTable.table,
-                                      };
-                                      addEvent(createMaskingPolicyEvent(target, policyName, [col.name], true));
-                                      toast.success(`Masking policy for "${col.name}" added to pending changes`);
-                                    }}
+                                    className={cn(
+                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
+                                      col.isSensitive && "bg-red-100 dark:bg-red-900/30"
+                                    )}
+                                    onClick={() => setSensitiveColumnModal({ isOpen: true, column: col })}
                                   >
-                                    <Shield className="h-4 w-4 text-slate-400 hover:text-green-500" />
+                                    <Shield className={cn("h-4 w-4", col.isSensitive ? "text-red-500" : "text-slate-400 hover:text-red-500")} />
                                   </button>
                                 </Tooltip>
+                                {/* Exclude from Modeling Button */}
+                                <Tooltip content={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in Modeling" : "Exclude from Modeling"}>
+                                  <button
+                                    className={cn(
+                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
+                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name) && "bg-slate-200 dark:bg-slate-700"
+                                    )}
+                                    onClick={() => setColumnExclusionModal({ isOpen: true, column: col })}
+                                  >
+                                    <MinusCircle className={cn(
+                                      "h-4 w-4",
+                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name)
+                                        ? "text-slate-600"
+                                        : "text-slate-400 hover:text-slate-600"
+                                    )} />
+                                  </button>
+                                </Tooltip>
+                                {/* Rename Column Button */}
                                 <Tooltip content="Rename Column">
                                   <button
                                     className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -2374,13 +2478,71 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onTableSelect={handleTableClick}
                 onTableExclude={handleRemoveFromModeling}
-                onRelationCreate={(source, target, sourceCol, targetCol) => {
-                  toast.success('Relation created');
+                onRelationCreate={async (source, target, sourceCol, targetCol) => {
+                  // Parse table IDs to get database.schema.table components
+                  const sourceParts = source.split('.');
+                  const targetParts = target.split('.');
+
+                  if (sourceParts.length !== 3 || targetParts.length !== 3) {
+                    console.error('[onRelationCreate] Invalid table IDs:', { source, target });
+                    toast.success('Mapping created locally');
+                    return;
+                  }
+
+                  const [sourceDb, sourceSchema, sourceTable] = sourceParts;
+                  const [targetDb, targetSchema, targetTable] = targetParts;
+                  const sourceColumns = sourceCol.split(',');
+
+                  // Save mapping event(s) to backend immediately
+                  if (selectedProjectId) {
+                    try {
+                      // Create events for each source column mapping
+                      const eventsToSave = sourceColumns.map(srcCol => ({
+                        event_id: `mapping-${Date.now()}-${srcCol}`,
+                        event_type: 'COLUMN_MAPPING_CREATED' as const,
+                        target: {
+                          database: sourceDb,
+                          schema: sourceSchema,
+                          table: sourceTable,
+                          column: srcCol,
+                        },
+                        payload: {
+                          sourceColumn: srcCol,
+                          targetTable: {
+                            database: targetDb,
+                            schema: targetSchema,
+                            table: targetTable,
+                          },
+                          targetColumn: targetCol,
+                        },
+                        status: 'pending' as const,
+                        created_at: new Date().toISOString(),
+                      }));
+
+                      console.log('[onRelationCreate] Saving mapping events to backend:', eventsToSave);
+
+                      const result = await recordDesignEvents(selectedProjectId, eventsToSave);
+
+                      if (result.success) {
+                        console.log('[onRelationCreate] Events saved to backend:', result);
+                        toast.success(`Mapping saved: ${sourceColumns.join(', ')} → ${targetCol}`);
+                      } else {
+                        console.warn('[onRelationCreate] No events were saved to backend');
+                        toast.success('Mapping created locally');
+                      }
+                    } catch (error) {
+                      console.error('[onRelationCreate] Failed to save mapping to backend:', error);
+                      toast.success('Mapping created locally (backend sync failed)');
+                    }
+                  } else {
+                    toast.success('Mapping created (select a project to sync)');
+                  }
                 }}
                 className={cn("h-full", isFullscreen && "pt-14")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
                 targetTableIds={targetTableIds}
+                initialMappings={initialColumnMappings}
               />
             </div>
           )}
@@ -2532,6 +2694,151 @@ export default function ExploreDesignPage() {
           projectId={selectedProjectId}
         />
       </Modal>
+
+      {/* Column Preview Modal */}
+      {columnPreviewModal.column && selectedTable && (
+        <ColumnPreviewModal
+          isOpen={columnPreviewModal.isOpen}
+          onClose={() => setColumnPreviewModal({ isOpen: false, column: null })}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          table={selectedTable.table}
+          column={columnPreviewModal.column.name}
+          dataType={columnPreviewModal.column.dataType}
+        />
+      )}
+
+      {/* Sensitive Column Modal */}
+      {sensitiveColumnModal.column && selectedTable && (
+        <SensitiveColumnModal
+          isOpen={sensitiveColumnModal.isOpen}
+          onClose={() => setSensitiveColumnModal({ isOpen: false, column: null })}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          table={selectedTable.table}
+          column={sensitiveColumnModal.column.name}
+          dataType={sensitiveColumnModal.column.dataType}
+          isSensitive={sensitiveColumnModal.column.isSensitive || false}
+          onMarkSensitive={(sensitiveType) => {
+            if (!selectedTable || !sensitiveColumnModal.column || !selectedProjectId) return;
+            const target = {
+              database: selectedTable.database,
+              schema: selectedTable.schema,
+              table: selectedTable.table,
+            };
+            addEvent({
+              ...createSensitiveColumnEvent(
+                target,
+                sensitiveColumnModal.column.name,
+                sensitiveType,
+                true
+              ),
+              projectId: selectedProjectId,
+            });
+            // Update local state
+            setTableColumns(prev =>
+              prev.map(c =>
+                c.name === sensitiveColumnModal.column?.name
+                  ? { ...c, isSensitive: true }
+                  : c
+              )
+            );
+            toast.success(`"${sensitiveColumnModal.column.name}" marked as sensitive (${sensitiveType})`);
+          }}
+          onRemoveSensitive={() => {
+            if (!selectedTable || !sensitiveColumnModal.column || !selectedProjectId) return;
+            const target = {
+              database: selectedTable.database,
+              schema: selectedTable.schema,
+              table: selectedTable.table,
+            };
+            addEvent({
+              ...createSensitiveColumnEvent(
+                target,
+                sensitiveColumnModal.column.name,
+                'removed',
+                false
+              ),
+              projectId: selectedProjectId,
+            });
+            // Update local state
+            setTableColumns(prev =>
+              prev.map(c =>
+                c.name === sensitiveColumnModal.column?.name
+                  ? { ...c, isSensitive: false }
+                  : c
+              )
+            );
+            toast.success(`Sensitive marking removed from "${sensitiveColumnModal.column.name}"`);
+          }}
+        />
+      )}
+
+      {/* Column Exclusion Modal */}
+      {columnExclusionModal.column && selectedTable && (
+        <ColumnExclusionModal
+          isOpen={columnExclusionModal.isOpen}
+          onClose={() => setColumnExclusionModal({ isOpen: false, column: null })}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          table={selectedTable.table}
+          column={columnExclusionModal.column.name}
+          dataType={columnExclusionModal.column.dataType}
+          isExcluded={excludedColumns.get(selectedTable.id)?.has(columnExclusionModal.column.name) || false}
+          exclusionReason={undefined}
+          onExclude={(reason) => {
+            if (!selectedTable || !columnExclusionModal.column || !selectedProjectId) return;
+            const target = {
+              database: selectedTable.database,
+              schema: selectedTable.schema,
+              table: selectedTable.table,
+            };
+            addEvent({
+              ...createColumnExclusionEvent(
+                target,
+                columnExclusionModal.column.name,
+                true,
+                reason
+              ),
+              projectId: selectedProjectId,
+            });
+            // Update excluded columns map
+            setExcludedColumns(prev => {
+              const next = new Map(prev);
+              const tableExcluded = new Set(next.get(selectedTable.id) || []);
+              tableExcluded.add(columnExclusionModal.column!.name);
+              next.set(selectedTable.id, tableExcluded);
+              return next;
+            });
+            toast.success(`"${columnExclusionModal.column.name}" excluded from modeling`);
+          }}
+          onInclude={() => {
+            if (!selectedTable || !columnExclusionModal.column || !selectedProjectId) return;
+            const target = {
+              database: selectedTable.database,
+              schema: selectedTable.schema,
+              table: selectedTable.table,
+            };
+            addEvent({
+              ...createColumnExclusionEvent(
+                target,
+                columnExclusionModal.column.name,
+                false
+              ),
+              projectId: selectedProjectId,
+            });
+            // Update excluded columns map
+            setExcludedColumns(prev => {
+              const next = new Map(prev);
+              const tableExcluded = new Set(next.get(selectedTable.id) || []);
+              tableExcluded.delete(columnExclusionModal.column!.name);
+              next.set(selectedTable.id, tableExcluded);
+              return next;
+            });
+            toast.success(`"${columnExclusionModal.column.name}" included in modeling`);
+          }}
+        />
+      )}
     </div>
   );
 }

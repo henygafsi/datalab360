@@ -31,6 +31,8 @@ export type EventType =
   | 'TAG_REMOVED'
   | 'RELATION_CREATED'
   | 'RELATION_REMOVED'
+  | 'COLUMN_MAPPING_CREATED'  // ETL: Source column → Target column mapping
+  | 'COLUMN_MAPPING_REMOVED'  // ETL: Remove a column mapping
   | 'TABLE_EXCLUDED'
   | 'TABLE_INCLUDED'
   | 'COLUMN_EXCLUDED'
@@ -154,6 +156,21 @@ export interface ForeignKeyEvent extends DesignEvent {
   };
 }
 
+// Column Mapping Event (ETL: Source → Target mapping for data loading)
+export interface ColumnMappingEvent extends DesignEvent {
+  type: 'COLUMN_MAPPING_CREATED' | 'COLUMN_MAPPING_REMOVED';
+  payload: {
+    sourceColumn: string;
+    targetTable: {
+      database: string;
+      schema: string;
+      table: string;
+    };
+    targetColumn: string;
+    transformation?: string; // Optional transformation: UPPER(), TRIM(), etc.
+  };
+}
+
 // Event Store State
 interface EventStoreState {
   events: DesignEvent[];
@@ -267,6 +284,19 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
     case 'RELATION_CREATED':
     case 'RELATION_REMOVED':
       // Must have source column, target table, and target column
+      if (!payload.sourceColumn) {
+        console.debug(`[EventStore] Rejecting ${type}: no source column`);
+        return false;
+      }
+      if (!payload.targetTable || !payload.targetColumn) {
+        console.debug(`[EventStore] Rejecting ${type}: missing target info`);
+        return false;
+      }
+      return true;
+
+    case 'COLUMN_MAPPING_CREATED':
+    case 'COLUMN_MAPPING_REMOVED':
+      // ETL mapping: source column → target column
       if (!payload.sourceColumn) {
         console.debug(`[EventStore] Rejecting ${type}: no source column`);
         return false;
@@ -838,4 +868,51 @@ export const createPrimaryKeyEvent = (
   type: set ? 'PRIMARY_KEY_SET' : 'PRIMARY_KEY_REMOVED',
   target,
   payload: { columns },
+});
+
+// Create column mapping event (ETL: Source → Target)
+export const createColumnMappingEvent = (
+  sourceTarget: DesignEvent['target'], // Source table info
+  sourceColumn: string,
+  targetTable: ColumnMappingEvent['payload']['targetTable'],
+  targetColumn: string,
+  created: boolean,
+  transformation?: string
+): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => ({
+  type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
+  target: sourceTarget,
+  payload: { sourceColumn, targetTable, targetColumn, transformation },
+});
+
+// Create column exclusion event
+export const createColumnExclusionEvent = (
+  target: DesignEvent['target'],
+  columnName: string,
+  excluded: boolean,
+  reason?: string
+): Omit<DesignEvent, 'id' | 'timestamp' | 'status'> => ({
+  type: excluded ? 'COLUMN_EXCLUDED' : 'COLUMN_INCLUDED',
+  target: { ...target, column: columnName },
+  payload: { columnName, excluded, reason },
+});
+
+// Sensitive Column Event - uses TAG_APPLIED/TAG_REMOVED events
+// No separate interface needed as we reuse the existing TAG events
+
+// Create sensitive column marking event
+export const createSensitiveColumnEvent = (
+  target: DesignEvent['target'],
+  columnName: string,
+  sensitiveType: string,
+  isSensitive: boolean,
+  autoDetected?: boolean
+): Omit<DesignEvent, 'id' | 'timestamp' | 'status'> => ({
+  type: isSensitive ? 'TAG_APPLIED' : 'TAG_REMOVED', // Using TAG events for sensitive marking
+  target: { ...target, column: columnName },
+  payload: {
+    tagName: `SENSITIVE:${sensitiveType}`,
+    columnName,
+    sensitiveType,
+    autoDetected,
+  },
 });

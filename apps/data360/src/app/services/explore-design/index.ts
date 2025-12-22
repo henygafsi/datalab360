@@ -41,6 +41,8 @@ export type EventType =
   | 'AGGREGATION_POLICY_REMOVED'
   | 'RELATION_CREATED'
   | 'RELATION_REMOVED'
+  | 'COLUMN_MAPPING_CREATED'
+  | 'COLUMN_MAPPING_REMOVED'
   | 'TAG_APPLIED'
   | 'TAG_REMOVED'
   | 'TABLE_EXCLUDED'
@@ -1650,6 +1652,20 @@ export function generateEventSQL(event: DesignEvent): string {
       return `ALTER TABLE ${tableRef} MODIFY COLUMN ${target.column} UNSET MASKING POLICY;`;
     case 'RELATION_CREATED':
       return `-- Relation: ${tableRef}.${payload.source_column} -> ${payload.target_table}.${payload.target_column} (${payload.relation_type})`;
+    case 'COLUMN_MAPPING_CREATED':
+      // ETL column mapping: source column → target column
+      const targetTableRef = payload.targetTable
+        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+        : 'UNKNOWN_TARGET';
+      const transformExpr = payload.transformation
+        ? `${payload.transformation}(${target.table}.${payload.sourceColumn})`
+        : `${target.table}.${payload.sourceColumn}`;
+      return `-- ETL Mapping: ${tableRef}.${payload.sourceColumn} -> ${targetTableRef}.${payload.targetColumn}\n-- Transform: ${transformExpr}`;
+    case 'COLUMN_MAPPING_REMOVED':
+      const removedTargetRef = payload.targetTable
+        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+        : 'UNKNOWN_TARGET';
+      return `-- ETL Mapping Removed: ${tableRef}.${payload.sourceColumn} -> ${removedTargetRef}.${payload.targetColumn}`;
     case 'TAG_APPLIED':
       return `ALTER TABLE ${tableRef} SET TAG ${payload.tag_name} = '${payload.tag_value}';`;
     default:
@@ -3699,6 +3715,175 @@ export interface FetchRelationshipsResponse {
   database: string;
   schema: string;
   relationships: TableRelationship[];
+}
+
+// ============================================
+// COLUMN PREVIEW & PROFILING APIs
+// ============================================
+
+export interface ColumnPreviewData {
+  column: string;
+  sample_values: any[];
+  total_rows: number;
+  sample_size: number;
+}
+
+export interface ColumnProfile {
+  column: string;
+  data_type: string;
+  total_rows: number;
+  null_count: number;
+  null_percentage: number;
+  distinct_count: number;
+  distinct_percentage: number;
+  min_value?: any;
+  max_value?: any;
+  avg_value?: number;
+  min_length?: number;
+  max_length?: number;
+  avg_length?: number;
+  most_frequent?: Array<{ value: any; count: number; percentage: number }>;
+  data_quality_score: number;
+  is_unique: boolean;
+  has_nulls: boolean;
+}
+
+/**
+ * Fetch sample data preview for a column
+ * POST /explore-design/column/preview
+ */
+export async function getColumnPreview(
+  database: string,
+  schema: string,
+  table: string,
+  column: string,
+  sampleSize: number = 100
+): Promise<ColumnPreviewData> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/column/preview`,
+    {
+      database,
+      schema,
+      table,
+      column,
+      sample_size: sampleSize,
+    },
+    { headers }
+  );
+  return response.data;
+}
+
+/**
+ * Fetch column profiling statistics
+ * POST /explore-design/column/profile
+ */
+export async function getColumnProfile(
+  database: string,
+  schema: string,
+  table: string,
+  column: string
+): Promise<ColumnProfile> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/column/profile`,
+    {
+      database,
+      schema,
+      table,
+      column,
+    },
+    { headers }
+  );
+  return response.data;
+}
+
+/**
+ * Fetch profiling for all columns in a table
+ * POST /explore-design/table/profile
+ */
+export async function getTableProfile(
+  database: string,
+  schema: string,
+  table: string
+): Promise<{
+  table: string;
+  row_count: number;
+  column_count: number;
+  columns: ColumnProfile[];
+  overall_quality_score: number;
+}> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/table/profile`,
+    {
+      database,
+      schema,
+      table,
+    },
+    { headers }
+  );
+  return response.data;
+}
+
+/**
+ * Mark column as sensitive and optionally create event
+ * POST /explore-design/column/mark-sensitive
+ */
+export async function markColumnSensitive(
+  projectId: string,
+  database: string,
+  schema: string,
+  table: string,
+  column: string,
+  sensitiveType: string,
+  createEvent: boolean = true
+): Promise<{ success: boolean; event_id?: string }> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/column/mark-sensitive`,
+    {
+      project_id: projectId,
+      database,
+      schema,
+      table,
+      column,
+      sensitive_type: sensitiveType,
+      create_event: createEvent,
+    },
+    { headers }
+  );
+  return response.data;
+}
+
+/**
+ * Exclude/include column from modeling
+ * POST /explore-design/column/exclude
+ */
+export async function setColumnExclusion(
+  projectId: string,
+  database: string,
+  schema: string,
+  table: string,
+  column: string,
+  excluded: boolean,
+  reason?: string
+): Promise<{ success: boolean; event_id?: string }> {
+  const headers = await getAuthHeaders();
+  const response = await axios.post(
+    `${EXPLORE_DESIGN_BASE}/column/exclude`,
+    {
+      project_id: projectId,
+      database,
+      schema,
+      table,
+      column,
+      excluded,
+      reason,
+    },
+    { headers }
+  );
+  return response.data;
 }
 
 /**

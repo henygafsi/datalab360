@@ -43,6 +43,8 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   BATCH_OPERATION: { icon: Table2, label: 'Batch Operation', color: 'bg-slate-100 text-slate-600' },
   TABLE_ADDED_TO_MODELING: { icon: Plus, label: 'Added to Modeling', color: 'bg-green-100 text-green-600' },
   TABLE_REMOVED_FROM_MODELING: { icon: Minus, label: 'Removed from Modeling', color: 'bg-red-100 text-red-600' },
+  COLUMN_MAPPING_CREATED: { icon: Link2, label: 'Column Mapped', color: 'bg-blue-100 text-blue-600' },
+  COLUMN_MAPPING_REMOVED: { icon: Link2, label: 'Mapping Removed', color: 'bg-red-100 text-red-600' },
 };
 
 // Status config
