@@ -763,6 +763,43 @@ export default function ExploreDesignPage() {
 
           console.log(`[Modeling] Loaded ${newTableIds.size} default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
 
+          // Load columns for each default table (for modeling view)
+          console.log(`[Modeling] Loading columns for ${newTables.length} default tables...`);
+          const columnsPromises = newTables.map(async (table) => {
+            try {
+              const cols = await getTableColumns(table.database, table.schema, table.table);
+              if (cols && cols.length > 0) {
+                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
+                  name: col.COLUMN_NAME || col.name,
+                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
+                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
+                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
+                  isSensitive: false,
+                }));
+                return { tableId: table.id, columns: formattedColumns };
+              }
+              return null;
+            } catch (err) {
+              console.error(`[Modeling] Failed to load columns for ${table.id}:`, err);
+              return null;
+            }
+          });
+
+          const columnsResults = await Promise.all(columnsPromises);
+
+          // Update tableColumnsMap with loaded columns
+          setTableColumnsMap(prev => {
+            const next = new Map(prev);
+            columnsResults.forEach(result => {
+              if (result) {
+                next.set(result.tableId, result.columns);
+              }
+            });
+            return next;
+          });
+
+          console.log(`[Modeling] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
+
           // Load relationships for the default schema
           try {
             const relationshipsData = await fetchRelationships(DEFAULT_DB, DEFAULT_SCHEMA);
@@ -859,6 +896,47 @@ export default function ExploreDesignPage() {
         });
         // Expanded schemas is still Set<string> of schema names
         setExpandedSchemas(new Set(selectedSchemas.keys()));
+
+        // Load columns for new tables (for modeling view)
+        // Only load for tables not already in tableColumnsMap
+        const tablesToLoadColumns = newTables.filter(t => !tableColumnsMap.has(t.id));
+        if (tablesToLoadColumns.length > 0) {
+          console.log(`[Explore-Design] Loading columns for ${tablesToLoadColumns.length} new tables...`);
+          const columnsPromises = tablesToLoadColumns.map(async (table) => {
+            try {
+              const cols = await getTableColumns(table.database, table.schema, table.table);
+              if (cols && cols.length > 0) {
+                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
+                  name: col.COLUMN_NAME || col.name,
+                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
+                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
+                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
+                  isSensitive: false,
+                }));
+                return { tableId: table.id, columns: formattedColumns };
+              }
+              return null;
+            } catch (err) {
+              console.error(`[Explore-Design] Failed to load columns for ${table.id}:`, err);
+              return null;
+            }
+          });
+
+          const columnsResults = await Promise.all(columnsPromises);
+
+          // Update tableColumnsMap with loaded columns
+          setTableColumnsMap(prev => {
+            const next = new Map(prev);
+            columnsResults.forEach(result => {
+              if (result) {
+                next.set(result.tableId, result.columns);
+              }
+            });
+            return next;
+          });
+
+          console.log(`[Explore-Design] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
+        }
       } catch (error) {
         toast.error('Failed to load tables');
       } finally {
@@ -866,7 +944,7 @@ export default function ExploreDesignPage() {
       }
     };
     loadTables();
-  }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger, targetTableIds]);
+  }, [selectedDatabase, selectedSchemas, allTableConfigs, refreshTrigger, targetTableIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Load columns when a table is selected
   useEffect(() => {
