@@ -10,7 +10,7 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff, BarChart3, MinusCircle
+  WifiOff, BarChart3, MinusCircle, Link2, TableIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
@@ -22,8 +22,6 @@ import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/po
 import {
   getProjectEvents,
   recordDesignEvents,
-  executePendingEvents,
-  LocalDesignEvent,
   fetchRelationships,
   TableRelationship
 } from '@/app/services/explore-design';
@@ -40,11 +38,16 @@ import {
   createPrimaryKeyEvent,
   createMaskingPolicyEvent,
   createColumnExclusionEvent,
-  createSensitiveColumnEvent
+  createSensitiveColumnEvent,
+  EventType
 } from './stores/event-store';
 import ColumnPreviewModal from './components/ColumnPreviewModal';
 import SensitiveColumnModal from './components/SensitiveColumnModal';
 import ColumnExclusionModal from './components/ColumnExclusionModal';
+import TablePreviewModal from './components/TablePreviewModal';
+import TableProfileModal from './components/TableProfileModal';
+import CreateTableModal from './components/CreateTableModal';
+import RelationshipModal from './components/RelationshipModal';
 
 // Types
 interface SourceConfig {
@@ -525,6 +528,8 @@ export default function ExploreDesignPage() {
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [showCreateTableModal, setShowCreateTableModal] = useState(false);
+  const [showRelationshipModal, setShowRelationshipModal] = useState(false);
 
   // Column action modals
   const [columnPreviewModal, setColumnPreviewModal] = useState<{
@@ -539,6 +544,12 @@ export default function ExploreDesignPage() {
     isOpen: boolean;
     column: ColumnInfo | null;
   }>({ isOpen: false, column: null });
+
+  // Table preview modal
+  const [tablePreviewModal, setTablePreviewModal] = useState(false);
+
+  // Table profile modal
+  const [tableProfileModal, setTableProfileModal] = useState(false);
 
   // Track excluded columns per table
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
@@ -561,8 +572,7 @@ export default function ExploreDesignPage() {
   // Default relationships for modeling view
   const [defaultRelationships, setDefaultRelationships] = useState<TableRelationship[]>([]);
 
-  // Execution state
-  const [isExecutingChanges, setIsExecutingChanges] = useState(false);
+  // Refresh trigger for tables
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Event store with project filtering
@@ -599,6 +609,39 @@ export default function ExploreDesignPage() {
       pending: catalogTables.length - configured,
     };
   }, [tables, targetTableIds]);
+
+  // Displayable event types for deploy button badge (actual schema changes)
+  const displayableEventTypes: EventType[] = [
+    'TABLE_CREATED',
+    'TABLE_RENAMED',
+    'COLUMN_RENAMED',
+    'COLUMN_TYPE_CHANGED',
+    'ADD_COLUMN',
+    'REMOVE_COLUMN',
+    'PRIMARY_KEY_SET',
+    'PRIMARY_KEY_REMOVED',
+    'FOREIGN_KEY_ADDED',
+    'FOREIGN_KEY_REMOVED',
+    'INGESTION_MODE_SET',
+    'MASKING_POLICY_APPLIED',
+    'MASKING_POLICY_REMOVED',
+    'AGGREGATION_POLICY_APPLIED',
+    'AGGREGATION_POLICY_REMOVED',
+    'RLS_POLICY_APPLIED',
+    'RLS_POLICY_REMOVED',
+    'TAG_APPLIED',
+    'TAG_REMOVED',
+    'SCD_CONFIGURED',
+    'RELATION_CREATED',
+    'RELATION_REMOVED',
+    'COLUMN_MAPPING_CREATED',
+    'COLUMN_MAPPING_REMOVED',
+  ];
+
+  // Filter pending events for deploy button - only show actual schema changes
+  const displayablePendingEvents = useMemo(() => {
+    return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
+  }, [pendingEvents]);
 
   // Extract column mappings from COLUMN_MAPPING_CREATED events for ModelingCanvas
   const initialColumnMappings = useMemo(() => {
@@ -694,13 +737,19 @@ export default function ExploreDesignPage() {
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
 
   useEffect(() => {
-    // Load default tables when switching to modeling view (only once per session)
-    if (viewMode !== 'modeling' || defaultModelingTablesLoaded) {
+    // Load default tables when switching to modeling view
+    // This ensures DWH tables are always present in modeling view
+    if (viewMode !== 'modeling') {
+      return;
+    }
+
+    // If already loaded and tables exist, skip
+    if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) {
       return;
     }
 
     const loadDefaultModelingTables = async () => {
-      const DEFAULT_DB = 'DATA360';
+      const DEFAULT_DB = 'CP_DATA360';
       const DEFAULT_SCHEMA = 'RETAIL_DWH';
 
       console.log(`[Modeling] Loading default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
@@ -819,7 +868,7 @@ export default function ExploreDesignPage() {
     };
 
     loadDefaultModelingTables();
-  }, [viewMode, defaultModelingTablesLoaded, selectedDatabase]);
+  }, [viewMode, defaultModelingTablesLoaded, selectedDatabase, tables.length, targetTableIds.size]);
 
   // Load schemas when database changes
   useEffect(() => {
@@ -1652,80 +1701,6 @@ export default function ExploreDesignPage() {
     toast.success(`Column rename "${columnName}" → "${newName}" added to pending changes`);
   }, [addEvent, selectedProjectId]);
 
-  // Execute all pending events (validate and apply changes)
-  const handleExecutePendingEvents = useCallback(async () => {
-    if (!selectedProjectId) {
-      toast.error('Please select a project first');
-      return;
-    }
-
-    if (pendingEvents.length === 0) {
-      toast('No pending changes to execute', { icon: 'ℹ️' });
-      return;
-    }
-
-    setIsExecutingChanges(true);
-    const toastId = toast.loading(`Executing ${pendingEvents.length} pending changes...`);
-
-    try {
-      // Filter and convert events to LocalDesignEvent format - only include executable event types
-      const executableEventTypes = ['PRIMARY_KEY_SET', 'TABLE_RENAMED', 'COLUMN_RENAMED', 'ADD_COLUMN', 'TABLE_INCLUDED', 'TABLE_EXCLUDED'];
-      const eventsToExecute: LocalDesignEvent[] = pendingEvents
-        .filter(e => executableEventTypes.includes(e.type))
-        .map(e => ({
-          id: e.id,
-          type: e.type as any, // Type assertion needed due to type mismatch between stores
-          timestamp: e.timestamp,
-          status: e.status,
-          projectId: e.projectId,
-          target: e.target,
-          payload: e.payload,
-          backendId: e.backendId,
-          synced: e.synced,
-          userId: e.userId,
-          error: e.error,
-        }));
-
-      const result = await executePendingEvents(selectedProjectId, eventsToExecute);
-
-      toast.dismiss(toastId);
-
-      // Update event statuses based on execution results
-      result.results.forEach((res) => {
-        updateEventStatus({
-          eventId: res.eventId,
-          status: res.success ? 'applied' : 'failed',
-          error: res.error,
-        });
-      });
-
-      if (result.failed === 0) {
-        toast.success(`Successfully executed ${result.success} changes`);
-      } else {
-        toast.error(`Executed ${result.success} changes, ${result.failed} failed`);
-      }
-
-      // Log detailed results
-      console.log('📊 Execution results:', result);
-
-      // Refresh tables and columns data after successful execution
-      if (result.success > 0) {
-        setRefreshTrigger(prev => prev + 1);
-        // Also refresh columns if a table is selected
-        if (selectedTable) {
-          setSelectedTable({ ...selectedTable }); // Trigger column reload
-        }
-      }
-
-    } catch (error: any) {
-      toast.dismiss(toastId);
-      console.error('Error executing events:', error);
-      toast.error(error.message || 'Failed to execute pending changes');
-    } finally {
-      setIsExecutingChanges(false);
-    }
-  }, [selectedProjectId, pendingEvents, updateEventStatus, selectedTable]);
-
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
     switch (action) {
@@ -1935,17 +1910,23 @@ export default function ExploreDesignPage() {
               <span className="hidden xl:inline text-xs">Export</span>
             </Button>
 
-            {/* Deploy Button */}
+            {/* Deploy Button - Always accessible when project selected */}
             <Button
               size="sm"
               className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-2.5 py-1"
-              onClick={() => setShowDeploymentModal(true)}
-              disabled={pendingEvents.length === 0}
+              onClick={() => {
+                if (!selectedProjectId) {
+                  toast.error('Please select a project first');
+                  return;
+                }
+                setShowDeploymentModal(true);
+              }}
+              disabled={!selectedProjectId}
             >
               <Rocket className="h-3.5 w-3.5" />
               <span className="text-xs">Deploy</span>
-              {pendingEvents.length > 0 && (
-                <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{pendingEvents.length}</Badge>
+              {displayablePendingEvents.length > 0 && (
+                <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{displayablePendingEvents.length}</Badge>
               )}
             </Button>
           </div>
@@ -2171,7 +2152,21 @@ export default function ExploreDesignPage() {
 
                       {/* Quick Actions Grid */}
                       <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                          <button
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+                            onClick={() => setTablePreviewModal(true)}
+                          >
+                            <Eye className="h-5 w-5 text-blue-600" />
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Preview Data</span>
+                          </button>
+                          <button
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800"
+                            onClick={() => setTableProfileModal(true)}
+                          >
+                            <BarChart3 className="h-5 w-5 text-purple-600" />
+                            <span className="text-xs font-medium text-purple-700 dark:text-purple-400">Data Profile</span>
+                          </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                             onClick={() => {
@@ -2524,6 +2519,41 @@ export default function ExploreDesignPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Tooltip content={selectedProjectId ? "Create Table" : "Select a project first"}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!selectedProjectId) {
+                            toast.error('Please select a project first');
+                            return;
+                          }
+                          setShowCreateTableModal(true);
+                        }}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        <TableIcon className="h-4 w-4" />
+                      </Button>
+                    </Tooltip>
+                    <Tooltip content="Manage Relationships">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!selectedTable) {
+                            toast.error('Please select a table first');
+                            return;
+                          }
+                          setShowRelationshipModal(true);
+                        }}
+                        disabled={!selectedTable}
+                        className="gap-2"
+                      >
+                        <Link2 className="h-4 w-4" />
+                      </Button>
+                    </Tooltip>
+                    <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
                     <Tooltip content="Undo">
                       <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo}>
                         <Undo2 className="h-4 w-4" />
@@ -2538,13 +2568,19 @@ export default function ExploreDesignPage() {
                     <Button
                       size="sm"
                       className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600"
-                      onClick={() => setShowDeploymentModal(true)}
-                      disabled={pendingEvents.length === 0}
+                      onClick={() => {
+                        if (!selectedProjectId) {
+                          toast.error('Please select a project first');
+                          return;
+                        }
+                        setShowDeploymentModal(true);
+                      }}
+                      disabled={!selectedProjectId}
                     >
                       <Rocket className="h-4 w-4" />
                       Deploy
-                      {pendingEvents.length > 0 && (
-                        <Badge className="bg-white/20 text-white text-xs px-1">{pendingEvents.length}</Badge>
+                      {displayablePendingEvents.length > 0 && (
+                        <Badge className="bg-white/20 text-white text-xs px-1">{displayablePendingEvents.length}</Badge>
                       )}
                     </Button>
                   </div>
@@ -2571,12 +2607,37 @@ export default function ExploreDesignPage() {
                   const [targetDb, targetSchema, targetTable] = targetParts;
                   const sourceColumns = sourceCol.split(',');
 
-                  // Save mapping event(s) to backend immediately
+                  // Create events for each source column mapping
+                  const eventTimestamp = Date.now();
+
+                  // Add to local event store for immediate UI update
+                  sourceColumns.forEach((srcCol, idx) => {
+                    addEvent({
+                      type: 'COLUMN_MAPPING_CREATED',
+                      projectId: selectedProjectId || undefined,
+                      target: {
+                        database: sourceDb,
+                        schema: sourceSchema,
+                        table: sourceTable,
+                        column: srcCol,
+                      },
+                      payload: {
+                        sourceColumn: srcCol,
+                        targetTable: {
+                          database: targetDb,
+                          schema: targetSchema,
+                          table: targetTable,
+                        },
+                        targetColumn: targetCol,
+                      },
+                    });
+                  });
+
+                  // Save mapping event(s) to backend
                   if (selectedProjectId) {
                     try {
-                      // Create events for each source column mapping
-                      const eventsToSave = sourceColumns.map(srcCol => ({
-                        event_id: `mapping-${Date.now()}-${srcCol}`,
+                      const eventsToSave = sourceColumns.map((srcCol, idx) => ({
+                        event_id: `mapping-${eventTimestamp}-${idx}-${srcCol}`,
                         event_type: 'COLUMN_MAPPING_CREATED' as const,
                         target: {
                           database: sourceDb,
@@ -2632,8 +2693,6 @@ export default function ExploreDesignPage() {
             <EventTable
               compact
               className="flex-1 m-1.5 overflow-hidden"
-              onExecuteChanges={handleExecutePendingEvents}
-              isExecuting={isExecutingChanges}
               projectId={selectedProjectId}
             />
           </div>
@@ -2767,9 +2826,9 @@ export default function ExploreDesignPage() {
       >
         <DeploymentValidation
           onClose={() => setShowDeploymentModal(false)}
-          database={selectedDatabase}
+          database={selectedDatabase || 'CP_DATA360'}
           schemas={Array.from(selectedSchemas.keys())}
-          projectId={selectedProjectId}
+          projectId={selectedProjectId!}
         />
       </Modal>
 
@@ -2914,6 +2973,117 @@ export default function ExploreDesignPage() {
               return next;
             });
             toast.success(`"${columnExclusionModal.column.name}" included in modeling`);
+          }}
+        />
+      )}
+
+      {/* Table Preview Modal */}
+      {selectedTable && (
+        <TablePreviewModal
+          isOpen={tablePreviewModal}
+          onClose={() => setTablePreviewModal(false)}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          table={selectedTable.table}
+        />
+      )}
+
+      {/* Table Profile Modal */}
+      {selectedTable && (
+        <TableProfileModal
+          isOpen={tableProfileModal}
+          onClose={() => setTableProfileModal(false)}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          table={selectedTable.table}
+        />
+      )}
+
+      {/* Create Table Modal - Always creates in DWH (CP_DATA360.RETAIL_DW) */}
+      {/* Note: Modal only opens if selectedProjectId is set (checked in onClick handler) */}
+      <CreateTableModal
+        isOpen={showCreateTableModal}
+        onClose={() => setShowCreateTableModal(false)}
+        database="CP_DATA360"
+        schema="RETAIL_DWH"
+        projectId={selectedProjectId!}
+        onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
+          // Add the new table to the modeling view immediately
+          const tableId = `${database}.${schema}.${tableName}`;
+
+          // Create new table item
+          const newTable: TableItem = {
+            id: tableId,
+            database,
+            schema,
+            table: tableName,
+            columnCount: columns.length,
+            hasPrimaryKey: columns.some(col => col.primaryKey),
+            status: 'pending', // Mark as pending since it's not deployed yet
+            sensitiveColumns: 0,
+          };
+
+          // Add to tables list
+          setTables(prev => {
+            const exists = prev.some(t => t.id === tableId);
+            if (exists) return prev;
+            return [...prev, newTable];
+          });
+
+          // Add to targetTableIds so it persists when tables are reloaded
+          setTargetTableIds(prev => {
+            const next = new Set(prev);
+            next.add(tableId);
+            return next;
+          });
+
+          // Add to modeling view
+          setModelingTableIds(prev => {
+            const next = new Set(prev);
+            next.add(tableId);
+            return next;
+          });
+
+          // Add columns to tableColumnsMap
+          const formattedColumns: ColumnInfo[] = columns.map(col => ({
+            name: col.name,
+            dataType: col.dataType,
+            isNullable: col.nullable,
+            isPrimaryKey: col.primaryKey,
+            isSensitive: false,
+          }));
+
+          setTableColumnsMap(prev => {
+            const next = new Map(prev);
+            next.set(tableId, formattedColumns);
+            return next;
+          });
+
+          toast.success(`Table "${tableName}" added to modeling view! Deploy to create in database.`);
+          setRefreshTrigger(prev => prev + 1);
+        }}
+      />
+
+      {/* Relationship Modal */}
+      {selectedTable && selectedProjectId && (
+        <RelationshipModal
+          isOpen={showRelationshipModal}
+          onClose={() => setShowRelationshipModal(false)}
+          database={selectedTable.database}
+          schema={selectedTable.schema}
+          sourceTable={selectedTable.table}
+          sourceColumns={tableColumns}
+          availableTables={tables.map((t) => ({
+            database: t.database,
+            schema: t.schema,
+            table: t.table,
+          }))}
+          tableColumnsMap={tableColumnsMap}
+          projectId={selectedProjectId}
+          existingRelationship={null}
+          onRelationshipCreated={() => {
+            // Refresh relationships if needed
+            toast.success('Relationship event added to queue');
           }}
         />
       )}

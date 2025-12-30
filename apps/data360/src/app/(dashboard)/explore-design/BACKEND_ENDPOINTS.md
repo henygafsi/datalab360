@@ -131,7 +131,65 @@ score = 100
 
 ---
 
-### 3. Get Table Profile (All Columns)
+### 3. Get Table Preview (All Data)
+
+**Endpoint:** `POST /explore-design/table/preview`
+
+**Description:** Fetches sample data rows from an entire table with pagination.
+
+**Request Body:**
+```json
+{
+  "database": "DRAFT_SOURCE_AZURE",
+  "schema": "RAW_DRAFT_AZURE",
+  "table": "STOCKS_MAG",
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "table": "STOCKS_MAG",
+  "columns": ["COD_MAGASIN", "NOM_MAGASIN", "COD_ARTICLE", "QTE_STOCK", "DATE_MAJ"],
+  "rows": [
+    {
+      "COD_MAGASIN": 1885,
+      "NOM_MAGASIN": "Store Paris 01",
+      "COD_ARTICLE": 12345,
+      "QTE_STOCK": 150,
+      "DATE_MAJ": "2024-01-15"
+    },
+    {
+      "COD_MAGASIN": 7222,
+      "NOM_MAGASIN": "Store Lyon 02",
+      "COD_ARTICLE": 67890,
+      "QTE_STOCK": 85,
+      "DATE_MAJ": "2024-01-14"
+    }
+  ],
+  "total_rows": 10000,
+  "sample_size": 50,
+  "offset": 0
+}
+```
+
+**SQL Example (Snowflake):**
+```sql
+-- Get total row count
+SELECT COUNT(*) as total_rows
+FROM "DRAFT_SOURCE_AZURE"."RAW_DRAFT_AZURE"."STOCKS_MAG";
+
+-- Get paginated data
+SELECT *
+FROM "DRAFT_SOURCE_AZURE"."RAW_DRAFT_AZURE"."STOCKS_MAG"
+LIMIT 50 OFFSET 0;
+```
+
+---
+
+### 4. Get Table Profile (All Columns)
 
 **Endpoint:** `POST /explore-design/table/profile`
 
@@ -254,6 +312,290 @@ score = 100
 
 ---
 
+## Event Management & Deployment APIs
+
+### 6. Add Design Event
+
+**Endpoint:** `POST /explore-design/add-event`
+
+**Description:** Records a design event for later deployment. Supports all event types including table creation, relationships, masking, etc.
+
+**Request Body:**
+```json
+{
+  "project_id": "proj_12345",
+  "event_id": "evt_1703001234567_abc123",
+  "event_type": "TABLE_CREATED",
+  "target": {
+    "database": "DWH",
+    "schema": "ANALYTICS",
+    "table": "DIM_CUSTOMER"
+  },
+  "payload": {
+    "tableName": "DIM_CUSTOMER",
+    "columns": [
+      {
+        "name": "CUSTOMER_ID",
+        "dataType": "NUMBER",
+        "nullable": false,
+        "primaryKey": true
+      },
+      {
+        "name": "CUSTOMER_NAME",
+        "dataType": "VARCHAR",
+        "nullable": false,
+        "primaryKey": false
+      }
+    ],
+    "primaryKeys": ["CUSTOMER_ID"],
+    "sql": "CREATE TABLE DWH.ANALYTICS.DIM_CUSTOMER (\n  CUSTOMER_ID NUMBER NOT NULL,\n  CUSTOMER_NAME VARCHAR NOT NULL,\n  PRIMARY KEY (CUSTOMER_ID)\n);"
+  },
+  "module_type": "explore-design"
+}
+```
+
+**Event Types Supported:**
+- `TABLE_CREATED` - Create a new table
+- `TABLE_RENAMED` - Rename an existing table
+- `COLUMN_RENAMED` - Rename a column
+- `FOREIGN_KEY_ADDED` - Add foreign key relationship
+- `FOREIGN_KEY_REMOVED` - Remove foreign key
+- `PRIMARY_KEY_SET` - Set primary key(s)
+- `MASKING_POLICY_APPLIED` - Apply masking policy
+- `TAG_APPLIED` - Tag column as sensitive
+- `COLUMN_EXCLUDED` - Exclude column from modeling
+- `INGESTION_MODE_SET` - Set ingestion mode
+
+**Response (200 OK):**
+```json
+{
+  "success": true,
+  "event_id": "evt_1703001234567_abc123",
+  "project_id": "proj_12345",
+  "status": "pending",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+---
+
+### 7. Get Project Events
+
+**Endpoint:** `GET /explore-design/events/{project_id}?status=pending&event_type=TABLE_CREATED`
+
+**Description:** Retrieves all events for a project with optional filters.
+
+**Query Parameters:**
+- `status` (optional): Filter by status (pending, validated, applied, failed)
+- `event_type` (optional): Filter by event type
+
+**Response (200 OK):**
+```json
+{
+  "project_id": "proj_12345",
+  "events": [
+    {
+      "event_id": "evt_1703001234567_abc123",
+      "event_type": "TABLE_CREATED",
+      "target": {
+        "database": "DWH",
+        "schema": "ANALYTICS",
+        "table": "DIM_CUSTOMER"
+      },
+      "payload": { ... },
+      "status": "pending",
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "summary": {
+    "total": 10,
+    "pending": 8,
+    "validated": 2,
+    "failed": 0,
+    "applied": 0
+  }
+}
+```
+
+---
+
+### 8. Validate Events
+
+**Endpoint:** `POST /explore-design/events/validate`
+
+**Description:** Validates events before deployment.
+
+**Request Body:**
+```json
+{
+  "project_id": "proj_12345",
+  "event_ids": ["evt_1703001234567_abc123", "evt_1703001234567_def456"],
+  "dry_run": true
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "results": [
+    {
+      "event_id": "evt_1703001234567_abc123",
+      "valid": true,
+      "sql": "CREATE TABLE DWH.ANALYTICS.DIM_CUSTOMER ...",
+      "warnings": ["Table does not exist yet (will be created)"]
+    },
+    {
+      "event_id": "evt_1703001234567_def456",
+      "valid": false,
+      "error": "Column EMAIL does not exist in table CUSTOMERS"
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "valid": 1,
+    "invalid": 1
+  }
+}
+```
+
+---
+
+### 9. Create Deployment
+
+**Endpoint:** `POST /explore-design/deployments`
+
+**Description:** Creates a deployment record.
+
+**Request Body:**
+```json
+{
+  "project_id": "proj_12345",
+  "version": "v1.2.0",
+  "deployment_type": "immediate",
+  "events": [
+    {
+      "event_id": "evt_1703001234567_abc123",
+      "event_type": "TABLE_CREATED",
+      "sql": "CREATE TABLE ...",
+      "target": { ... },
+      "payload": { ... }
+    }
+  ],
+  "rollback_on_error": true,
+  "created_by": "user@example.com"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "deployment_id": "deploy_1703001234567_xyz789",
+  "status": "pending",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+---
+
+### 10. Execute Deployment
+
+**Endpoint:** `POST /explore-design/deployments/{deployment_id}/execute`
+
+**Description:** Executes a deployment.
+
+**Request Body:**
+```json
+{
+  "execution_mode": "immediate",
+  "dry_run": false
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "deployment_id": "deploy_1703001234567_xyz789",
+  "status": "success",
+  "results": [
+    {
+      "event_id": "evt_1703001234567_abc123",
+      "status": "applied",
+      "sql_executed": "CREATE TABLE ...",
+      "execution_time_ms": 250
+    }
+  ],
+  "summary": {
+    "applied": 5,
+    "failed": 0,
+    "skipped": 0
+  }
+}
+```
+
+---
+
+### 11. Immediate Deployment
+
+**Endpoint:** `POST /explore-design/deploy/immediate`
+
+**Description:** Creates and immediately executes a deployment.
+
+**Request Body:**
+```json
+{
+  "project_id": "proj_12345",
+  "events": [ ... ],
+  "rollback_on_error": true,
+  "created_by": "user@example.com"
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "deployment_id": "deploy_1703001234567_xyz789",
+  "status": "success",
+  "results": [ ... ],
+  "summary": { ... }
+}
+```
+
+---
+
+### 12. Schedule Deployment
+
+**Endpoint:** `POST /explore-design/schedule-deployment`
+
+**Description:** Schedules a deployment for future execution.
+
+**Request Body:**
+```json
+{
+  "workflow_name": "Weekly DWH Update",
+  "scheduled_date": "2024-01-20T02:00:00Z",
+  "deployment_method": "REPLACE_EXISTING",
+  "project_id": "proj_12345",
+  "events": [ ... ],
+  "created_by": "user@example.com",
+  "description": "Scheduled deployment for new tables and relationships",
+  "module_type": "explore-design",
+  "requires_approval": false
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "schedule_id": "sched_1703001234567_abc123",
+  "status": "SCHEDULED",
+  "workflow_name": "Weekly DWH Update",
+  "scheduled_date": "2024-01-20T02:00:00Z",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+---
+
 ## TypeScript Service Functions
 
 These are already implemented in `services/explore-design/index.ts`:
@@ -267,6 +609,15 @@ export async function getColumnPreview(
   column: string,
   sampleSize: number = 100
 ): Promise<ColumnPreviewData>
+
+// Table Preview (all data with pagination)
+export async function getTablePreview(
+  database: string,
+  schema: string,
+  table: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<TablePreviewData>
 
 // Column Profile
 export async function getColumnProfile(
@@ -316,6 +667,15 @@ export interface ColumnPreviewData {
   sample_values: any[];
   total_rows: number;
   sample_size: number;
+}
+
+export interface TablePreviewData {
+  table: string;
+  columns: string[];
+  rows: Record<string, any>[];
+  total_rows: number;
+  sample_size: number;
+  offset: number;
 }
 
 export interface ColumnProfile {

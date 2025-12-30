@@ -6,7 +6,7 @@ import { Button, Badge, Input, Tooltip } from 'rizzui';
 import {
   Table2, RefreshCw, Clock, History, Shield, Key, Link2, Edit2,
   Trash2, Check, X, AlertTriangle, ChevronDown, ChevronRight,
-  Filter, Search, Play, Undo2, CheckCircle2, XCircle, Clock4,
+  Filter, Search, Undo2, CheckCircle2, XCircle, Clock4,
   Plus, Minus, Eye, Tag, Layers
 } from 'lucide-react';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
@@ -15,6 +15,7 @@ import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/ev
 const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label: string; color: string }> = {
   SCHEMA_SELECTED: { icon: Table2, label: 'Schema Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_SELECTED: { icon: Table2, label: 'Table Selected', color: 'bg-slate-100 text-slate-600' },
+  TABLE_CREATED: { icon: Plus, label: 'Table Created', color: 'bg-green-100 text-green-600' },
   TABLE_RENAMED: { icon: Edit2, label: 'Table Renamed', color: 'bg-blue-100 text-blue-600' },
   COLUMN_RENAMED: { icon: Edit2, label: 'Column Renamed', color: 'bg-blue-100 text-blue-600' },
   COLUMN_TYPE_CHANGED: { icon: Table2, label: 'Type Changed', color: 'bg-purple-100 text-purple-600' },
@@ -65,10 +66,9 @@ const formatTime = (date: Date): string => {
 const EventRow: React.FC<{
   event: DesignEvent;
   onRemove: () => void;
-  onValidate: () => void;
   isExpanded: boolean;
   onToggle: () => void;
-}> = ({ event, onRemove, onValidate, isExpanded, onToggle }) => {
+}> = ({ event, onRemove, isExpanded, onToggle }) => {
   const config = eventTypeConfig[event.type] || {
     icon: Table2,
     label: event.type,
@@ -132,18 +132,6 @@ const EventRow: React.FC<{
 
         {/* Actions */}
         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          {event.status === 'pending' && (
-            <Tooltip content="Validate">
-              <Button
-                variant="text"
-                size="sm"
-                onClick={onValidate}
-                className="p-1.5 text-green-600 hover:bg-green-50"
-              >
-                <Play className="h-4 w-4" />
-              </Button>
-            </Tooltip>
-          )}
           <Tooltip content="Remove">
             <Button
               variant="text"
@@ -181,13 +169,11 @@ const EventRow: React.FC<{
 interface EventTableProps {
   className?: string;
   compact?: boolean;
-  onExecuteChanges?: () => void;
-  isExecuting?: boolean;
   projectId?: string | null;
 }
 
-const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteChanges, isExecuting, projectId }) => {
-  const { events, pendingEvents, removeEvent, updateEventStatus, clearEvents, validateEvents, undoEvent, canUndo } = useEventStore(projectId);
+const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }) => {
+  const { events, pendingEvents, removeEvent, clearEvents, undoEvent, canUndo } = useEventStore(projectId);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<EventType | 'all'>('all');
@@ -196,6 +182,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
   // Event types that should be displayed in the Changes panel
   // Only show actual schema changes, not UI state events like SCHEMA_SELECTED
   const displayableEventTypes: EventType[] = [
+    'TABLE_CREATED',
     'TABLE_RENAMED',
     'COLUMN_RENAMED',
     'INGESTION_MODE_SET',
@@ -209,6 +196,8 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
     'REMOVE_COLUMN',
     'RLS_POLICY_APPLIED',
     'RLS_POLICY_REMOVED',
+    'FOREIGN_KEY_ADDED',
+    'FOREIGN_KEY_REMOVED',
   ];
 
   // Filter pending events to only count displayable ones
@@ -265,16 +254,19 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
     });
   };
 
-  const handleValidateSingle = (eventId: string) => {
-    // In real implementation, call backend API
-    updateEventStatus({ eventId, status: 'validated' });
-  };
-
   // Helper function to render event details
   const renderEventDetails = (event: DesignEvent) => {
     const { type, payload, target } = event;
 
     switch (type) {
+      case 'TABLE_CREATED':
+        return (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            <span className="text-green-600 dark:text-green-400">+ </span>
+            <span className="font-mono font-medium">{payload.tableName}</span>
+            <span className="text-slate-400 ml-1">({payload.columns?.length || 0} columns)</span>
+          </div>
+        );
       case 'TABLE_RENAMED':
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400">
@@ -371,9 +363,12 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
         if (Object.keys(payload).length > 0) {
           const firstKey = Object.keys(payload)[0];
           const firstValue = payload[firstKey];
+          if (firstValue === undefined || firstValue === null) {
+            return null;
+          }
           return (
             <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-              {typeof firstValue === 'string' ? firstValue : JSON.stringify(firstValue).slice(0, 30)}
+              {typeof firstValue === 'string' ? firstValue : (JSON.stringify(firstValue) || '').slice(0, 30)}
             </div>
           );
         }
@@ -502,21 +497,8 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
                           </div>
                         )}
 
-                        {/* Action buttons */}
+                        {/* Action buttons - only remove, no execute */}
                         <div className="flex items-center gap-1 pt-1">
-                          {event.status === 'pending' && (
-                            <Button
-                              variant="text"
-                              size="sm"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleValidateSingle(event.id);
-                              }}
-                              className="p-1 text-green-600 hover:bg-green-50 text-[10px]"
-                            >
-                              <Play className="h-3 w-3" />
-                            </Button>
-                          )}
                           <Button
                             variant="text"
                             size="sm"
@@ -537,29 +519,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
             })
           )}
         </div>
-        {/* Execute Changes Button */}
-        {displayablePendingEvents.length > 0 && onExecuteChanges && (
-          <div className="px-3 py-2 border-t dark:border-slate-700">
-            <Button
-              size="sm"
-              onClick={onExecuteChanges}
-              disabled={isExecuting}
-              className="w-full gap-1.5 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-xs"
-            >
-              {isExecuting ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  Executing...
-                </>
-              ) : (
-                <>
-                  <Play className="h-3.5 w-3.5" />
-                  Execute ({displayablePendingEvents.length})
-                </>
-              )}
-            </Button>
-          </div>
-        )}
       </div>
     );
   }
@@ -578,36 +537,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
             )}
           </div>
           <div className="flex items-center gap-2">
-            {onExecuteChanges && (
-              <Button
-                size="sm"
-                onClick={onExecuteChanges}
-                disabled={displayablePendingEvents.length === 0 || isExecuting}
-                className="gap-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
-              >
-                {isExecuting ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Executing...
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4" />
-                    Execute All
-                  </>
-                )}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => validateEvents()}
-              disabled={displayablePendingEvents.length === 0}
-              className="gap-1"
-            >
-              <Check className="h-4 w-4" />
-              Validate
-            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -665,7 +594,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, onExecuteCh
               key={event.id}
               event={event}
               onRemove={() => removeEvent(event.id)}
-              onValidate={() => handleValidateSingle(event.id)}
               isExpanded={expandedEvents.has(event.id)}
               onToggle={() => handleToggleExpand(event.id)}
             />

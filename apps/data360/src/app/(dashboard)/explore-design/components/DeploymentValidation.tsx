@@ -19,7 +19,13 @@ import {
   deployEventsImmediate,
   validateEventsBackend,
   generateEventSQL,
+  executeQueries,
+  executeIngestion,
   ScheduledDeploymentStatus,
+  IngestionTableConfig,
+  IngestionMode,
+  ColumnMapping,
+  ColumnTransformation,
 } from '@/app/services/explore-design';
 
 // Test result interface
@@ -55,11 +61,440 @@ interface ScheduledDeploymentLocal {
   approvers?: string[];
 }
 
+// ============================================================================
+// EVENT ORDERING - Priority for deployment execution order
+// ============================================================================
+// Events must be executed in a specific order to handle dependencies:
+// 1. Tables must exist before columns/constraints can be added
+// 2. Columns must exist before PKs/FKs can reference them
+// 3. Both tables must exist before relationships can be created
+// 4. Policies are applied after structure is in place
+// 5. Table renames should be last to avoid breaking references
+
+const EVENT_PRIORITY: Record<EventType, number> = {
+  // Priority 0: Metadata events (no SQL execution needed)
+  'SCHEMA_SELECTED': 0,
+  'TABLE_SELECTED': 0,
+  'TABLE_ADDED_TO_MODELING': 0,
+  'TABLE_REMOVED_FROM_MODELING': 0,
+  'BATCH_OPERATION': 0,
+
+  // Priority 1: Table creation (must exist before anything else)
+  'TABLE_CREATED': 1,
+
+  // Priority 2: Column additions (table must exist)
+  'ADD_COLUMN': 2,
+
+  // Priority 3: Column modifications (columns must exist)
+  'COLUMN_RENAMED': 3,
+  'COLUMN_TYPE_CHANGED': 3,
+  'REMOVE_COLUMN': 3,
+
+  // Priority 4: Primary keys (columns must exist)
+  'PRIMARY_KEY_SET': 4,
+  'PRIMARY_KEY_REMOVED': 4,
+
+  // Priority 5: Foreign keys and relations (both tables and columns must exist)
+  'FOREIGN_KEY_ADDED': 5,
+  'FOREIGN_KEY_REMOVED': 5,
+  'RELATION_CREATED': 5,
+  'RELATION_REMOVED': 5,
+  'COLUMN_MAPPING_CREATED': 5,
+  'COLUMN_MAPPING_REMOVED': 5,
+
+  // Priority 6: Policies (structure must be complete)
+  'MASKING_POLICY_APPLIED': 6,
+  'MASKING_POLICY_REMOVED': 6,
+  'RLS_POLICY_APPLIED': 6,
+  'RLS_POLICY_REMOVED': 6,
+  'AGGREGATION_POLICY_APPLIED': 6,
+  'AGGREGATION_POLICY_REMOVED': 6,
+
+  // Priority 7: Tags (can be applied anytime after structure)
+  'TAG_APPLIED': 7,
+  'TAG_REMOVED': 7,
+  'COLUMN_EXCLUDED': 7,
+  'COLUMN_INCLUDED': 7,
+  'TABLE_EXCLUDED': 7,
+  'TABLE_INCLUDED': 7,
+
+  // Priority 8: Configuration (metadata, no structural dependencies)
+  'INGESTION_MODE_SET': 8,
+  'SCD_CONFIGURED': 8,
+
+  // Priority 9: Table renames (should be last to avoid breaking references)
+  'TABLE_RENAMED': 9,
+};
+
+/**
+ * Sort events by execution priority for deployment
+ * Events are sorted by:
+ * 1. Priority (lower = execute first)
+ * 2. Timestamp (earlier = execute first within same priority)
+ * 3. Same-table grouping (events on same table stay together)
+ */
+const sortEventsForDeployment = (events: DesignEvent[]): DesignEvent[] => {
+  return [...events].sort((a, b) => {
+    // First, sort by priority
+    const priorityA = EVENT_PRIORITY[a.type] ?? 99;
+    const priorityB = EVENT_PRIORITY[b.type] ?? 99;
+
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+
+    // Same priority: group by table (events on same table should be together)
+    const tableKeyA = `${a.target.database}.${a.target.schema}.${a.target.table}`;
+    const tableKeyB = `${b.target.database}.${b.target.schema}.${b.target.table}`;
+
+    if (tableKeyA !== tableKeyB) {
+      return tableKeyA.localeCompare(tableKeyB);
+    }
+
+    // Same table: sort by timestamp
+    const timeA = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+    const timeB = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+
+    return timeA - timeB;
+  });
+};
+
+/**
+ * Filter events that need SQL execution (skip metadata-only events)
+ */
+const filterExecutableEvents = (events: DesignEvent[]): DesignEvent[] => {
+  const metadataOnlyTypes: EventType[] = [
+    'SCHEMA_SELECTED',
+    'TABLE_SELECTED',
+    'TABLE_ADDED_TO_MODELING',
+    'TABLE_REMOVED_FROM_MODELING',
+    'BATCH_OPERATION',
+  ];
+
+  return events.filter(e => !metadataOnlyTypes.includes(e.type));
+};
+
+/**
+ * Extract ingestion configurations from INGESTION_MODE_SET and COLUMN_MAPPING events
+ * Builds table configs with source-to-target column mappings for data ingestion
+ *
+ * New API schema supports:
+ * - source_columns: array of source columns (for multi-column transformations)
+ * - target_column: single target column
+ * - transformation: optional transformation function (CONCAT, CONCAT_WS, COALESCE, UPPER, LOWER, TRIM, SUM)
+ */
+const extractIngestionConfigs = (events: DesignEvent[]): IngestionTableConfig[] => {
+  const ingestionConfigs: IngestionTableConfig[] = [];
+
+  // Map to store column mappings per table: tableKey -> { source columns, target columns, transformation }
+  const tableColumnMappings: Map<string, {
+    sourceDb: string;
+    sourceSchema: string;
+    sourceTable: string;
+    targetDb: string;
+    targetSchema: string;
+    targetTable: string;
+    columns: Array<{
+      sourceColumns: string[]; // Array to support multi-column transformations
+      targetColumn: string;
+      transformation?: string | null;
+    }>;
+  }> = new Map();
+
+  // First pass: collect column mappings
+  // Note: In COLUMN_MAPPING_CREATED events:
+  //   - event.target = SOURCE table (where data comes from)
+  //   - event.payload.targetTable = TARGET table (where data goes to)
+  events.forEach(event => {
+    if (event.type === 'COLUMN_MAPPING_CREATED') {
+      // Source is in event.target
+      const sourceDb = event.target.database;
+      const sourceSchema = event.target.schema;
+      const sourceTable = event.target.table;
+
+      // Support both single sourceColumn and array sourceColumns
+      const sourceColumn = event.payload.sourceColumn || '';
+      const sourceColumns = event.payload.sourceColumns || (sourceColumn ? [sourceColumn] : []);
+
+      // Get transformation if specified
+      const transformation = event.payload.transformation || null;
+
+      // Target is in event.payload.targetTable
+      const targetInfo = event.payload.targetTable;
+      const targetDb = targetInfo?.database || '';
+      const targetSchema = targetInfo?.schema || '';
+      const targetTable = targetInfo?.table || '';
+      const targetColumn = event.payload.targetColumn || '';
+
+      // Create key based on target table (where we're loading data TO)
+      const targetTableKey = `${targetDb}.${targetSchema}.${targetTable}`;
+
+      if (sourceTable && sourceColumns.length > 0 && targetTable && targetColumn) {
+        if (!tableColumnMappings.has(targetTableKey)) {
+          tableColumnMappings.set(targetTableKey, {
+            sourceDb,
+            sourceSchema,
+            sourceTable,
+            targetDb,
+            targetSchema,
+            targetTable,
+            columns: [],
+          });
+        }
+
+        const mapping = tableColumnMappings.get(targetTableKey)!;
+        mapping.columns.push({
+          sourceColumns,
+          targetColumn,
+          transformation,
+        });
+      }
+    }
+  });
+
+  // Track which tables have explicit INGESTION_MODE_SET events
+  const tablesWithIngestionMode = new Set<string>();
+
+  // Second pass: process INGESTION_MODE_SET events
+  events.forEach(event => {
+    if (event.type === 'INGESTION_MODE_SET') {
+      const mode = (event.payload.mode || event.payload.ingestionMode || 'full_refresh') as IngestionMode;
+      const targetTableKey = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+      tablesWithIngestionMode.add(targetTableKey);
+
+      // Get source info from column mappings or from event payload
+      const columnMapping = tableColumnMappings.get(targetTableKey);
+
+      // Source table can come from payload or column mapping
+      const sourceDb = event.payload.sourceDatabase || event.payload.source_database || columnMapping?.sourceDb || event.target.database;
+      const sourceSchema = event.payload.sourceSchema || event.payload.source_schema || columnMapping?.sourceSchema || event.target.schema;
+      const sourceTable = event.payload.sourceTable || event.payload.source_table || columnMapping?.sourceTable || event.target.table;
+
+      const config: IngestionTableConfig = {
+        source_database: sourceDb,
+        source_schema: sourceSchema,
+        source_table: sourceTable,
+        target_database: event.target.database,
+        target_schema: event.target.schema,
+        target_table: event.target.table,
+        ingestion_mode: mode,
+        // Add column mappings with new schema: source_columns (array), target_column, transformation
+        column_mappings: columnMapping?.columns.map(col => ({
+          source_columns: col.sourceColumns,
+          target_column: col.targetColumn,
+          transformation: col.transformation as any,
+        })),
+        config: {},
+      };
+
+      // Add mode-specific configurations
+      const eventConfig = event.payload.config || event.payload;
+
+      // PK columns (required for incremental, snapshot, all SCD types)
+      if (eventConfig.pkColumns || eventConfig.pk_columns) {
+        config.config!.pk_columns = eventConfig.pkColumns || eventConfig.pk_columns;
+      }
+
+      // Incremental column (required for incremental mode)
+      if (eventConfig.incrementalColumn || eventConfig.incremental_column) {
+        config.config!.incremental_column = eventConfig.incrementalColumn || eventConfig.incremental_column;
+      }
+
+      // Tracking columns (required for SCD Type 2 and 3)
+      if (eventConfig.trackingColumns || eventConfig.tracking_columns) {
+        config.config!.tracking_columns = eventConfig.trackingColumns || eventConfig.tracking_columns;
+      }
+
+      // SCD date columns
+      if (eventConfig.effectiveDateColumn || eventConfig.effective_date_column) {
+        config.config!.effective_date_column = eventConfig.effectiveDateColumn || eventConfig.effective_date_column;
+      }
+      if (eventConfig.expirationDateColumn || eventConfig.expiration_date_column) {
+        config.config!.expiration_date_column = eventConfig.expirationDateColumn || eventConfig.expiration_date_column;
+      }
+      if (eventConfig.currentFlagColumn || eventConfig.current_flag_column) {
+        config.config!.current_flag_column = eventConfig.currentFlagColumn || eventConfig.current_flag_column;
+      }
+
+      // Snapshot column
+      if (eventConfig.snapshotColumn || eventConfig.snapshot_column) {
+        config.config!.snapshot_column = eventConfig.snapshotColumn || eventConfig.snapshot_column;
+      }
+
+      ingestionConfigs.push(config);
+    }
+  });
+
+  // Third pass: create ingestion configs for tables with column mappings but no explicit INGESTION_MODE_SET
+  // These will use default 'full_refresh' mode
+  tableColumnMappings.forEach((mapping, targetTableKey) => {
+    if (!tablesWithIngestionMode.has(targetTableKey) && mapping.columns.length > 0) {
+      const config: IngestionTableConfig = {
+        source_database: mapping.sourceDb,
+        source_schema: mapping.sourceSchema,
+        source_table: mapping.sourceTable,
+        target_database: mapping.targetDb,
+        target_schema: mapping.targetSchema,
+        target_table: mapping.targetTable,
+        ingestion_mode: 'full_refresh', // Default mode for column mappings without explicit mode
+        // Include column mappings with new schema
+        column_mappings: mapping.columns.map(col => ({
+          source_columns: col.sourceColumns,
+          target_column: col.targetColumn,
+          transformation: col.transformation as any,
+        })),
+        config: {},
+      };
+      ingestionConfigs.push(config);
+    }
+  });
+
+  return ingestionConfigs;
+};
+
+/**
+ * Extract mapped source-to-target table overview from events
+ * Used for displaying mapping summary in deployment modal
+ */
+interface ColumnMappingOverview {
+  sourceColumns: string[]; // Array to support multi-column transformations
+  targetColumn: string;
+  transformation?: string | null;
+}
+
+interface MappedTableOverview {
+  sourceDatabase: string;
+  sourceSchema: string;
+  sourceTable: string;
+  targetDatabase: string;
+  targetSchema: string;
+  targetTable: string;
+  ingestionMode?: string;
+  columnMappings: ColumnMappingOverview[];
+}
+
+const extractMappedTablesOverview = (events: DesignEvent[]): MappedTableOverview[] => {
+  const mappedTables: Map<string, MappedTableOverview> = new Map();
+
+  // Process COLUMN_MAPPING_CREATED events
+  // Note: In COLUMN_MAPPING_CREATED events:
+  //   - event.target = SOURCE table (where data comes from)
+  //   - event.payload.targetTable = TARGET table (where data goes to)
+  events.forEach(event => {
+    if (event.type === 'COLUMN_MAPPING_CREATED') {
+      // Source is in event.target
+      const sourceDb = event.target.database;
+      const sourceSchema = event.target.schema;
+      const sourceTable = event.target.table;
+
+      // Support both single sourceColumn and array sourceColumns
+      const sourceColumn = event.payload.sourceColumn || '';
+      const sourceColumns = event.payload.sourceColumns || (sourceColumn ? [sourceColumn] : []);
+
+      // Get transformation if specified
+      const transformation = event.payload.transformation || null;
+
+      // Target is in event.payload.targetTable
+      const targetInfo = event.payload.targetTable;
+      const targetDb = targetInfo?.database || '';
+      const targetSchema = targetInfo?.schema || '';
+      const targetTable = targetInfo?.table || '';
+      const targetColumn = event.payload.targetColumn || '';
+
+      // Create key based on target table
+      const targetTableKey = `${targetDb}.${targetSchema}.${targetTable}`;
+
+      if (sourceTable && sourceColumns.length > 0 && targetTable && targetColumn) {
+        if (!mappedTables.has(targetTableKey)) {
+          mappedTables.set(targetTableKey, {
+            sourceDatabase: sourceDb,
+            sourceSchema: sourceSchema,
+            sourceTable: sourceTable,
+            targetDatabase: targetDb,
+            targetSchema: targetSchema,
+            targetTable: targetTable,
+            columnMappings: [],
+          });
+        }
+
+        const mapping = mappedTables.get(targetTableKey)!;
+        // Avoid duplicates (check by target column and source columns)
+        const sourcesKey = sourceColumns.join(',');
+        if (!mapping.columnMappings.find(m => m.sourceColumns.join(',') === sourcesKey && m.targetColumn === targetColumn)) {
+          mapping.columnMappings.push({
+            sourceColumns,
+            targetColumn,
+            transformation,
+          });
+        }
+      }
+    }
+  });
+
+  // Add ingestion mode info from INGESTION_MODE_SET events
+  events.forEach(event => {
+    if (event.type === 'INGESTION_MODE_SET') {
+      const targetTableKey = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+      const mode = event.payload.mode || event.payload.ingestionMode || 'full_refresh';
+
+      if (mappedTables.has(targetTableKey)) {
+        mappedTables.get(targetTableKey)!.ingestionMode = mode;
+      } else {
+        // Create entry from INGESTION_MODE_SET even without column mappings
+        const sourceDb = event.payload.sourceDatabase || event.payload.source_database || event.target.database;
+        const sourceSchema = event.payload.sourceSchema || event.payload.source_schema || event.target.schema;
+        const sourceTable = event.payload.sourceTable || event.payload.source_table || event.target.table;
+
+        mappedTables.set(targetTableKey, {
+          sourceDatabase: sourceDb,
+          sourceSchema: sourceSchema,
+          sourceTable: sourceTable,
+          targetDatabase: event.target.database,
+          targetSchema: event.target.schema,
+          targetTable: event.target.table,
+          ingestionMode: mode,
+          columnMappings: [],
+        });
+      }
+    }
+  });
+
+  return Array.from(mappedTables.values());
+};
+
 // Enhanced SQL generation for Snowflake
 const generateSnowflakeSQL = (event: DesignEvent): { sql: string; rollbackSql?: string } => {
   const tableRef = `${event.target.database}.${event.target.schema}.${event.target.table}`;
 
   switch (event.type) {
+        case 'TABLE_CREATED':
+      // Always regenerate SQL with deployment target (don't use pre-generated SQL as it has original db/schema)
+      const columns = event.payload.columns || [];
+      const columnDefs = columns.map((col: any) => {
+        let def = `  ${col.name} ${col.dataType}`;
+        if (!col.nullable) def += ' NOT NULL';
+        if (col.defaultValue) def += ` DEFAULT ${col.defaultValue}`;
+        if (col.comment) def += ` COMMENT '${col.comment.replace(/'/g, "''")}'`;
+        return def;
+      }).join(',\n');
+
+      const primaryKeys = event.payload.primaryKeys || columns.filter((c: any) => c.primaryKey).map((c: any) => c.name);
+      let createSql = `CREATE TABLE ${tableRef} (\n${columnDefs}`;
+      if (primaryKeys.length > 0) {
+        createSql += `,\n  PRIMARY KEY (${primaryKeys.join(', ')})`;
+      }
+      createSql += '\n)';
+      if (event.payload.comment) {
+        createSql += `\nCOMMENT = '${event.payload.comment.replace(/'/g, "''")}'`;
+      }
+      createSql += ';';
+
+      return {
+        sql: createSql,
+        rollbackSql: `DROP TABLE IF EXISTS ${tableRef};`
+      };
+
+    
     case 'TABLE_RENAMED':
       return {
         sql: `ALTER TABLE ${tableRef} RENAME TO ${event.payload.newName};`,
@@ -351,10 +786,10 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   projectId: projectIdProp
 }) => {
   const { data: session } = useSession();
-  const { events, pendingEvents, updateEventStatus, clearEvents, cleanupAppliedEvents } = useEventStore();
   const currentUser = (session?.user as any)?.username || session?.user?.email || 'current_user';
 
   // Use provided projectId prop, or generate from database context as fallback
+  // IMPORTANT: Calculate projectId BEFORE calling useEventStore so events are filtered correctly
   const projectId = useMemo(() => {
     if (projectIdProp) {
       return projectIdProp;
@@ -364,6 +799,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     }
     return 'default_project';
   }, [projectIdProp, database]);
+
+  // Pass projectId to useEventStore to filter events by project
+  const { events, pendingEvents, updateEventStatus, clearEvents, cleanupAppliedEvents } = useEventStore(projectId);
 
   const [isValidating, setIsValidating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -467,6 +905,11 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     });
     return groups;
   }, [pendingEvents]);
+
+  // Extract mapped tables overview for display
+  const mappedTablesOverview = useMemo(() => {
+    return extractMappedTablesOverview(events);
+  }, [events]);
 
   // Generate SQL for event using enhanced SQL generator
   const generateSQL = useCallback((event: DesignEvent): string => {
@@ -628,10 +1071,26 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
   // Deploy changes - with real backend integration
   const handleDeploy = useCallback(async () => {
+    // Debug: Log event counts
+    console.log('[Deployment] Event counts:', {
+      totalEvents: events.length,
+      pendingEvents: pendingEvents.length,
+      validatedEvents: events.filter(e => e.status === 'validated').length,
+      columnMappingEvents: events.filter(e => e.type === 'COLUMN_MAPPING_CREATED').length,
+    });
+
+    // Use validated events if available, otherwise use pending events directly
     const validatedEvents = events.filter((e) => e.status === 'validated');
-    if (validatedEvents.length === 0) {
-      toast.error('No validated events to deploy');
-      return;
+    const eventsToDeploy = validatedEvents.length > 0 ? validatedEvents : pendingEvents;
+
+    // Allow deployment even with no pending events if there are column mappings for ingestion
+    const columnMappingEvents = events.filter(e => e.type === 'COLUMN_MAPPING_CREATED');
+    const hasIngestionWork = columnMappingEvents.length > 0;
+
+    if (eventsToDeploy.length === 0 && !hasIngestionWork) {
+      toast('No schema changes or column mappings to deploy.', { icon: 'ℹ️' });
+    } else if (eventsToDeploy.length === 0 && hasIngestionWork) {
+      toast(`No schema changes, but ${columnMappingEvents.length} column mapping(s) available for ingestion.`, { icon: 'ℹ️' });
     }
 
     setIsDeploying(true);
@@ -643,7 +1102,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
       const versionNumber = `${versionType === 'major' ? '1' : '0'}.${versionType === 'minor' ? '1' : '0'}.${versionType === 'patch' ? Date.now() % 1000 : '0'}`;
 
       // Convert events to API format
-      const apiEvents = validatedEvents.map(e => ({
+      const apiEvents = eventsToDeploy.map(e => ({
         event_id: e.id,
         event_type: e.type,
         target: e.target,
@@ -651,6 +1110,17 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         status: e.status,
         created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
       }));
+
+      // Sort events for all deployment types (needed for SQL generation)
+      const sortedEvents = sortEventsForDeployment(eventsToDeploy);
+      const executableEvents = filterExecutableEvents(sortedEvents);
+
+      // Generate SQL queries in proper order for scheduled/approval deployments
+      const orderedSqlQueries = executableEvents
+        .map(event => generateSnowflakeSQL(event).sql)
+        .filter(sql => sql && !sql.trim().startsWith('--'));
+
+      console.log('[Deployment] Prepared', orderedSqlQueries.length, 'SQL queries in dependency order');
 
       // Handle based on deployment type
       if (deploymentType === 'scheduled') {
@@ -663,15 +1133,16 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         toast.loading('Scheduling deployment to backend...');
 
         try {
-          // Use unified backend endpoint
+          // Use unified backend endpoint with ordered SQL queries
           const result = await scheduleDeploymentUnified({
             workflow_name: `explore_design_v${versionNumber}`,
             scheduled_date: `${scheduledDate}T${scheduledTime}:00`,
             deployment_method: 'REPLACE_EXISTING',
             project_id: projectId,
             events: apiEvents as any,
+            sql_queries: orderedSqlQueries, // Include ordered SQL for execution
             created_by: currentUser,
-            description: changelogSummary || `Explore & Design deployment with ${validatedEvents.length} changes`,
+            description: changelogSummary || `Explore & Design deployment with ${eventsToDeploy.length} changes`,
             module_type: 'explore-design',
           });
 
@@ -681,12 +1152,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             workflowName: `deployment_v${versionNumber}`,
             scheduledDate: `${scheduledDate}T${scheduledTime}:00Z`,
             deploymentMethod: 'REPLACE_EXISTING',
-            eventIds: validatedEvents.map(e => e.id),
+            eventIds: eventsToDeploy.map(e => e.id),
             status: result.status as any || 'SCHEDULED',
             createdAt: new Date().toISOString(),
             createdBy: currentUser,
             versionType,
-            changelog: changelogSummary || `Deployment with ${validatedEvents.length} changes`,
+            changelog: changelogSummary || `Deployment with ${eventsToDeploy.length} changes`,
           };
           saveScheduledDeployment(scheduledDeployment);
 
@@ -707,12 +1178,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             workflowName: `deployment_v${versionNumber}`,
             scheduledDate: `${scheduledDate}T${scheduledTime}:00Z`,
             deploymentMethod: 'REPLACE_EXISTING',
-            eventIds: validatedEvents.map(e => e.id),
+            eventIds: eventsToDeploy.map(e => e.id),
             status: 'SCHEDULED',
             createdAt: new Date().toISOString(),
             createdBy: currentUser,
             versionType,
-            changelog: changelogSummary || `Deployment with ${validatedEvents.length} changes`,
+            changelog: changelogSummary || `Deployment with ${eventsToDeploy.length} changes`,
           };
           saveScheduledDeployment(scheduledDeployment);
           setCurrentStep('complete');
@@ -722,15 +1193,16 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         toast.loading('Submitting for approval...');
 
         try {
-          // Use unified backend endpoint with requires_approval flag
+          // Use unified backend endpoint with requires_approval flag and ordered SQL
           const result = await scheduleDeploymentUnified({
             workflow_name: `explore_design_approval_v${versionNumber}`,
             scheduled_date: new Date().toISOString(),
             deployment_method: 'REPLACE_EXISTING',
             project_id: projectId,
             events: apiEvents as any,
+            sql_queries: orderedSqlQueries, // Include ordered SQL for execution after approval
             created_by: currentUser,
-            description: changelogSummary || `Explore & Design approval request with ${validatedEvents.length} changes`,
+            description: changelogSummary || `Explore & Design approval request with ${eventsToDeploy.length} changes`,
             module_type: 'explore-design',
             requires_approval: true,
           });
@@ -741,12 +1213,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             workflowName: `approval_v${versionNumber}`,
             scheduledDate: new Date().toISOString(),
             deploymentMethod: 'REPLACE_EXISTING',
-            eventIds: validatedEvents.map(e => e.id),
+            eventIds: eventsToDeploy.map(e => e.id),
             status: 'PENDING_APPROVAL',
             createdAt: new Date().toISOString(),
             createdBy: currentUser,
             versionType,
-            changelog: changelogSummary || `Deployment with ${validatedEvents.length} changes`,
+            changelog: changelogSummary || `Deployment with ${eventsToDeploy.length} changes`,
             approvers: selectedApprovers,
           };
           saveScheduledDeployment(pendingApproval);
@@ -768,12 +1240,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             workflowName: `approval_v${versionNumber}`,
             scheduledDate: new Date().toISOString(),
             deploymentMethod: 'REPLACE_EXISTING',
-            eventIds: validatedEvents.map(e => e.id),
+            eventIds: eventsToDeploy.map(e => e.id),
             status: 'PENDING_APPROVAL',
             createdAt: new Date().toISOString(),
             createdBy: currentUser,
             versionType,
-            changelog: changelogSummary || `Deployment with ${validatedEvents.length} changes`,
+            changelog: changelogSummary || `Deployment with ${eventsToDeploy.length} changes`,
             approvers: selectedApprovers,
           };
           saveScheduledDeployment(pendingApproval);
@@ -781,31 +1253,201 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         }
 
       } else {
-        // Immediate deployment - execute through backend
-        toast.loading('Deploying changes to Snowflake...');
+        // =====================================================
+        // IMMEDIATE DEPLOYMENT - Execute SQL queries + Ingestion
+        // =====================================================
+        // Flow:
+        // 1. Sort events by dependency priority
+        // 2. Filter executable events (skip metadata-only)
+        // 3. Generate SQL for each event in order
+        // 4. Execute all SQL queries via /execute_queries endpoint
+        // 5. Execute data ingestion via /execute_ingestion endpoint
+        // 6. Record deployment status after execution
+
+        toast.loading('Preparing deployment...');
 
         try {
-          const result = await deployEventsImmediate(projectId, apiEvents as any, {
-            rollback_on_error: true,
+          // Step 1: Sort events by execution priority
+          const sortedEvents = sortEventsForDeployment(eventsToDeploy);
+          console.log('[Deployment] Sorted events order:', sortedEvents.map(e => `${e.type} (priority ${EVENT_PRIORITY[e.type]})`));
+
+          // Step 2: Filter to executable events only
+          const executableEvents = filterExecutableEvents(sortedEvents);
+          console.log('[Deployment] Executable events:', executableEvents.length, 'of', sortedEvents.length);
+
+          // Step 3: Generate SQL queries in order
+          const sqlQueries: string[] = [];
+          const eventToQueryMap: Map<string, number> = new Map(); // Map event ID to query index
+
+          executableEvents.forEach((event, index) => {
+            const { sql } = generateSnowflakeSQL(event);
+            // Skip comment-only SQL (metadata events) and INGESTION_MODE_SET (handled separately)
+            if (sql && !sql.trim().startsWith('--') && event.type !== 'INGESTION_MODE_SET') {
+              sqlQueries.push(sql);
+              eventToQueryMap.set(event.id, sqlQueries.length - 1);
+            } else if (sql) {
+              // Still track but note it's comment-only or ingestion config
+              console.log(`[Deployment] Skipping SQL for ${event.type}:`, sql.substring(0, 50));
+            }
+          });
+
+          console.log('[Deployment] Generated SQL queries:', sqlQueries.length);
+          console.log('[Deployment] SQL execution order:', sqlQueries.map((q, i) => `[${i + 1}] ${q.substring(0, 60)}...`));
+
+          // Step 3b: Extract ingestion configurations from ALL events (not just pending)
+          // This allows ingestion to run even if mappings were previously deployed as schema changes
+          // We use all events to build ingestion configs because column mappings define data flow
+          const ingestionConfigs = extractIngestionConfigs(events);
+          console.log('[Deployment] Ingestion configs (from all events):', ingestionConfigs.length);
+          if (ingestionConfigs.length > 0) {
+            console.log('[Deployment] Tables to ingest:', ingestionConfigs.map(c => `${c.source_database}.${c.source_schema}.${c.source_table} -> ${c.target_database}.${c.target_schema}.${c.target_table} (${c.ingestion_mode})`));
+            // Log column mappings for debugging (new schema: source_columns array)
+            ingestionConfigs.forEach(config => {
+              if (config.column_mappings && config.column_mappings.length > 0) {
+                console.log(`[Deployment] Column mappings for ${config.target_table}:`, config.column_mappings.map(m => {
+                  const srcCols = m.source_columns.join(', ');
+                  const transform = m.transformation ? ` [${m.transformation}]` : '';
+                  return `[${srcCols}]${transform} -> ${m.target_column}`;
+                }));
+              }
+            });
+          }
+
+          // Log what we have to execute
+          const hasWork = sqlQueries.length > 0 || ingestionConfigs.length > 0;
+          if (!hasWork) {
+            console.log('[Deployment] No SQL queries or ingestion configs - will only record deployment');
+          }
+
+          let queriesExecuted = 0;
+          let ingestionRowsAffected = 0;
+
+          // Step 4: Execute SQL queries via /execute_queries endpoint (if any)
+          if (sqlQueries.length > 0) {
+            toast.loading(`Executing ${sqlQueries.length} SQL queries on Snowflake...`);
+
+            const executeResult = await executeQueries(sqlQueries);
+
+            if (executeResult.status === 'failed') {
+              // Execution failed
+              const failedQuery = executeResult.results[0];
+              console.error('[Deployment] Query execution failed:', failedQuery?.error);
+
+              toast.dismiss();
+              toast.error(`Query execution failed: ${failedQuery?.error || 'Unknown error'}`);
+              setBackendError(failedQuery?.error || 'Query execution failed');
+
+              // Mark all events as failed
+              executableEvents.forEach((event) => {
+                updateEventStatus({ eventId: event.id, status: 'failed', error: failedQuery?.error });
+              });
+
+              setIsDeploying(false);
+              return;
+            }
+
+            queriesExecuted = executeResult.executed_queries || sqlQueries.length;
+            console.log('[Deployment] SQL queries executed successfully:', queriesExecuted);
+          }
+
+          // Step 5: Execute data ingestion via /execute_ingestion endpoint (if any)
+          if (ingestionConfigs.length > 0) {
+            toast.loading(`Ingesting data for ${ingestionConfigs.length} table(s)...`);
+
+            // Log the full ingestion request for debugging
+            const ingestionRequest = {
+              project_id: projectId,
+              tables: ingestionConfigs,
+            };
+            console.log('[Deployment] Executing ingestion with request:', JSON.stringify(ingestionRequest, null, 2));
+
+            const ingestionResult = await executeIngestion(ingestionRequest);
+
+            if (ingestionResult.status === 'failed') {
+              // Ingestion failed completely
+              console.error('[Deployment] Ingestion failed:', ingestionResult.message);
+
+              toast.dismiss();
+              toast.error(`Data ingestion failed: ${ingestionResult.message}`);
+              setBackendError(ingestionResult.message);
+
+              // Mark ingestion-related events as failed
+              eventsToDeploy.forEach((event) => {
+                if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
+                  updateEventStatus({ eventId: event.id, status: 'failed', error: ingestionResult.message });
+                }
+              });
+
+              // If SQL queries succeeded but ingestion failed, we have a partial deployment
+              if (queriesExecuted > 0) {
+                toast.error(`Partial deployment: ${queriesExecuted} SQL queries executed, but data ingestion failed.`);
+              }
+
+              setIsDeploying(false);
+              return;
+            }
+
+            // Log ingestion results
+            ingestionRowsAffected = ingestionResult.total_rows_affected || 0;
+            console.log('[Deployment] Ingestion completed:', {
+              status: ingestionResult.status,
+              successful: ingestionResult.successful,
+              failed: ingestionResult.failed,
+              rowsAffected: ingestionRowsAffected,
+            });
+
+            // Handle partial ingestion success
+            if (ingestionResult.status === 'partial') {
+              const failedTables = ingestionResult.results.filter(r => !r.success);
+              console.warn('[Deployment] Partial ingestion - some tables failed:', failedTables.map(t => t.target));
+              toast.dismiss();
+              toast.error(`Partial ingestion: ${ingestionResult.successful}/${ingestionResult.total_tables} tables succeeded`);
+            }
+          }
+
+          // Step 6: Record deployment to backend
+          toast.loading('Recording deployment...');
+
+          const deploymentRecordResult = await deployEventsImmediate(projectId, apiEvents as any, {
+            rollback_on_error: false, // Already executed
             created_by: currentUser,
           });
 
-          // Update local event status based on results
-          result.results.forEach((r) => {
-            const status = r.status === 'applied' ? 'applied' : 'failed';
-            updateEventStatus({ eventId: r.event_id, status, error: r.error });
+          // Update local event status - mark all as applied
+          executableEvents.forEach((event) => {
+            updateEventStatus({ eventId: event.id, status: 'applied' });
           });
 
-          setDeploymentId(result.deployment_id);
+          // Also mark any metadata-only events as applied
+          sortedEvents.forEach((event) => {
+            if (!executableEvents.find(e => e.id === event.id)) {
+              updateEventStatus({ eventId: event.id, status: 'applied' });
+            }
+          });
+
+          setDeploymentId(deploymentRecordResult.deployment_id);
           toast.dismiss();
 
-          if (result.status === 'success') {
-            toast.success(`Successfully deployed ${result.summary.applied} changes to Snowflake!\nDeployment ID: ${result.deployment_id}\nVersion: ${versionNumber}`);
-          } else if (result.status === 'partial') {
-            toast.error(`Partial deployment: ${result.summary.applied} succeeded, ${result.summary.failed} failed`);
+          // Success message with details
+          const successParts: string[] = [];
+          if (eventsToDeploy.length > 0) {
+            successParts.push(`Successfully deployed ${eventsToDeploy.length} changes to Snowflake!`);
           } else {
-            toast.error(`Deployment failed: ${result.summary.failed} events could not be applied`);
+            successParts.push('Deployment recorded successfully!');
           }
+          if (queriesExecuted > 0) {
+            successParts.push(`SQL queries executed: ${queriesExecuted}`);
+          }
+          if (ingestionConfigs.length > 0) {
+            successParts.push(`Tables ingested: ${ingestionConfigs.length}`);
+            if (ingestionRowsAffected > 0) {
+              successParts.push(`Rows affected: ${ingestionRowsAffected.toLocaleString()}`);
+            }
+          }
+          successParts.push(`Deployment ID: ${deploymentRecordResult.deployment_id}`);
+          successParts.push(`Version: ${versionNumber}`);
+
+          toast.success(successParts.join('\n'));
           setCurrentStep('complete');
 
         } catch (error: any) {
@@ -815,7 +1457,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           toast.error(`Backend deployment failed: ${error.message}`);
 
           // Mark events as failed
-          validatedEvents.forEach((event) => {
+          eventsToDeploy.forEach((event) => {
             updateEventStatus({ eventId: event.id, status: 'failed', error: error.message });
           });
         }
@@ -826,7 +1468,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         version: versionNumber,
         timestamp: new Date().toISOString(),
         user: currentUser,
-        events: validatedEvents.length,
+        events: eventsToDeploy.length,
         deploymentType,
         projectId,
         useBackend,
@@ -839,7 +1481,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     } finally {
       setIsDeploying(false);
     }
-  }, [events, deploymentType, scheduledDate, scheduledTime, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend]);
+  }, [events, pendingEvents, deploymentType, scheduledDate, scheduledTime, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend]);
 
   // Download SQL script
   const handleDownloadSQL = useCallback(() => {
@@ -900,8 +1542,22 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     const failed = events.filter((e) => e.status === 'failed').length;
     const applied = events.filter((e) => e.status === 'applied').length;
     const pending = pendingEvents.length;
-    return { validated, failed, applied, pending, total: events.length };
-  }, [events, pendingEvents.length]);
+    const columnMappings = events.filter((e) => e.type === 'COLUMN_MAPPING_CREATED').length;
+
+    // Debug log
+    console.log('[DeploymentValidation] Stats:', {
+      total: events.length,
+      pending,
+      validated,
+      failed,
+      applied,
+      columnMappings,
+      projectId,
+      eventTypes: events.map(e => e.type),
+    });
+
+    return { validated, failed, applied, pending, total: events.length, columnMappings };
+  }, [events, pendingEvents.length, projectId]);
 
   return (
     <div className={cn('bg-white dark:bg-slate-900 rounded-xl shadow-xl overflow-hidden', className)}>
@@ -988,6 +1644,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           <span className="text-slate-500">Applied:</span>
           <Badge className="bg-blue-100 text-blue-600">{stats.applied}</Badge>
         </div>
+        {stats.columnMappings > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">Mappings:</span>
+            <Badge className="bg-purple-100 text-purple-600">{stats.columnMappings}</Badge>
+          </div>
+        )}
         {scheduledDeployments.length > 0 && (
           <Tooltip content={`${scheduledDeployments.filter(d => d.status === 'SCHEDULED').length} scheduled, ${scheduledDeployments.filter(d => d.status === 'PENDING_APPROVAL').length} pending approval`}>
             <div className="flex items-center gap-2">
@@ -1209,8 +1871,108 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         )}
       </div>
 
-      {/* Deployment Configuration - Show after validation */}
-      {(currentStep === 'validate' || currentStep === 'deploy') && !isValidating && !isDeploying && stats.validated > 0 && (
+      {/* Mapped Sources/Targets Overview - Always show when there are mappings */}
+      {mappedTablesOverview.length > 0 && currentStep !== 'complete' && (
+        <div className="px-6 py-4 border-t dark:border-slate-700 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
+          <h4 className="font-medium text-sm flex items-center gap-2 mb-3">
+            <GitBranch className="h-4 w-4 text-purple-600" />
+            Mapped Sources & Targets Overview
+            <Badge className="ml-auto bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300">
+              {mappedTablesOverview.length} table{mappedTablesOverview.length > 1 ? 's' : ''}
+            </Badge>
+          </h4>
+
+          <div className="space-y-3 max-h-[200px] overflow-auto">
+            {mappedTablesOverview.map((mapping, idx) => (
+              <div
+                key={idx}
+                className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-purple-200 dark:border-purple-800"
+              >
+                <div className="flex items-center gap-3 flex-wrap">
+                  {/* Source */}
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4 text-blue-500" />
+                    <div>
+                      <p className="text-xs text-slate-500">Source</p>
+                      <p className="text-sm font-medium text-blue-700 dark:text-blue-400">
+                        {mapping.sourceDatabase && mapping.sourceSchema
+                          ? `${mapping.sourceDatabase}.${mapping.sourceSchema}.${mapping.sourceTable}`
+                          : mapping.sourceTable || 'N/A'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Arrow */}
+                  <ArrowRight className="h-5 w-5 text-slate-400 flex-shrink-0" />
+
+                  {/* Target */}
+                  <div className="flex items-center gap-2">
+                    <Database className="h-4 w-4 text-green-500" />
+                    <div>
+                      <p className="text-xs text-slate-500">Target</p>
+                      <p className="text-sm font-medium text-green-700 dark:text-green-400">
+                        {mapping.targetDatabase}.{mapping.targetSchema}.{mapping.targetTable}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Ingestion Mode */}
+                  {mapping.ingestionMode && (
+                    <Badge className="ml-auto bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                      {mapping.ingestionMode.replace(/_/g, ' ')}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Column Mappings */}
+                {mapping.columnMappings.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <p className="text-xs text-slate-500 mb-1">
+                      Column Mappings ({mapping.columnMappings.length})
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {mapping.columnMappings.slice(0, 5).map((col, colIdx) => (
+                        <span
+                          key={colIdx}
+                          className={cn(
+                            "text-xs px-2 py-0.5 rounded flex items-center gap-1",
+                            col.transformation
+                              ? "bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300"
+                              : "bg-slate-100 dark:bg-slate-700"
+                          )}
+                        >
+                          {col.sourceColumns.length > 1 ? (
+                            <>
+                              [{col.sourceColumns.join(', ')}]
+                              {col.transformation && (
+                                <span className="text-purple-500 font-medium">
+                                  ({col.transformation})
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            col.sourceColumns[0]
+                          )}
+                          {' → '}
+                          {col.targetColumn}
+                        </span>
+                      ))}
+                      {mapping.columnMappings.length > 5 && (
+                        <span className="text-xs px-2 py-0.5 bg-slate-200 dark:bg-slate-600 rounded text-slate-600 dark:text-slate-300">
+                          +{mapping.columnMappings.length - 5} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Deployment Configuration - Always show */}
+      {currentStep !== 'complete' && !isValidating && !isDeploying && (
         <div className="px-6 py-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-4">
           <h4 className="font-medium text-sm flex items-center gap-2">
             <Settings className="h-4 w-4" />
@@ -1324,8 +2086,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         </div>
       )}
 
-      {/* Footer Actions */}
-      {events.length > 0 && currentStep !== 'complete' && (
+      {/* Footer Actions - Always show */}
+      {currentStep !== 'complete' && (
         <div className="px-6 py-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2 flex-wrap">
             <Button
@@ -1392,13 +2154,14 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               </Button>
             )}
 
-            {(currentStep === 'validate' || currentStep === 'deploy') && !isValidating && !isDeploying && stats.validated > 0 && (
+            {/* Deploy button - always accessible */}
+            {!isValidating && !isDeploying && (
               <Button
                 onClick={handleDeploy}
                 className="gap-2 bg-green-600 hover:bg-green-700"
               >
                 <Rocket className="h-4 w-4" />
-                {deploymentType === 'immediate' ? 'Deploy Now' : deploymentType === 'scheduled' ? 'Schedule' : 'Submit'} ({stats.validated})
+                {deploymentType === 'immediate' ? 'Deploy Now' : deploymentType === 'scheduled' ? 'Schedule' : 'Submit'} {pendingEvents.length > 0 ? `(${pendingEvents.length})` : ''}
               </Button>
             )}
 

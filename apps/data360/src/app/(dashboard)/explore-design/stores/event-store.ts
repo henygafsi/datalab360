@@ -9,6 +9,7 @@ import { IngestionMode } from '../../mapping/components/TableDetailPanel';
 
 // Event Types
 export type EventType =
+  | 'TABLE_CREATED'
   | 'TABLE_SELECTED'
   | 'TABLE_RENAMED'
   | 'COLUMN_RENAMED'
@@ -303,6 +304,18 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
       }
       if (!payload.targetTable || !payload.targetColumn) {
         console.debug(`[EventStore] Rejecting ${type}: missing target info`);
+        return false;
+      }
+      return true;
+
+    case 'TABLE_CREATED':
+      // Must have table name and at least one column
+      if (!payload.tableName) {
+        console.debug(`[EventStore] Rejecting ${type}: no table name`);
+        return false;
+      }
+      if (!payload.columns || payload.columns.length === 0) {
+        console.debug(`[EventStore] Rejecting ${type}: no columns defined`);
         return false;
       }
       return true;

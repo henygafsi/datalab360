@@ -8,9 +8,7 @@ import {
   FolderPlus, Clock, User
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getProjects } from '@/app/(dashboard)/mapping/getProjects';
-import { createProject } from '@/app/(dashboard)/mapping/createProject';
-import { getProjectLatestEvents } from '@/app/(dashboard)/mapping/getProjectLatestEvents';
+import { getExploreProjects, createExploreProject, ExploreProject } from '@/app/services/explore-design';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
@@ -18,10 +16,8 @@ interface Project {
   project_id: string;
   name: string;
   created_by: string;
-  shared_with: string[];
-  deployment_version: number;
-  step_name?: string | null;
-  last_completed_step: string | null;
+  status: string;
+  created_at: string | null;
 }
 
 interface ProjectSelectorProps {
@@ -40,7 +36,6 @@ export default function ProjectSelector({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
-  const [newProjectSharedWith, setNewProjectSharedWith] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [selectedInModal, setSelectedInModal] = useState<string | null>(null);
 
@@ -49,7 +44,7 @@ export default function ProjectSelector({
   // Watch for SSE cache invalidation events on 'projects' key
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.PROJECTS]);
 
-  // Fetch projects with enrichment
+  // Fetch explore projects from backend
   const fetchProjects = useCallback(async (isBackgroundRefresh = false) => {
     if (!isBackgroundRefresh) {
       setLoading(true);
@@ -58,32 +53,25 @@ export default function ProjectSelector({
     }
 
     try {
-      const baseProjects = await getProjects();
-      console.log('[ProjectSelector] Fetched base projects:', baseProjects);
+      const response = await getExploreProjects();
+      console.log('[ProjectSelector] Fetched explore projects:', response);
 
-      if (!baseProjects || baseProjects.length === 0) {
+      if (!response.projects || response.projects.length === 0) {
         if (mountedRef.current) setProjects([]);
         return;
       }
 
-      // Enrich projects with latest event info
-      const enrichedProjectsPromises = baseProjects.map(async (project: Project) => {
-        try {
-          const events = await getProjectLatestEvents(project.project_id);
-          const lastEvent = events.length > 0 ? events[events.length - 1] : null;
-          const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || null);
-          return {
-            ...project,
-            last_completed_step: finalStep,
-          };
-        } catch {
-          return project;
-        }
-      });
+      // Map explore projects to internal format
+      const mappedProjects: Project[] = response.projects.map((p: ExploreProject) => ({
+        project_id: p.project_id,
+        name: p.project_name,
+        created_by: p.created_by,
+        status: p.status,
+        created_at: p.created_at,
+      }));
 
-      const finalProjects = await Promise.all(enrichedProjectsPromises);
       if (mountedRef.current) {
-        setProjects(finalProjects);
+        setProjects(mappedProjects);
       }
     } catch (error: any) {
       console.error('[ProjectSelector] Error fetching projects:', error);
@@ -123,13 +111,9 @@ export default function ProjectSelector({
     }
 
     setIsCreating(true);
-    const sharedUsers = newProjectSharedWith.split(',').map(email => email.trim()).filter(email => email);
 
     try {
-      const response = await createProject({
-        name: newProjectName.trim(),
-        shared_with: sharedUsers
-      });
+      const response = await createExploreProject(newProjectName.trim());
 
       toast.success(`Project "${newProjectName}" created successfully!`);
 
@@ -138,15 +122,13 @@ export default function ProjectSelector({
         project_id: response.project_id,
         name: newProjectName.trim(),
         created_by: 'You',
-        shared_with: sharedUsers,
-        deployment_version: 0,
-        last_completed_step: 'CREATE_PROJECT',
+        status: 'ACTIVE',
+        created_at: new Date().toISOString(),
       };
 
       setProjects(prev => [newProject, ...prev]);
       onProjectSelect(response.project_id, newProjectName.trim());
       setNewProjectName('');
-      setNewProjectSharedWith('');
       setShowModal(false);
     } catch (error: any) {
       console.error('[ProjectSelector] Error creating project:', error);
@@ -283,23 +265,6 @@ export default function ProjectSelector({
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
-                    Share With (optional)
-                  </label>
-                  <Input
-                    type="text"
-                    value={newProjectSharedWith}
-                    onChange={(e) => setNewProjectSharedWith(e.target.value)}
-                    placeholder="user1@example.com, user2@example.com"
-                    className="w-full"
-                    disabled={isCreating}
-                  />
-                  <p className="text-xs text-slate-500 mt-1">
-                    Comma-separated list of emails
-                  </p>
-                </div>
-
                 <Button
                   className="w-full gap-2"
                   onClick={handleCreateProject}
@@ -381,10 +346,18 @@ export default function ProjectSelector({
                               <User className="h-3 w-3" />
                               {project.created_by}
                             </span>
-                            {project.last_completed_step && (
+                            {project.created_at && (
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {project.last_completed_step}
+                                {new Date(project.created_at).toLocaleDateString()}
+                              </span>
+                            )}
+                            {project.status && (
+                              <span className={cn(
+                                'px-1.5 py-0.5 rounded text-xs font-medium',
+                                project.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
+                              )}>
+                                {project.status}
                               </span>
                             )}
                           </div>
