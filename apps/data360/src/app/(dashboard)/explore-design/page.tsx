@@ -2592,7 +2592,7 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onTableSelect={handleTableClick}
                 onTableExclude={handleRemoveFromModeling}
-                onRelationCreate={async (source, target, sourceCol, targetCol) => {
+                onRelationCreate={async (source, target, sourceCol, targetCol, transformation) => {
                   // Parse table IDs to get database.schema.table components
                   const sourceParts = source.split('.');
                   const targetParts = target.split('.');
@@ -2605,13 +2605,17 @@ export default function ExploreDesignPage() {
 
                   const [sourceDb, sourceSchema, sourceTable] = sourceParts;
                   const [targetDb, targetSchema, targetTable] = targetParts;
-                  const sourceColumns = sourceCol.split(',');
+                  const sourceColumns = sourceCol.split(',').map(c => c.trim()).filter(c => c);
 
-                  // Create events for each source column mapping
+                  // Create events for column mapping
                   const eventTimestamp = Date.now();
 
-                  // Add to local event store for immediate UI update
-                  sourceColumns.forEach((srcCol, idx) => {
+                  // Determine if this is a multi-column transformation or individual mappings
+                  const hasTransformation = transformation && transformation !== 'none';
+                  const isMultiColumn = sourceColumns.length > 1;
+
+                  if (hasTransformation || isMultiColumn) {
+                    // Multi-column mapping with transformation - create single event with all source columns
                     addEvent({
                       type: 'COLUMN_MAPPING_CREATED',
                       projectId: selectedProjectId || undefined,
@@ -2619,52 +2623,80 @@ export default function ExploreDesignPage() {
                         database: sourceDb,
                         schema: sourceSchema,
                         table: sourceTable,
-                        column: srcCol,
+                        column: sourceColumns[0], // Primary column for event target
                       },
                       payload: {
-                        sourceColumn: srcCol,
+                        sourceColumn: sourceColumns[0], // Keep for backward compatibility
+                        sourceColumns: sourceColumns, // NEW: Array of all source columns
                         targetTable: {
                           database: targetDb,
                           schema: targetSchema,
                           table: targetTable,
                         },
                         targetColumn: targetCol,
+                        transformation: hasTransformation ? transformation : null, // NEW: transformation function
                       },
                     });
-                  });
+                  } else {
+                    // Single column mapping without transformation - create one event
+                    addEvent({
+                      type: 'COLUMN_MAPPING_CREATED',
+                      projectId: selectedProjectId || undefined,
+                      target: {
+                        database: sourceDb,
+                        schema: sourceSchema,
+                        table: sourceTable,
+                        column: sourceColumns[0],
+                      },
+                      payload: {
+                        sourceColumn: sourceColumns[0],
+                        sourceColumns: sourceColumns,
+                        targetTable: {
+                          database: targetDb,
+                          schema: targetSchema,
+                          table: targetTable,
+                        },
+                        targetColumn: targetCol,
+                        transformation: null,
+                      },
+                    });
+                  }
 
                   // Save mapping event(s) to backend
                   if (selectedProjectId) {
                     try {
-                      const eventsToSave = sourceColumns.map((srcCol, idx) => ({
-                        event_id: `mapping-${eventTimestamp}-${idx}-${srcCol}`,
+                      const eventToSave = {
+                        event_id: `mapping-${eventTimestamp}-${sourceColumns.join('-')}`,
                         event_type: 'COLUMN_MAPPING_CREATED' as const,
                         target: {
                           database: sourceDb,
                           schema: sourceSchema,
                           table: sourceTable,
-                          column: srcCol,
+                          column: sourceColumns[0],
                         },
                         payload: {
-                          sourceColumn: srcCol,
+                          sourceColumn: sourceColumns[0],
+                          sourceColumns: sourceColumns,
                           targetTable: {
                             database: targetDb,
                             schema: targetSchema,
                             table: targetTable,
                           },
                           targetColumn: targetCol,
+                          transformation: hasTransformation ? transformation : null,
                         },
                         status: 'pending' as const,
                         created_at: new Date().toISOString(),
-                      }));
+                      };
 
-                      console.log('[onRelationCreate] Saving mapping events to backend:', eventsToSave);
+                      console.log('[onRelationCreate] Saving mapping event to backend:', eventToSave);
 
-                      const result = await recordDesignEvents(selectedProjectId, eventsToSave);
+                      const result = await recordDesignEvents(selectedProjectId, [eventToSave]);
 
                       if (result.success) {
-                        console.log('[onRelationCreate] Events saved to backend:', result);
-                        toast.success(`Mapping saved: ${sourceColumns.join(', ')} → ${targetCol}`);
+                        console.log('[onRelationCreate] Event saved to backend:', result);
+                        const transformLabel = hasTransformation ? ` (${transformation})` : '';
+                        toast.success(`Mapping saved: ${sourceColumns.join(', ')}${transformLabel} → ${targetCol}`);
                       } else {
                         console.warn('[onRelationCreate] No events were saved to backend');
                         toast.success('Mapping created locally');

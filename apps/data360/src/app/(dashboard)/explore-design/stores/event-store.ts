@@ -161,14 +161,15 @@ export interface ForeignKeyEvent extends DesignEvent {
 export interface ColumnMappingEvent extends DesignEvent {
   type: 'COLUMN_MAPPING_CREATED' | 'COLUMN_MAPPING_REMOVED';
   payload: {
-    sourceColumn: string;
+    sourceColumn: string; // Backward compatibility - first column for single mappings
+    sourceColumns?: string[]; // Array of source columns for multi-column transformations
     targetTable: {
       database: string;
       schema: string;
       table: string;
     };
     targetColumn: string;
-    transformation?: string; // Optional transformation: UPPER(), TRIM(), etc.
+    transformation?: string | null; // Optional transformation: CONCAT, UPPER, TRIM, etc.
   };
 }
 
@@ -886,16 +887,25 @@ export const createPrimaryKeyEvent = (
 // Create column mapping event (ETL: Source → Target)
 export const createColumnMappingEvent = (
   sourceTarget: DesignEvent['target'], // Source table info
-  sourceColumn: string,
+  sourceColumns: string | string[], // Single column or array of columns
   targetTable: ColumnMappingEvent['payload']['targetTable'],
   targetColumn: string,
   created: boolean,
-  transformation?: string
-): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => ({
-  type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
-  target: sourceTarget,
-  payload: { sourceColumn, targetTable, targetColumn, transformation },
-});
+  transformation?: string | null
+): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => {
+  const columnsArray = Array.isArray(sourceColumns) ? sourceColumns : [sourceColumns];
+  return {
+    type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
+    target: sourceTarget,
+    payload: {
+      sourceColumn: columnsArray[0], // Backward compatibility
+      sourceColumns: columnsArray, // New array format
+      targetTable,
+      targetColumn,
+      transformation: transformation || undefined,
+    },
+  };
+};
 
 // Create column exclusion event
 export const createColumnExclusionEvent = (

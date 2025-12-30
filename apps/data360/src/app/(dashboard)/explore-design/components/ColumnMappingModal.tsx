@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState, useMemo } from 'react';
-import { Modal, Button, Badge, Input, Text, Tooltip } from 'rizzui';
-import { X, ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle } from 'lucide-react';
+import { Modal, Button, Badge, Input, Text, Tooltip, Select } from 'rizzui';
+import { X, ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { ColumnTransformation } from '@/app/services/explore-design';
 
 interface Column {
   name: string;
@@ -42,6 +43,18 @@ const TYPE_COMPATIBILITY: Record<string, string[]> = {
   'BINARY': ['BINARY', 'VARBINARY'],
   'VARBINARY': ['BINARY', 'VARBINARY'],
 };
+
+// Transformation options for column mappings
+const TRANSFORMATION_OPTIONS = [
+  { value: '', label: 'No Transformation' },
+  { value: 'CONCAT', label: 'CONCAT - Concatenate columns' },
+  { value: 'CONCAT_WS', label: 'CONCAT_WS - Concatenate with separator' },
+  { value: 'COALESCE', label: 'COALESCE - First non-null value' },
+  { value: 'UPPER', label: 'UPPER - Convert to uppercase' },
+  { value: 'LOWER', label: 'LOWER - Convert to lowercase' },
+  { value: 'TRIM', label: 'TRIM - Remove whitespace' },
+  { value: 'SUM', label: 'SUM - Sum numeric values' },
+];
 
 // Check if two data types are compatible
 const checkTypeCompatibility = (sourceType: string, targetType: string): { compatible: boolean; warning?: string } => {
@@ -85,6 +98,7 @@ interface ColumnMapping {
   id: string;
   sourceColumns: string[];
   targetColumn: string;
+  transformation?: ColumnTransformation;
 }
 
 interface ColumnMappingModalProps {
@@ -94,7 +108,7 @@ interface ColumnMappingModalProps {
   targetTable: TableInfo | null;
   sourceColumns: Column[];
   targetColumns: Column[];
-  onCreateMapping: (sourceColumns: string[], targetColumn: string) => void;
+  onCreateMapping: (sourceColumns: string[], targetColumn: string, transformation?: ColumnTransformation) => void;
   existingMappings?: ColumnMapping[];
   onRemoveMapping?: (mappingId: string) => void;
 }
@@ -112,6 +126,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
 }) => {
   const [selectedSourceColumns, setSelectedSourceColumns] = useState<string[]>([]);
   const [selectedTargetColumn, setSelectedTargetColumn] = useState<string | null>(null);
+  const [selectedTransformation, setSelectedTransformation] = useState<ColumnTransformation>(null);
   const [sourceSearch, setSourceSearch] = useState('');
   const [targetSearch, setTargetSearch] = useState('');
 
@@ -194,6 +209,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
       id: `mapping-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,
       sourceColumns: [...selectedSourceColumns],
       targetColumn: selectedTargetColumn,
+      transformation: selectedTransformation || undefined,
     };
 
     setLocalMappings(prev => [...prev, newMapping]);
@@ -201,6 +217,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
     // Reset selection for next mapping
     setSelectedSourceColumns([]);
     setSelectedTargetColumn(null);
+    setSelectedTransformation(null);
   };
 
   // Remove a local mapping
@@ -212,7 +229,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
   const handleSaveAndClose = () => {
     // Create events for all local mappings
     localMappings.forEach(mapping => {
-      onCreateMapping(mapping.sourceColumns, mapping.targetColumn);
+      onCreateMapping(mapping.sourceColumns, mapping.targetColumn, mapping.transformation);
     });
 
     // Reset and close
@@ -222,6 +239,7 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
   const handleClose = () => {
     setSelectedSourceColumns([]);
     setSelectedTargetColumn(null);
+    setSelectedTransformation(null);
     setSourceSearch('');
     setTargetSearch('');
     setLocalMappings([]);
@@ -296,6 +314,12 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                           </React.Fragment>
                         ))}
                       </div>
+                      {mapping.transformation && (
+                        <Badge size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-400 text-xs flex items-center gap-1">
+                          <Wand2 className="h-3 w-3" />
+                          {mapping.transformation}
+                        </Badge>
+                      )}
                       <ArrowRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
                       <Badge size="sm" className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400 text-xs">
                         {mapping.targetColumn}
@@ -507,7 +531,8 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                 ? "bg-gradient-to-r from-amber-50 to-yellow-50 dark:from-amber-900/20 dark:to-yellow-900/20 border-amber-300 dark:border-amber-800"
                 : "bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 border-blue-200 dark:border-blue-800"
           )}>
-            <div className="flex items-center justify-between">
+            {/* Mapping Preview Row */}
+            <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-3">
                 <Text className="text-sm font-medium text-slate-600 dark:text-slate-300">New Mapping:</Text>
                 <div className="flex flex-wrap gap-1 items-center">
@@ -522,6 +547,12 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                     </React.Fragment>
                   ))}
                 </div>
+                {selectedTransformation && (
+                  <Badge size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-400 flex items-center gap-1">
+                    <Wand2 className="h-3 w-3" />
+                    {selectedTransformation}
+                  </Badge>
+                )}
                 <ArrowRight className="h-4 w-4 text-slate-400 flex-shrink-0" />
                 <Badge size="sm" className="bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-400">
                   {selectedTargetColumn}
@@ -544,6 +575,36 @@ const ColumnMappingModal: React.FC<ColumnMappingModalProps> = ({
                   </Tooltip>
                 )}
               </div>
+            </div>
+
+            {/* Transformation Selection Row */}
+            <div className="flex items-center gap-3 mb-3 p-3 bg-white/50 dark:bg-slate-800/50 rounded-lg border border-purple-200 dark:border-purple-800">
+              <div className="flex items-center gap-2 text-purple-700 dark:text-purple-400">
+                <Wand2 className="h-4 w-4" />
+                <Text className="text-sm font-medium">Transformation:</Text>
+              </div>
+              <div className="flex-1 max-w-xs">
+                <Select
+                  size="sm"
+                  options={TRANSFORMATION_OPTIONS}
+                  value={selectedTransformation || ''}
+                  onChange={(option: any) => setSelectedTransformation(option?.value || null)}
+                  className="w-full"
+                  placeholder="Select transformation..."
+                />
+              </div>
+              {selectedSourceColumns.length > 1 && !selectedTransformation && (
+                <Tooltip content="When mapping multiple source columns, consider using CONCAT, CONCAT_WS, COALESCE, or SUM">
+                  <div className="flex items-center gap-1 px-2 py-1 bg-amber-100 dark:bg-amber-900/40 rounded text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span className="text-xs">Transformation recommended</span>
+                  </div>
+                </Tooltip>
+              )}
+            </div>
+
+            {/* Add Button Row */}
+            <div className="flex items-center justify-end">
               <Button
                 size="sm"
                 onClick={handleAddMapping}

@@ -85,7 +85,7 @@ interface ModelingCanvasProps {
   tableColumns: Map<string, ColumnInfo[]>;
   onTableSelect?: (table: TableItem) => void;
   onTableExclude?: (tableId: string) => void;
-  onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string) => void;
+  onRelationCreate?: (source: string, target: string, sourceCol: string, targetCol: string, transformation?: string | null) => void;
   className?: string;
   projectId?: string | null;
   defaultRelationships?: TableRelationship[];
@@ -628,10 +628,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Handle column mapping from modal (ETL mapping, not FK relationship)
   const handleColumnMapping = useCallback(
-    (sourceColumns: string[], targetColumn: string) => {
+    (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
       console.log('[ModelingCanvas] handleColumnMapping called:', {
         sourceColumns,
         targetColumn,
+        transformation,
         mappingSourceTable: mappingSourceTable?.table,
         mappingTargetTable: mappingTargetTable?.table,
         pendingConnectionParams,
@@ -646,16 +647,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         return;
       }
 
-      // Create COLUMN_MAPPING event for each source column (ETL mapping)
-      sourceColumns.forEach((sourceCol) => {
-        addEventRef.current(createColumnMappingEvent(
-          { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
-          sourceCol,
-          { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table },
-          targetColumn,
-          true // created
-        ));
-      });
+      // Create a single COLUMN_MAPPING event with all source columns and transformation
+      addEventRef.current(createColumnMappingEvent(
+        { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
+        sourceColumns, // Now supports array of columns
+        { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table },
+        targetColumn,
+        true, // created
+        transformation // Pass transformation
+      ));
 
       // Update dynamic mappings to track the mapped target column
       setDynamicMappings(prev => {
@@ -678,10 +678,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       }));
       setColumnMappingsList(prev => [...prev, ...newMappingEntries]);
 
-      // Create edge label showing ETL mapping
+      // Create edge label showing ETL mapping (with transformation if present)
+      const transformLabel = transformation ? ` [${transformation}]` : '';
       const mappingLabel = sourceColumns.length > 1
-        ? `${sourceColumns.join(' + ')} → ${targetColumn}`
-        : `${sourceColumns[0]} → ${targetColumn}`;
+        ? `${sourceColumns.join(' + ')}${transformLabel} → ${targetColumn}`
+        : `${sourceColumns[0]}${transformLabel} → ${targetColumn}`;
 
       console.log('[ModelingCanvas] Creating mapping edge:', {
         source: pendingConnectionParams.source,
@@ -726,6 +727,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             edgeType: 'mapping', // ETL column mapping
             sourceColumns,
             targetColumn,
+            transformation,
           },
         };
 
@@ -758,13 +760,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         sourceId,
         targetId,
         sourceColumns.join(','),
-        targetColumn
+        targetColumn,
+        transformation
       );
 
+      const toastTransformLabel = transformation ? ` with ${transformation}` : '';
       toast.success(
         sourceColumns.length > 1
-          ? `Mapping created: ${sourceColumns.length} columns → ${targetColumn}`
-          : `Mapping created: ${sourceColumns[0]} → ${targetColumn}`
+          ? `Mapping created: ${sourceColumns.length} columns → ${targetColumn}${toastTransformLabel}`
+          : `Mapping created: ${sourceColumns[0]} → ${targetColumn}${toastTransformLabel}`
       );
 
       // Reset state
