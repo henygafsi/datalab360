@@ -19,13 +19,19 @@ import {
   deployEventsImmediate,
   validateEventsBackend,
   generateEventSQL,
-  executeQueries,
   executeIngestion,
+  deploySchema,
+  getSchemaVersions,
+  rollbackSchema,
+  getIngestionHistory,
   ScheduledDeploymentStatus,
   IngestionTableConfig,
   IngestionMode,
   ColumnMapping,
   ColumnTransformation,
+  SchemaVersion,
+  SchemaDeploymentResponse,
+  SQLStatement,
 } from '@/app/services/explore-design';
 
 // Test result interface
@@ -538,7 +544,7 @@ const generateSnowflakeSQL = (event: DesignEvent): { sql: string; rollbackSql?: 
       const relationFkName = `FK_${event.target.table}_${event.payload.sourceColumn}`;
       const targetRef = `${event.payload.targetTable?.database}.${event.payload.targetTable?.schema}.${event.payload.targetTable?.table}`;
       return {
-        sql: `-- Create relation: ${event.target.table}.${event.payload.sourceColumn} -> ${event.payload.targetTable?.table}.${event.payload.targetColumn}\nALTER TABLE ${tableRef} ADD CONSTRAINT ${relationFkName} FOREIGN KEY (${event.payload.sourceColumn}) REFERENCES ${targetRef}(${event.payload.targetColumn});`,
+        sql: `ALTER TABLE ${tableRef} ADD CONSTRAINT ${relationFkName} FOREIGN KEY (${event.payload.sourceColumn}) REFERENCES ${targetRef}(${event.payload.targetColumn});`,
         rollbackSql: `ALTER TABLE ${tableRef} DROP CONSTRAINT ${relationFkName};`
       };
 
@@ -825,6 +831,20 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const [backendError, setBackendError] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
 
+  // Schema versioning state (Option A: Two-phase deployment)
+  const [schemaVersions, setSchemaVersions] = useState<SchemaVersion[]>([]);
+  const [currentSchemaVersion, setCurrentSchemaVersion] = useState<SchemaVersion | null>(null);
+  const [selectedSchemaVersionId, setSelectedSchemaVersionId] = useState<string | null>(null);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [deploymentPhase, setDeploymentPhase] = useState<'schema' | 'ingestion' | 'complete'>('schema');
+  const [schemaDeploymentResult, setSchemaDeploymentResult] = useState<SchemaDeploymentResponse | null>(null);
+
+  // Ingestion target schema version - user can choose which version to ingest into
+  // 'latest' means use the latest active version (or newly deployed version)
+  // Otherwise, use the specific version_id selected by the user
+  const [ingestionTargetVersion, setIngestionTargetVersion] = useState<'latest' | string>('latest');
+
   // Load scheduled deployments from localStorage
   React.useEffect(() => {
     const stored = localStorage.getItem(SCHEDULED_DEPLOYMENTS_KEY);
@@ -837,6 +857,32 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
       }
     }
   }, []);
+
+  // Load schema versions when component mounts
+  React.useEffect(() => {
+    const loadSchemaVersions = async () => {
+      if (!projectId) return;
+
+      setIsLoadingVersions(true);
+      try {
+        const response = await getSchemaVersions(projectId, { limit: 20 });
+        setSchemaVersions(response.versions);
+        setCurrentSchemaVersion(response.current_version || null);
+        // Default to current version for ingestion
+        if (response.current_version) {
+          setSelectedSchemaVersionId(response.current_version.version_id);
+          // Set ingestion target to current version by default
+          setIngestionTargetVersion(response.current_version.version_id);
+        }
+      } catch (error) {
+        console.error('[DeploymentValidation] Failed to load schema versions:', error);
+      } finally {
+        setIsLoadingVersions(false);
+      }
+    };
+
+    loadSchemaVersions();
+  }, [projectId]);
 
   // Save scheduled deployment to localStorage
   const saveScheduledDeployment = useCallback((deployment: ScheduledDeploymentLocal) => {
@@ -910,6 +956,51 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const mappedTablesOverview = useMemo(() => {
     return extractMappedTablesOverview(events);
   }, [events]);
+
+  // Categorize events into schema changes vs ingestion configurations (Two-phase deployment)
+  const { schemaEvents, ingestionEvents, schemaEventsSummary, ingestionEventsSummary } = useMemo(() => {
+    // Events that generate DDL (schema changes)
+    const schemaEventTypes: EventType[] = [
+      'TABLE_CREATED', 'TABLE_RENAMED', 'ADD_COLUMN', 'REMOVE_COLUMN',
+      'COLUMN_RENAMED', 'COLUMN_TYPE_CHANGED', 'PRIMARY_KEY_SET', 'PRIMARY_KEY_REMOVED',
+      'FOREIGN_KEY_ADDED', 'FOREIGN_KEY_REMOVED', 'RELATION_CREATED', 'RELATION_REMOVED',
+      'MASKING_POLICY_APPLIED', 'MASKING_POLICY_REMOVED', 'RLS_POLICY_APPLIED', 'RLS_POLICY_REMOVED',
+      'AGGREGATION_POLICY_APPLIED', 'AGGREGATION_POLICY_REMOVED', 'TAG_APPLIED', 'TAG_REMOVED',
+    ];
+
+    // Events for data ingestion configuration
+    const ingestionEventTypes: EventType[] = [
+      'COLUMN_MAPPING_CREATED', 'COLUMN_MAPPING_REMOVED', 'INGESTION_MODE_SET', 'SCD_CONFIGURED',
+    ];
+
+    const schema = pendingEvents.filter(e => schemaEventTypes.includes(e.type));
+    const ingestion = pendingEvents.filter(e => ingestionEventTypes.includes(e.type));
+
+    // Summary counts for schema changes
+    const schemaSummary = {
+      tablesCreated: schema.filter(e => e.type === 'TABLE_CREATED').length,
+      tablesRenamed: schema.filter(e => e.type === 'TABLE_RENAMED').length,
+      columnsAdded: schema.filter(e => e.type === 'ADD_COLUMN').length,
+      columnsModified: schema.filter(e => ['COLUMN_RENAMED', 'COLUMN_TYPE_CHANGED'].includes(e.type)).length,
+      constraintsAdded: schema.filter(e => ['PRIMARY_KEY_SET', 'FOREIGN_KEY_ADDED', 'RELATION_CREATED'].includes(e.type)).length,
+      policiesApplied: schema.filter(e => e.type.includes('POLICY_APPLIED')).length,
+    };
+
+    // Summary counts for ingestion configs
+    const ingestionSummary = {
+      columnMappings: ingestion.filter(e => e.type === 'COLUMN_MAPPING_CREATED').length,
+      ingestionModes: ingestion.filter(e => e.type === 'INGESTION_MODE_SET').length,
+      scdConfigs: ingestion.filter(e => e.type === 'SCD_CONFIGURED').length,
+      totalTables: new Set(ingestion.map(e => `${e.target.database}.${e.target.schema}.${e.target.table}`)).size,
+    };
+
+    return {
+      schemaEvents: schema,
+      ingestionEvents: ingestion,
+      schemaEventsSummary: schemaSummary,
+      ingestionEventsSummary: ingestionSummary,
+    };
+  }, [pendingEvents]);
 
   // Generate SQL for event using enhanced SQL generator
   const generateSQL = useCallback((event: DesignEvent): string => {
@@ -1101,7 +1192,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
       // Generate version number
       const versionNumber = `${versionType === 'major' ? '1' : '0'}.${versionType === 'minor' ? '1' : '0'}.${versionType === 'patch' ? Date.now() % 1000 : '0'}`;
 
-      // Convert events to API format
+      // Convert pending events to API format (user's DDL changes only)
+      // Backend will clone template tables and apply these changes
       const apiEvents = eventsToDeploy.map(e => ({
         event_id: e.id,
         event_type: e.type,
@@ -1110,6 +1202,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         status: e.status,
         created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
       }));
+      console.log('[Deployment] API events (user changes):', apiEvents.length);
 
       // Sort events for all deployment types (needed for SQL generation)
       const sortedEvents = sortEventsForDeployment(eventsToDeploy);
@@ -1254,122 +1347,217 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
       } else {
         // =====================================================
-        // IMMEDIATE DEPLOYMENT - Execute SQL queries + Ingestion
+        // IMMEDIATE DEPLOYMENT - Two-Phase Deployment (Option A)
         // =====================================================
-        // Flow:
-        // 1. Sort events by dependency priority
-        // 2. Filter executable events (skip metadata-only)
-        // 3. Generate SQL for each event in order
-        // 4. Execute all SQL queries via /execute_queries endpoint
-        // 5. Execute data ingestion via /execute_ingestion endpoint
-        // 6. Record deployment status after execution
+        // Phase 1: Deploy Schema (DDL) via /deploy_schema endpoint
+        //   - Creates new schema version
+        //   - Executes structural changes (tables, columns, constraints)
+        //   - Returns schema_version_id for linking
+        //
+        // Phase 2: Execute Ingestion (ETL) via /execute_ingestion endpoint
+        //   - Links to schema_version_id from Phase 1
+        //   - Executes data ingestion with column mappings
+        //   - Tracks ingestion history per schema version
 
-        toast.loading('Preparing deployment...');
+        console.log('[Deployment] ========== IMMEDIATE DEPLOYMENT STARTED ==========');
+        console.log('[Deployment] Project ID:', projectId);
+        console.log('[Deployment] Deployment type:', deploymentType);
+        console.log('[Deployment] Pending events (user changes):', eventsToDeploy.length);
+
+        toast.loading('Preparing two-phase deployment...');
+        setDeploymentPhase('schema');
 
         try {
-          // Step 1: Sort events by execution priority
+          // =====================================================
+          // Schema Deployment Strategy:
+          // - Backend clones ALL tables from template (CP_DATA360.RETAIL_DWH)
+          // - Frontend sends ONLY user's DDL changes (ALTER, ADD COLUMN, ADD FK, etc.)
+          // - Backend applies changes to the cloned tables in new versioned schema
+          // =====================================================
+
+          // Sort and filter PENDING events (user's changes only)
           const sortedEvents = sortEventsForDeployment(eventsToDeploy);
-          console.log('[Deployment] Sorted events order:', sortedEvents.map(e => `${e.type} (priority ${EVENT_PRIORITY[e.type]})`));
+          console.log('[Deployment] Sorted pending events:', sortedEvents.length);
 
-          // Step 2: Filter to executable events only
           const executableEvents = filterExecutableEvents(sortedEvents);
-          console.log('[Deployment] Executable events:', executableEvents.length, 'of', sortedEvents.length);
+          console.log('[Deployment] Executable events:', executableEvents.length);
 
-          // Step 3: Generate SQL queries in order
-          const sqlQueries: string[] = [];
-          const eventToQueryMap: Map<string, number> = new Map(); // Map event ID to query index
+          // Separate schema events (DDL) from ingestion events (ETL)
+          const schemaEventTypes: EventType[] = [
+            'TABLE_CREATED', 'TABLE_RENAMED', 'ADD_COLUMN', 'REMOVE_COLUMN',
+            'COLUMN_RENAMED', 'COLUMN_TYPE_CHANGED', 'PRIMARY_KEY_SET', 'PRIMARY_KEY_REMOVED',
+            'FOREIGN_KEY_ADDED', 'FOREIGN_KEY_REMOVED', 'RELATION_CREATED', 'RELATION_REMOVED',
+            'MASKING_POLICY_APPLIED', 'MASKING_POLICY_REMOVED', 'RLS_POLICY_APPLIED', 'RLS_POLICY_REMOVED',
+            'AGGREGATION_POLICY_APPLIED', 'AGGREGATION_POLICY_REMOVED', 'TAG_APPLIED', 'TAG_REMOVED',
+          ];
 
-          executableEvents.forEach((event, index) => {
-            const { sql } = generateSnowflakeSQL(event);
-            // Skip comment-only SQL (metadata events) and INGESTION_MODE_SET (handled separately)
-            if (sql && !sql.trim().startsWith('--') && event.type !== 'INGESTION_MODE_SET') {
-              sqlQueries.push(sql);
-              eventToQueryMap.set(event.id, sqlQueries.length - 1);
-            } else if (sql) {
-              // Still track but note it's comment-only or ingestion config
-              console.log(`[Deployment] Skipping SQL for ${event.type}:`, sql.substring(0, 50));
+          // Get schema events from PENDING changes (user's DDL modifications)
+          const schemaEventsToExecute = executableEvents.filter(e => schemaEventTypes.includes(e.type));
+          console.log('[Deployment] Schema events (user DDL changes):', schemaEventsToExecute.length);
+
+          // Generate SQL statements for user's DDL changes only
+          // Backend will: 1) Clone template tables, 2) Apply these DDL changes
+          const sqlStatements: SQLStatement[] = [];
+          schemaEventsToExecute.forEach((event) => {
+            const { sql, rollbackSql } = generateSnowflakeSQL(event);
+            if (sql && !sql.trim().startsWith('--')) {
+              sqlStatements.push({
+                sql,
+                rollback_sql: rollbackSql || undefined,
+                object_type: event.type.includes('TABLE') ? 'TABLE' : event.type.includes('COLUMN') ? 'COLUMN' : 'CONSTRAINT',
+                object_name: `${event.target.schema}.${event.target.table}${event.target.column ? '.' + event.target.column : ''}`,
+              });
             }
           });
 
-          console.log('[Deployment] Generated SQL queries:', sqlQueries.length);
-          console.log('[Deployment] SQL execution order:', sqlQueries.map((q, i) => `[${i + 1}] ${q.substring(0, 60)}...`));
+          console.log('[Deployment] Generated SQL statements (user changes):', sqlStatements.length);
+          if (sqlStatements.length > 0) {
+            console.log('[Deployment] SQL statements:', sqlStatements.map(s => s.sql.substring(0, 100) + '...'));
+          }
 
-          // Step 3b: Extract ingestion configurations from ALL events (not just pending)
-          // This allows ingestion to run even if mappings were previously deployed as schema changes
-          // We use all events to build ingestion configs because column mappings define data flow
+          // Extract ingestion configurations from ALL events (for data loading)
           const ingestionConfigs = extractIngestionConfigs(events);
-          console.log('[Deployment] Ingestion configs (from all events):', ingestionConfigs.length);
-          if (ingestionConfigs.length > 0) {
-            console.log('[Deployment] Tables to ingest:', ingestionConfigs.map(c => `${c.source_database}.${c.source_schema}.${c.source_table} -> ${c.target_database}.${c.target_schema}.${c.target_table} (${c.ingestion_mode})`));
-            // Log column mappings for debugging (new schema: source_columns array)
-            ingestionConfigs.forEach(config => {
-              if (config.column_mappings && config.column_mappings.length > 0) {
-                console.log(`[Deployment] Column mappings for ${config.target_table}:`, config.column_mappings.map(m => {
-                  const srcCols = m.source_columns.join(', ');
-                  const transform = m.transformation ? ` [${m.transformation}]` : '';
-                  return `[${srcCols}]${transform} -> ${m.target_column}`;
-                }));
-              }
-            });
-          }
+          console.log('[Deployment] Ingestion configs:', ingestionConfigs.length);
 
-          // Log what we have to execute
-          const hasWork = sqlQueries.length > 0 || ingestionConfigs.length > 0;
-          if (!hasWork) {
-            console.log('[Deployment] No SQL queries or ingestion configs - will only record deployment');
-          }
-
+          let schemaVersionId: string | null = null;
           let queriesExecuted = 0;
           let ingestionRowsAffected = 0;
 
-          // Step 4: Execute SQL queries via /execute_queries endpoint (if any)
-          if (sqlQueries.length > 0) {
-            toast.loading(`Executing ${sqlQueries.length} SQL queries on Snowflake...`);
+          // =====================================================
+          // PHASE 1: Schema Deployment - ALWAYS CALL THE ENDPOINT
+          // =====================================================
+          // Always call deploySchema even with no SQL statements
+          // Backend needs to track deployment and create/update schema version
+          console.log('[Deployment] ========== CALLING deploySchema API ==========');
+          console.log('[Deployment] Endpoint: /explore-design/deploy_schema');
+          console.log('[Deployment] Request payload:', {
+            project_id: projectId,
+            version_name: `v${versionNumber}`,
+            sql_queries_count: sqlStatements.length,
+            has_schema_changes: sqlStatements.length > 0,
+          });
 
-            const executeResult = await executeQueries(sqlQueries);
+          const schemaChangeMessage = sqlStatements.length > 0
+            ? `Phase 1: Deploying ${sqlStatements.length} schema changes...`
+            : 'Phase 1: Creating schema version...';
+          toast.loading(schemaChangeMessage);
 
-            if (executeResult.status === 'failed') {
-              // Execution failed
-              const failedQuery = executeResult.results[0];
-              console.error('[Deployment] Query execution failed:', failedQuery?.error);
+          const schemaDeployResult = await deploySchema({
+            project_id: projectId,
+            version_name: `v${versionNumber}`,
+            description: changelogSummary || (sqlStatements.length > 0
+              ? `Schema deployment with ${sqlStatements.length} changes`
+              : 'Schema version for data ingestion'),
+            sql_queries: sqlStatements, // Can be empty array
+            events: apiEvents as any,
+            options: {
+              rollback_on_error: true,
+              dry_run: false,
+            },
+          });
 
-              toast.dismiss();
-              toast.error(`Query execution failed: ${failedQuery?.error || 'Unknown error'}`);
-              setBackendError(failedQuery?.error || 'Query execution failed');
+          console.log('[Deployment] Schema deployment result:', schemaDeployResult);
 
-              // Mark all events as failed
-              executableEvents.forEach((event) => {
-                updateEventStatus({ eventId: event.id, status: 'failed', error: failedQuery?.error });
-              });
+          if (schemaDeployResult.status === 'failed') {
+            // Schema deployment failed
+            console.error('[Deployment] Schema deployment failed:', schemaDeployResult.errors);
+            toast.dismiss();
 
-              setIsDeploying(false);
-              return;
+            // Check if it's a max versions error
+            const isMaxVersionsError = schemaDeployResult.errors.some(e =>
+              e.toLowerCase().includes('maximum') || e.toLowerCase().includes('version 4') || e.toLowerCase().includes('max versions')
+            );
+
+            if (isMaxVersionsError) {
+              toast.error(`Maximum schema versions (3) reached!\n\nRollback an older version before deploying new changes.\n\nCurrent versions: ${projectId}_V1, V2, V3`);
+              setBackendError('Maximum 3 schema versions allowed. Use Rollback to remove older versions before deploying.');
+            } else {
+              toast.error(`Schema deployment failed: ${schemaDeployResult.errors.join(', ')}`);
+              setBackendError(schemaDeployResult.errors.join(', '));
             }
 
-            queriesExecuted = executeResult.executed_queries || sqlQueries.length;
-            console.log('[Deployment] SQL queries executed successfully:', queriesExecuted);
+            // Mark schema events as failed
+            schemaEventsToExecute.forEach((event) => {
+              updateEventStatus({ eventId: event.id, status: 'failed', error: schemaDeployResult.errors[0] });
+            });
+
+            setIsDeploying(false);
+            return;
           }
 
-          // Step 5: Execute data ingestion via /execute_ingestion endpoint (if any)
-          if (ingestionConfigs.length > 0) {
-            toast.loading(`Ingesting data for ${ingestionConfigs.length} table(s)...`);
+          // Store schema version info for Phase 2
+          schemaVersionId = schemaDeployResult.schema_version_id || null;
+          queriesExecuted = schemaDeployResult.executed_statements;
+          setSchemaDeploymentResult(schemaDeployResult);
 
-            // Log the full ingestion request for debugging
+          // Mark schema events as applied
+          schemaEventsToExecute.forEach((event) => {
+            updateEventStatus({ eventId: event.id, status: 'applied' });
+          });
+
+          // Refresh schema versions list
+          try {
+            const versionsResponse = await getSchemaVersions(projectId, { limit: 20 });
+            setSchemaVersions(versionsResponse.versions);
+            setCurrentSchemaVersion(versionsResponse.current_version || null);
+            if (schemaVersionId) {
+              setSelectedSchemaVersionId(schemaVersionId);
+            }
+          } catch (error) {
+            console.warn('[Deployment] Failed to refresh schema versions:', error);
+          }
+
+          const schemaName = schemaDeployResult.versioned_schema_name || `${projectId}_V${schemaDeployResult.version_number}`;
+          console.log('[Deployment] Phase 1 complete - Schema version:', schemaVersionId, 'Schema:', schemaName);
+          toast.dismiss();
+          toast.success(`Phase 1 complete: ${schemaName} deployed in CP_DATA360 (${queriesExecuted} statements)`);
+
+          // =====================================================
+          // PHASE 2: Data Ingestion
+          // =====================================================
+          setDeploymentPhase('ingestion');
+
+          if (ingestionConfigs.length > 0) {
+            // Determine which schema version to use for ingestion:
+            // - User selects a specific version from the dropdown (default is current active version)
+            // - The selected version_id is passed to backend
+            // - If no version selected (empty), let backend pick the latest active version
+            const targetVersionId = ingestionTargetVersion && ingestionTargetVersion !== 'latest'
+              ? ingestionTargetVersion // Use user-selected specific version
+              : (schemaVersionId || undefined); // Fallback to newly deployed version or let backend pick
+
+            const selectedVersion = schemaVersions.find(v => v.version_id === ingestionTargetVersion);
+            const targetVersionName = selectedVersion?.versioned_schema_name
+              || schemaDeployResult?.versioned_schema_name
+              || 'selected schema version';
+
+            toast.loading(`Phase 2: Ingesting data for ${ingestionConfigs.length} table(s) into ${targetVersionName}...`);
+
             const ingestionRequest = {
               project_id: projectId,
+              schema_version_id: targetVersionId, // Use selected version (or undefined for latest)
               tables: ingestionConfigs,
+              triggered_by: currentUser,
             };
             console.log('[Deployment] Executing ingestion with request:', JSON.stringify(ingestionRequest, null, 2));
+            console.log('[Deployment] Ingestion target version:', ingestionTargetVersion, '-> resolved to:', targetVersionId);
 
             const ingestionResult = await executeIngestion(ingestionRequest);
 
             if (ingestionResult.status === 'failed') {
               // Ingestion failed completely
               console.error('[Deployment] Ingestion failed:', ingestionResult.message);
-
               toast.dismiss();
-              toast.error(`Data ingestion failed: ${ingestionResult.message}`);
-              setBackendError(ingestionResult.message);
+
+              // Check for specific error types
+              const errorMsg = ingestionResult.message?.toLowerCase() || '';
+              if (errorMsg.includes('no active schema version') || errorMsg.includes('schema version not found')) {
+                toast.error('No active schema version found.\n\nPlease deploy a schema version first before running data ingestion.');
+                setBackendError('No active schema version. Deploy schema first.');
+              } else {
+                toast.error(`Phase 2 failed: ${ingestionResult.message}`);
+                setBackendError(ingestionResult.message);
+              }
 
               // Mark ingestion-related events as failed
               eventsToDeploy.forEach((event) => {
@@ -1378,9 +1566,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 }
               });
 
-              // If SQL queries succeeded but ingestion failed, we have a partial deployment
+              // Partial success if schema was deployed
               if (queriesExecuted > 0) {
-                toast.error(`Partial deployment: ${queriesExecuted} SQL queries executed, but data ingestion failed.`);
+                toast.error(`Partial deployment: Schema deployed, but data ingestion failed.`);
               }
 
               setIsDeploying(false);
@@ -1389,38 +1577,53 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
             // Log ingestion results
             ingestionRowsAffected = ingestionResult.total_rows_affected || 0;
-            console.log('[Deployment] Ingestion completed:', {
+            const ingestionTargetSchema = ingestionResult.versioned_schema_name || 'versioned schema';
+            const ingestionTargetDb = ingestionResult.target_database || 'CP_DATA360';
+            console.log('[Deployment] Phase 2 complete:', {
               status: ingestionResult.status,
               successful: ingestionResult.successful,
               failed: ingestionResult.failed,
               rowsAffected: ingestionRowsAffected,
+              targetSchema: `${ingestionTargetDb}.${ingestionTargetSchema}`,
             });
+
+            // Mark ingestion events as applied
+            eventsToDeploy.forEach((event) => {
+              if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
+                updateEventStatus({ eventId: event.id, status: 'applied' });
+              }
+            });
+
+            // Show success toast with versioned schema info
+            toast.dismiss();
+            toast.success(`Phase 2 complete: Data ingested into ${ingestionTargetDb}.${ingestionTargetSchema}`);
 
             // Handle partial ingestion success
             if (ingestionResult.status === 'partial') {
               const failedTables = ingestionResult.results.filter(r => !r.success);
               console.warn('[Deployment] Partial ingestion - some tables failed:', failedTables.map(t => t.target));
-              toast.dismiss();
               toast.error(`Partial ingestion: ${ingestionResult.successful}/${ingestionResult.total_tables} tables succeeded`);
             }
+          } else {
+            console.log('[Deployment] No ingestion configs - skipping Phase 2');
           }
 
-          // Step 6: Record deployment to backend
+          // =====================================================
+          // DEPLOYMENT COMPLETE
+          // =====================================================
+          setDeploymentPhase('complete');
+
+          // Record deployment to backend for audit trail
           toast.loading('Recording deployment...');
 
           const deploymentRecordResult = await deployEventsImmediate(projectId, apiEvents as any, {
-            rollback_on_error: false, // Already executed
+            rollback_on_error: false,
             created_by: currentUser,
           });
 
-          // Update local event status - mark all as applied
-          executableEvents.forEach((event) => {
-            updateEventStatus({ eventId: event.id, status: 'applied' });
-          });
-
-          // Also mark any metadata-only events as applied
+          // Mark any remaining metadata events as applied
           sortedEvents.forEach((event) => {
-            if (!executableEvents.find(e => e.id === event.id)) {
+            if (event.status !== 'applied' && event.status !== 'failed') {
               updateEventStatus({ eventId: event.id, status: 'applied' });
             }
           });
@@ -1430,22 +1633,19 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
           // Success message with details
           const successParts: string[] = [];
-          if (eventsToDeploy.length > 0) {
-            successParts.push(`Successfully deployed ${eventsToDeploy.length} changes to Snowflake!`);
-          } else {
-            successParts.push('Deployment recorded successfully!');
-          }
+          successParts.push('Two-phase deployment completed successfully!');
           if (queriesExecuted > 0) {
-            successParts.push(`SQL queries executed: ${queriesExecuted}`);
+            const deployedSchemaName = schemaDeploymentResult?.versioned_schema_name || `${projectId}_V${schemaDeploymentResult?.version_number || 1}`;
+            successParts.push(`Phase 1 - Schema: ${deployedSchemaName} in CP_DATA360`);
+            successParts.push(`Statements executed: ${queriesExecuted}`);
           }
           if (ingestionConfigs.length > 0) {
-            successParts.push(`Tables ingested: ${ingestionConfigs.length}`);
+            successParts.push(`Phase 2 - Ingestion: ${ingestionConfigs.length} table(s)`);
             if (ingestionRowsAffected > 0) {
               successParts.push(`Rows affected: ${ingestionRowsAffected.toLocaleString()}`);
             }
           }
           successParts.push(`Deployment ID: ${deploymentRecordResult.deployment_id}`);
-          successParts.push(`Version: ${versionNumber}`);
 
           toast.success(successParts.join('\n'));
           setCurrentStep('complete');
@@ -1454,7 +1654,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           console.error('Backend deployment error:', error);
           setBackendError(error.message);
           toast.dismiss();
-          toast.error(`Backend deployment failed: ${error.message}`);
+          toast.error(`Deployment failed: ${error.message}`);
 
           // Mark events as failed
           eventsToDeploy.forEach((event) => {
@@ -1481,7 +1681,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     } finally {
       setIsDeploying(false);
     }
-  }, [events, pendingEvents, deploymentType, scheduledDate, scheduledTime, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend]);
+  }, [events, pendingEvents, deploymentType, scheduledDate, scheduledTime, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend, ingestionTargetVersion, schemaVersions]);
 
   // Download SQL script
   const handleDownloadSQL = useCallback(() => {
@@ -1696,6 +1896,263 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             >
               <X className="h-4 w-4" />
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Two-Phase Deployment Status */}
+      {isDeploying && deploymentType === 'immediate' && (
+        <div className="px-6 py-4 border-b dark:border-slate-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold',
+                deploymentPhase === 'schema' ? 'bg-blue-600 text-white animate-pulse' :
+                deploymentPhase === 'ingestion' || deploymentPhase === 'complete' ? 'bg-green-500 text-white' :
+                'bg-slate-200 text-slate-500'
+              )}>
+                1
+              </div>
+              <div>
+                <p className={cn('text-sm font-medium', deploymentPhase === 'schema' ? 'text-blue-700' : 'text-green-700')}>
+                  Phase 1: Schema
+                </p>
+                <p className="text-xs text-slate-500">DDL changes</p>
+              </div>
+            </div>
+            <ArrowRight className="h-5 w-5 text-slate-300" />
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                'w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold',
+                deploymentPhase === 'ingestion' ? 'bg-blue-600 text-white animate-pulse' :
+                deploymentPhase === 'complete' ? 'bg-green-500 text-white' :
+                'bg-slate-200 text-slate-500'
+              )}>
+                2
+              </div>
+              <div>
+                <p className={cn('text-sm font-medium', deploymentPhase === 'ingestion' ? 'text-blue-700' : deploymentPhase === 'complete' ? 'text-green-700' : 'text-slate-500')}>
+                  Phase 2: Ingestion
+                </p>
+                <p className="text-xs text-slate-500">ETL data flow</p>
+              </div>
+            </div>
+            {deploymentPhase === 'complete' && (
+              <>
+                <ArrowRight className="h-5 w-5 text-slate-300" />
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-6 w-6 text-green-500" />
+                  <span className="text-sm font-medium text-green-700">Complete</span>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Schema Version Info - Always show when not complete */}
+      {currentStep !== 'complete' && (
+        <div className="px-6 py-3 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <GitBranch className="h-4 w-4 text-indigo-500" />
+              <div>
+                <p className="text-sm font-medium">Schema Version</p>
+                {currentSchemaVersion ? (
+                  <div className="text-xs text-slate-500">
+                    <span className="font-medium text-indigo-600">
+                      {currentSchemaVersion.versioned_schema_name || `${projectId}_V${currentSchemaVersion.version_number}`}
+                    </span>
+                    <span className="ml-2">• {currentSchemaVersion.version_name}</span>
+                    {currentSchemaVersion.created_at && (
+                      <span className="ml-2">
+                        • {new Date(currentSchemaVersion.created_at).toLocaleDateString()}
+                      </span>
+                    )}
+                    <span className="ml-2 text-slate-400">in CP_DATA360</span>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    {isLoadingVersions ? 'Loading versions...' : `First deployment will create ${projectId}_V1 in CP_DATA360`}
+                  </p>
+                )}
+              </div>
+              {/* Max versions warning */}
+              {currentSchemaVersion && currentSchemaVersion.version_number >= 3 && (
+                <Tooltip content="Maximum 3 versions allowed. Rollback older versions to deploy new changes.">
+                  <div className="flex items-center gap-1 px-2 py-1 bg-red-100 dark:bg-red-900/40 rounded text-red-600 dark:text-red-400">
+                    <AlertCircle className="h-3.5 w-3.5" />
+                    <span className="text-xs font-medium">Max versions reached</span>
+                  </div>
+                </Tooltip>
+              )}
+              {currentSchemaVersion && currentSchemaVersion.version_number === 2 && (
+                <Tooltip content="You have 2 of 3 allowed versions. Consider rollback if needed.">
+                  <div className="flex items-center gap-1 px-2 py-1 bg-amber-100 dark:bg-amber-900/40 rounded text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    <span className="text-xs font-medium">2/3 versions</span>
+                  </div>
+                </Tooltip>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {/* View History button - always show */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowVersionHistory(!showVersionHistory)}
+                className="text-xs gap-1"
+                disabled={isLoadingVersions}
+              >
+                <History className="h-3.5 w-3.5" />
+                {showVersionHistory ? 'Hide' : 'View'} History
+                {schemaVersions.length > 0 && (
+                  <Badge size="sm" className="ml-1 bg-indigo-100 text-indigo-700">{schemaVersions.length}</Badge>
+                )}
+              </Button>
+              {/* Rollback button - show when current version can rollback */}
+              {currentSchemaVersion?.can_rollback && (
+                <Tooltip content="Rollback to previous version">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-xs text-amber-600 border-amber-300 hover:bg-amber-50 gap-1"
+                    onClick={async () => {
+                      if (confirm('Are you sure you want to rollback to the previous schema version?')) {
+                        try {
+                          toast.loading('Rolling back schema...');
+                          const result = await rollbackSchema(currentSchemaVersion.version_id, { dry_run: false });
+                          toast.dismiss();
+                          if (result.status === 'success') {
+                            toast.success(`Rolled back from ${result.rolled_back_from} to ${result.rolled_back_to}`);
+                            // Refresh versions
+                            const versionsResponse = await getSchemaVersions(projectId, { limit: 20 });
+                            setSchemaVersions(versionsResponse.versions);
+                            setCurrentSchemaVersion(versionsResponse.current_version || null);
+                          } else {
+                            toast.error(`Rollback failed: ${result.errors.join(', ')}`);
+                          }
+                        } catch (error: any) {
+                          toast.dismiss();
+                          toast.error(`Rollback error: ${error.message}`);
+                        }
+                      }
+                    }}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    Rollback
+                  </Button>
+                </Tooltip>
+              )}
+            </div>
+          </div>
+
+          {/* Schema Version History Panel */}
+          {showVersionHistory && (
+            <div className="mt-3 p-3 bg-white dark:bg-slate-900 rounded-lg border dark:border-slate-700 max-h-[200px] overflow-auto">
+              {isLoadingVersions ? (
+                <div className="flex items-center justify-center py-4 text-slate-500">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  Loading schema versions...
+                </div>
+              ) : schemaVersions.length > 0 ? (
+                <div className="space-y-2">
+                  {schemaVersions.map((version) => (
+                    <div
+                      key={version.version_id}
+                      className={cn(
+                        'p-2 rounded border text-sm',
+                        version.status === 'active'
+                          ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                          : version.status === 'rolled_back'
+                          ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-indigo-600">
+                            {version.versioned_schema_name || `${projectId}_V${version.version_number}`}
+                          </span>
+                          <span className="text-slate-500">• {version.version_name}</span>
+                          <Badge className={cn(
+                            'text-xs',
+                            version.status === 'active' ? 'bg-green-100 text-green-700' :
+                            version.status === 'rolled_back' ? 'bg-amber-100 text-amber-700' :
+                            'bg-slate-100 text-slate-600'
+                          )}>
+                            {version.status}
+                          </Badge>
+                        </div>
+                        <span className="text-xs text-slate-500">
+                          {new Date(version.created_at).toLocaleString()}
+                        </span>
+                      </div>
+                      {version.changes_summary && (
+                        <div className="mt-1 text-xs text-slate-500 flex gap-3 flex-wrap">
+                          {version.changes_summary.schemas_created && version.changes_summary.schemas_created > 0 && (
+                            <span className="text-indigo-600">+{version.changes_summary.schemas_created} schema</span>
+                          )}
+                          {version.changes_summary.tables_cloned && version.changes_summary.tables_cloned > 0 && (
+                            <span className="text-blue-600">{version.changes_summary.tables_cloned} cloned</span>
+                          )}
+                          {version.changes_summary.tables_created > 0 && (
+                            <span>+{version.changes_summary.tables_created} tables</span>
+                          )}
+                          {version.changes_summary.columns_added > 0 && (
+                            <span>+{version.changes_summary.columns_added} columns</span>
+                          )}
+                          {version.changes_summary.constraints_added > 0 && (
+                            <span>+{version.changes_summary.constraints_added} constraints</span>
+                          )}
+                          {version.changes_summary.tables_modified > 0 && (
+                            <span>~{version.changes_summary.tables_modified} modified</span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-4 text-slate-500">
+                  <History className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+                  <p className="text-sm">No schema versions yet</p>
+                  <p className="text-xs text-slate-400 mt-1">Deploy schema changes to create version history</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Two-Phase Deployment Summary (before deploy) */}
+      {currentStep === 'review' && pendingEvents.length > 0 && (
+        <div className="px-6 py-3 border-b dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20">
+          <div className="flex items-center gap-3 mb-2">
+            <Zap className="h-4 w-4 text-indigo-600" />
+            <span className="text-sm font-medium text-indigo-800 dark:text-indigo-200">Two-Phase Deployment Preview</span>
+          </div>
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div className="p-2 bg-white/50 dark:bg-slate-800/50 rounded">
+              <p className="font-medium text-slate-700 dark:text-slate-300 mb-1">Phase 1: Schema (DDL)</p>
+              <ul className="text-slate-500 space-y-0.5">
+                {schemaEventsSummary.tablesCreated > 0 && <li>• {schemaEventsSummary.tablesCreated} table(s) to create</li>}
+                {schemaEventsSummary.columnsAdded > 0 && <li>• {schemaEventsSummary.columnsAdded} column(s) to add</li>}
+                {schemaEventsSummary.columnsModified > 0 && <li>• {schemaEventsSummary.columnsModified} column(s) to modify</li>}
+                {schemaEventsSummary.constraintsAdded > 0 && <li>• {schemaEventsSummary.constraintsAdded} constraint(s) to add</li>}
+                {schemaEventsSummary.policiesApplied > 0 && <li>• {schemaEventsSummary.policiesApplied} policy/policies to apply</li>}
+                {schemaEvents.length === 0 && <li className="text-slate-400">No schema changes</li>}
+              </ul>
+            </div>
+            <div className="p-2 bg-white/50 dark:bg-slate-800/50 rounded">
+              <p className="font-medium text-slate-700 dark:text-slate-300 mb-1">Phase 2: Ingestion (ETL)</p>
+              <ul className="text-slate-500 space-y-0.5">
+                {ingestionEventsSummary.columnMappings > 0 && <li>• {ingestionEventsSummary.columnMappings} column mapping(s)</li>}
+                {ingestionEventsSummary.ingestionModes > 0 && <li>• {ingestionEventsSummary.ingestionModes} ingestion mode(s) set</li>}
+                {ingestionEventsSummary.scdConfigs > 0 && <li>• {ingestionEventsSummary.scdConfigs} SCD config(s)</li>}
+                {ingestionEvents.length === 0 && <li className="text-slate-400">No ingestion changes</li>}
+              </ul>
+            </div>
           </div>
         </div>
       )}
@@ -2082,6 +2539,52 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 className="mt-1"
               />
             </div>
+          </div>
+
+          {/* Ingestion Target Schema Version - User can choose which version to ingest data into */}
+          <div className="p-3 border dark:border-slate-700 rounded-lg space-y-3 bg-gradient-to-r from-indigo-50/50 to-purple-50/50 dark:from-indigo-900/10 dark:to-purple-900/10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Database className="h-4 w-4 text-indigo-500" />
+                <span className="text-sm font-medium">Ingestion Target Schema</span>
+              </div>
+              {isLoadingVersions && (
+                <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              Choose which schema version to ingest data into. By default, data will be ingested into the current active version.
+            </p>
+            <select
+              value={ingestionTargetVersion}
+              onChange={(e) => setIngestionTargetVersion(e.target.value)}
+              className="w-full p-2 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700"
+              disabled={isLoadingVersions}
+            >
+              {/* Show all schema versions - user can choose any version to ingest into */}
+              {schemaVersions.length === 0 && (
+                <option value="latest">
+                  No versions available (will use newly deployed)
+                </option>
+              )}
+              {schemaVersions
+                .sort((a, b) => b.version_number - a.version_number) // Sort by version number descending (latest first)
+                .map((version) => (
+                  <option key={version.version_id} value={version.version_id}>
+                    {version.versioned_schema_name || `${projectId}_V${version.version_number}`}
+                    {version.version_id === currentSchemaVersion?.version_id ? ' (Current)' : ''}
+                    {version.status !== 'active' ? ` [${version.status}]` : ''}
+                    - {version.description || `Created ${new Date(version.created_at).toLocaleDateString()}`}
+                  </option>
+                ))
+              }
+            </select>
+            {ingestionTargetVersion !== 'latest' && ingestionTargetVersion !== currentSchemaVersion?.version_id && (
+              <div className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>You have selected a non-current schema version. Data will be ingested into this version instead of the current active version.</span>
+              </div>
+            )}
           </div>
         </div>
       )}

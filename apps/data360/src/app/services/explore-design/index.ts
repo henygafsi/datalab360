@@ -1296,9 +1296,11 @@ export interface IngestionTableConfig {
   source_database: string;
   source_schema: string;
   source_table: string;
-  target_database: string;
-  target_schema: string;
-  target_table: string;
+  // NOTE: target_database and target_schema are IGNORED by backend
+  // Backend automatically uses versioned schema (e.g., CP_DATA360.retail_dwh_V1)
+  target_database?: string;  // Optional - IGNORED, kept for backward compatibility
+  target_schema?: string;    // Optional - IGNORED, kept for backward compatibility
+  target_table: string;      // Required - only table name needed
   ingestion_mode: IngestionMode;
   /** Column mappings with optional transformations */
   column_mappings?: ColumnMapping[];
@@ -1315,8 +1317,10 @@ export interface IngestionTableConfig {
 
 export interface IngestionExecutionRequest {
   project_id: string;
+  schema_version_id?: string; // Links ingestion to a specific schema version
   tables: IngestionTableConfig[];
   warehouse?: string;
+  triggered_by?: string;
 }
 
 export interface IngestionTableResult {
@@ -1325,6 +1329,9 @@ export interface IngestionTableResult {
   ingestion_mode: string;
   success: boolean;
   rows_affected: number;
+  rows_inserted?: number;
+  rows_updated?: number;
+  rows_deleted?: number;
   message: string;
   error?: string;
   sql_executed?: string[];
@@ -1332,13 +1339,137 @@ export interface IngestionTableResult {
 
 export interface IngestionExecutionResponse {
   status: 'success' | 'partial' | 'failed';
+  ingestion_run_id?: string;
+  schema_version_id?: string;        // The version used for ingestion
+  versioned_schema_name?: string;    // e.g., "retail_dwh_V1"
+  target_database?: string;          // e.g., "CP_DATA360"
   message: string;
   project_id: string;
   total_tables: number;
   successful: number;
   failed: number;
   total_rows_affected: number;
+  started_at?: string;
+  completed_at?: string;
   results: IngestionTableResult[];
+}
+
+// ============================================
+// SCHEMA VERSIONING TYPES
+// ============================================
+
+export type SchemaVersionStatus = 'active' | 'superseded' | 'rolled_back';
+
+export interface ChangesSummary {
+  schemas_created?: number;  // Number of versioned schemas created (e.g., project_id_V1)
+  tables_cloned?: number;    // Tables cloned from template schema
+  tables_created: number;
+  tables_modified: number;
+  tables_dropped: number;
+  columns_added: number;
+  columns_modified: number;
+  columns_dropped: number;
+  constraints_added: number;
+  constraints_dropped: number;
+}
+
+export interface SQLStatement {
+  sql: string;
+  rollback_sql?: string;
+  object_type?: string; // TABLE, COLUMN, CONSTRAINT, INDEX
+  object_name?: string;
+}
+
+export interface DeploymentEvent {
+  event_type: string;
+  target: { database: string; schema: string; table: string; column?: string };
+  payload: Record<string, any>;
+}
+
+export interface DeploymentOptions {
+  rollback_on_error?: boolean;
+  dry_run?: boolean;
+  created_by?: string;
+}
+
+export interface SchemaDeploymentRequest {
+  project_id: string;           // Required - Used for schema naming: {project_id}_V1, V2, V3
+  version_name?: string;        // Optional - Auto-generated if empty
+  description?: string;         // Optional
+  sql_queries: SQLStatement[];  // Required
+  events?: DeploymentEvent[];   // Optional
+  options?: DeploymentOptions;  // Optional (defaults: rollback_on_error=true, dry_run=false)
+  warehouse?: string;           // Optional - defaults to "COMPUTE_WH"
+}
+
+export interface SchemaDeploymentResponse {
+  status: 'success' | 'failed' | 'dry_run';
+  schema_version_id?: string;
+  version_name: string;
+  version_number: number;
+  versioned_schema_name?: string;  // e.g., "retail_dwh_V1" - the actual schema name in Snowflake
+  target_database?: string;         // Always "CP_DATA360"
+  executed_statements: number;
+  failed_statements: number;
+  changes_summary: ChangesSummary;
+  rollback_available: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export interface SchemaVersion {
+  version_id: string;
+  version_name: string;
+  version_number: number;
+  versioned_schema_name?: string;  // e.g., "retail_dwh_V1"
+  created_at: string;
+  created_by?: string;
+  status: SchemaVersionStatus;
+  description?: string;
+  changes_summary: ChangesSummary;
+  can_rollback: boolean;
+}
+
+export interface SchemaVersionsResponse {
+  project_id: string;
+  current_version?: SchemaVersion;
+  versions: SchemaVersion[];
+  total_versions: number;
+}
+
+export interface RollbackOptions {
+  dry_run?: boolean;
+  reason?: string;
+}
+
+export interface RollbackResponse {
+  status: 'success' | 'failed' | 'dry_run';
+  rolled_back_from: string;
+  rolled_back_to: string;
+  versions_rolled_back: number;
+  statements_executed: number;
+  new_version_id?: string;
+  message: string;
+  errors: string[];
+}
+
+export interface IngestionRunSummary {
+  run_id: string;
+  schema_version_id?: string;
+  started_at: string;
+  completed_at?: string;
+  status: 'running' | 'success' | 'partial' | 'failed';
+  total_tables: number;
+  successful_tables: number;
+  failed_tables: number;
+  total_rows_affected: number;
+  triggered_by?: string;
+}
+
+export interface IngestionHistoryResponse {
+  project_id: string;
+  runs: IngestionRunSummary[];
+  total_runs: number;
 }
 
 /**
@@ -1398,8 +1529,10 @@ export async function executeIngestion(
       `${EXPLORE_DESIGN_BASE}/execute_ingestion`,
       {
         project_id: request.project_id,
+        schema_version_id: request.schema_version_id, // Link to schema version
         tables: request.tables,
         warehouse: request.warehouse || 'COMPUTE_WH',
+        triggered_by: request.triggered_by,
       },
       { headers }
     );
@@ -1419,13 +1552,203 @@ export async function executeIngestion(
       total_rows_affected: 0,
       results: request.tables.map((table) => ({
         source: `${table.source_database}.${table.source_schema}.${table.source_table}`,
-        target: `${table.target_database}.${table.target_schema}.${table.target_table}`,
+        target: table.target_table, // Only table name - schema is determined by version
         ingestion_mode: table.ingestion_mode,
         success: false,
         rows_affected: 0,
         message: 'Failed to execute ingestion',
         error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
       })),
+    };
+  }
+}
+
+// ============================================
+// SCHEMA VERSIONING APIs
+// ============================================
+
+/**
+ * Deploy schema changes (DDL) as a versioned release
+ *
+ * Backend: POST /explore-design/deploy_schema
+ *
+ * @param request - Schema deployment configuration with SQL queries and events
+ * @returns Deployment result with version ID
+ *
+ * @example
+ * await deploySchema({
+ *   project_id: 'proj_123',
+ *   version_name: 'Add customer dimensions',
+ *   sql_queries: [
+ *     { sql: 'CREATE TABLE DWH.SALES.DIM_CUSTOMER (...)', rollback_sql: 'DROP TABLE DWH.SALES.DIM_CUSTOMER' }
+ *   ],
+ *   options: { rollback_on_error: true }
+ * });
+ */
+export async function deploySchema(
+  request: SchemaDeploymentRequest
+): Promise<SchemaDeploymentResponse> {
+  const headers = await getAuthHeaders();
+
+  try {
+    const response = await axios.post<SchemaDeploymentResponse>(
+      `${EXPLORE_DESIGN_BASE}/deploy_schema`,
+      {
+        project_id: request.project_id,
+        version_name: request.version_name,
+        description: request.description,
+        sql_queries: request.sql_queries,
+        events: request.events,
+        options: request.options || { rollback_on_error: true },
+      },
+      { headers }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error('[deploySchema] Error:', error);
+    const errorDetail = error.response?.data?.detail || error.message;
+
+    return {
+      status: 'failed',
+      version_name: request.version_name || 'Unknown',
+      version_number: 0,
+      executed_statements: 0,
+      failed_statements: request.sql_queries.length,
+      changes_summary: {
+        tables_created: 0,
+        tables_modified: 0,
+        tables_dropped: 0,
+        columns_added: 0,
+        columns_modified: 0,
+        columns_dropped: 0,
+        constraints_added: 0,
+        constraints_dropped: 0,
+      },
+      rollback_available: false,
+      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
+      warnings: [],
+    };
+  }
+}
+
+/**
+ * Get schema version history for a project
+ *
+ * Backend: GET /explore-design/schema_versions/{project_id}
+ *
+ * @param projectId - Project ID
+ * @param options - Query options
+ * @returns List of schema versions
+ */
+export async function getSchemaVersions(
+  projectId: string,
+  options?: {
+    limit?: number;
+    include_rolled_back?: boolean;
+  }
+): Promise<SchemaVersionsResponse> {
+  const headers = await getAuthHeaders();
+
+  try {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
+
+    const response = await axios.get<SchemaVersionsResponse>(
+      `${EXPLORE_DESIGN_BASE}/schema_versions/${projectId}?${params.toString()}`,
+      { headers }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error('[getSchemaVersions] Error:', error);
+
+    // Return empty response on error
+    return {
+      project_id: projectId,
+      versions: [],
+      total_versions: 0,
+    };
+  }
+}
+
+/**
+ * Rollback schema to a specific version
+ *
+ * Backend: POST /explore-design/rollback_schema/{version_id}
+ *
+ * @param versionId - Target version ID to rollback to
+ * @param options - Rollback options
+ * @returns Rollback result
+ */
+export async function rollbackSchema(
+  versionId: string,
+  options?: RollbackOptions
+): Promise<RollbackResponse> {
+  const headers = await getAuthHeaders();
+
+  try {
+    const response = await axios.post<RollbackResponse>(
+      `${EXPLORE_DESIGN_BASE}/rollback_schema/${versionId}`,
+      options || {},
+      { headers }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error('[rollbackSchema] Error:', error);
+    const errorDetail = error.response?.data?.detail || error.message;
+
+    return {
+      status: 'failed',
+      rolled_back_from: '',
+      rolled_back_to: versionId,
+      versions_rolled_back: 0,
+      statements_executed: 0,
+      message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
+      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
+    };
+  }
+}
+
+/**
+ * Get ingestion run history for a project
+ *
+ * Backend: GET /explore-design/ingestion_history/{project_id}
+ *
+ * @param projectId - Project ID
+ * @param options - Query options
+ * @returns List of ingestion runs
+ */
+export async function getIngestionHistory(
+  projectId: string,
+  options?: {
+    limit?: number;
+    schema_version_id?: string;
+  }
+): Promise<IngestionHistoryResponse> {
+  const headers = await getAuthHeaders();
+
+  try {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.schema_version_id) params.append('schema_version_id', options.schema_version_id);
+
+    const response = await axios.get<IngestionHistoryResponse>(
+      `${EXPLORE_DESIGN_BASE}/ingestion_history/${projectId}?${params.toString()}`,
+      { headers }
+    );
+
+    return response.data;
+  } catch (error: any) {
+    console.error('[getIngestionHistory] Error:', error);
+
+    // Return empty response on error
+    return {
+      project_id: projectId,
+      runs: [],
+      total_runs: 0,
     };
   }
 }
