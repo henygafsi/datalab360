@@ -36,6 +36,7 @@ export default function PasswordPoliciesContent() {
   const [minSpecial, setMinSpecial] = useState('1');
   const [maxAgeDays, setMaxAgeDays] = useState('90');
   const [lockoutThreshold, setLockoutThreshold] = useState('5');
+  const [expirationDate, setExpirationDate] = useState('');
 
   // SSE cache invalidation
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
@@ -134,7 +135,7 @@ export default function PasswordPoliciesContent() {
     }
 
     try {
-      await createPasswordPolicy({
+      const requestData = {
         policy_name: policyName,
         min_length: parseInt(minLength),
         max_length: parseInt(maxLength),
@@ -144,13 +145,19 @@ export default function PasswordPoliciesContent() {
         min_special_chars: parseInt(minSpecial),
         max_age_days: parseInt(maxAgeDays),
         lockout_time_mins: parseInt(lockoutThreshold),
-      });
+        expiration_date: expirationDate || undefined,
+      };
+      console.log('[Password Create] Sending request:', requestData);
+
+      const result = await createPasswordPolicy(requestData);
+      console.log('[Password Create] Response:', result);
+
       toast.success('Password policy created successfully!');
       setShowCreateModal(false);
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      console.error('Create password policy error:', error.response?.data || error);
+      console.error('[Password Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
@@ -191,6 +198,7 @@ export default function PasswordPoliciesContent() {
     setMinSpecial('1');
     setMaxAgeDays('90');
     setLockoutThreshold('5');
+    setExpirationDate('');
   };
 
   return (
@@ -393,10 +401,22 @@ export default function PasswordPoliciesContent() {
             />
           </div>
 
+          <div>
+            <label className="block text-sm font-medium mb-2">Expiration Date</label>
+            <Input
+              type="datetime-local"
+              value={expirationDate}
+              onChange={(e) => setExpirationDate(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Defaults to 7 days from creation if not specified.
+            </p>
+          </div>
+
           <div className="bg-red-50 dark:bg-red-900/20 p-3 rounded">
             <p className="text-xs text-red-700 dark:text-red-300">
               <strong>Note:</strong> Password policies are account-level and apply to all users.
-              Use "Set as Default" after creation to activate.
+              Use &quot;Set as Default&quot; after creation to activate.
             </p>
           </div>
 

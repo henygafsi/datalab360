@@ -25,11 +25,16 @@ import {
   removeRLSPolicy,
   removeTag,
   removeAggregationPolicy,
+  getTablePolicies,
+  replaceMaskingPolicy,
+  replaceRLSPolicy,
   MaskingPolicy,
   RLSPolicy,
   Tag as TagType,
   AggregationPolicy,
   MaskingType,
+  TablePoliciesResponse,
+  ObjectPolicy,
 } from '@/app/services/gouvernance/policies';
 
 // Policy types that can be applied
@@ -91,8 +96,13 @@ const MaskingPolicySection: React.FC<{
   const [targetColumn, setTargetColumn] = useState<string>(selectedColumn || '');
   const [applying, setApplying] = useState(false);
 
+  // Track existing policies on the table
+  const [tablePolicies, setTablePolicies] = useState<TablePoliciesResponse | null>(null);
+  const [loadingTablePolicies, setLoadingTablePolicies] = useState(false);
+
   useEffect(() => {
     loadPolicies();
+    loadTablePolicies();
   }, []);
 
   useEffect(() => {
@@ -100,6 +110,13 @@ const MaskingPolicySection: React.FC<{
       setTargetColumn(selectedColumn);
     }
   }, [selectedColumn]);
+
+  // Reload table policies when table changes
+  useEffect(() => {
+    if (table) {
+      loadTablePolicies();
+    }
+  }, [table.database, table.schema, table.table]);
 
   const loadPolicies = async () => {
     setLoading(true);
@@ -113,36 +130,152 @@ const MaskingPolicySection: React.FC<{
     }
   };
 
+  const loadTablePolicies = async () => {
+    if (!table) return;
+    setLoadingTablePolicies(true);
+    try {
+      const data = await getTablePolicies(table.database, table.schema, table.table);
+      setTablePolicies(data);
+      console.log('[MaskingPolicySection] Table policies loaded:', data);
+    } catch (error) {
+      console.error('Failed to load table policies:', error);
+      setTablePolicies(null);
+    } finally {
+      setLoadingTablePolicies(false);
+    }
+  };
+
+  // Check if selected column already has a masking policy
+  const getExistingPolicyForColumn = (columnName: string): ObjectPolicy | null => {
+    if (!tablePolicies?.policies?.masking) return null;
+    return tablePolicies.policies.masking.find(p => p.column === columnName) || null;
+  };
+
+  const existingPolicy = targetColumn ? getExistingPolicyForColumn(targetColumn) : null;
+
+  // State for inline error display and replace confirmation
+  const [formError, setFormError] = useState<string | null>(null);
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [pendingReplace, setPendingReplace] = useState<{ policyName: string; column: string } | null>(null);
+
   const handleApply = async () => {
     if (!selectedPolicy || !targetColumn) {
-      toast.error('Please select a policy and column');
+      setFormError('Please select a policy and column');
       return;
     }
 
+    setFormError(null);
     setApplying(true);
     try {
-      await applyMaskingPolicy({
-        policy_name: selectedPolicy,
-        database: table.database,
-        schema: table.schema,
-        table: table.table,
-        column: targetColumn,
-      });
-      toast.success(`Masking policy "${selectedPolicy}" applied to ${targetColumn}`);
+      // Check if column already has a masking policy
+      if (existingPolicy) {
+        // Use replace endpoint
+        await replaceMaskingPolicy({
+          new_policy_name: selectedPolicy,
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+          column: targetColumn,
+        });
+        toast.success(`Replaced masking policy on ${targetColumn}: "${existingPolicy.policy_name}" → "${selectedPolicy}"`);
+      } else {
+        // Use apply endpoint
+        await applyMaskingPolicy({
+          policy_name: selectedPolicy,
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+          column: targetColumn,
+        });
+        toast.success(`Masking policy "${selectedPolicy}" applied to ${targetColumn}`);
+      }
+
       onApply({
         type: 'masking',
         name: selectedPolicy,
         target: targetColumn,
       });
       setSelectedPolicy('');
+      // Reload table policies to update the UI
+      loadTablePolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to apply masking policy');
+      // Extract error detail from backend response - handle nested detail structure
+      let errorDetail = '';
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        // Handle string detail or nested object with detail property
+        if (typeof detail === 'string') {
+          errorDetail = detail;
+        } else if (typeof detail === 'object' && detail.detail) {
+          errorDetail = detail.detail;
+        } else {
+          errorDetail = JSON.stringify(detail);
+        }
+      } else if (error.response?.data?.message) {
+        errorDetail = error.response.data.message;
+      } else if (error.message) {
+        errorDetail = error.message;
+      }
+
+      console.error('Apply/Replace masking policy error:', error.response?.data || error);
+
+      // Check if error indicates policy already exists on column
+      // Backend returns: "Specified column already attached to another masking policy"
+      if (errorDetail.includes('already attached') ||
+          errorDetail.includes('already has') ||
+          errorDetail.includes('policy already exists') ||
+          errorDetail.includes('masking policy set') ||
+          errorDetail.includes('cannot be attached to multiple')) {
+        // Show replace confirmation dialog
+        setPendingReplace({ policyName: selectedPolicy, column: targetColumn });
+        setShowReplaceConfirm(true);
+      } else {
+        // Show error inline in the form (the actual backend error message)
+        setFormError(errorDetail || 'Failed to apply masking policy');
+      }
     } finally {
       setApplying(false);
     }
   };
 
+  const handleConfirmReplace = async () => {
+    if (!pendingReplace) return;
+
+    setShowReplaceConfirm(false);
+    setFormError(null);
+    setApplying(true);
+
+    try {
+      await replaceMaskingPolicy({
+        new_policy_name: pendingReplace.policyName,
+        database: table.database,
+        schema: table.schema,
+        table: table.table,
+        column: pendingReplace.column,
+      });
+      toast.success(`Replaced masking policy on ${pendingReplace.column} with "${pendingReplace.policyName}"`);
+
+      onApply({
+        type: 'masking',
+        name: pendingReplace.policyName,
+        target: pendingReplace.column,
+      });
+      setSelectedPolicy('');
+      loadTablePolicies();
+    } catch (error: any) {
+      const errorDetail = error.response?.data?.detail || error.response?.data?.message || error.message || '';
+      console.error('Replace masking policy error:', error.response?.data || error);
+      setFormError(errorDetail || 'Failed to replace masking policy');
+    } finally {
+      setApplying(false);
+      setPendingReplace(null);
+    }
+  };
+
   const sensitiveColumns = columns.filter(c => c.isSensitive);
+
+  // Get columns that already have masking policies
+  const columnsWithPolicies = tablePolicies?.policies?.masking?.map(p => p.column) || [];
 
   return (
     <div className="space-y-4">
@@ -153,13 +286,35 @@ const MaskingPolicySection: React.FC<{
         <Button
           variant="text"
           size="sm"
-          onClick={loadPolicies}
+          onClick={() => { loadPolicies(); loadTablePolicies(); }}
           className="gap-1"
         >
-          <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
+          <RefreshCw className={cn('h-3 w-3', (loading || loadingTablePolicies) && 'animate-spin')} />
           Refresh
         </Button>
       </div>
+
+      {/* Show existing masking policies on this table */}
+      {tablePolicies && tablePolicies.policies.masking.length > 0 && (
+        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-2">
+            <Info className="h-4 w-4" />
+            <span className="text-sm font-medium">Existing Masking Policies</span>
+          </div>
+          <div className="space-y-1">
+            {tablePolicies.policies.masking.map((p, idx) => (
+              <div key={idx} className="flex items-center justify-between text-xs">
+                <span className="text-blue-600 dark:text-blue-300">
+                  <strong>{p.column}</strong>: {p.policy_name}
+                </span>
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-800 dark:text-blue-300 text-xs">
+                  Active
+                </Badge>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Auto-detected sensitive columns */}
       {sensitiveColumns.length > 0 && (
@@ -176,11 +331,13 @@ const MaskingPolicySection: React.FC<{
                   'px-2 py-1 text-xs rounded-full transition-colors',
                   targetColumn === col.name
                     ? 'bg-amber-500 text-white'
-                    : 'bg-amber-100 dark:bg-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-200'
+                    : 'bg-amber-100 dark:bg-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-200',
+                  columnsWithPolicies.includes(col.name) && 'ring-2 ring-blue-400'
                 )}
                 onClick={() => setTargetColumn(col.name)}
               >
                 {col.name}
+                {columnsWithPolicies.includes(col.name) && ' ✓'}
               </button>
             ))}
           </div>
@@ -192,7 +349,7 @@ const MaskingPolicySection: React.FC<{
         <Select
           label="Select Masking Policy"
           options={policies.map(p => ({
-            label: `${p.policy_name} (${p.data_type})`,
+            label: `${p.policy_name} (${p.data_type || 'TEXT'})`,
             value: p.policy_name,
           }))}
           value={selectedPolicy}
@@ -203,17 +360,49 @@ const MaskingPolicySection: React.FC<{
 
         <Select
           label="Target Column"
-          options={columns.map(c => ({
-            label: `${c.name} (${c.dataType || 'unknown'})`,
-            value: c.name,
-          }))}
+          options={columns.map(c => {
+            const hasPolicy = columnsWithPolicies.includes(c.name);
+            const policyName = tablePolicies?.policies?.masking?.find(p => p.column === c.name)?.policy_name;
+            return {
+              label: hasPolicy
+                ? `${c.name} (${c.dataType || 'unknown'}) - Policy: ${policyName}`
+                : `${c.name} (${c.dataType || 'unknown'})`,
+              value: c.name,
+            };
+          })}
           value={targetColumn}
           onChange={(val: any) => setTargetColumn(typeof val === 'object' ? val?.value : val)}
           placeholder="Select column to mask"
         />
 
+        {/* Show warning if replacing existing policy */}
+        {existingPolicy && (
+          <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm">
+                Column <strong>{targetColumn}</strong> already has policy <strong>{existingPolicy.policy_name}</strong>.
+                Clicking below will <strong>replace</strong> it.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Inline error display */}
+        {formError && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+            <div className="flex items-start gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span className="text-sm">{formError}</span>
+            </div>
+          </div>
+        )}
+
         <Button
-          className="w-full gap-2"
+          className={cn(
+            'w-full gap-2',
+            existingPolicy && 'bg-amber-500 hover:bg-amber-600'
+          )}
           onClick={handleApply}
           disabled={!selectedPolicy || !targetColumn || applying}
         >
@@ -222,7 +411,7 @@ const MaskingPolicySection: React.FC<{
           ) : (
             <Shield className="h-4 w-4" />
           )}
-          Apply Masking Policy
+          {existingPolicy ? 'Replace Masking Policy' : 'Apply Masking Policy'}
         </Button>
       </div>
 
@@ -254,6 +443,51 @@ const MaskingPolicySection: React.FC<{
           ))}
         </div>
       </div>
+
+      {/* Replace Confirmation Modal */}
+      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+        <div className="p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+              <AlertTriangle className="h-6 w-6 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold">Policy Already Exists</h2>
+          </div>
+
+          <p className="text-slate-600 dark:text-slate-400">
+            This column already has a masking policy applied. Do you want to replace it?
+          </p>
+
+          <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <p className="text-sm">
+              <strong>Column:</strong> {pendingReplace?.column}<br />
+              <strong>New Policy:</strong> {pendingReplace?.policyName}
+            </p>
+          </div>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowReplaceConfirm(false);
+                setPendingReplace(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-amber-500 hover:bg-amber-600"
+              onClick={handleConfirmReplace}
+              disabled={applying}
+            >
+              {applying ? (
+                <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Yes, Replace Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };
@@ -270,9 +504,21 @@ const RLSPolicySection: React.FC<{
   const [filterColumn, setFilterColumn] = useState<string>('');
   const [applying, setApplying] = useState(false);
 
+  // Track existing policies on the table
+  const [tablePolicies, setTablePolicies] = useState<TablePoliciesResponse | null>(null);
+  const [loadingTablePolicies, setLoadingTablePolicies] = useState(false);
+
   useEffect(() => {
     loadPolicies();
+    loadTablePolicies();
   }, []);
+
+  // Reload when table changes
+  useEffect(() => {
+    if (table) {
+      loadTablePolicies();
+    }
+  }, [table.database, table.schema, table.table]);
 
   const loadPolicies = async () => {
     setLoading(true);
@@ -286,22 +532,60 @@ const RLSPolicySection: React.FC<{
     }
   };
 
+  const loadTablePolicies = async () => {
+    if (!table) return;
+    setLoadingTablePolicies(true);
+    try {
+      const data = await getTablePolicies(table.database, table.schema, table.table);
+      setTablePolicies(data);
+    } catch (error) {
+      console.error('Failed to load table policies:', error);
+      setTablePolicies(null);
+    } finally {
+      setLoadingTablePolicies(false);
+    }
+  };
+
+  // Check if table already has an RLS policy
+  const existingRLSPolicy = tablePolicies?.policies?.row_access?.[0] || null;
+
+  // State for inline error display and replace confirmation
+  const [formError, setFormError] = useState<string | null>(null);
+  const [showReplaceConfirm, setShowReplaceConfirm] = useState(false);
+  const [pendingReplace, setPendingReplace] = useState<{ policyName: string; column: string } | null>(null);
+
   const handleApply = async () => {
     if (!selectedPolicy || !filterColumn) {
-      toast.error('Please select a policy and filter column');
+      setFormError('Please select a policy and filter column');
       return;
     }
 
+    setFormError(null);
     setApplying(true);
     try {
-      await applyRLSPolicy({
-        policy_name: selectedPolicy,
-        table_name: table.table,
-        database: table.database,
-        schema: table.schema,
-        policy_column: filterColumn,
-      });
-      toast.success(`RLS policy "${selectedPolicy}" applied to ${table.table}`);
+      // Check if table already has an RLS policy (from getTablePolicies)
+      if (existingRLSPolicy) {
+        // Use replace endpoint directly
+        await replaceRLSPolicy({
+          new_policy_name: selectedPolicy,
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+          policy_column: filterColumn,
+        });
+        toast.success(`Replaced RLS policy on ${table.table}: "${existingRLSPolicy.policy_name}" → "${selectedPolicy}"`);
+      } else {
+        // Try apply endpoint
+        await applyRLSPolicy({
+          policy_name: selectedPolicy,
+          table_name: table.table,
+          database: table.database,
+          schema: table.schema,
+          policy_column: filterColumn,
+        });
+        toast.success(`RLS policy "${selectedPolicy}" applied to ${table.table}`);
+      }
+
       onApply({
         type: 'rls',
         name: selectedPolicy,
@@ -310,10 +594,79 @@ const RLSPolicySection: React.FC<{
       });
       setSelectedPolicy('');
       setFilterColumn('');
+      loadTablePolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Failed to apply RLS policy');
+      // Extract error detail from backend response - handle nested detail structure
+      let errorDetail = '';
+      if (error.response?.data?.detail) {
+        const detail = error.response.data.detail;
+        // Handle string detail or nested object with detail property
+        if (typeof detail === 'string') {
+          errorDetail = detail;
+        } else if (typeof detail === 'object' && detail.detail) {
+          errorDetail = detail.detail;
+        } else {
+          errorDetail = JSON.stringify(detail);
+        }
+      } else if (error.response?.data?.message) {
+        errorDetail = error.response.data.message;
+      } else if (error.message) {
+        errorDetail = error.message;
+      }
+
+      console.error('Apply RLS policy error:', error.response?.data || error);
+
+      // Check if error indicates policy already exists
+      // Backend returns: "Only one ROW_ACCESS_POLICY is allowed at a time"
+      if (errorDetail.includes('Only one ROW_ACCESS_POLICY is allowed') ||
+          errorDetail.includes('already has') ||
+          errorDetail.includes('policy already exists') ||
+          errorDetail.includes('ROW_ACCESS_POLICY')) {
+        // Show replace confirmation dialog
+        setPendingReplace({ policyName: selectedPolicy, column: filterColumn });
+        setShowReplaceConfirm(true);
+      } else {
+        // Show error inline in the form (the actual backend error message)
+        setFormError(errorDetail || 'Failed to apply RLS policy');
+      }
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleConfirmReplace = async () => {
+    if (!pendingReplace) return;
+
+    setShowReplaceConfirm(false);
+    setFormError(null);
+    setApplying(true);
+
+    try {
+      await replaceRLSPolicy({
+        new_policy_name: pendingReplace.policyName,
+        database: table.database,
+        schema: table.schema,
+        table: table.table,
+        policy_column: pendingReplace.column,
+      });
+      toast.success(`Replaced RLS policy on ${table.table} with "${pendingReplace.policyName}"`);
+
+      onApply({
+        type: 'rls',
+        name: pendingReplace.policyName,
+        target: table.table,
+        details: `Filter column: ${pendingReplace.column}`,
+      });
+      setSelectedPolicy('');
+      setFilterColumn('');
+      loadTablePolicies();
+    } catch (error: any) {
+      const errorDetail = error.response?.data?.detail || error.response?.data?.message || error.message || '';
+      console.error('Replace RLS policy error:', error.response?.data || error);
+      setFormError(errorDetail || 'Failed to replace RLS policy');
+    } finally {
+      setApplying(false);
+      setPendingReplace(null);
     }
   };
 
@@ -323,18 +676,42 @@ const RLSPolicySection: React.FC<{
         <Text className="text-sm font-medium text-slate-700 dark:text-slate-300">
           Apply Row-Level Security (RLS)
         </Text>
-        <Button variant="text" size="sm" onClick={loadPolicies} className="gap-1">
-          <RefreshCw className={cn('h-3 w-3', loading && 'animate-spin')} />
+        <Button
+          variant="text"
+          size="sm"
+          onClick={() => { loadPolicies(); loadTablePolicies(); }}
+          className="gap-1"
+        >
+          <RefreshCw className={cn('h-3 w-3', (loading || loadingTablePolicies) && 'animate-spin')} />
           Refresh
         </Button>
       </div>
 
-      <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-        <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-1">
+      {/* Show existing RLS policy on this table */}
+      {existingRLSPolicy && (
+        <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400 mb-2">
+            <Info className="h-4 w-4" />
+            <span className="text-sm font-medium">Existing RLS Policy</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-blue-600 dark:text-blue-300">
+              <strong>{existingRLSPolicy.policy_name}</strong>
+              {existingRLSPolicy.column && ` on column ${existingRLSPolicy.column}`}
+            </span>
+            <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-800 dark:text-blue-300 text-xs">
+              Active
+            </Badge>
+          </div>
+        </div>
+      )}
+
+      <div className="p-3 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-2 text-slate-700 dark:text-slate-400 mb-1">
           <Info className="h-4 w-4" />
           <span className="text-sm font-medium">About RLS Policies</span>
         </div>
-        <p className="text-xs text-blue-600 dark:text-blue-300">
+        <p className="text-xs text-slate-600 dark:text-slate-300">
           Row-Level Security restricts which rows users can access based on their role or attributes.
         </p>
       </div>
@@ -363,8 +740,34 @@ const RLSPolicySection: React.FC<{
           placeholder="Column to filter on"
         />
 
+        {/* Show warning if replacing existing policy */}
+        {existingRLSPolicy && (
+          <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+            <div className="flex items-center gap-2 text-yellow-700 dark:text-yellow-400">
+              <AlertTriangle className="h-4 w-4" />
+              <span className="text-sm">
+                Table already has RLS policy <strong>{existingRLSPolicy.policy_name}</strong>.
+                Clicking below will <strong>replace</strong> it.
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Inline error display */}
+        {formError && (
+          <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+            <div className="flex items-start gap-2 text-red-700 dark:text-red-400">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+              <span className="text-sm">{formError}</span>
+            </div>
+          </div>
+        )}
+
         <Button
-          className="w-full gap-2"
+          className={cn(
+            'w-full gap-2',
+            existingRLSPolicy && 'bg-amber-500 hover:bg-amber-600'
+          )}
           onClick={handleApply}
           disabled={!selectedPolicy || !filterColumn || applying}
         >
@@ -373,7 +776,7 @@ const RLSPolicySection: React.FC<{
           ) : (
             <Eye className="h-4 w-4" />
           )}
-          Apply RLS Policy
+          {existingRLSPolicy ? 'Replace RLS Policy' : 'Apply RLS Policy'}
         </Button>
       </div>
 
@@ -386,6 +789,55 @@ const RLSPolicySection: React.FC<{
           </code>
         </div>
       )}
+
+      {/* Replace Confirmation Modal */}
+      <Modal isOpen={showReplaceConfirm} onClose={() => setShowReplaceConfirm(false)}>
+        <div className="p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-full">
+              <AlertTriangle className="h-6 w-6 text-amber-600" />
+            </div>
+            <h2 className="text-xl font-bold">Policy Already Exists</h2>
+          </div>
+
+          <p className="text-slate-600 dark:text-slate-400">
+            This table already has an RLS policy applied. Only one RLS policy is allowed per table.
+          </p>
+
+          <div className="p-3 bg-slate-50 dark:bg-slate-800 rounded-lg">
+            <p className="text-sm">
+              <strong>New Policy:</strong> {pendingReplace?.policyName}<br />
+              <strong>Filter Column:</strong> {pendingReplace?.column}
+            </p>
+          </div>
+
+          <p className="text-sm text-slate-500">
+            Do you want to replace the existing policy with the new one?
+          </p>
+
+          <div className="flex gap-3 justify-end pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowReplaceConfirm(false);
+                setPendingReplace(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-amber-500 hover:bg-amber-600"
+              onClick={handleConfirmReplace}
+              disabled={applying}
+            >
+              {applying ? (
+                <RefreshCw className="h-4 w-4 animate-spin mr-2" />
+              ) : null}
+              Yes, Replace Policy
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -91,11 +91,13 @@ apiClient.interceptors.response.use(
     }
 
     // Handle 500 Internal Server Error
+    // Pass through the original error so components can access the actual backend error message
     if (status === 500) {
       if (process.env.NODE_ENV === 'development') {
         console.error('[API Client] 500 Internal Server Error:', error.response?.data);
       }
-      return Promise.reject(new ServerError('Server error occurred. Please contact support if this persists.'));
+      // Don't wrap in ServerError - pass through original error so response.data.detail is accessible
+      return Promise.reject(error);
     }
 
     // Handle timeout errors
@@ -133,9 +135,24 @@ export class AuthorizationError extends Error {
 }
 
 export class ServerError extends Error {
-  constructor(message: string) {
+  response?: {
+    data?: {
+      detail?: string | { detail?: string };
+      message?: string;
+    };
+    status?: number;
+  };
+
+  constructor(message: string, originalError?: AxiosError) {
     super(message);
     this.name = 'ServerError';
+    // Preserve the original response data so components can access the backend error detail
+    if (originalError?.response) {
+      this.response = {
+        data: originalError.response.data as any,
+        status: originalError.response.status,
+      };
+    }
   }
 }
 

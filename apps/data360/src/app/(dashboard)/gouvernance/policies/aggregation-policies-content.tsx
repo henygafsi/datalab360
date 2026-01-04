@@ -14,6 +14,8 @@ import {
   applyAggregationPolicy,
   removeAggregationPolicy,
   deleteAggregationPolicy,
+  getPolicyReferences,
+  unapplyPolicyFromAll,
   type AggregationPolicy,
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
@@ -35,6 +37,7 @@ export default function AggregationPoliciesContent() {
   const [aggregationConstraint, setAggregationConstraint] = useState(
     "CASE WHEN COUNT(*) < 5 THEN NULL ELSE COUNT(*) END"
   );
+  const [expirationDate, setExpirationDate] = useState('');
 
   // Form state for applying policy
   const [database, setDatabase] = useState('');
@@ -138,17 +141,24 @@ export default function AggregationPoliciesContent() {
     }
 
     try {
-      await createAggregationPolicy({
+      const requestData = {
         policy_name: policyName,
         aggregation_constraint: aggregationConstraint,
-        schema: DEFAULTS.GOVERNANCE_FQN,
-      });
+        database: DEFAULTS.DATABASE,
+        schema: DEFAULTS.SCHEMA,
+        expiration_date: expirationDate || undefined,
+      };
+      console.log('[Aggregation Create] Sending request:', requestData);
+
+      const result = await createAggregationPolicy(requestData);
+      console.log('[Aggregation Create] Response:', result);
+
       toast.success('Aggregation policy created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
       loadPolicies();
     } catch (error: any) {
-      console.error('Create aggregation policy error:', error.response?.data || error);
+      console.error('[Aggregation Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
@@ -178,21 +188,50 @@ export default function AggregationPoliciesContent() {
   };
 
   const handleDelete = async (policy: AggregationPolicy) => {
-    if (!confirm(`Delete aggregation policy "${policy.policy_name}"?`)) return;
-
     try {
+      // Step 1: Check for references
+      const refs = await getPolicyReferences('aggregation', policy.policy_name);
+
+      if (!refs.can_delete && refs.references.length > 0) {
+        // Show confirmation with references
+        const refList = refs.references.map(r =>
+          `• ${r.database}.${r.schema}.${r.table}`
+        ).join('\n');
+
+        const confirmed = confirm(
+          `Policy "${policy.policy_name}" is applied to ${refs.references.length} table(s):\n\n${refList}\n\nDo you want to remove it from all tables and then delete it?`
+        );
+
+        if (!confirmed) return;
+
+        // Step 2: Unapply from all references
+        toast.loading('Removing policy from all tables...', { id: 'delete-policy' });
+        const unapplyResult = await unapplyPolicyFromAll('aggregation', policy.policy_name);
+
+        if (unapplyResult.errors.length > 0) {
+          toast.error(`Could not remove from: ${unapplyResult.errors.map(e => e.table).join(', ')}`, { id: 'delete-policy' });
+          return;
+        }
+      } else {
+        // Simple confirmation
+        if (!confirm(`Delete aggregation policy "${policy.policy_name}"?`)) return;
+      }
+
+      // Step 3: Delete the policy
+      toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteAggregationPolicy(policy.policy_name);
-      toast.success('Policy deleted successfully');
+      toast.success('Policy deleted successfully', { id: 'delete-policy' });
       loadPolicies();
     } catch (error: any) {
       console.error('Delete aggregation policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
+      toast.error(formatErrorMessage(error, 'Failed to delete policy'), { id: 'delete-policy' });
     }
   };
 
   const resetCreateForm = () => {
     setPolicyName('');
     setAggregationConstraint("CASE WHEN COUNT(*) < 5 THEN NULL ELSE COUNT(*) END");
+    setExpirationDate('');
   };
 
   const resetApplyForm = () => {
@@ -304,6 +343,18 @@ export default function AggregationPoliciesContent() {
             />
             <p className="text-xs text-slate-500 mt-1">
               Example: Prevent counts less than 5 from being returned
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">Expiration Date</label>
+            <Input
+              type="datetime-local"
+              value={expirationDate}
+              onChange={(e) => setExpirationDate(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Defaults to 7 days from creation if not specified.
             </p>
           </div>
 

@@ -20,6 +20,9 @@ import {
   applyRLSPolicy,
   removeRLSPolicy,
   deleteRLSPolicy,
+  getColumns,
+  getPolicyReferences,
+  unapplyPolicyFromAll,
   type RLSPolicy,
 } from '@/app/services/gouvernance/policies';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
@@ -50,6 +53,8 @@ export default function RLSPoliciesContent() {
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [tables, setTables] = useState<string[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
+  const [loadingColumns, setLoadingColumns] = useState(false);
 
   const [formData, setFormData] = useState({
     policy_name: '',
@@ -60,6 +65,7 @@ export default function RLSPoliciesContent() {
     database: '',
     table_name: '',
     filter_expression: '',
+    expiration_date: '',
   });
 
   const [applyForm, setApplyForm] = useState({
@@ -203,20 +209,26 @@ export default function RLSPoliciesContent() {
     }
 
     try {
-      await createRLSPolicy({
+      const requestData = {
         policy_name: formData.policy_name.trim().toUpperCase(),
         signature: formData.signature.trim(),
         expression: formData.expression.trim(),
         database: DEFAULTS.DATABASE,
         schema: DEFAULTS.SCHEMA,
         description: formData.description?.trim(),
-      });
+        expiration_date: formData.expiration_date || undefined,
+      };
+      console.log('[RLS Create] Sending request:', requestData);
+
+      const result = await createRLSPolicy(requestData);
+      console.log('[RLS Create] Response:', result);
+
       toast.success('RLS Policy created successfully');
       setShowCreateModal(false);
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      console.error('Create RLS policy error:', error.response?.data || error);
+      console.error('[RLS Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create RLS policy'));
     }
   };
@@ -237,7 +249,7 @@ export default function RLSPoliciesContent() {
         database: applyForm.database,
         schema: applyForm.schema,
         policy_column: applyForm.policy_column,
-        policy_schema: selectedPolicy.schema || DEFAULTS.GOVERNANCE_FQN,
+        policy_schema: DEFAULTS.SCHEMA,
       });
       toast.success(`RLS Policy applied to ${applyForm.database}.${applyForm.schema}.${applyForm.table_name}`);
       setShowApplyModal(false);
@@ -251,27 +263,43 @@ export default function RLSPoliciesContent() {
   };
 
   const handleDelete = async (policy: RLSPolicy) => {
-    if (!confirm(`Delete RLS policy "${policy.policy_name}"? This cannot be undone.`)) return;
-
-    console.log('=== DELETE RLS POLICY DEBUG ===');
-    console.log('Policy object:', policy);
-    console.log('Policy name:', policy.policy_name);
-    console.log('Policy schema:', policy.schema);
-    console.log('Using schema:', policy.schema || DEFAULTS.GOVERNANCE_FQN);
-
     try {
-      const result = await deleteRLSPolicy(policy.policy_name, policy.schema || DEFAULTS.GOVERNANCE_FQN);
-      console.log('Delete API result:', result);
-      toast.success('RLS Policy deleted successfully');
-      // Wait a bit before reloading to let backend process
-      setTimeout(() => loadPolicies(), 500);
+      // Step 1: Check for references
+      const refs = await getPolicyReferences('row-access', policy.policy_name);
+
+      if (!refs.can_delete && refs.references.length > 0) {
+        // Show confirmation with references
+        const refList = refs.references.map(r =>
+          `• ${r.database}.${r.schema}.${r.table}${r.column ? `.${r.column}` : ''}`
+        ).join('\n');
+
+        const confirmed = confirm(
+          `Policy "${policy.policy_name}" is applied to ${refs.references.length} table(s):\n\n${refList}\n\nDo you want to remove it from all tables and then delete it?`
+        );
+
+        if (!confirmed) return;
+
+        // Step 2: Unapply from all references
+        toast.loading('Removing policy from all tables...', { id: 'delete-policy' });
+        const unapplyResult = await unapplyPolicyFromAll('row-access', policy.policy_name);
+
+        if (unapplyResult.errors.length > 0) {
+          toast.error(`Could not remove from: ${unapplyResult.errors.map(e => e.table).join(', ')}`, { id: 'delete-policy' });
+          return;
+        }
+      } else {
+        // Simple confirmation
+        if (!confirm(`Delete RLS policy "${policy.policy_name}"? This cannot be undone.`)) return;
+      }
+
+      // Step 3: Delete the policy
+      toast.loading('Deleting policy...', { id: 'delete-policy' });
+      await deleteRLSPolicy(policy.policy_name);
+      toast.success('RLS Policy deleted successfully', { id: 'delete-policy' });
+      loadPolicies();
     } catch (error: any) {
-      console.error('=== DELETE ERROR ===');
-      console.error('Full error object:', error);
-      console.error('Response data:', error.response?.data);
-      console.error('Response status:', error.response?.status);
-      console.error('Error message:', error.message);
-      toast.error(formatErrorMessage(error, 'Failed to delete RLS policy'));
+      console.error('Delete RLS policy error:', error.response?.data || error);
+      toast.error(formatErrorMessage(error, 'Failed to delete RLS policy'), { id: 'delete-policy' });
     }
   };
 
@@ -310,6 +338,7 @@ export default function RLSPoliciesContent() {
       database: '',
       table_name: '',
       filter_expression: '',
+      expiration_date: '',
     });
   };
 
@@ -320,6 +349,7 @@ export default function RLSPoliciesContent() {
       table_name: '',
       policy_column: '',
     });
+    setColumns([]); // Clear columns when resetting form
   };
 
   const stats = {
@@ -573,6 +603,20 @@ export default function RLSPoliciesContent() {
                 placeholder="Optional description"
               />
             </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Expiration Date
+              </label>
+              <Input
+                type="datetime-local"
+                value={formData.expiration_date}
+                onChange={(e) => setFormData({ ...formData, expiration_date: e.target.value })}
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Optional. Defaults to 7 days from creation if not specified.
+              </p>
+            </div>
           </div>
 
           <div className="flex justify-end space-x-3">
@@ -616,6 +660,7 @@ export default function RLSPoliciesContent() {
                   onChange={(value: any) => {
                     const dbValue = typeof value === 'object' ? value?.value : value;
                     setApplyForm({ ...applyForm, database: dbValue || '', schema: '', table_name: '', policy_column: '' });
+                    setColumns([]); // Clear columns when database changes
                   }}
                   options={[
                     { label: 'Select Database', value: '' },
@@ -633,6 +678,7 @@ export default function RLSPoliciesContent() {
                   onChange={(value: any) => {
                     const schValue = typeof value === 'object' ? value?.value : value;
                     setApplyForm({ ...applyForm, schema: schValue || '', table_name: '', policy_column: '' });
+                    setColumns([]); // Clear columns when schema changes
                   }}
                   disabled={!applyForm.database}
                   options={[
@@ -648,9 +694,23 @@ export default function RLSPoliciesContent() {
                 </label>
                 <Select
                   value={applyForm.table_name}
-                  onChange={(value: any) => {
+                  onChange={async (value: any) => {
                     const tblValue = typeof value === 'object' ? value?.value : value;
                     setApplyForm({ ...applyForm, table_name: tblValue || '', policy_column: '' });
+                    setColumns([]);
+                    // Fetch columns when table is selected
+                    if (tblValue && applyForm.database && applyForm.schema) {
+                      setLoadingColumns(true);
+                      try {
+                        const cols = await getColumns(applyForm.database, applyForm.schema, tblValue);
+                        setColumns(cols);
+                      } catch (error) {
+                        console.error('Failed to load columns:', error);
+                        toast.error('Failed to load columns');
+                      } finally {
+                        setLoadingColumns(false);
+                      }
+                    }
                   }}
                   disabled={!applyForm.schema}
                   options={[
@@ -665,11 +725,17 @@ export default function RLSPoliciesContent() {
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Policy Column <span className="text-red-500">*</span>
               </label>
-              <Input
+              <Select
                 value={applyForm.policy_column}
-                onChange={(e) => setApplyForm({ ...applyForm, policy_column: e.target.value })}
-                placeholder="e.g., USER_ID, REGION, DEPARTMENT"
-                disabled={!applyForm.table_name}
+                onChange={(value: any) => {
+                  const colValue = typeof value === 'object' ? value?.value : value;
+                  setApplyForm({ ...applyForm, policy_column: colValue || '' });
+                }}
+                disabled={!applyForm.table_name || loadingColumns}
+                options={[
+                  { label: loadingColumns ? 'Loading columns...' : 'Select Column', value: '' },
+                  ...(columns || []).map(col => ({ label: col, value: col }))
+                ]}
               />
               <p className="mt-1 text-xs text-slate-500">
                 The column name that will be passed to the policy function signature

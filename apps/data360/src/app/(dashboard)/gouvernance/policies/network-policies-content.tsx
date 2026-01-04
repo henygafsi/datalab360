@@ -31,6 +31,7 @@ export default function NetworkPoliciesContent() {
   const [allowedIPs, setAllowedIPs] = useState('');
   const [blockedIPs, setBlockedIPs] = useState('');
   const [comment, setComment] = useState('');
+  const [expirationDate, setExpirationDate] = useState('');
 
   // SSE cache invalidation
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
@@ -134,18 +135,24 @@ export default function NetworkPoliciesContent() {
     }
 
     try {
-      await createNetworkPolicy({
+      const requestData = {
         policy_name: policyName,
         allowed_ip_list: allowedIPs,
         blocked_ip_list: blockedIPs,
         comment,
-      });
+        expiration_date: expirationDate || undefined,
+      };
+      console.log('[Network Create] Sending request:', requestData);
+
+      const result = await createNetworkPolicy(requestData);
+      console.log('[Network Create] Response:', result);
+
       toast.success('Network policy created successfully!');
       setShowCreateModal(false);
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      console.error('Create network policy error:', error.response?.data || error);
+      console.error('[Network Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
@@ -181,6 +188,7 @@ export default function NetworkPoliciesContent() {
     setAllowedIPs('');
     setBlockedIPs('');
     setComment('');
+    setExpirationDate('');
   };
 
   return (
@@ -345,10 +353,22 @@ export default function NetworkPoliciesContent() {
             onChange={(e) => setComment(e.target.value)}
           />
 
+          <div>
+            <label className="block text-sm font-medium mb-2">Expiration Date</label>
+            <Input
+              type="datetime-local"
+              value={expirationDate}
+              onChange={(e) => setExpirationDate(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Defaults to 7 days from creation if not specified.
+            </p>
+          </div>
+
           <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded">
             <p className="text-xs text-blue-700 dark:text-blue-300">
               <strong>Note:</strong> Network policies are account-level and apply globally.
-              Use "Set as Default" after creation to activate.
+              Use &quot;Set as Default&quot; after creation to activate.
             </p>
           </div>
 

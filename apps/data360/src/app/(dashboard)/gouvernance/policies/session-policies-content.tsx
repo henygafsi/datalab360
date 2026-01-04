@@ -30,6 +30,7 @@ export default function SessionPoliciesContent() {
   const [policyName, setPolicyName] = useState('');
   const [sessionIdleTimeout, setSessionIdleTimeout] = useState('60');
   const [sessionUIIdleTimeout, setSessionUIIdleTimeout] = useState('30');
+  const [expirationDate, setExpirationDate] = useState('');
 
   // SSE cache invalidation
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
@@ -141,11 +142,17 @@ export default function SessionPoliciesContent() {
     }
 
     try {
-      await createSessionPolicy({
+      const requestData = {
         policy_name: policyName,
         session_idle_timeout_mins: idleTimeout,
         session_ui_idle_timeout_mins: uiIdleTimeout,
-      });
+        expiration_date: expirationDate || undefined,
+      };
+      console.log('[Session Create] Sending request:', requestData);
+
+      const result = await createSessionPolicy(requestData);
+      console.log('[Session Create] Response:', result);
+
       toast.success('Session policy created successfully!');
       setShowCreateModal(false);
       resetForm();
@@ -186,6 +193,7 @@ export default function SessionPoliciesContent() {
     setPolicyName('');
     setSessionIdleTimeout('60');
     setSessionUIIdleTimeout('30');
+    setExpirationDate('');
   };
 
   return (
@@ -318,6 +326,18 @@ export default function SessionPoliciesContent() {
             helperText="UI idle time before displaying warning (1-7200 mins)"
           />
 
+          <div>
+            <label className="block text-sm font-medium mb-2">Expiration Date</label>
+            <Input
+              type="datetime-local"
+              value={expirationDate}
+              onChange={(e) => setExpirationDate(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Optional. Defaults to 7 days from creation if not specified.
+            </p>
+          </div>
+
           <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded space-y-2">
             <p className="text-sm font-medium text-indigo-700 dark:text-indigo-300">
               Session Policy Guidelines:
@@ -326,7 +346,7 @@ export default function SessionPoliciesContent() {
               <li>Session idle timeout: Maximum inactivity before forced logout</li>
               <li>UI idle timeout: Should be less than session idle timeout</li>
               <li>Recommended: UI timeout = 50% of session timeout</li>
-              <li>Use "Set as Default" after creation to activate globally</li>
+              <li>Use &quot;Set as Default&quot; after creation to activate globally</li>
             </ul>
           </div>
 
