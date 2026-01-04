@@ -24,7 +24,7 @@ async function getAuthHeaders() {
 // ============= TYPES =============
 
 export interface SecurityAxis {
-  id: string;
+  id: number;  // Backend returns number (1, 2, 3, 4)
   name: string;
   type: 'region' | 'store' | 'department' | 'custom';
   values: string[];
@@ -110,7 +110,7 @@ export async function createSecurityAxis(axis: Omit<SecurityAxis, 'id'>): Promis
 /**
  * Update security axis values
  */
-export async function updateSecurityAxis(id: string, updates: Partial<SecurityAxis>): Promise<SecurityAxis> {
+export async function updateSecurityAxis(id: number, updates: Partial<SecurityAxis>): Promise<SecurityAxis> {
   try {
     const headers = await getAuthHeaders();
     const response = await axios.put(`${API_BASE_URL}/gouvernance/security-axes/${id}`, updates, { headers });
@@ -124,7 +124,7 @@ export async function updateSecurityAxis(id: string, updates: Partial<SecurityAx
 /**
  * Delete security axis
  */
-export async function deleteSecurityAxis(id: string): Promise<void> {
+export async function deleteSecurityAxis(id: number): Promise<void> {
   try {
     const headers = await getAuthHeaders();
     await axios.delete(`${API_BASE_URL}/gouvernance/security-axes/${id}`, { headers });

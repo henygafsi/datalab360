@@ -79,7 +79,10 @@ export async function setupAzureStorageIntegration(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Storage Integration');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to set up Azure Storage Integration';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -101,7 +104,10 @@ export async function setupAzureNotificationIntegration(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Notification Integration');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to set up Azure Notification Integration';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -123,7 +129,10 @@ export async function setupAzureSnowpipe( // This function is not currently used
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up Azure Snowpipe');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to set up Azure Snowpipe';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -148,7 +157,10 @@ export async function createAzureStage(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to create Azure Stage');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to create Azure Stage';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -174,7 +186,10 @@ export async function setupAwsStorageIntegration(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to set up AWS Storage Integration');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to set up AWS Storage Integration';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -198,7 +213,10 @@ export async function createAwsStage(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to create AWS Stage');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to create AWS Stage';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -223,7 +241,10 @@ export async function connectSnowflakeDatalake(
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to connect to Snowflake Datalake');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to connect to Snowflake Datalake';
+        throw new Error(errorMessage);
     }
     const data: any = await response.json();
     return { message: data };
@@ -238,7 +259,10 @@ export async function listSnowflakeStages(): Promise<any> {
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list Snowflake stages');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to list Snowflake stages';
+        throw new Error(errorMessage);
     }
     return await response.json();
 }
@@ -252,7 +276,10 @@ export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to list stage files');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to list stage files';
+        throw new Error(errorMessage);
     }
     return await response.json();
 }
@@ -270,8 +297,132 @@ export async function getIntegrationDetails(integration_name: string): Promise<A
     });
     if (!response.ok) {
         const errorData: any = await response.json();
-        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : 'Failed to get integration details');
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to get integration details';
+        throw new Error(errorMessage);
     }
     const data = await response.json() as AzureIntegrationDetailsResponse;
     return data;
+}
+
+// --- File Operations ---
+
+export async function previewStageFile(
+    stageName: string,
+    filePath: string,
+    limit: number = 100
+): Promise<any> {
+    const auth = await getAuthInfo();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}/preview?limit=${limit}`;
+
+    const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: getAuthHeaders(auth),
+    });
+
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to preview file';
+        throw new Error(errorMessage);
+    }
+
+    return await response.json();
+}
+
+export async function downloadStageFile(
+    stageName: string,
+    filePath: string
+): Promise<void> {
+    const auth = await getAuthInfo();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}/download`;
+
+    const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: getAuthHeaders(auth),
+    });
+
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to download file';
+        throw new Error(errorMessage);
+    }
+
+    // Create blob and trigger download
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filePath.split('/').pop() || 'download';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+export async function uploadStageFile(
+    stageName: string,
+    files: FileList,
+    overwrite: boolean = false,
+    path?: string
+): Promise<any> {
+    const auth = await getAuthInfo();
+
+    let endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload?overwrite=${overwrite}`;
+    if (path) {
+        endpoint += `&path=${encodeURIComponent(path)}`;
+    }
+
+    const formData = new FormData();
+    Array.from(files).forEach(file => {
+        formData.append('files', file);
+    });
+
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${auth.token}`,
+            'X-Account-Name': auth.account_name,
+            'X-Username': auth.username,
+            // Do NOT set Content-Type for multipart/form-data - browser handles it
+        },
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to upload file';
+        throw new Error(errorMessage);
+    }
+
+    return await response.json();
+}
+
+export async function deleteStageFile(
+    stageName: string,
+    filePath: string
+): Promise<any> {
+    const auth = await getAuthInfo();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}`;
+
+    const response = await fetch(endpoint, {
+        method: 'DELETE',
+        headers: getAuthHeaders(auth),
+    });
+
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to delete file';
+        throw new Error(errorMessage);
+    }
+
+    return await response.json();
 }

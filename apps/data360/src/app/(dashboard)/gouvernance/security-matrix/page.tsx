@@ -20,6 +20,8 @@ import {
   deleteSecurityAxis,
   SecurityAxis,
 } from '@/app/services/gouvernance/security-matrix';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -50,6 +52,7 @@ const AXIS_TYPE_COLORS = {
 export default function SecurityMatrixPage() {
   const [axes, setAxes] = useState<SecurityAxis[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingAxis, setEditingAxis] = useState<SecurityAxis | null>(null);
   const [formData, setFormData] = useState({
@@ -66,10 +69,11 @@ export default function SecurityMatrixPage() {
   const loadAxes = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getSecurityAxes();
       setAxes(data);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load security axes');
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Failed to load security axes');
     } finally {
       setLoading(false);
     }
@@ -111,7 +115,7 @@ export default function SecurityMatrixPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this security axis?')) return;
     try {
       await deleteSecurityAxis(id);
@@ -210,22 +214,29 @@ export default function SecurityMatrixPage() {
       </div>
 
       {/* Axes Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {loading ? (
-          <div className="col-span-2 text-center py-12">
-            <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-slate-600 dark:text-slate-400">Loading security axes...</p>
+      {loading ? (
+        <div className="space-y-4">
+          <TableSkeleton rows={3} columns={2} showHeader={false} />
+        </div>
+      ) : error ? (
+        <ErrorDisplay error={error} onRetry={loadAxes} context="general" />
+      ) : axes.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-violet-100 dark:bg-violet-900/30">
+            <HiOutlineShieldCheck className="h-10 w-10 text-violet-600 dark:text-violet-400" />
           </div>
-        ) : axes.length === 0 ? (
-          <div className="col-span-2 text-center py-12">
-            <HiOutlineShieldCheck className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-600 dark:text-slate-400">No security axes defined yet</p>
-            <Button onClick={() => setShowAddModal(true)} className="mt-4">
-              Create your first axis
-            </Button>
-          </div>
-        ) : (
-          axes.map((axis) => {
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Aucun axe de sécurité trouvé</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Créez votre premier axe pour gérer la matrice de sécurité.
+          </p>
+          <Button onClick={() => setShowAddModal(true)} className="mt-4 bg-gradient-to-r from-violet-500 to-purple-600">
+            <HiOutlinePlus className="mr-2 h-4 w-4" />
+            Créer un axe
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {axes.map((axis) => {
             const Icon = AXIS_TYPE_ICONS[axis.type];
             const colorClass = AXIS_TYPE_COLORS[axis.type];
 
@@ -281,9 +292,9 @@ export default function SecurityMatrixPage() {
                 </div>
               </ModernCard>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       <Modal isOpen={showAddModal || !!editingAxis} onClose={() => { setShowAddModal(false); setEditingAxis(null); resetForm(); }}>

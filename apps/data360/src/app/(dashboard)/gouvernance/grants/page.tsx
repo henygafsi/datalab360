@@ -1,16 +1,25 @@
 'use client';
 
-import { Badge } from 'rizzui';
+import { useState } from 'react';
+import { Badge, Button } from 'rizzui';
 import {
   HiOutlineKey,
   HiOutlineCog6Tooth,
   HiOutlineShieldExclamation,
-  HiOutlineLockClosed
+  HiOutlineLockClosed,
+  HiOutlineUserGroup,
+  HiOutlineShieldCheck,
 } from 'react-icons/hi2';
 import GrantsTable from '@/app/shared/gouvernance/grants/table';
+import UserGrantsTable from '@/app/shared/gouvernance/user-grants/table';
+import PolicyGrantsTable from '@/app/shared/gouvernance/policy-grants/table';
 import PageHeader from '@/components/layout/PageHeader';
 
+type TabType = 'role-grants' | 'user-grants' | 'policy-grants';
+
 export default function GrantsManagementPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('role-grants');
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -65,19 +74,103 @@ export default function GrantsManagementPage() {
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content with Tabs */}
       <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Permission Matrix</h2>
-            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-              <HiOutlineLockClosed className="w-3 h-3 mr-1 inline" />
-              Access Control
-            </Badge>
+        {/* Tabs Header */}
+        <div className="flex items-center justify-between mb-6 border-b border-slate-200 dark:border-slate-700">
+          <div className="flex gap-1">
+            <button
+              onClick={() => setActiveTab('role-grants')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'role-grants'
+                  ? 'border-b-2 border-blue-600 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineLockClosed className="h-4 w-4" />
+              Role Grants
+              <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                Modules
+              </Badge>
+            </button>
+            <button
+              onClick={() => setActiveTab('user-grants')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'user-grants'
+                  ? 'border-b-2 border-purple-600 text-purple-600 dark:border-purple-400 dark:text-purple-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineUserGroup className="h-4 w-4" />
+              User Grants
+              <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                RBAC
+              </Badge>
+            </button>
+            <button
+              onClick={() => setActiveTab('policy-grants')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'policy-grants'
+                  ? 'border-b-2 border-violet-600 text-violet-600 dark:border-violet-400 dark:text-violet-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineShieldCheck className="h-4 w-4" />
+              Policy Grants
+              <Badge className="bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400">
+                Policies
+              </Badge>
+            </button>
           </div>
         </div>
 
-        <GrantsTable />
+        {/* Tab Content - Lazy loaded (only active tab mounts to prevent redundant API calls) */}
+        {activeTab === 'role-grants' ? (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Role Permission Matrix
+                </h2>
+                <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                  <HiOutlineLockClosed className="w-3 h-3 mr-1 inline" />
+                  Module Access Control
+                </Badge>
+              </div>
+            </div>
+            <GrantsTable />
+          </div>
+        ) : activeTab === 'user-grants' ? (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  User Access Management
+                </h2>
+                <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
+                  <HiOutlineUserGroup className="w-3 h-3 mr-1 inline" />
+                  RBAC
+                </Badge>
+              </div>
+            </div>
+            <UserGrantsTable />
+          </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Policy-Role Assignments
+                </h2>
+                <Badge className="bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400">
+                  <HiOutlineShieldCheck className="w-3 h-3 mr-1 inline" />
+                  Security Policies
+                </Badge>
+              </div>
+            </div>
+            <PolicyGrantsTable />
+          </div>
+        )}
       </div>
     </div>
   );

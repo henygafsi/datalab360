@@ -7,7 +7,7 @@ const nextConfig = {
     // your project has ESLint errors.
     ignoreDuringBuilds: true,
   },
-  reactStrictMode: false,
+  reactStrictMode: false, // Disabled to prevent double API calls in development
   typescript: {
     // !! WARN !!
     // Dangerously allow production builds to successfully complete even if
@@ -71,7 +71,6 @@ const nextConfig = {
       },
     ],
   },
-  reactStrictMode: true,
   transpilePackages: ['core'],
 };
 

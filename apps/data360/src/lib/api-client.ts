@@ -20,7 +20,7 @@ import {
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 300000,
+  timeout: 30000, // 30 seconds (allows for multiple parallel Snowflake queries + network latency)
   headers: {
     'Content-Type': 'application/json',
   },
@@ -90,6 +90,22 @@ apiClient.interceptors.response.use(
       return Promise.reject(new AuthorizationError('You do not have permission to access this resource.'));
     }
 
+    // Handle 500 Internal Server Error
+    if (status === 500) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API Client] 500 Internal Server Error:', error.response?.data);
+      }
+      return Promise.reject(new ServerError('Server error occurred. Please contact support if this persists.'));
+    }
+
+    // Handle timeout errors
+    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API Client] Request timeout:', error.message);
+      }
+      return Promise.reject(new TimeoutError('Request took too long. The server may be slow or unavailable.'));
+    }
+
     // Handle network errors
     if (!error.response) {
       console.error('[API Client] Network error:', error.message);
@@ -116,10 +132,24 @@ export class AuthorizationError extends Error {
   }
 }
 
+export class ServerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ServerError';
+  }
+}
+
 export class NetworkError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'NetworkError';
+  }
+}
+
+export class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'TimeoutError';
   }
 }
 

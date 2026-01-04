@@ -80,8 +80,8 @@ export const roleListColumns = [
       },
     }) => (
       <TableRowActionGroup
-        editUrl={`/roles/edit/${row.original.id}`}
-        viewUrl={`/roles/view/${row.original.id}`}
+        editUrl={`/gouvernance/roles/edit/${row.original.id}`}
+        viewUrl={`/gouvernance/roles/view/${row.original.id}`}
         onDelete={() => {
           if (row.original && row.original.id) {
             meta?.handleDeleteRow?.(row.original);

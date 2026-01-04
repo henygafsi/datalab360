@@ -11,6 +11,8 @@ import {
   HiOutlineServer,
 } from 'react-icons/hi2';
 import { toast } from 'react-hot-toast';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -36,7 +38,8 @@ interface NetworkPolicy {
 
 export default function NetworkPoliciesPage() {
   const [policies, setPolicies] = useState<NetworkPolicy[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<NetworkPolicy | null>(null);
   const [formData, setFormData] = useState({
@@ -53,6 +56,7 @@ export default function NetworkPoliciesPage() {
   const loadPolicies = async () => {
     try {
       setLoading(true);
+      setError(null);
       // TODO: Replace with actual API call
       // const data = await getNetworkPolicies();
       // setPolicies(data);
@@ -78,8 +82,8 @@ export default function NetworkPoliciesPage() {
           updated_at: new Date().toISOString(),
         },
       ]);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load network policies');
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : 'Failed to load network policies');
     } finally {
       setLoading(false);
     }
@@ -262,22 +266,29 @@ export default function NetworkPoliciesPage() {
       </div>
 
       {/* Policies Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {loading ? (
-          <div className="col-span-2 text-center py-12">
-            <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-            <p className="mt-4 text-slate-600 dark:text-slate-400">Loading network policies...</p>
+      {loading ? (
+        <div className="space-y-4">
+          <TableSkeleton rows={3} columns={2} showHeader={false} />
+        </div>
+      ) : error ? (
+        <ErrorDisplay error={error} onRetry={loadPolicies} context="general" />
+      ) : policies.length === 0 ? (
+        <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/30">
+            <HiOutlineGlobeAlt className="h-10 w-10 text-blue-600 dark:text-blue-400" />
           </div>
-        ) : policies.length === 0 ? (
-          <div className="col-span-2 text-center py-12">
-            <HiOutlineGlobeAlt className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
-            <p className="text-slate-600 dark:text-slate-400">No network policies defined yet</p>
-            <Button onClick={() => setShowAddModal(true)} className="mt-4">
-              Create your first policy
-            </Button>
-          </div>
-        ) : (
-          policies.map((policy) => {
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Aucune politique réseau trouvée</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Créez votre première politique pour gérer les accès par IP.
+          </p>
+          <Button onClick={() => setShowAddModal(true)} className="mt-4 bg-gradient-to-r from-blue-500 to-cyan-600">
+            <HiOutlinePlus className="mr-2 h-4 w-4" />
+            Créer une politique
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {policies.map((policy) => {
             const colorClass = policy.type === 'allow'
               ? 'from-green-500 to-emerald-600 border-green-200 dark:border-green-700'
               : 'from-red-500 to-rose-600 border-red-200 dark:border-red-700';
@@ -343,9 +354,9 @@ export default function NetworkPoliciesPage() {
                 </div>
               </ModernCard>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       <Modal isOpen={showAddModal || !!editingPolicy} onClose={() => { setShowAddModal(false); setEditingPolicy(null); resetForm(); }}>

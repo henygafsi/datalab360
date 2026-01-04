@@ -19,6 +19,8 @@ import {
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 
 const MASKING_TYPES = [
   { label: 'Full Masking (****)', value: 'FULL' },
@@ -32,6 +34,7 @@ const MASKING_TYPES = [
 export default function MaskingPoliciesContent() {
   const [policies, setPolicies] = useState<MaskingPolicy[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -62,15 +65,16 @@ export default function MaskingPoliciesContent() {
     } else {
       setIsRefreshing(true);
     }
+    setError(null);
     try {
       const data = await getMaskingPolicies();
       if (mountedRef.current) {
         setPolicies(Array.isArray(data) ? data : []);
       }
-    } catch (error: any) {
-      console.error('Error loading masking policies:', error);
+    } catch (err: any) {
+      console.error('Error loading masking policies:', err);
       if (mountedRef.current) {
-        toast.error(error.response?.data?.message || error.message || 'Failed to load masking policies');
+        setError(err instanceof Error ? err.message : 'Failed to load masking policies');
         setPolicies([]);
       }
     } finally {
@@ -269,10 +273,22 @@ export default function MaskingPoliciesContent() {
 
       {/* Policies List */}
       {loading ? (
-        <div className="text-center py-12">Loading...</div>
+        <div className="space-y-4">
+          <TableSkeleton rows={4} columns={3} showHeader={false} />
+        </div>
+      ) : error ? (
+        <ErrorDisplay error={error} onRetry={() => loadPolicies()} context="general" />
       ) : policies.length === 0 ? (
-        <div className="text-center py-12 text-slate-500">
-          No masking policies found. Create one to get started.
+        <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
+          <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+            <svg className="h-10 w-10 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Aucune politique de masquage trouvée</h3>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            Créez votre première politique pour protéger les données sensibles.
+          </p>
         </div>
       ) : (
         <div className="grid gap-4">

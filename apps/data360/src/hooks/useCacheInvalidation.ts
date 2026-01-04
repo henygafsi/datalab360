@@ -216,27 +216,26 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
     }
   }, [session, status, sseUrl, onInvalidate, log, redirectOnOffline, maxReconnectAttempts, handleOfflineError]);
 
-  // Connect when authenticated
+  // Connect when authenticated - single useEffect to avoid reconnection loops
   useEffect(() => {
-    connect();
+    // Only connect if authenticated and not already connected
+    if (status === 'authenticated' && session?.user?.access_token) {
+      connect();
+    }
 
     return () => {
       log('🔌 Closing SSE connection');
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+        eventSourceRef.current = null;
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
-  }, [connect, log]);
-
-  // Reconnect when session changes
-  useEffect(() => {
-    if (status === 'authenticated' && session?.user?.access_token && !isConnected) {
-      connect();
-    }
-  }, [status, session, isConnected, connect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, session?.user?.access_token, log]);
 
   return {
     isConnected,

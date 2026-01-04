@@ -2,16 +2,19 @@
 
 import { useState, FormEvent, ChangeEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Input, Button, Checkbox, Text, Password, Badge } from 'rizzui';
+import { useSession } from 'next-auth/react';
+import { Input, Button, Checkbox, Text, Password, Badge, Tooltip } from 'rizzui';
 import Image from 'next/image';
 import toast from 'react-hot-toast';
 import {
   HiOutlineCloudArrowUp,
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
-  HiOutlineTrash
+  HiOutlineTrash,
+  HiOutlineExclamationCircle
 } from 'react-icons/hi2';
-import { Database, Eye } from 'lucide-react';
+import { Database } from 'lucide-react';
+import { ROLE_PERMISSIONS } from '@/config/constants';
 
 // Import the new connection services from the same folder
 import {
@@ -205,13 +208,16 @@ type DatalakeConnection = {
 
 export default function DataSourceConnectionPage() {
   const router = useRouter();
+  const { data: session, status } = useSession();
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
   const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | null>(null);
   const [activeConnections, setActiveConnections] = useState<DatalakeConnection[]>([]);
-  
+  const [errorMessages, setErrorMessages] = useState<string[]>([]); // État persistant pour les erreurs
+  const [showAddConnection, setShowAddConnection] = useState<boolean>(false); // Contrôle affichage section Add Connection
+
   const [azureFormData, setAzureFormData] = useState<AzureFormData>({
       storage_integration_name: '',
       notification_integration_name: '',
@@ -268,6 +274,23 @@ export default function DataSourceConnectionPage() {
       description: 'Amazon Simple Storage Service for scalable cloud storage',
     },
   ];
+
+  // Check user permissions
+  const userRole = session?.user?.role as keyof typeof ROLE_PERMISSIONS;
+  const canManageConnections = userRole && ROLE_PERMISSIONS[userRole]?.modules?.includes(1);
+
+  // Redirect if no permission
+  useEffect(() => {
+    if (status === 'loading') return;
+    if (status === 'unauthenticated') {
+      router.push('/auth/sign-in');
+      return;
+    }
+    if (!canManageConnections) {
+      toast.error('You do not have permission to manage data source connections');
+      router.push('/access-denied');
+    }
+  }, [status, canManageConnections, router]);
 
   // Load connections from localStorage on mount
   useEffect(() => {
@@ -364,9 +387,30 @@ export default function DataSourceConnectionPage() {
   const [azureStorageConsentUrl, setAzureStorageConsentUrl] = useState<string | null>(null);
   const [azureStorageMultiTenantAppName, setAzureStorageMultiTenantAppName] = useState<string | null>(null);
 
+  const handleAzureNextStep = async () => {
+      setLoading(true);
+      try {
+          if (azureCurrentSubStep === 3 && !showAzureNotificationOption) {
+              // Skip notification, go directly to stage creation
+              setAzureCurrentSubStep(4);
+              setLoading(false);
+              return;
+          }
+          setLoading(false);
+      } catch (error: any) {
+          const errorMsg = error.message || 'An unexpected error occurred.';
+          setErrorMessages(prev => [...prev, errorMsg]);
+          toast.error(`Failed: ${errorMsg}`);
+          console.error('Error:', error);
+      } finally {
+          setLoading(false);
+      }
+  };
+
   const handleAzureSubmit = async (e: FormEvent) => {
       e.preventDefault();
       setLoading(true);
+      setErrorMessages([]); // Clear previous errors
       try {
           if (azureCurrentSubStep === 1) { // Step 1: Create Storage Integration
               await setupAzureStorageIntegration(
@@ -395,9 +439,8 @@ export default function DataSourceConnectionPage() {
                   toast.success('Azure Notification Integration created successfully!');
                   setAzureCurrentSubStep(4); // Move to Notification details
               } else {
-                  // If notification option is OFF, skip to Stage creation
-                  toast.success('Notification integration creation skipped.');
-                  setAzureCurrentSubStep(4); // Go to Create Stage as a separate step
+                  // If notification option is OFF, just move to next step without API call
+                  setAzureCurrentSubStep(4);
               }
           } else if (azureCurrentSubStep === 4) { // Step 4: Get Notification Integration Details (Conditional)
               if (!showAzureNotificationOption) {
@@ -474,11 +517,15 @@ export default function DataSourceConnectionPage() {
               } catch {}
               try { await silentReauth(); } catch {}
 
-              // Redirect to account-overview page
-              router.push('/account-overview');
+              // Show browser instead of redirecting for consistency
+              setConnectedProvider('azure');
+              setShowDatalakeBrowser(true);
+              setCurrentStep(0);
           }
       } catch (error: any) {
-          toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
+          const errorMsg = error.message || 'An unexpected error occurred.';
+          setErrorMessages(prev => [...prev, errorMsg]);
+          toast.error(`Failed: ${errorMsg}`);
           console.error('Error:', error);
       } finally {
           setLoading(false);
@@ -538,11 +585,15 @@ export default function DataSourceConnectionPage() {
               } catch {}
               try { await silentReauth(); } catch {}
 
-              // Redirect to account-overview page
-              router.push('/account-overview');
+              // Show browser instead of redirecting for consistency
+              setConnectedProvider('aws');
+              setShowDatalakeBrowser(true);
+              setCurrentStep(0);
           }
       } catch (error: any) {
-          toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
+          const errorMsg = error.message || 'An unexpected error occurred.';
+          setErrorMessages(prev => [...prev, errorMsg]);
+          toast.error(`Failed: ${errorMsg}`);
           console.error('Error:', error);
       } finally {
           setLoading(false);
@@ -583,10 +634,14 @@ export default function DataSourceConnectionPage() {
           } catch {}
           try { await silentReauth(); } catch {}
 
-          // Redirect to account-overview page
-          router.push('/account-overview');
+          // Show browser instead of redirecting for consistency
+          setConnectedProvider('snowflake');
+          setShowDatalakeBrowser(true);
+          setCurrentStep(0);
       } catch (error: any) {
-          toast.error(`Failed: ${error.message || 'An unexpected error occurred.'}`);
+          const errorMsg = error.message || 'An unexpected error occurred.';
+          setErrorMessages(prev => [...prev, errorMsg]);
+          toast.error(`Failed: ${errorMsg}`);
           console.error('Error:', error);
       } finally {
           setLoading(false);
@@ -602,6 +657,30 @@ export default function DataSourceConnectionPage() {
                       <Image src={logos['azure']} alt="Azure Logo" width={80} height={80} className="transition-transform duration-300 hover:scale-110" />
                   </div>
               </div>
+
+              {/* Error Messages Display */}
+              {errorMessages.length > 0 && (
+                  <div className="mb-6 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-300 dark:border-red-800 p-4">
+                      <div className="flex items-start">
+                          <HiOutlineExclamationCircle className="h-5 w-5 text-red-600 mt-0.5 mr-2" />
+                          <div className="flex-1">
+                              <h4 className="text-sm font-semibold text-red-800 dark:text-red-300 mb-2">Errors occurred:</h4>
+                              <ul className="space-y-1">
+                                  {errorMessages.map((msg, idx) => (
+                                      <li key={idx} className="text-sm text-red-700 dark:text-red-400">• {msg}</li>
+                                  ))}
+                              </ul>
+                          </div>
+                          <button
+                              onClick={() => setErrorMessages([])}
+                              className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                          >
+                              ✕
+                          </button>
+                      </div>
+                  </div>
+              )}
+
               <form className="space-y-6" onSubmit={handleAzureSubmit}>
                   {azureCurrentSubStep === 1 && (
                       <>
@@ -626,16 +705,25 @@ export default function DataSourceConnectionPage() {
                               disabled={azureStorageIntegrationCreated || loading}
                               className="w-full"
                           />
-                          <Input
-                              name="storage_url"
-                              label="Azure Storage URL"
-                              placeholder="azure://<account_name>.blob.core.windows.net/<container>"
-                              value={azureFormData.storage_url}
-                              onChange={(e) => handleChange(e, 'azure')}
-                              required
-                              disabled={azureStorageIntegrationCreated || loading}
-                              className="w-full"
-                          />
+                          <div>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                  Azure Storage URL
+                              </label>
+                              <Input
+                                  name="storage_url"
+                                  placeholder="azure://<account_name>.blob.core.windows.net/<container>"
+                                  value={azureFormData.storage_url}
+                                  onChange={(e) => handleChange(e, 'azure')}
+                                  required
+                                  disabled={azureStorageIntegrationCreated || loading}
+                                  className="w-full"
+                                  pattern="^azure://[a-z0-9]+\.blob\.core\.windows\.net/.+"
+                                  title="Format: azure://<account>.blob.core.windows.net/<container>"
+                              />
+                              <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                  Format: azure://account_name.blob.core.windows.net/container_name
+                              </Text>
+                          </div>
                           {!azureStorageIntegrationCreated && (
                               <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
                                   {loading ? 'Setting up...' : 'Create Storage Integration'}
@@ -652,9 +740,12 @@ export default function DataSourceConnectionPage() {
                   {azureCurrentSubStep === 2 && (
                       <>
                           <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Azure Storage Consent Details</h4>
-                          <Text className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                              Retrieve and display details required for Azure Active Directory consent for the Storage Integration.
-                          </Text>
+                          <div className="bg-blue-50 dark:bg-blue-950/20 border-l-4 border-blue-500 p-4 mb-4">
+                              <Text className="text-sm text-gray-700 dark:text-gray-300">
+                                  <strong>What to do:</strong> Click "Fetch Consent Details" to get the Azure consent URL.
+                                  Open it in Azure Portal, grant permissions to the Snowflake app, then return here.
+                              </Text>
+                          </div>
 
                           {azureStorageDetailsFetched ? (
                               <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800 p-5 rounded-lg space-y-3 shadow-md">
@@ -746,7 +837,7 @@ export default function DataSourceConnectionPage() {
                               </>
                           )}
                           {(azureNotificationIntegrationCreated || !showAzureNotificationOption) && (
-                              <Button type="button" onClick={() => handleAzureSubmit({ preventDefault: () => {} } as FormEvent)}
+                              <Button type="button" onClick={handleAzureNextStep}
                                   className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
                                   Continue
                               </Button>
@@ -1064,142 +1155,203 @@ export default function DataSourceConnectionPage() {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
 
-                    {/* Active Connections */}
+                    {/* Active Connections - Tab-Based View */}
                     {activeConnections.length > 0 && (
                         <div className="mb-12">
-                            <h3 className="text-xl font-semibold text-slate-900 dark:text-white mb-6 flex items-center">
-                                <Database className="h-6 w-6 mr-2 text-green-600" />
-                                Active Connections ({activeConnections.length})
-                            </h3>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {activeConnections.map((conn) => (
-                                    <div
-                                        key={conn.id}
-                                        className="group relative rounded-xl border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20 p-6 transition-all duration-300 hover:shadow-lg"
-                                    >
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div className="flex items-center space-x-3 flex-1 min-w-0">
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
-                                                    <Image
-                                                        src={logos[conn.provider]}
-                                                        alt={conn.provider}
-                                                        width={24}
-                                                        height={24}
-                                                    />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm">
-                                                        {conn.name}
-                                                    </h4>
-                                                    <Text className="text-xs text-gray-500 dark:text-gray-400">
-                                                        {new Date(conn.connected_at).toLocaleDateString()}
-                                                    </Text>
-                                                </div>
-                                            </div>
+                            <div className="flex items-center justify-between mb-6">
+                                <h3 className="text-xl font-semibold text-slate-900 dark:text-white flex items-center">
+                                    <Database className="h-6 w-6 mr-2 text-green-600" />
+                                    Connected Data Sources
+                                </h3>
+                                <Badge className="bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 border border-green-300 dark:border-green-700">
+                                    {activeConnections.length} Active
+                                </Badge>
+                            </div>
+
+                            {/* Tab Navigation */}
+                            <div className="border-b border-slate-200 dark:border-slate-700 mb-6">
+                                <div className="flex space-x-1 overflow-x-auto">
+                                    {activeConnections.map((conn) => (
+                                        <button
+                                            key={conn.id}
+                                            onClick={() => browseConnection(conn)}
+                                            className={`relative px-6 py-3 text-sm font-medium transition-all duration-200 whitespace-nowrap flex items-center space-x-2 border-b-2 ${
+                                                connectedProvider === conn.provider
+                                                    ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20'
+                                                    : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                                            }`}
+                                        >
+                                            <Image
+                                                src={logos[conn.provider]}
+                                                alt={conn.provider}
+                                                width={20}
+                                                height={20}
+                                                className="opacity-80"
+                                            />
+                                            <span>{conn.name}</span>
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     removeConnection(conn.id);
                                                     toast.success('Connection removed');
                                                 }}
-                                                className="text-red-500 hover:text-red-700 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                className="ml-2 text-red-500 hover:text-red-700 opacity-0 hover:opacity-100 group-hover:opacity-100 transition-opacity"
+                                                title="Remove connection"
                                             >
                                                 <HiOutlineTrash className="h-4 w-4" />
                                             </button>
-                                        </div>
-                                        <div className="space-y-1 mb-3">
-                                            {conn.details.account && (
-                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
-                                                    Account: {conn.details.account}
-                                                </Text>
-                                            )}
-                                            {conn.details.bucket_name && (
-                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
-                                                    Bucket: {conn.details.bucket_name}
-                                                </Text>
-                                            )}
-                                            {conn.details.tenant_id && (
-                                                <Text className="text-xs text-gray-600 dark:text-gray-400">
-                                                    Tenant: {conn.details.tenant_id}
-                                                </Text>
-                                            )}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Tab Content - Connection Details */}
+                            <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-slate-700">
+                                <div className="space-y-4">
+                                    <div className="flex items-start justify-between">
+                                        <div>
+                                            <h4 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">
+                                                Quick Access
+                                            </h4>
+                                            <Text className="text-sm text-slate-600 dark:text-slate-400">
+                                                Click on a connection tab above to browse its stages and files
+                                            </Text>
                                         </div>
                                         <Button
-                                            onClick={() => browseConnection(conn)}
-                                            className="w-full bg-green-600 hover:bg-green-700 text-white text-sm py-2"
+                                            onClick={() => setShowAddConnection(!showAddConnection)}
+                                            className="bg-blue-600 hover:bg-blue-700 text-white"
                                         >
-                                            <Eye className="h-4 w-4 mr-2" />
-                                            Browse
+                                            <HiOutlineCloudArrowUp className="h-4 w-4 mr-2" />
+                                            {showAddConnection ? 'Hide' : 'Add Connection'}
                                         </Button>
                                     </div>
-                                ))}
+
+                                    {/* Connection Summary Grid */}
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
+                                        {activeConnections.map((conn) => (
+                                            <div
+                                                key={conn.id}
+                                                className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow cursor-pointer"
+                                                onClick={() => browseConnection(conn)}
+                                            >
+                                                <div className="flex items-center space-x-3 mb-3">
+                                                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600">
+                                                        <Image
+                                                            src={logos[conn.provider]}
+                                                            alt={conn.provider}
+                                                            width={24}
+                                                            height={24}
+                                                        />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <h5 className="font-semibold text-sm text-slate-900 dark:text-white truncate">
+                                                            {conn.name}
+                                                        </h5>
+                                                        <Text className="text-xs text-slate-500 dark:text-slate-400 capitalize">
+                                                            {conn.provider}
+                                                        </Text>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400">
+                                                    {conn.details.account && (
+                                                        <div className="flex items-center">
+                                                            <span className="font-medium mr-1">Account:</span>
+                                                            <span className="truncate">{conn.details.account}</span>
+                                                        </div>
+                                                    )}
+                                                    {conn.details.bucket_name && (
+                                                        <div className="flex items-center">
+                                                            <span className="font-medium mr-1">Bucket:</span>
+                                                            <span className="truncate">{conn.details.bucket_name}</span>
+                                                        </div>
+                                                    )}
+                                                    {conn.details.tenant_id && (
+                                                        <div className="flex items-center">
+                                                            <span className="font-medium mr-1">Tenant:</span>
+                                                            <span className="truncate">{conn.details.tenant_id}</span>
+                                                        </div>
+                                                    )}
+                                                    <div className="flex items-center text-green-600 dark:text-green-400 mt-2">
+                                                        <div className="h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
+                                                        <span>Connected {new Date(conn.connected_at).toLocaleDateString()}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
+
                             <div className="mt-6 border-t border-slate-200 dark:border-slate-700"></div>
                         </div>
                     )}
 
-                    {/* Header */}
-                    <div className="space-y-6 text-center mb-12">
-                        <div className="mb-8 inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 shadow-2xl shadow-blue-500/25">
-                            <Database className="h-10 w-10 text-white" />
-                        </div>
-                        <h2 className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-4xl font-bold text-transparent dark:from-white dark:via-slate-200 dark:to-slate-300">
-                            {activeConnections.length > 0 ? 'Add Another Connection' : 'Choose Your Data Platform'}
-                        </h2>
-                        <p className="mx-auto max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-400">
-                            Select a cloud data platform to establish secure, high-performance connections for your analytics workflows
-                        </p>
-                    </div>
-
-                    {/* Data Source Cards */}
-                    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-                        {dataSources.map((source) => (
-                            <DataSourceCard
-                                key={source.id}
-                                name={source.name}
-                                icon={source.icon}
-                                description={source.description}
-                                isSelected={selectedSource === source.id}
-                                onClick={() => handleSourceSelect(source.id)}
-                            />
-                        ))}
-                    </div>
-
-                    {/* Features */}
-                    <div className="mx-auto mt-16 grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-3">
-                        {[
-                            {
-                                icon: <HiOutlineCloudArrowUp className="h-6 w-6" />,
-                                title: 'Secure Upload',
-                                description: 'End-to-end encryption for all data transfers',
-                            },
-                            {
-                                icon: <HiOutlineShieldCheck className="h-6 w-6" />,
-                                title: 'Compliance Ready',
-                                description: 'GDPR, SOC 2, and other compliance standards',
-                            },
-                            {
-                                icon: <Database className="h-6 w-6" />,
-                                title: 'Real-time Sync',
-                                description: 'Automatic data synchronization and updates',
-                            },
-                        ].map((feature, index) => (
-                            <div
-                                key={index}
-                                className="rounded-xl border border-slate-200/50 bg-white/30 p-6 text-center backdrop-blur-sm dark:border-slate-700/50 dark:bg-slate-800/30"
-                            >
-                                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                                    {feature.icon}
+                    {/* Header - Conditionnel selon si on a des connexions */}
+                    {(activeConnections.length === 0 || showAddConnection) && (
+                        <>
+                            <div className="space-y-6 text-center mb-12">
+                                <div className="mb-8 inline-flex h-20 w-20 items-center justify-center rounded-3xl bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 shadow-2xl shadow-blue-500/25">
+                                    <Database className="h-10 w-10 text-white" />
                                 </div>
-                                <h3 className="mb-2 font-semibold text-slate-900 dark:text-white">
-                                    {feature.title}
-                                </h3>
-                                <p className="text-sm text-slate-600 dark:text-slate-400">
-                                    {feature.description}
+                                <h2 className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-700 bg-clip-text text-4xl font-bold text-transparent dark:from-white dark:via-slate-200 dark:to-slate-300">
+                                    {activeConnections.length > 0 ? 'Add Another Connection' : 'Choose Your Data Platform'}
+                                </h2>
+                                <p className="mx-auto max-w-2xl text-lg leading-relaxed text-slate-600 dark:text-slate-400">
+                                    Select a cloud data platform to establish secure, high-performance connections for your analytics workflows
                                 </p>
                             </div>
-                        ))}
-                    </div>
+
+                            {/* Data Source Cards */}
+                            <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                                {dataSources.map((source) => (
+                                    <DataSourceCard
+                                        key={source.id}
+                                        name={source.name}
+                                        icon={source.icon}
+                                        description={source.description}
+                                        isSelected={selectedSource === source.id}
+                                        onClick={() => handleSourceSelect(source.id)}
+                                    />
+                                ))}
+                            </div>
+
+                            {/* Features */}
+                            <div className="mx-auto mt-16 grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-3">
+                                {[
+                                    {
+                                        icon: <HiOutlineCloudArrowUp className="h-6 w-6" />,
+                                        title: 'Secure Upload',
+                                        description: 'End-to-end encryption for all data transfers',
+                                    },
+                                    {
+                                        icon: <HiOutlineShieldCheck className="h-6 w-6" />,
+                                        title: 'Compliance Ready',
+                                        description: 'GDPR, SOC 2, and other compliance standards',
+                                    },
+                                    {
+                                        icon: <Database className="h-6 w-6" />,
+                                        title: 'Real-time Sync',
+                                        description: 'Automatic data synchronization and updates',
+                                    },
+                                ].map((feature, index) => (
+                                    <div
+                                        key={index}
+                                        className="rounded-xl border border-slate-200/50 bg-white/30 p-6 text-center backdrop-blur-sm dark:border-slate-700/50 dark:bg-slate-800/30"
+                                    >
+                                        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                            {feature.icon}
+                                        </div>
+                                        <h3 className="mb-2 font-semibold text-slate-900 dark:text-white">
+                                            {feature.title}
+                                        </h3>
+                                        <p className="text-sm text-slate-600 dark:text-slate-400">
+                                            {feature.description}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </>
+                    )}
                 </div>
             );
         }
@@ -1236,10 +1388,27 @@ export default function DataSourceConnectionPage() {
         return null;
     };
 
+    // Show loading state while checking authentication
+    if (status === 'loading') {
+        return (
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="text-center">
+                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
+                    <p className="text-slate-600 dark:text-slate-400">Loading...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // Don't render anything if unauthenticated or no permission (redirect will happen in useEffect)
+    if (status === 'unauthenticated' || !canManageConnections) {
+        return null;
+    }
+
     return (
         <div className="space-y-8">
             <Breadcrumb />
-            
+
             {/* Page Header */}
             <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">

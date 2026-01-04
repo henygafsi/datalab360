@@ -13,7 +13,14 @@ import Filters from './filters';
 import Table from '@core/components/table';
 import { toast } from 'react-hot-toast';
 import { Checkbox, Button } from 'rizzui';
-import { MODULES } from '@/config/modules';
+import {
+  getAllModules,
+  expandModulesToIncludeSubModules,
+  collapseSubModulesToParents,
+  findModuleByApiName,
+  type ModuleConfig,
+  type SubModuleConfig
+} from '@/config/modules';
 import {
   PiUserCircleDuotone,
   PiMapPinLineDuotone,
@@ -24,11 +31,18 @@ import {
   PiStorefrontDuotone,
   PiBinocularsDuotone,
   PiBrainDuotone,
+  PiGridFourDuotone,
+  PiGlobeDuotone,
+  PiCubeDuotone,
+  PiChatCircleDuotone,
 } from 'react-icons/pi';
 import { IconType } from 'react-icons/lib';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import { GrantsMatrixSkeleton } from '@/components/ui/TableSkeleton';
+import { isAuthClientError, redirectToLogin } from '@/lib/api-client';
 
 type RoleGrant = { role_name: string; modules: string[] };
 
@@ -39,25 +53,37 @@ export type GrantTableDataType = {
   roles: string[];
 };
 
-// Module icons mapping
+// Module icons mapping - includes both main modules and sub-modules
 const MODULE_ICONS: Record<number, IconType> = {
-  1: PiUserCircleDuotone,
-  2: PiMapPinLineDuotone,
-  3: PiShootingStarDuotone,
-  4: PiChartBarDuotone,
-  5: PiCheckCircleDuotone,
-  6: PiUserGearDuotone,
-  7: PiStorefrontDuotone,
-  8: PiShootingStarDuotone,
-  9: PiBinocularsDuotone,
-  10: PiBrainDuotone,
+  1: PiUserCircleDuotone,    // Connect Data
+  2: PiMapPinLineDuotone,    // Mapping
+  3: PiShootingStarDuotone,  // Workflow
+  4: PiChartBarDuotone,      // Business Reporting
+  5: PiCheckCircleDuotone,   // Data Health
+  6: PiUserGearDuotone,      // Governance
+  7: PiStorefrontDuotone,    // KPI's Store
+  8: PiShootingStarDuotone,  // DaRquest / DAC
+  9: PiBinocularsDuotone,    // Observability
+  10: PiBrainDuotone,        // AI Intelligence
+  11: PiGridFourDuotone,     // Dashboard
+  12: PiGlobeDuotone,        // Explore & Design
+  13: PiUserCircleDuotone,   // Account Overview
 };
 
-// Extend MODULES with icons for this component
-const ALL_MODULES = MODULES.map((m) => ({
-  ...m,
-  icon: MODULE_ICONS[m.id] || PiUserCircleDuotone,
-}));
+// Sub-module icons mapping (apiName → icon)
+const SUB_MODULE_ICONS: Record<string, IconType> = {
+  'cortex': PiBrainDuotone,
+  'semantic_models': PiCubeDuotone,
+  'cortex_chat': PiChatCircleDuotone,
+};
+
+// Get ONLY visible modules with icons for this component (excludes hidden modules)
+const ALL_MODULES = getAllModules()
+  .filter(m => m.visible !== false)  // Only show visible modules in the edit modal
+  .map((m) => ({
+    ...m,
+    icon: MODULE_ICONS[m.id] || PiUserCircleDuotone,
+  }));
 
 export default function GrantsTable() {
   const [loading, setLoading] = useState(true);
@@ -85,14 +111,51 @@ export default function GrantsTable() {
     setError(null);
 
     try {
+      console.log('[Role Grants] 🔄 Starting data fetch...');
+      const startTime = Date.now();
+
       const roles = await getRoles();
+
+      const fetchTime = Date.now() - startTime;
+      console.log(`[Role Grants] ✅ Data fetched successfully in ${fetchTime}ms`);
+      console.log(`[Role Grants]   - Roles: ${roles.length}`);
+
       if (mountedRef.current) {
         setTableData(roles);
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('[Grants Table] ❌ Error fetching grants:', err);
+      console.error('[Grants Table] Error type:', err.name);
+      console.error('[Grants Table] Error code:', err.code);
+      console.error('[Grants Table] Error message:', err.message);
+
+      // Only redirect to login for authentication errors (401)
+      // DO NOT redirect for timeout/network errors - show error message instead
+      if (
+        isAuthClientError(err) ||
+        err.name === 'AuthenticationError' ||
+        err.response?.status === 401
+      ) {
+        console.warn('[Grants Table] Authentication error detected, redirecting to login...', err.name);
+        redirectToLogin();
+        return;
+      }
+
+      // For timeout/network/server errors, show helpful error message
       if (mountedRef.current) {
-        setError('Failed to load roles and modules');
+        let errorMessage = 'Failed to load grants data. ';
+
+        if (err.name === 'TimeoutError' || err.code === 'ECONNABORTED') {
+          errorMessage += 'Backend is taking too long (>30s). Please check backend performance.';
+        } else if (err.name === 'NetworkError') {
+          errorMessage += 'Cannot connect to backend. Please check if backend is running.';
+        } else if (err.response?.status === 500) {
+          errorMessage += 'Backend server error. Please check backend logs.';
+        } else {
+          errorMessage += err.message || 'Unknown error';
+        }
+
+        setError(errorMessage);
       }
     } finally {
       if (mountedRef.current) {
@@ -124,17 +187,35 @@ export default function GrantsTable() {
               if (!modules?.length) {
                 return <span className="italic text-gray-400">No access</span>;
               }
+
+              // Expand modules to include sub-modules for display
+              const expandedModules = expandModulesToIncludeSubModules(modules);
+
               return (
                 <div className="flex flex-wrap gap-1.5">
-                  {modules.map((m) => {
-                    const moduleInfo = ALL_MODULES.find(mod => mod.name === m);
+                  {expandedModules.map((apiName) => {
+                    // Find module or sub-module by apiName
+                    const item = findModuleByApiName(apiName);
+
+                    // Determine icon
+                    let Icon: IconType | undefined;
+                    if (item) {
+                      if ('id' in item && typeof item.id === 'number') {
+                        // Main module
+                        Icon = MODULE_ICONS[item.id];
+                      } else {
+                        // Sub-module
+                        Icon = SUB_MODULE_ICONS[apiName];
+                      }
+                    }
+
                     return (
                       <span
-                        key={m}
+                        key={apiName}
                         className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
                       >
-                        {moduleInfo?.icon && <moduleInfo.icon className="h-3 w-3" />}
-                        {m}
+                        {Icon && <Icon className="h-3 w-3" />}
+                        {item?.name || apiName}
                       </span>
                     );
                   })}
@@ -158,7 +239,8 @@ export default function GrantsTable() {
     return () => {
       mountedRef.current = false;
     };
-  }, [fetchGrantsData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Only run on mount
 
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
@@ -166,7 +248,8 @@ export default function GrantsTable() {
       console.log('[SSE] Grants cache invalidated - refreshing data...');
       fetchGrantsData(true);
     }
-  }, [wasInvalidated, loading, fetchGrantsData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wasInvalidated]); // Only depend on wasInvalidated, not loading or fetchGrantsData
 
   /* Table instance */
   const table = useReactTable({
@@ -186,8 +269,13 @@ export default function GrantsTable() {
     );
   };
 
-  if (loading) return <div className="p-4">Loading roles…</div>;
-  if (error)   return <div className="p-4 text-red-500">{error}</div>;
+  if (loading) {
+    return <GrantsMatrixSkeleton />;
+  }
+
+  if (error) {
+    return <ErrorDisplay error={error} onRetry={() => fetchGrantsData()} context="grants" />;
+  }
 
   /* ------------------------------------------------------------------ */
   /* 2. Render                                                           */
@@ -224,16 +312,71 @@ export default function GrantsTable() {
           onClose={() => setModal({ open: false })}
           onSave={async (newModules) => {
             try {
-              await updateGrants(modal.role!.role_name, newModules);
-              // optimistic update UI
-              setTableData((prev) =>
-                prev.map((r) =>
-                  r.role_name === modal.role!.role_name ? { ...r, modules: newModules } : r
-                )
-              );
-              toast.success(`Updated modules for ${modal.role!.role_name}`);
+              // Collapse sub-modules to parent before sending to backend
+              // e.g., ["cortex", "semantic_models"] → ["intelligent"]
+              const collapsedModules = collapseSubModulesToParents(newModules);
+
+              console.log('[Grants] ========== SAVE STARTED ==========');
+              console.log('[Grants] Selected modules (UI):', newModules);
+              console.log('[Grants] Collapsed modules (API):', collapsedModules);
+              console.log('[Grants] Role name:', modal.role!.role_name);
+
+              const roleName = modal.role!.role_name;
+
+              // Step 1: Send update to backend
+              console.log('[Grants] Step 1: Sending update to backend...');
+              const updateResponse = await updateGrants(roleName, collapsedModules);
+              console.log('[Grants] Step 1: Backend response:', updateResponse.data);
+
+              // Step 2: Refresh data from backend
+              console.log('[Grants] Step 2: Refreshing data from backend...');
+              const refreshStartTime = Date.now();
+              await fetchGrantsData();
+              console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
+
+              // Step 3: Verify what we got back (after state update)
+              setTimeout(() => {
+                setTableData((currentData) => {
+                  const updatedRole = currentData.find(r => r.role_name === roleName);
+                  console.log('[Grants] Step 3: Verification after refresh');
+                  console.log('[Grants]   - Expected modules:', collapsedModules);
+                  console.log('[Grants]   - Actual modules from backend:', updatedRole?.modules);
+
+                  const expected = collapsedModules.sort();
+                  const actual = (updatedRole?.modules || []).sort();
+                  const match = JSON.stringify(expected) === JSON.stringify(actual);
+
+                  console.log('[Grants]   - Match:', match);
+
+                  if (!match) {
+                    console.error('[Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
+                    console.error('[Grants]   Expected:', expected);
+                    console.error('[Grants]   Got:', actual);
+                    console.error('[Grants]   → Backend returned 200 OK but did not persist the data!');
+                    console.error('[Grants]   → Check backend logs for database commit issues');
+                  } else {
+                    console.log('[Grants] ✅ Data persisted correctly');
+                  }
+
+                  return currentData;
+                });
+              }, 1000);
+
+              // Show success toast
+              if (collapsedModules.length === 0) {
+                toast.success(`✅ Removed all modules from ${roleName}`);
+              } else {
+                toast.success(`✅ Updated modules for ${roleName}`);
+              }
+
+              console.log('[Grants] ========== SAVE COMPLETED ==========');
               setModal({ open: false });
             } catch (err: any) {
+              console.error('[Grants] ========== SAVE FAILED ==========');
+              console.error('[Grants] Error:', err);
+              console.error('[Grants] Error name:', err.name);
+              console.error('[Grants] Error message:', err.message);
+              console.error('[Grants] Error response:', err.response?.data);
               toast.error(err.message || 'Failed to update modules');
             }
           }}
@@ -255,19 +398,64 @@ function EditModal({
   onClose: () => void;
   onSave: (mods: string[]) => Promise<void>;
 }) {
-  const [selectedModules, setSelectedModules] = useState<string[]>(role.modules || []);
+  // Expand role modules to include sub-modules for UI display
+  const initialModules = expandModulesToIncludeSubModules(role.modules || []);
+  console.log('[EditModal] Initial state:', {
+    roleModules: role.modules,
+    expandedModules: initialModules
+  });
+  const [selectedModules, setSelectedModules] = useState<string[]>(initialModules);
   const [saving, setSaving] = useState(false);
 
-  const toggleModule = (moduleName: string) => {
+  const toggleModule = (module: ModuleConfig) => {
+    const apiName = module.apiName;
+    const isCurrentlySelected = selectedModules.includes(apiName);
+
+    setSelectedModules((prev) => {
+      let updated = [...prev];
+
+      if (isCurrentlySelected) {
+        // Deselect main module AND all its sub-modules
+        updated = updated.filter((m) => m !== apiName);
+        if (module.subModules) {
+          module.subModules.forEach((sub) => {
+            updated = updated.filter((m) => m !== sub.apiName);
+          });
+        }
+      } else {
+        // Select main module AND all its sub-modules
+        updated.push(apiName);
+        if (module.subModules) {
+          module.subModules.forEach((sub) => {
+            if (!updated.includes(sub.apiName)) {
+              updated.push(sub.apiName);
+            }
+          });
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const toggleSubModule = (subModule: SubModuleConfig) => {
     setSelectedModules((prev) =>
-      prev.includes(moduleName)
-        ? prev.filter((m) => m !== moduleName)
-        : [...prev, moduleName]
+      prev.includes(subModule.apiName)
+        ? prev.filter((m) => m !== subModule.apiName)
+        : [...prev, subModule.apiName]
     );
   };
 
   const selectAll = () => {
-    setSelectedModules(ALL_MODULES.map((m) => m.name));
+    // Select all main modules and their sub-modules
+    const allApiNames: string[] = [];
+    ALL_MODULES.forEach((m) => {
+      allApiNames.push(m.apiName);
+      if (m.subModules) {
+        m.subModules.forEach((sub) => allApiNames.push(sub.apiName));
+      }
+    });
+    setSelectedModules(allApiNames);
   };
 
   const deselectAll = () => {
@@ -277,6 +465,7 @@ function EditModal({
   const handleSave = async () => {
     setSaving(true);
     try {
+      // Send selected modules (will be collapsed to parents by parent component)
       await onSave(selectedModules);
     } finally {
       setSaving(false);
@@ -322,45 +511,99 @@ function EditModal({
           </span>
         </div>
 
-        {/* Module List */}
+        {/* Module List - Hierarchical display */}
         <div className="max-h-[400px] space-y-2 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-900/50">
           {ALL_MODULES.map((module) => {
             const Icon = module.icon;
-            const isSelected = selectedModules.includes(module.name);
+            const isMainSelected = selectedModules.includes(module.apiName);
+
             return (
-              <label
-                key={module.id}
-                className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all ${
-                  isSelected
-                    ? 'border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20'
-                    : 'border-transparent bg-white hover:border-slate-300 dark:bg-slate-800 dark:hover:border-slate-600'
-                }`}
-              >
-                <Checkbox
-                  checked={isSelected}
-                  onChange={() => toggleModule(module.name)}
-                  className="h-5 w-5"
-                />
-                <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
-                  isSelected
-                    ? 'bg-blue-100 text-blue-600 dark:bg-blue-800 dark:text-blue-300'
-                    : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
-                }`}>
-                  <Icon className="h-5 w-5" />
-                </div>
-                <div className="flex-1">
-                  <div className={`font-medium ${
-                    isSelected
-                      ? 'text-blue-900 dark:text-blue-100'
-                      : 'text-slate-700 dark:text-slate-300'
+              <div key={module.id} className="space-y-1">
+                {/* Main Module */}
+                <label
+                  className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-all ${
+                    isMainSelected
+                      ? 'border-blue-500 bg-blue-50 dark:border-blue-500 dark:bg-blue-900/20'
+                      : 'border-transparent bg-white hover:border-slate-300 dark:bg-slate-800 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <Checkbox
+                    checked={isMainSelected}
+                    onChange={() => toggleModule(module)}
+                    className="h-5 w-5"
+                  />
+                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${
+                    isMainSelected
+                      ? 'bg-blue-100 text-blue-600 dark:bg-blue-800 dark:text-blue-300'
+                      : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
                   }`}>
-                    {module.name}
+                    <Icon className="h-5 w-5" />
                   </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    {module.description}
+                  <div className="flex-1">
+                    <div className={`font-medium ${
+                      isMainSelected
+                        ? 'text-blue-900 dark:text-blue-100'
+                        : 'text-slate-700 dark:text-slate-300'
+                    }`}>
+                      {module.name}
+                      {module.subModules && module.subModules.length > 0 && (
+                        <span className="ml-2 text-xs text-slate-400">
+                          ({module.subModules.length} sub-modules)
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">
+                      {module.description}
+                    </div>
                   </div>
-                </div>
-              </label>
+                </label>
+
+                {/* Sub-Modules (indented) */}
+                {module.subModules && module.subModules.length > 0 && (
+                  <div className="ml-12 space-y-1">
+                    {module.subModules.map((subModule) => {
+                      const SubIcon = SUB_MODULE_ICONS[subModule.apiName] || PiCubeDuotone;
+                      const isSubSelected = selectedModules.includes(subModule.apiName);
+
+                      return (
+                        <label
+                          key={subModule.id}
+                          className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 text-sm transition-all ${
+                            isSubSelected
+                              ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-900/20'
+                              : 'border-transparent bg-white hover:border-slate-300 dark:bg-slate-800 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <Checkbox
+                            checked={isSubSelected}
+                            onChange={() => toggleSubModule(subModule)}
+                            className="h-4 w-4"
+                          />
+                          <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+                            isSubSelected
+                              ? 'bg-indigo-100 text-indigo-600 dark:bg-indigo-800 dark:text-indigo-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400'
+                          }`}>
+                            <SubIcon className="h-4 w-4" />
+                          </div>
+                          <div className="flex-1">
+                            <div className={`font-medium ${
+                              isSubSelected
+                                ? 'text-indigo-900 dark:text-indigo-100'
+                                : 'text-slate-700 dark:text-slate-300'
+                            }`}>
+                              {subModule.name}
+                            </div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">
+                              {subModule.description}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

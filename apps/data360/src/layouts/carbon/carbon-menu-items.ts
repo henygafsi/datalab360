@@ -49,10 +49,11 @@ export interface MenuItemsType {
 }
 
 export const carbonMenuItems: MenuItemsType[] = [
+  // 1. Connect Data
   {
     id: 1,
-    name: 'Connexion',
-    title: 'Connexion',
+    name: 'Connect Data',
+    title: 'Connect Data',
     icon: PiUserCircleDuotone,
     menuItems: [
       {
@@ -62,22 +63,23 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ]
   },
+  // 2. Explore & Design
   {
-    id: 2,
-    name: 'Mapping',
-    title: 'Mapping',
-    icon: PiMapPinLineDuotone,
+    id: 12,
+    name: 'Explore & Design',
+    title: 'Explore & Design',
+    icon: PiGlobeDuotone,
     menuItems: [
       {
-        name: 'View Mapping',
-        href: routes.mapping.viewMap,
-        icon: PiMapPinLineDuotone,
+        name: 'Explore Design',
+        href: routes.exploreDesign.view,
+        icon: PiGlobeDuotone,
       },
     ]
   },
-  // Workflow menu item moved here, under Mapping
+  // 3. Workflow
   {
-    id: 3, // Retaining the unique ID
+    id: 3,
     name: 'Workflow',
     title: 'Workflow',
     icon: PiShootingStarDuotone,
@@ -89,36 +91,11 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  {
-    id: 4,
-    name: 'BI Reporting',
-    title: 'BI Reporting',
-    icon: PiChartBarDuotone,
-    menuItems: [
-      {
-        name: 'View Reporting',
-        href: routes.biReporting.viewReporting,
-        icon: PiCurrencyDollarDuotone,
-      },
-    ],
-  },
-  {
-    id: 5,
-    name: 'Data Quality',
-    title: 'Data Quality',
-    icon: PiCheckCircleDuotone,
-    menuItems: [
-      {
-        name: 'Quality Reports',
-        href: routes.dataQuality.viewReports,
-        icon: PiCheckCircleDuotone,
-      },
-    ],
-  },
+  // 4. Governance
   {
     id: 6,
-    name: 'Gouvernance',
-    title: 'Gouvernance',
+    name: 'Governance',
+    title: 'Governance',
     icon: PiUserGearDuotone,
     menuItems: [
       {
@@ -149,49 +126,25 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
+  // 5. Business Reporting
   {
-    id: 7,
-    name: "KPI's Store",
-    title: "KPI's Store",
-    icon: PiStorefrontDuotone,
+    id: 4,
+    name: 'Business Reporting',
+    title: 'Business Reporting',
+    icon: PiChartBarDuotone,
     menuItems: [
       {
-        name: 'View KPI',
-        href: routes.kpiStore.view,
-        icon: PiChartBarDuotone,
+        name: 'BI Reporting',
+        href: routes.biReporting.viewReporting,
+        icon: PiCurrencyDollarDuotone,
       },
     ],
   },
-  {
-    id: 8,
-    name: 'DaRquest / DAC',
-    title: 'DaRquest / DAC',
-    icon: PiShootingStarDuotone,
-    menuItems: [
-      {
-        name: 'Request Data',
-        href: routes.daRquest.view,
-        icon: PiShootingStarDuotone,
-      },
-    ],
-  },
-  {
-    id: 9,
-    name: 'Observability',
-    title: 'Observability',
-    icon: PiBinocularsDuotone,
-    menuItems: [
-      {
-        name: 'System Status',
-        href: routes.observability.systemStatus,
-        icon: PiBinocularsDuotone,
-      },
-    ],
-  },
+  // 6. AI Intelligence
   {
     id: 10,
-    name: 'Intelligent',
-    title: 'Intelligent',
+    name: 'AI Intelligence',
+    title: 'AI Intelligence',
     icon: PiBrainDuotone,
     menuItems: [
       {
@@ -208,6 +161,22 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
+  // 7. Data Health
+  {
+    id: 5,
+    name: 'Data Health',
+    title: 'Data Health',
+    icon: PiCheckCircleDuotone,
+    menuItems: [
+      {
+        name: 'Quality Reports',
+        href: routes.dataQuality.viewReports,
+        icon: PiCheckCircleDuotone,
+      },
+    ],
+  },
+  // Hidden items (commented out - users can still access via direct URL)
+  // Mapping, KPI's Store, DaRquest/DAC, and Observability have been removed from the menu
 ];
 
 export const carbonMenuItemAtom = atom(carbonMenuItems[0]);

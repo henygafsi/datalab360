@@ -4,9 +4,10 @@
 
 import DateCell from '@core/ui/date-cell';
 import { createColumnHelper } from '@tanstack/react-table';
-import { Checkbox, Text } from 'rizzui';
+import { Checkbox, Text, Button, Tooltip } from 'rizzui';
 import TableRowActionGroup from '@core/components/table-utils/table-row-action-group';
 import { UserTableDataType } from './table';
+import { Power, PowerOff } from 'lucide-react';
 
 const columnHelper = createColumnHelper<UserTableDataType>();
 
@@ -73,20 +74,49 @@ export const userListColumns = [
   }),
   columnHelper.display({
     id: 'actions',
-    size: 120,
+    size: 180,
+    header: 'Actions',
     cell: ({
       row,
       table: {
         options: { meta },
       },
-    }) => (
-      <TableRowActionGroup
-        editUrl={`/users/edit/${row.original.id}`} // Placeholder URL
-        viewUrl={`/users/view/${row.original.id}`} // Placeholder URL
-        onDelete={() => {
-          meta?.handleDeleteRow?.(row.original); // Calls the handleDeleteRow defined in UsersTable
-        }}
-      />
-    ),
+    }) => {
+      const isDisabled = row.original.status === 'Disabled';
+      return (
+        <div className="flex items-center gap-2">
+          <Tooltip
+            content={isDisabled ? 'Activer l\'utilisateur' : 'Désactiver l\'utilisateur'}
+            placement="top"
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              className={`px-2 ${
+                isDisabled
+                  ? 'border-green-500 text-green-600 hover:bg-green-50'
+                  : 'border-amber-500 text-amber-600 hover:bg-amber-50'
+              }`}
+              onClick={() => {
+                meta?.handleToggleDisabled?.(row.original);
+              }}
+            >
+              {isDisabled ? (
+                <Power className="h-4 w-4" />
+              ) : (
+                <PowerOff className="h-4 w-4" />
+              )}
+            </Button>
+          </Tooltip>
+          <TableRowActionGroup
+            editUrl={`/gouvernance/users/edit/${row.original.id}`}
+            viewUrl={`/gouvernance/users/view/${row.original.id}`}
+            onDelete={() => {
+              meta?.handleDeleteRow?.(row.original);
+            }}
+          />
+        </div>
+      );
+    },
   }),
 ];

@@ -62,6 +62,7 @@ export interface RLSPolicy {
   table_name?: string;
   description?: string;
   created_at?: string;
+  granted_roles?: string[];
 }
 
 export interface CreateRLSPolicyRequest {
@@ -90,6 +91,7 @@ export interface MaskingPolicy {
   column_type?: string;
   masking_expression?: string;
   created_at?: string;
+  granted_roles?: string[];
 }
 
 export interface CreateMaskingPolicyRequest {
@@ -135,6 +137,7 @@ export interface NetworkPolicy {
   comment?: string;
   created_at: string;
   updated_at: string;
+  granted_roles?: string[];
 }
 
 export interface CreateNetworkPolicyRequest {
@@ -186,6 +189,7 @@ export interface PasswordPolicy {
   lockout_time_mins: number;
   is_default?: boolean;
   created_at?: string;
+  granted_roles?: string[];
 }
 
 export interface CreatePasswordPolicyRequest {
@@ -210,6 +214,7 @@ export interface SessionPolicy {
   session_ui_idle_timeout_mins: number;
   is_default?: boolean;
   created_at?: string;
+  granted_roles?: string[];
 }
 
 export interface CreateSessionPolicyRequest {
@@ -1219,6 +1224,7 @@ export interface AggregationPolicy {
   schema: string;
   aggregation_constraint: string;
   created_at?: string;
+  granted_roles?: string[];
 }
 
 export interface CreateAggregationPolicyRequest {
@@ -1464,6 +1470,83 @@ export async function getColumns(database: string, schema: string, table: string
   return columns.map(col => col.column_name);
 }
 
+
+// ============= POLICY-ROLE ASSIGNMENT SERVICES =============
+
+/**
+ * Map frontend policy types to backend policy types
+ * Based on Snowflake policy types: https://docs.snowflake.com/en/sql-reference/sql/create-policy
+ */
+const POLICY_TYPE_MAP: Record<string, string> = {
+  'rls': 'ROW_ACCESS',
+  'masking': 'MASKING',
+  'cls': 'MASKING',  // Column-level security is also masking in Snowflake
+  'network': 'NETWORK',
+  'aggregation': 'AGGREGATION',
+  'authentication': 'AUTHENTICATION',
+  'join': 'JOIN',
+  'packages': 'PACKAGES',
+  'password': 'PASSWORD',
+  'privacy': 'PRIVACY',
+  'projection': 'PROJECTION',
+  'session': 'SESSION',
+  'storage': 'STORAGE_LIFECYCLE',
+};
+
+/**
+ * Assign a policy to multiple roles (or update existing assignments)
+ * This manages which roles have access to a specific policy
+ *
+ * Backend expects: PUT /gouvernance/policies/{policy_type}/{policy_name}/roles
+ * Where policy_type is one of: MASKING, ROW_ACCESS, NETWORK, etc.
+ */
+export async function assignPolicyToRoles(
+  policyName: string,
+  policyType: 'rls' | 'masking' | 'cls' | 'network' | 'aggregation' | 'authentication' | 'join' | 'packages' | 'password' | 'privacy' | 'projection' | 'session' | 'storage',
+  roles: string[]
+): Promise<{
+  message: string;
+  policy_name: string;
+  added: string[];
+  removed: string[];
+  verified_roles: string[];
+}> {
+  const headers = await getAuthHeaders();
+
+  // Map frontend policy type to backend policy type
+  const backendPolicyType = POLICY_TYPE_MAP[policyType] || policyType.toUpperCase();
+
+  console.log('[assignPolicyToRoles] Assigning policy:', policyName);
+  console.log('[assignPolicyToRoles] Policy type:', policyType, '→', backendPolicyType);
+  console.log('[assignPolicyToRoles] Roles:', roles);
+
+  try {
+    const response = await axios.put<StandardResponse<{
+      message: string;
+      policy_name: string;
+      added: string[];
+      removed: string[];
+      verified_roles: string[];
+    }>>(`${POLICIES_API}/${backendPolicyType}/${policyName}/roles`,
+      { roles }, // Send as body
+      { headers }
+    );
+
+    console.log('[assignPolicyToRoles] Response:', response.data);
+
+    return response.data.data;
+  } catch (error: any) {
+    console.error('Assign policy to roles error:', {
+      message: error.response?.data?.message || error.message,
+      detail: error.response?.data?.detail,
+      status: error.response?.status,
+      policyType: backendPolicyType,
+      policyName,
+      roles,
+    });
+    throw error;
+  }
+}
 
 // ============= UTILITY SERVICES =============
 

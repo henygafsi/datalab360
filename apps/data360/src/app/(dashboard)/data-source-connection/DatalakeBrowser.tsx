@@ -1,20 +1,29 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Button, Text } from 'rizzui';
+import { Button, Text, Badge } from 'rizzui';
 import {
-  HiOutlineFolder,
   HiOutlineDocument,
-  HiOutlineArrowLeft
+  HiOutlineArrowLeft,
+  HiOutlineTrash,
+  HiOutlineEye,
+  HiOutlineChevronRight,
+  HiOutlineHome
 } from 'react-icons/hi2';
-import { HiRefresh } from 'react-icons/hi';
+import { HiRefresh, HiViewGrid, HiViewList, HiDownload, HiUpload } from 'react-icons/hi';
+import { Database } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   listSnowflakeStages,
-  listSnowflakeStageFiles
+  listSnowflakeStageFiles,
+  previewStageFile,
+  downloadStageFile,
+  deleteStageFile,
+  uploadStageFile
 } from './connectionServices';
 
 type Provider = 'snowflake' | 'azure' | 'aws';
+type ViewMode = 'grid' | 'table';
 
 interface DatalakeBrowserProps {
   provider: Provider;
@@ -33,22 +42,20 @@ interface StageItem {
 
 export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserProps) {
   const [loading, setLoading] = useState(false);
-  const [stages, setStages] = useState<StageItem[]>([]);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
   const [files, setFiles] = useState<StageItem[]>([]);
-  const [showOnlyValid, setShowOnlyValid] = useState<boolean>(false);
   const [allStages, setAllStages] = useState<StageItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode>('table');
+  const [sortBy, setSortBy] = useState<'name' | 'size' | 'modified'>('name');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [uploading, setUploading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
 
   // Load stages on mount
   useEffect(() => {
     loadStages();
   }, [provider]);
-
-  // Filter stages when filters change
-  useEffect(() => {
-    filterStages();
-  }, [showOnlyValid, searchQuery, allStages]);
 
   const loadStages = async () => {
     setLoading(true);
@@ -56,15 +63,12 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       let stageList: any[] = [];
 
       if (provider === 'snowflake') {
-        // Always use /stages endpoint to get ALL stages
         const response = await listSnowflakeStages();
         stageList = response.stages || [];
       } else if (provider === 'azure') {
-        // TODO: Add Azure container listing
         toast.error('Azure container listing not yet implemented');
         return;
       } else if (provider === 'aws') {
-        // TODO: Add AWS bucket listing
         toast.error('AWS bucket listing not yet implemented');
         return;
       }
@@ -77,14 +81,15 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         error: stage.error,
       }));
 
-      setAllStages(formattedStages);
-      setCurrentStage(null);
-      setFiles([]);
+      // Filter out stages with errors
+      const validStages = formattedStages.filter(s => !s.error);
+      setAllStages(validStages);
 
-      if (formattedStages.length > 0) {
-        toast.success(`Found ${formattedStages.length} total stage(s)`);
-      } else {
-        toast('No stages found', { icon: 'ℹ️' });
+      // Auto-select first valid stage
+      if (validStages.length > 0) {
+        const firstStage = validStages[0].name;
+        setCurrentStage(firstStage);
+        loadStageFiles(firstStage);
       }
     } catch (error: any) {
       toast.error(`Failed to load stages: ${error.message}`);
@@ -92,27 +97,6 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     } finally {
       setLoading(false);
     }
-  };
-
-  const filterStages = () => {
-    let filtered = [...allStages];
-
-    // Filter by validity
-    if (showOnlyValid) {
-      filtered = filtered.filter(stage => !stage.error);
-    }
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(stage =>
-        stage.name.toLowerCase().includes(query) ||
-        stage.database_name?.toLowerCase().includes(query) ||
-        stage.schema_name?.toLowerCase().includes(query)
-      );
-    }
-
-    setStages(filtered);
   };
 
   const loadStageFiles = async (stageName: string) => {
@@ -124,11 +108,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         const response = await listSnowflakeStageFiles(stageName);
         fileList = response.files || [];
       } else if (provider === 'azure') {
-        // TODO: Add Azure blob listing
         toast.error('Azure blob listing not yet implemented');
         return;
       } else if (provider === 'aws') {
-        // TODO: Add AWS S3 object listing
         toast.error('AWS S3 object listing not yet implemented');
         return;
       }
@@ -149,26 +131,232 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     }
   };
 
-  const handleStageClick = (stage: StageItem) => {
-    if (stage.error) {
-      toast.error(`Cannot browse stage: ${stage.error}`);
-      return;
-    }
-    setCurrentStage(stage.name);
-    loadStageFiles(stage.name);
+  const handleStageChange = (newStageName: string) => {
+    setCurrentStage(newStageName);
+    setSearchQuery('');
+    loadStageFiles(newStageName);
   };
 
-  const handleBackToStages = () => {
-    setCurrentStage(null);
-    setFiles([]);
+  const handlePreview = async (file: StageItem) => {
+    if (!currentStage) return;
+
+    setLoading(true);
+    try {
+      const previewData = await previewStageFile(currentStage, file.name, 100);
+
+      // TODO: Show preview in modal (for now, show success toast)
+      toast.success(`Preview loaded: ${previewData.preview_limit} rows from ${previewData.file_name}`);
+      console.log('Preview data:', previewData);
+
+      // You can add a modal here to display the data in a table
+    } catch (error: any) {
+      toast.error(`Failed to preview: ${error.message}`);
+      console.error('Preview error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async (file: StageItem) => {
+    if (!currentStage) return;
+
+    setLoading(true);
+    toast('Downloading file...', { icon: '⬇️' });
+
+    try {
+      await downloadStageFile(currentStage, file.name);
+      toast.success(`Downloaded: ${file.name}`);
+    } catch (error: any) {
+      toast.error(`Failed to download: ${error.message}`);
+      console.error('Download error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDelete = async (file: StageItem) => {
+    if (!currentStage) return;
+
+    const confirmed = confirm(
+      `⚠️ WARNING: This action is irreversible.\n\nAre you sure you want to delete "${file.name}"?`
+    );
+
+    if (!confirmed) return;
+
+    setLoading(true);
+    try {
+      await deleteStageFile(currentStage, file.name);
+      toast.success(`Deleted: ${file.name}`);
+
+      // Reload files after deletion
+      loadStageFiles(currentStage);
+    } catch (error: any) {
+      toast.error(`Failed to delete: ${error.message}`);
+      console.error('Delete error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!currentStage) return;
+
+    const fileList = event.target.files;
+    if (!fileList || fileList.length === 0) return;
+
+    // Validate file types
+    const allowedExtensions = ['.csv', '.json', '.parquet', '.txt'];
+    const invalidFiles = Array.from(fileList).filter(file => {
+      const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+      return !allowedExtensions.includes(ext);
+    });
+
+    if (invalidFiles.length > 0) {
+      toast.error(`Invalid file type(s): ${invalidFiles.map(f => f.name).join(', ')}\nAllowed: ${allowedExtensions.join(', ')}`);
+      event.target.value = '';
+      return;
+    }
+
+    // Validate file sizes (500MB max per file)
+    const maxSize = 500 * 1024 * 1024;
+    const oversizedFiles = Array.from(fileList).filter(file => file.size > maxSize);
+
+    if (oversizedFiles.length > 0) {
+      toast.error(`File(s) too large: ${oversizedFiles.map(f => f.name).join(', ')}\nMax size: 500MB per file`);
+      event.target.value = '';
+      return;
+    }
+
+    setUploading(true);
+    const uploadToast = toast.loading(`Uploading ${fileList.length} file(s)...`);
+
+    try {
+      const result = await uploadStageFile(currentStage, fileList, false);
+
+      toast.success(
+        `Successfully uploaded ${result.total_uploaded || fileList.length} file(s)`,
+        { id: uploadToast }
+      );
+
+      loadStageFiles(currentStage);
+      event.target.value = '';
+    } catch (error: any) {
+      if (error.message.includes('409') || error.message.toLowerCase().includes('exists')) {
+        const overwrite = confirm(
+          `⚠️ One or more files already exist.\n\nDo you want to overwrite them?`
+        );
+
+        if (overwrite) {
+          try {
+            const result = await uploadStageFile(currentStage, fileList, true);
+            toast.success(
+              `Successfully uploaded ${result.total_uploaded || fileList.length} file(s) (overwritten)`,
+              { id: uploadToast }
+            );
+            loadStageFiles(currentStage);
+            event.target.value = '';
+          } catch (retryError: any) {
+            toast.error(`Failed to upload: ${retryError.message}`, { id: uploadToast });
+            console.error('Upload retry error:', retryError);
+          }
+        } else {
+          toast.error('Upload cancelled', { id: uploadToast });
+        }
+      } else {
+        toast.error(`Failed to upload: ${error.message}`, { id: uploadToast });
+        console.error('Upload error:', error);
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  // Selection handlers
+  const toggleFileSelection = (fileName: string) => {
+    setSelectedFiles(prev =>
+      prev.includes(fileName)
+        ? prev.filter(f => f !== fileName)
+        : [...prev, fileName]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedFiles.length === filteredFiles.length) {
+      setSelectedFiles([]);
+    } else {
+      setSelectedFiles(filteredFiles.map(f => f.name));
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    if (!currentStage || selectedFiles.length === 0) return;
+
+    setLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const fileName of selectedFiles) {
+      try {
+        await downloadStageFile(currentStage, fileName);
+        successCount++;
+      } catch (error: any) {
+        errorCount++;
+        console.error(`Failed to download ${fileName}:`, error);
+      }
+    }
+
+    toast.success(`Downloaded ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+    setSelectedFiles([]);
+    setLoading(false);
+  };
+
+  const handleBulkDelete = async () => {
+    if (!currentStage || selectedFiles.length === 0) return;
+
+    const confirmed = confirm(
+      `⚠️ WARNING: This action is irreversible.\n\nAre you sure you want to delete ${selectedFiles.length} file(s)?`
+    );
+
+    if (!confirmed) return;
+
+    setLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const fileName of selectedFiles) {
+      try {
+        await deleteStageFile(currentStage, fileName);
+        successCount++;
+      } catch (error: any) {
+        errorCount++;
+        console.error(`Failed to delete ${fileName}:`, error);
+      }
+    }
+
+    toast.success(`Deleted ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+    setSelectedFiles([]);
+    loadStageFiles(currentStage);
+    setLoading(false);
   };
 
   const formatFileSize = (bytes?: number): string => {
-    if (!bytes) return 'N/A';
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    if (bytes === 0) return '0 Bytes';
+    if (!bytes) return '-';
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    if (bytes === 0) return '0 B';
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return Math.round((bytes / Math.pow(1024, i)) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  const formatDate = (dateString?: string): string => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return new Intl.DateTimeFormat('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    }).format(date);
   };
 
   const getProviderName = () => {
@@ -180,223 +368,410 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     }
   };
 
+  const getFileIcon = (fileName: string) => {
+    const ext = fileName.split('.').pop()?.toLowerCase();
+    switch (ext) {
+      case 'csv':
+        return '📊';
+      case 'json':
+        return '📋';
+      case 'parquet':
+        return '📦';
+      case 'txt':
+        return '📄';
+      default:
+        return '📁';
+    }
+  };
+
+  // Filter and sort files
+  const filteredFiles = files
+    .filter(file =>
+      searchQuery ? file.name.toLowerCase().includes(searchQuery.toLowerCase()) : true
+    )
+    .sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name);
+          break;
+        case 'size':
+          comparison = (a.size || 0) - (b.size || 0);
+          break;
+        case 'modified':
+          comparison = new Date(a.last_modified || 0).getTime() - new Date(b.last_modified || 0).getTime();
+          break;
+      }
+      return sortOrder === 'asc' ? comparison : -comparison;
+    });
+
+  const handleSort = (column: 'name' | 'size' | 'modified') => {
+    if (sortBy === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(column);
+      setSortOrder('asc');
+    }
+  };
+
+  const SortIcon = ({ column }: { column: 'name' | 'size' | 'modified' }) => {
+    if (sortBy !== column) return null;
+    return (
+      <span className="ml-1">
+        {sortOrder === 'asc' ? '↑' : '↓'}
+      </span>
+    );
+  };
+
   return (
-    <div className="mx-auto w-full max-w-5xl transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h3 className="text-2xl font-bold text-blue-600 bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">
-            {getProviderName()} Browser
-          </h3>
-          <Text className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-            {currentStage ? `Browsing: ${currentStage}` : 'Select a stage to browse'}
-          </Text>
-        </div>
-        <div className="flex items-center space-x-3">
-          {currentStage && (
-            <Button
-              onClick={() => loadStageFiles(currentStage)}
-              className="bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50"
-              disabled={loading}
-            >
-              <HiRefresh className="h-5 w-5" />
-            </Button>
-          )}
-          {currentStage && (
-            <Button
-              onClick={handleBackToStages}
-              className="bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600"
-              disabled={loading}
-            >
-              <HiOutlineArrowLeft className="h-5 w-5 mr-2" />
-              Back to Stages
-            </Button>
-          )}
+    <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900">
+      {/* Header - Fixed */}
+      <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+        <div className="px-6 py-4">
+          {/* Breadcrumb */}
+          <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 mb-4">
+            <button onClick={onBack} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+              <HiOutlineHome className="h-4 w-4" />
+            </button>
+            <HiOutlineChevronRight className="h-4 w-4" />
+            <span className="font-medium text-slate-900 dark:text-white">
+              {getProviderName()}
+            </span>
+            {currentStage && (
+              <>
+                <HiOutlineChevronRight className="h-4 w-4" />
+                <span className="font-medium text-blue-600 dark:text-blue-400">{currentStage}</span>
+              </>
+            )}
+          </div>
+
+          {/* Main toolbar */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4 flex-1">
+              {/* Stage Selector */}
+              <div className="flex items-center space-x-2">
+                <Database className="h-5 w-5 text-slate-600 dark:text-slate-400" />
+                <select
+                  value={currentStage || ''}
+                  onChange={(e) => handleStageChange(e.target.value)}
+                  className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[250px]"
+                  disabled={loading}
+                >
+                  {allStages.map((stage) => (
+                    <option key={stage.name} value={stage.name}>
+                      {stage.name}
+                      {stage.database_name && stage.schema_name && ` (${stage.database_name}.${stage.schema_name})`}
+                    </option>
+                  ))}
+                </select>
+                <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                  {files.length} files
+                </Badge>
+              </div>
+
+              {/* Search */}
+              <div className="flex-1 max-w-md">
+                <input
+                  type="text"
+                  placeholder="Search files..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center space-x-2">
+              {/* View Mode Toggle */}
+              <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={`p-2 rounded ${viewMode === 'table' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}
+                  title="Table view"
+                >
+                  <HiViewList className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}
+                  title="Grid view"
+                >
+                  <HiViewGrid className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Upload */}
+              <label className="relative">
+                <input
+                  type="file"
+                  multiple
+                  accept=".csv,.json,.parquet,.txt"
+                  onChange={handleUpload}
+                  disabled={uploading || !currentStage}
+                  className="hidden"
+                />
+                <Button
+                  as="span"
+                  className="bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                  disabled={uploading || !currentStage}
+                >
+                  <HiUpload className={`h-4 w-4 mr-2 ${uploading ? 'animate-bounce' : ''}`} />
+                  Upload
+                </Button>
+              </label>
+
+              {/* Refresh */}
+              <Button
+                onClick={() => currentStage && loadStageFiles(currentStage)}
+                className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
+                disabled={loading || !currentStage}
+              >
+                <HiRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Filters - Only show when viewing stages list */}
-      {!currentStage && provider === 'snowflake' && allStages.length > 0 && (
-        <div className="mb-6 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            {/* Search Bar */}
-            <div className="flex-1">
-              <input
-                type="text"
-                placeholder="Search stages by name, database, or schema..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-
-            {/* Filters */}
-            <div className="flex items-center space-x-4">
-              <label className="flex items-center space-x-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showOnlyValid}
-                  onChange={(e) => setShowOnlyValid(e.target.checked)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="font-medium">Valid only</span>
-              </label>
-
-              {/* Stats */}
-              <div className="flex items-center space-x-2 text-sm">
-                <Text className="text-gray-600 dark:text-gray-400">
-                  Showing <span className="font-semibold text-blue-600">{stages.length}</span> of <span className="font-semibold">{allStages.length}</span>
-                </Text>
-              </div>
-            </div>
-          </div>
-
-          {/* Filter summary */}
-          {(showOnlyValid || searchQuery) && (
-            <div className="mt-3 flex items-center space-x-2 text-xs">
-              <Text className="text-gray-500 dark:text-gray-400">Active filters:</Text>
-              {showOnlyValid && (
-                <span className="px-2 py-1 rounded-full bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">
-                  Valid stages only
-                </span>
-              )}
-              {searchQuery && (
-                <span className="px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400">
-                  Search: "{searchQuery}"
-                </span>
-              )}
-              <button
-                onClick={() => {
-                  setShowOnlyValid(false);
-                  setSearchQuery('');
-                }}
-                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
-              >
-                Clear all
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Content Area */}
-      <div className="min-h-[400px]">
-        {loading ? (
-          <div className="flex items-center justify-center h-[400px]">
+      {/* Content - Scrollable */}
+      <div className="flex-1 overflow-auto">
+        {loading && files.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-              <Text className="text-gray-600 dark:text-gray-400">Loading...</Text>
+              <Text className="text-slate-600 dark:text-slate-400">Loading files...</Text>
             </div>
           </div>
-        ) : !currentStage ? (
-          /* Stage List */
-          <div>
-            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Available Stages ({stages.length})
-            </h4>
-            {stages.length === 0 ? (
-              <div className="text-center py-12">
-                <HiOutlineFolder className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <Text className="text-gray-600 dark:text-gray-400">No stages found</Text>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {stages.map((stage, index) => (
-                  <div
-                    key={index}
-                    onClick={() => handleStageClick(stage)}
-                    className={`group rounded-xl border-2 p-6 transition-all duration-300 ${
-                      stage.error
-                        ? 'border-red-300 dark:border-red-700 bg-red-50/30 dark:bg-red-950/20 cursor-not-allowed'
-                        : 'cursor-pointer border-slate-200 dark:border-slate-700 hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 hover:shadow-lg'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-4">
-                      <div className={`flex h-12 w-12 items-center justify-center rounded-lg ${
-                        stage.error
-                          ? 'bg-red-100 dark:bg-red-900/30'
-                          : 'bg-blue-100 dark:bg-blue-900/30'
-                      }`}>
-                        <HiOutlineFolder className={`h-6 w-6 ${
-                          stage.error ? 'text-red-600' : 'text-blue-600'
-                        }`} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h5 className="font-semibold text-gray-900 dark:text-white truncate">
-                          {stage.name}
-                        </h5>
-                        {stage.database_name && stage.schema_name && (
-                          <Text className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                            {stage.database_name}.{stage.schema_name}
-                          </Text>
-                        )}
-                        {stage.error ? (
-                          <Text className="text-xs text-red-600 dark:text-red-400 mt-1">
-                            Error: {stage.error}
-                          </Text>
-                        ) : (
-                          <Text className="text-xs text-gray-500 dark:text-gray-400">Click to browse</Text>
-                        )}
-                      </div>
-                    </div>
+        ) : filteredFiles.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <HiOutlineDocument className="h-16 w-16 text-slate-400 mx-auto mb-4" />
+              <Text className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                {searchQuery ? 'No files match your search' : 'No files found'}
+              </Text>
+              <Text className="text-sm text-slate-600 dark:text-slate-400">
+                {searchQuery ? 'Try a different search term' : 'This stage is currently empty'}
+              </Text>
+            </div>
+          </div>
+        ) : viewMode === 'table' ? (
+          /* Table View */
+          <div className="p-6">
+            {/* Bulk Actions Bar */}
+            {selectedFiles.length > 0 && (
+              <div className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <Text className="font-medium text-blue-900 dark:text-blue-100">
+                      {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+                    </Text>
+                    <button
+                      onClick={() => setSelectedFiles([])}
+                      className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                    >
+                      Clear selection
+                    </button>
                   </div>
-                ))}
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      onClick={handleBulkDownload}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      disabled={loading}
+                    >
+                      <HiDownload className="h-4 w-4 mr-2" />
+                      Download ({selectedFiles.length})
+                    </Button>
+                    <Button
+                      onClick={handleBulkDelete}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      disabled={loading}
+                    >
+                      <HiOutlineTrash className="h-4 w-4 mr-2" />
+                      Delete ({selectedFiles.length})
+                    </Button>
+                  </div>
+                </div>
               </div>
             )}
+
+            <div className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+              <table className="w-full">
+                <thead className="bg-slate-50 dark:bg-slate-700/50 border-b border-slate-200 dark:border-slate-600">
+                  <tr>
+                    <th className="px-6 py-3 text-left w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedFiles.length === filteredFiles.length && filteredFiles.length > 0}
+                        onChange={toggleSelectAll}
+                        className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
+                      />
+                    </th>
+                    <th className="px-6 py-3 text-left">
+                      <button
+                        onClick={() => handleSort('name')}
+                        className="flex items-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hover:text-blue-600 dark:hover:text-blue-400"
+                      >
+                        Name <SortIcon column="name" />
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 text-left">
+                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                        Type
+                      </span>
+                    </th>
+                    <th className="px-6 py-3 text-left">
+                      <button
+                        onClick={() => handleSort('size')}
+                        className="flex items-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hover:text-blue-600 dark:hover:text-blue-400"
+                      >
+                        Size <SortIcon column="size" />
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 text-left">
+                      <button
+                        onClick={() => handleSort('modified')}
+                        className="flex items-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider hover:text-blue-600 dark:hover:text-blue-400"
+                      >
+                        Modified <SortIcon column="modified" />
+                      </button>
+                    </th>
+                    <th className="px-6 py-3 text-right">
+                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                        Actions
+                      </span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
+                  {filteredFiles.map((file, index) => (
+                    <tr
+                      key={index}
+                      className={`hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${
+                        selectedFiles.includes(file.name) ? 'bg-blue-50 dark:bg-blue-900/10' : ''
+                      }`}
+                    >
+                      <td className="px-6 py-4">
+                        <input
+                          type="checkbox"
+                          checked={selectedFiles.includes(file.name)}
+                          onChange={() => toggleFileSelection(file.name)}
+                          className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
+                        />
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center space-x-3">
+                          <span className="text-2xl">{getFileIcon(file.name)}</span>
+                          <span className="font-medium text-slate-900 dark:text-white">
+                            {file.name}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                          {file.name.split('.').pop()?.toUpperCase() || 'FILE'}
+                        </Badge>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                        {formatFileSize(file.size)}
+                      </td>
+                      <td className="px-6 py-4 text-slate-600 dark:text-slate-400">
+                        {formatDate(file.last_modified)}
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex items-center justify-end space-x-2">
+                          <button
+                            onClick={() => handlePreview(file)}
+                            className="p-2 text-slate-600 hover:text-blue-600 hover:bg-blue-50 dark:text-slate-400 dark:hover:text-blue-400 dark:hover:bg-blue-950/30 rounded-lg transition-colors"
+                            title="Preview file"
+                          >
+                            <HiOutlineEye className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDownload(file)}
+                            className="p-2 text-slate-600 hover:text-green-600 hover:bg-green-50 dark:text-slate-400 dark:hover:text-green-400 dark:hover:bg-green-950/30 rounded-lg transition-colors"
+                            title="Download file"
+                          >
+                            <HiDownload className="h-4 w-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(file)}
+                            className="p-2 text-slate-600 hover:text-red-600 hover:bg-red-50 dark:text-slate-400 dark:hover:text-red-400 dark:hover:bg-red-950/30 rounded-lg transition-colors"
+                            title="Delete file"
+                          >
+                            <HiOutlineTrash className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
-          /* File List */
-          <div>
-            <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-4">
-              Files ({files.length} items)
-            </h4>
-            {files.length === 0 ? (
-              <div className="text-center py-12">
-                <HiOutlineDocument className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-                <Text className="text-gray-600 dark:text-gray-400">No files or folders found</Text>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {files.map((file, index) => (
-                  <div
-                    key={index}
-                    className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-700 p-4 bg-white/50 dark:bg-slate-800/50 transition-all duration-200"
-                  >
-                    <div className="flex items-center space-x-4 flex-1 min-w-0">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 dark:bg-gray-700">
-                        <HiOutlineDocument className="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h5 className="font-medium text-gray-900 dark:text-white truncate">
-                          {file.name}
-                        </h5>
-                        <div className="flex items-center space-x-3 text-xs text-gray-500 dark:text-gray-400">
-                          {file.size !== undefined && (
-                            <span>{formatFileSize(file.size)}</span>
-                          )}
-                          {file.last_modified && (
-                            <span>{new Date(file.last_modified).toLocaleDateString()}</span>
-                          )}
-                        </div>
-                      </div>
+          /* Grid View */
+          <div className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {filteredFiles.map((file, index) => (
+                <div
+                  key={index}
+                  className="group bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-500 transition-all cursor-pointer"
+                >
+                  <div className="text-center">
+                    <div className="text-5xl mb-3">{getFileIcon(file.name)}</div>
+                    <h5 className="font-medium text-slate-900 dark:text-white truncate mb-1" title={file.name}>
+                      {file.name}
+                    </h5>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mb-2">
+                      {formatFileSize(file.size)}
+                    </p>
+                    <div className="flex items-center justify-center space-x-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handlePreview(file)}
+                        className="p-1.5 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 rounded"
+                        title="Preview"
+                      >
+                        <HiOutlineEye className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDownload(file)}
+                        className="p-1.5 text-slate-600 hover:text-green-600 dark:text-slate-400 dark:hover:text-green-400 rounded"
+                        title="Download"
+                      >
+                        <HiDownload className="h-4 w-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(file)}
+                        className="p-1.5 text-slate-600 hover:text-red-600 dark:text-slate-400 dark:hover:text-red-400 rounded"
+                        title="Delete"
+                      >
+                        <HiOutlineTrash className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
 
-      {/* Footer Actions */}
-      <div className="mt-8 pt-6 border-t border-slate-200 dark:border-slate-700">
-        <Button
-          onClick={onBack}
-          className="w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2"
-          disabled={loading}
-        >
-          Back to Data Source Selection
-        </Button>
+      {/* Footer - Fixed */}
+      <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-4">
+        <div className="flex items-center justify-between">
+          <Text className="text-sm text-slate-600 dark:text-slate-400">
+            Showing {filteredFiles.length} of {files.length} files
+            {searchQuery && ` (filtered)`}
+          </Text>
+          <Button
+            onClick={onBack}
+            className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300"
+          >
+            <HiOutlineArrowLeft className="h-4 w-4 mr-2" />
+            Back to Connections
+          </Button>
+        </div>
       </div>
     </div>
   );
