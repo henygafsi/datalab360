@@ -63,6 +63,7 @@ export interface RLSPolicy {
   description?: string;
   created_at?: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreateRLSPolicyRequest {
@@ -92,6 +93,7 @@ export interface MaskingPolicy {
   masking_expression?: string;
   created_at?: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreateMaskingPolicyRequest {
@@ -138,6 +140,7 @@ export interface NetworkPolicy {
   created_at: string;
   updated_at: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreateNetworkPolicyRequest {
@@ -190,6 +193,7 @@ export interface PasswordPolicy {
   is_default?: boolean;
   created_at?: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreatePasswordPolicyRequest {
@@ -215,6 +219,7 @@ export interface SessionPolicy {
   is_default?: boolean;
   created_at?: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreateSessionPolicyRequest {
@@ -245,17 +250,17 @@ export async function getRLSPolicyDetails(
 
 export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   const headers = await getAuthHeaders();
-  const url = `${POLICIES_API}/row-access/list`;
+  const url = `${POLICIES_API}/ROW_ACCESS`;
   console.log('🔍 GET RLS Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(url, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET RLS Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -266,8 +271,8 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Backend uses: name, database_name, schema_name, comment, created_on, owner, kind
-  // Frontend expects: policy_name, signature, expression, schema, database
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
+  // Frontend expects: policy_name, signature, expression, schema, database, granted_roles, expiration_date
   const mappedPolicies: RLSPolicy[] = await Promise.all(
     backendPolicies.map(async (policy: any) => {
       // Try to fetch details for signature and expression
@@ -284,6 +289,8 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
         description: policy.comment || policy.description || '',
         created_at: policy.created_on || policy.created_at || '',
         table_name: policy.table_name || undefined,
+        granted_roles: policy.granted_roles || [],
+        expiration_date: policy.expiration_date,
         owner: policy.owner,
         kind: policy.kind,
       };
@@ -521,16 +528,17 @@ export async function getMaskingPolicyDetails(
 
 export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Masking Policies API Call:', {  });
+  const url = `${POLICIES_API}/MASKING`;
+  console.log('🔍 GET Masking Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/masking/list`, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET Masking Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -541,15 +549,17 @@ export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Handle field name variations between backend and frontend
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
   const mappedPolicies: MaskingPolicy[] = backendPolicies.map((policy: any) => ({
-    policy_name: policy.policy_name || policy.name || '',
-    schema: policy.schema || policy.schema_name || '',
+    policy_name: policy.name || policy.policy_name || '',
+    schema: policy.schema_name || policy.schema || '',
     data_type: policy.data_type || policy.column_type || policy.type || '',
     masking_type: policy.masking_type || policy.type || undefined,
     masking_expression: policy.masking_expression || policy.body || policy.expression || undefined,
     column_type: policy.column_type || policy.data_type || undefined,
-    created_at: policy.created_at || policy.created_on || '',
+    created_at: policy.created_on || policy.created_at || '',
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date,
   }));
 
   console.log('🔄 Mapped masking policies:', mappedPolicies);
@@ -703,16 +713,17 @@ export async function getNetworkPolicyDetails(policy_name: string): Promise<any>
 
 export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Network Policies API Call:', {  });
+  const url = `${POLICIES_API}/NETWORK`;
+  console.log('🔍 GET Network Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/network/list`, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET Network Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -723,20 +734,22 @@ export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Handle field name variations between backend and frontend
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
   const mappedPolicies: NetworkPolicy[] = backendPolicies.map((policy: any) => ({
-    policy_name: policy.policy_name || policy.name || '',
-    id: policy.id || policy.policy_name || policy.name || '',
+    policy_name: policy.name || policy.policy_name || '',
+    id: policy.id || policy.name || policy.policy_name || '',
     name: policy.name || policy.policy_name || '',
     type: policy.type || 'allow',
     ip_ranges: policy.ip_ranges || [],
-    description: policy.description || policy.comment || undefined,
+    description: policy.comment || policy.description || undefined,
     is_default: policy.is_default || false,
     allowed_ip_list: policy.allowed_ip_list || policy.allowedIpList || undefined,
     blocked_ip_list: policy.blocked_ip_list || policy.blockedIpList || undefined,
     comment: policy.comment || policy.description || undefined,
-    created_at: policy.created_at || policy.created_on || '',
-    updated_at: policy.updated_at || policy.updated_on || '',
+    created_at: policy.created_on || policy.created_at || '',
+    updated_at: policy.updated_on || policy.updated_at || '',
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date,
   }));
 
   console.log('🔄 Mapped network policies:', mappedPolicies);
@@ -976,16 +989,17 @@ export async function getPasswordPolicyDetails(
 
 export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Password Policies API Call:', {  });
+  const url = `${POLICIES_API}/PASSWORD`;
+  console.log('🔍 GET Password Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/password/list`, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET Password Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -996,10 +1010,10 @@ export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Handle field name variations between backend and frontend
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
   const mappedPolicies: PasswordPolicy[] = backendPolicies.map((policy: any) => ({
-    policy_name: policy.policy_name || policy.name || '',
-    schema: policy.schema || policy.schema_name || '',
+    policy_name: policy.name || policy.policy_name || '',
+    schema: policy.schema_name || policy.schema || '',
     min_length: policy.min_length || policy.PASSWORD_MIN_LENGTH || 8,
     max_length: policy.max_length || policy.PASSWORD_MAX_LENGTH || 256,
     min_upper_case_chars: policy.min_upper_case_chars || policy.PASSWORD_MIN_UPPER_CASE_CHARS || 0,
@@ -1010,7 +1024,9 @@ export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
     max_retries: policy.max_retries || policy.PASSWORD_MAX_RETRIES || 5,
     lockout_time_mins: policy.lockout_time_mins || policy.PASSWORD_LOCKOUT_TIME_MINS || 15,
     is_default: policy.is_default || false,
-    created_at: policy.created_at || policy.created_on || '',
+    created_at: policy.created_on || policy.created_at || '',
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date,
   }));
 
   console.log('🔄 Mapped password policies:', mappedPolicies);
@@ -1117,16 +1133,17 @@ export async function getSessionPolicyDetails(
 
 export async function getSessionPolicies(): Promise<SessionPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Session Policies API Call:', {  });
+  const url = `${POLICIES_API}/SESSION`;
+  console.log('🔍 GET Session Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/session/list`, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET Session Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -1137,14 +1154,16 @@ export async function getSessionPolicies(): Promise<SessionPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Handle field name variations between backend and frontend
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
   const mappedPolicies: SessionPolicy[] = backendPolicies.map((policy: any) => ({
-    policy_name: policy.policy_name || policy.name || '',
-    schema: policy.schema || policy.schema_name || '',
+    policy_name: policy.name || policy.policy_name || '',
+    schema: policy.schema_name || policy.schema || '',
     session_idle_timeout_mins: policy.session_idle_timeout_mins || policy.SESSION_IDLE_TIMEOUT_MINS || 60,
     session_ui_idle_timeout_mins: policy.session_ui_idle_timeout_mins || policy.SESSION_UI_IDLE_TIMEOUT_MINS || 30,
     is_default: policy.is_default || false,
-    created_at: policy.created_at || policy.created_on || '',
+    created_at: policy.created_on || policy.created_at || '',
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date,
   }));
 
   console.log('🔄 Mapped session policies:', mappedPolicies);
@@ -1225,6 +1244,7 @@ export interface AggregationPolicy {
   aggregation_constraint: string;
   created_at?: string;
   granted_roles?: string[];
+  expiration_date?: string;
 }
 
 export interface CreateAggregationPolicyRequest {
@@ -1263,16 +1283,17 @@ export async function getAggregationPolicyDetails(
 
 export async function getAggregationPolicies(): Promise<AggregationPolicy[]> {
   const headers = await getAuthHeaders();
-  console.log('🔍 GET Aggregation Policies API Call:', {  });
+  const url = `${POLICIES_API}/AGGREGATION`;
+  console.log('🔍 GET Aggregation Policies API Call:', { url });
 
-  const response = await axios.get<StandardResponse<{ policies: any[] }>>(`${POLICIES_API}/aggregation/list`, {
-    params: {  },
+  const response = await axios.get<StandardResponse<{ policy_type: string; total: number; policies: any[] }>>(url, {
     headers,
   });
 
   console.log('✅ GET Aggregation Policies Response:', {
     status: response.status,
-    fullData: response.data,
+    policyType: response.data.data?.policy_type,
+    total: response.data.data?.total,
     policiesArray: response.data.data?.policies
   });
 
@@ -1283,12 +1304,14 @@ export async function getAggregationPolicies(): Promise<AggregationPolicy[]> {
   }
 
   // Map backend response to frontend interface
-  // Handle field name variations between backend and frontend
+  // Backend v1.1 spec uses: name, database_name, schema_name, created_on, comment, granted_roles, expiration_date
   const mappedPolicies: AggregationPolicy[] = backendPolicies.map((policy: any) => ({
-    policy_name: policy.policy_name || policy.name || '',
-    schema: policy.schema || policy.schema_name || '',
+    policy_name: policy.name || policy.policy_name || '',
+    schema: policy.schema_name || policy.schema || '',
     aggregation_constraint: policy.aggregation_constraint || policy.body || policy.expression || '',
-    created_at: policy.created_at || policy.created_on || '',
+    created_at: policy.created_on || policy.created_at || '',
+    granted_roles: policy.granted_roles || [],
+    expiration_date: policy.expiration_date,
   }));
 
   console.log('🔄 Mapped aggregation policies:', mappedPolicies);
@@ -1543,6 +1566,63 @@ export async function assignPolicyToRoles(
       policyType: backendPolicyType,
       policyName,
       roles,
+    });
+    throw error;
+  }
+}
+
+/**
+ * Update policy metadata (e.g., expiration date)
+ *
+ * Backend endpoint: PUT /gouvernance/policies/{POLICY_TYPE}/{POLICY_NAME}/metadata
+ *
+ * @param policyName - The policy name (not FQN)
+ * @param policyType - Frontend policy type (rls, masking, etc.)
+ * @param metadata - Metadata to update (currently only expiration_date)
+ */
+export async function updatePolicyMetadata(
+  policyName: string,
+  policyType: 'rls' | 'masking' | 'cls' | 'network' | 'aggregation' | 'authentication' | 'join' | 'packages' | 'password' | 'privacy' | 'projection' | 'session' | 'storage',
+  metadata: {
+    expiration_date?: string;
+  }
+): Promise<{
+  message: string;
+  policy_name: string;
+  policy_type: string;
+  expiration_date?: string;
+}> {
+  const headers = await getAuthHeaders();
+
+  // Map frontend policy type to backend policy type
+  const backendPolicyType = POLICY_TYPE_MAP[policyType] || policyType.toUpperCase();
+
+  console.log('[updatePolicyMetadata] Updating metadata for policy:', policyName);
+  console.log('[updatePolicyMetadata] Policy type:', policyType, '→', backendPolicyType);
+  console.log('[updatePolicyMetadata] Metadata:', metadata);
+
+  try {
+    const response = await axios.put<StandardResponse<{
+      message: string;
+      policy_name: string;
+      policy_type: string;
+      expiration_date?: string;
+    }>>(`${POLICIES_API}/${backendPolicyType}/${policyName}/metadata`,
+      metadata,
+      { headers }
+    );
+
+    console.log('[updatePolicyMetadata] Response:', response.data);
+
+    return response.data.data;
+  } catch (error: any) {
+    console.error('Update policy metadata error:', {
+      message: error.response?.data?.message || error.message,
+      detail: error.response?.data?.detail,
+      status: error.response?.status,
+      policyType: backendPolicyType,
+      policyName,
+      metadata,
     });
     throw error;
   }
