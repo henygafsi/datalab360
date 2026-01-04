@@ -72,6 +72,7 @@ export interface CreateRLSPolicyRequest {
   expression: string;
   schema?: string;
   description?: string;
+  expiration_date?: string;
 }
 
 export interface ApplyRLSPolicyRequest {
@@ -106,6 +107,7 @@ export interface CreateMaskingPolicyRequest {
   schema?: string;
   authorized_roles?: string[];
   custom_expression?: string;
+  expiration_date?: string;
 }
 
 export interface ApplyMaskingPolicyRequest {
@@ -305,15 +307,31 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
 export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLSPolicy> {
   const headers = await getAuthHeaders();
   try {
-    const response = await axios.post<StandardResponse<RLSPolicy>>(`${POLICIES_API}/row-access`, null, {
-      params: {
-        policy_name: data.policy_name,
-        signature: data.signature,
-        expression: data.expression,
-        description: data.description,
-      },
-      headers,
-    });
+    // Backend spec: Use query parameters (not JSON body)
+    const params: any = {
+      policy_name: data.policy_name,
+      signature: data.signature,
+      expression: data.expression,
+    };
+
+    // Add optional fields if provided
+    if (data.description) {
+      params.description = data.description;
+    }
+    if (data.schema) {
+      params.schema = data.schema;
+    }
+    if (data.expiration_date) {
+      params.expiration_date = data.expiration_date;
+    }
+
+    console.log('[createRLSPolicy] Query params:', params);
+
+    const response = await axios.post<StandardResponse<RLSPolicy>>(
+      `${POLICIES_API}/row-access`,
+      null,
+      { params, headers }
+    );
     return response.data.data;
   } catch (error: any) {
     console.error('Create RLS policy error:', {
@@ -570,7 +588,7 @@ export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
 export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Promise<MaskingPolicy> {
   const headers = await getAuthHeaders();
 
-  // Build params object, only including custom_expression if masking_type is not provided
+  // Backend spec: Use query parameters (not JSON body)
   const params: Record<string, any> = {
     policy_name: data.policy_name,
     data_type: data.data_type,
@@ -591,11 +609,24 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
     params.authorized_roles = data.authorized_roles.join(',');
   }
 
+  // Add expiration_date if provided
+  if (data.expiration_date) {
+    params.expiration_date = data.expiration_date;
+  }
+
+  // Add schema if provided
+  if (data.schema) {
+    params.schema = data.schema;
+  }
+
+  console.log('[createMaskingPolicy] Query params:', params);
+
   try {
-    const response = await axios.post<StandardResponse<MaskingPolicy>>(`${POLICIES_API}/masking`, null, {
-      params,
-      headers,
-    });
+    const response = await axios.post<StandardResponse<MaskingPolicy>>(
+      `${POLICIES_API}/masking`,
+      null,
+      { params, headers }
+    );
     return response.data.data;
   } catch (error: any) {
     console.error('Create masking policy error:', error.response?.data || error.message);
