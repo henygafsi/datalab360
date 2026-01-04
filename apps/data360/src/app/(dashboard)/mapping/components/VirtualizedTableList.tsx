@@ -55,21 +55,40 @@ const TableRow: React.FC<{
     warning: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
   };
 
+  // Handle checkbox click separately from row click
+  const handleCheckboxClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+  };
+
+  const handleCheckboxChange = (checked: boolean | 'indeterminate') => {
+    onSelect(checked === true);
+  };
+
+  // Handle row click for viewing details (does NOT affect selection)
+  const handleRowClick = (e: React.MouseEvent) => {
+    // Only trigger if not clicking on checkbox area
+    const target = e.target as HTMLElement;
+    if (target.closest('[role="checkbox"]') || target.closest('button')) {
+      return;
+    }
+    onClick();
+  };
+
   return (
     <div
       className={cn(
         'flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors border-b border-slate-100 dark:border-slate-800',
-        isSelected && 'bg-blue-50 dark:bg-blue-900/20'
+        isSelected && 'bg-blue-50 dark:bg-blue-900/20 border-l-2 border-l-blue-500'
       )}
-      onClick={onClick}
+      onClick={handleRowClick}
     >
-      <Checkbox
-        checked={isSelected}
-        onCheckedChange={(checked) => {
-          onSelect(checked as boolean);
-        }}
-        onClick={(e) => e.stopPropagation()}
-      />
+      <div onClick={handleCheckboxClick}>
+        <Checkbox
+          checked={isSelected}
+          onCheckedChange={handleCheckboxChange}
+        />
+      </div>
 
       <div className="flex items-center gap-2 flex-1 min-w-0">
         <Table2 className="h-4 w-4 text-slate-400 flex-shrink-0" />
@@ -239,10 +258,14 @@ export const VirtualizedTableList: React.FC<VirtualizedTableListProps> = ({
       >
         {rowVirtualizer.getVirtualItems().map((virtualItem) => {
           const item = flatItems[virtualItem.index];
+          // Use stable key based on data identity, not virtualizer index
+          const itemKey = item.type === 'schema'
+            ? `schema-${item.schema}`
+            : `table-${item.data.id}`;
 
           return (
             <div
-              key={virtualItem.key}
+              key={itemKey}
               style={{
                 position: 'absolute',
                 top: 0,

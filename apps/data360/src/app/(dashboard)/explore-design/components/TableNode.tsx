@@ -52,124 +52,29 @@ const ingestionModeIcons: Record<string, React.ReactNode> = {
   scd_type3: <History className="h-3 w-3" />,
 };
 
-// Context Menu Component with smart positioning
-const ContextMenu: React.FC<{
-  x: number;
-  y: number;
-  onClose: () => void;
-  onAction: (action: string) => void;
-}> = ({ x, y, onClose, onAction }) => {
-  const menuRef = React.useRef<HTMLDivElement>(null);
-  const [position, setPosition] = React.useState({ x, y });
-
-  // Adjust position to stay within viewport
-  React.useEffect(() => {
-    if (menuRef.current) {
-      const menu = menuRef.current;
-      const rect = menu.getBoundingClientRect();
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      let newX = x;
-      let newY = y;
-
-      // Check right overflow
-      if (x + rect.width > viewportWidth - 20) {
-        newX = x - rect.width;
-      }
-      // Check left overflow
-      if (newX < 20) {
-        newX = 20;
-      }
-      // Check bottom overflow
-      if (y + rect.height > viewportHeight - 20) {
-        newY = y - rect.height;
-      }
-      // Check top overflow
-      if (newY < 20) {
-        newY = 20;
-      }
-
-      if (newX !== x || newY !== y) {
-        setPosition({ x: newX, y: newY });
-      }
-    }
-  }, [x, y]);
-
-  const menuItems = [
-    { id: 'rename', label: 'Rename Table', icon: Edit2 },
-    { id: 'add_column', label: 'Add Computed Column', icon: Plus, highlight: true },
-    { id: 'duplicate', label: 'Duplicate', icon: Copy },
-    { id: 'divider1', label: '' },
-    { id: 'pk_config', label: 'Set Primary Key', icon: Key, highlight: true },
-    { id: 'fk_config', label: 'Create Foreign Key Link', icon: Link2, highlight: true },
-    { id: 'divider2', label: '' },
-    { id: 'policies', label: 'Configure Policies...', icon: Shield },
-    { id: 'masking', label: 'Apply Masking', icon: Lock },
-    { id: 'rls', label: 'Apply Row-Level Security', icon: Eye },
-    { id: 'tags', label: 'Apply Tags', icon: Tag },
-    { id: 'aggregation', label: 'Apply Aggregation', icon: Database },
-    { id: 'divider3', label: '' },
-    { id: 'relation', label: 'Create Relation', icon: ArrowRight },
-    { id: 'divider4', label: '' },
-    { id: 'exclude', label: 'Exclude from Model', icon: Trash2, danger: true },
-  ];
-
-  return (
-    <>
-      <div
-        className="fixed inset-0"
-        style={{ zIndex: 9998 }}
-        onClick={onClose}
-      />
-      <div
-        ref={menuRef}
-        className="fixed bg-white dark:bg-slate-800 rounded-xl shadow-2xl border-2 dark:border-slate-600 py-2 min-w-[260px] max-h-[80vh] overflow-auto"
-        style={{
-          left: position.x,
-          top: position.y,
-          zIndex: 9999,
-        }}
-      >
-        <div className="px-4 py-2 border-b dark:border-slate-700 mb-1">
-          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Table Actions</span>
-        </div>
-        {menuItems.map((item) =>
-          item.id.startsWith('divider') ? (
-            <div key={item.id} className="my-1.5 border-t dark:border-slate-700 mx-3" />
-          ) : (
-            <button
-              key={item.id}
-              className={cn(
-                'w-full flex items-center gap-3 px-4 py-2.5 text-sm text-left hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors',
-                item.danger && 'text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20',
-                item.highlight && 'text-blue-600 dark:text-blue-400 font-medium bg-blue-50/50 dark:bg-blue-900/10'
-              )}
-              onClick={() => {
-                onAction(item.id);
-                onClose();
-              }}
-            >
-              {item.icon && (
-                <item.icon className={cn(
-                  'h-4 w-4 flex-shrink-0',
-                  item.highlight && 'text-blue-500',
-                  item.danger && 'text-red-500'
-                )} />
-              )}
-              <span>{item.label}</span>
-            </button>
-          )
-        )}
-      </div>
-    </>
-  );
-};
+// Menu items for table actions - used by sidebar panel
+export const TABLE_ACTION_ITEMS = [
+  { id: 'rename', label: 'Rename Table', icon: Edit2 },
+  { id: 'add_column', label: 'Add Computed Column', icon: Plus, highlight: true },
+  { id: 'duplicate', label: 'Duplicate', icon: Copy },
+  { id: 'divider1', label: '' },
+  { id: 'pk_config', label: 'Set Primary Key', icon: Key, highlight: true },
+  { id: 'fk_config', label: 'Create Foreign Key Link', icon: Link2, highlight: true },
+  { id: 'divider2', label: '' },
+  { id: 'policies', label: 'Configure Policies...', icon: Shield },
+  { id: 'masking', label: 'Apply Masking', icon: Lock },
+  { id: 'rls', label: 'Apply Row-Level Security', icon: Eye },
+  { id: 'tags', label: 'Apply Tags', icon: Tag },
+  { id: 'aggregation', label: 'Apply Aggregation', icon: Database },
+  { id: 'divider3', label: '' },
+  { id: 'relation', label: 'Create Relation', icon: ArrowRight },
+  { id: 'divider4', label: '' },
+  { id: 'exclude', label: 'Exclude from Model', icon: Trash2, danger: true },
+] as const;
 
 // Table Node Component
 const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(data.displayName || data.table);
 
@@ -186,18 +91,12 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
     ? data.columns.filter(col => mappedColumnsSet.has(col.name)).length
     : 0;
 
-  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+  // Handle click on more button - opens sidebar panel in parent
+  const handleMoreClick = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY });
-  }, []);
-
-  const handleAction = useCallback((action: string) => {
-    if (action === 'rename') {
-      setIsRenaming(true);
-    } else {
-      data.onContextMenu?.(new MouseEvent('contextmenu') as any, action);
-    }
+    // Notify parent to open sidebar with 'open_options' action
+    data.onContextMenu?.(e, 'open_options');
   }, [data]);
 
   const handleRenameSubmit = useCallback(() => {
@@ -229,7 +128,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
             : (statusColors[data.status] || 'border-slate-300 bg-white dark:bg-slate-800 dark:border-slate-600'),
           data.hasChanges && 'ring-2 ring-amber-400'
         )}
-        onContextMenu={handleContextMenu}
+        onContextMenu={handleMoreClick}
       >
         {/* Header */}
         <div className={cn(
@@ -289,7 +188,8 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
               )}
               <button
                 className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600"
-                onClick={handleContextMenu}
+                onClick={handleMoreClick}
+                title="Table options"
               >
                 <MoreVertical className="h-4 w-4 text-slate-500" />
               </button>
@@ -422,16 +322,6 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
           className="!w-3 !h-3 !bg-green-500 !border-2 !border-white"
         />
       </div>
-
-      {/* Context Menu */}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          onClose={() => setContextMenu(null)}
-          onAction={handleAction}
-        />
-      )}
     </>
   );
 };

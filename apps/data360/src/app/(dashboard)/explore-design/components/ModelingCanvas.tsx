@@ -35,6 +35,7 @@ import PolicyAssignmentPanel from './PolicyAssignmentPanel';
 import AddColumnModal, { ComputedColumn } from './AddColumnModal';
 import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
+import TableOptionsSidebar, { TableOptionAction } from './TableOptionsSidebar';
 import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from '../stores/event-store';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -364,6 +365,10 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Mapping summary panel state
   const [showMappingSummary, setShowMappingSummary] = useState(false);
+
+  // Table options sidebar state
+  const [showTableOptions, setShowTableOptions] = useState(false);
+  const [tableForOptions, setTableForOptions] = useState<TableItem | null>(null);
 
   // Track if edges have been created for this project
   const edgesCreatedForProjectRef = useRef<string | null>(null);
@@ -793,6 +798,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     setShowAddColumnModal(true);
   }, [tableColumns]);
 
+  // Open table options sidebar
+  const openTableOptions = useCallback((table: TableItem) => {
+    setTableForOptions(table);
+    setSelectedTableColumns(tableColumns.get(table.id) || []);
+    setShowTableOptions(true);
+  }, [tableColumns]);
+
+  // Close table options sidebar
+  const closeTableOptions = useCallback(() => {
+    setShowTableOptions(false);
+    setTableForOptions(null);
+  }, []);
+
   // Context menu actions
   const handleNodeContextAction = useCallback((nodeId: string, action: string) => {
     const table = tables.find((t) => t.id === nodeId);
@@ -801,6 +819,10 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     const columns = tableColumns.get(table.id) || [];
 
     switch (action) {
+      case 'open_options':
+        // Open table options sidebar
+        openTableOptions(table);
+        break;
       case 'add_column':
         openAddColumnModal(table);
         break;
@@ -871,7 +893,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         }
         break;
     }
-  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, tableColumns, addEvent]);
+  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent]);
 
   // Update ref for context action handler
   handleNodeContextActionRef.current = handleNodeContextAction;
@@ -1241,6 +1263,25 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 }
               }
               toast.success('Mapping removed');
+            }}
+          />
+        </div>
+      )}
+
+      {/* Table Options Sidebar */}
+      {showTableOptions && tableForOptions && (
+        <div className="absolute right-0 top-0 h-full z-50 shadow-xl">
+          <TableOptionsSidebar
+            table={tableForOptions}
+            columns={tableColumns.get(tableForOptions.id) || []}
+            onClose={closeTableOptions}
+            onAction={(action: TableOptionAction) => {
+              // Handle action through existing handler
+              handleNodeContextAction(tableForOptions.id, action);
+              // Close sidebar after action (except for some actions)
+              if (!['open_options'].includes(action)) {
+                closeTableOptions();
+              }
             }}
           />
         </div>
