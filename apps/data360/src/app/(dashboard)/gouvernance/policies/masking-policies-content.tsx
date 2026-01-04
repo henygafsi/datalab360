@@ -179,7 +179,8 @@ export default function MaskingPoliciesContent() {
         data_type: columnType,
         masking_type: maskingType === 'CUSTOM' ? undefined : (maskingType as MaskingType),
         custom_expression: maskingType === 'CUSTOM' ? customExpression : getMaskingExpression(),
-        schema: DEFAULTS.GOVERNANCE_FQN,
+        database: DEFAULTS.DATABASE,
+        schema: DEFAULTS.SCHEMA,
       });
       toast.success('Masking policy created successfully!');
       setShowCreateModal(false);

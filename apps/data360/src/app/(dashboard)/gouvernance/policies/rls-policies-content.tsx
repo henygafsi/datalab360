@@ -207,7 +207,8 @@ export default function RLSPoliciesContent() {
         policy_name: formData.policy_name.trim().toUpperCase(),
         signature: formData.signature.trim(),
         expression: formData.expression.trim(),
-        schema: formData.schema || DEFAULTS.GOVERNANCE_FQN,
+        database: DEFAULTS.DATABASE,
+        schema: DEFAULTS.SCHEMA,
         description: formData.description?.trim(),
       });
       toast.success('RLS Policy created successfully');

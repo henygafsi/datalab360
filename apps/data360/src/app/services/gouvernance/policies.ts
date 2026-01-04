@@ -70,6 +70,7 @@ export interface CreateRLSPolicyRequest {
   policy_name: string;
   signature: string;
   expression: string;
+  database?: string;
   schema?: string;
   description?: string;
   expiration_date?: string;
@@ -104,6 +105,7 @@ export interface CreateMaskingPolicyRequest {
   role_name?: string;
   replace_with?: string;
   masking_type?: MaskingType;
+  database?: string;
   schema?: string;
   authorized_roles?: string[];
   custom_expression?: string;
@@ -315,11 +317,14 @@ export async function createRLSPolicy(data: CreateRLSPolicyRequest): Promise<RLS
     };
 
     // Add optional fields if provided
-    if (data.description) {
-      params.description = data.description;
+    if (data.database) {
+      params.database = data.database;
     }
     if (data.schema) {
       params.schema = data.schema;
+    }
+    if (data.description) {
+      params.description = data.description;
     }
     if (data.expiration_date) {
       params.expiration_date = data.expiration_date;
@@ -594,29 +599,24 @@ export async function createMaskingPolicy(data: CreateMaskingPolicyRequest): Pro
     data_type: data.data_type,
   };
 
-  // Only add masking_type if it's defined
+  // Add optional fields if provided
+  if (data.database) {
+    params.database = data.database;
+  }
+  if (data.schema) {
+    params.schema = data.schema;
+  }
   if (data.masking_type) {
     params.masking_type = data.masking_type;
   }
-
-  // Only add custom_expression if provided
   if (data.custom_expression) {
     params.custom_expression = data.custom_expression;
   }
-
-  // Only add authorized_roles if provided
   if (data.authorized_roles && data.authorized_roles.length > 0) {
     params.authorized_roles = data.authorized_roles.join(',');
   }
-
-  // Add expiration_date if provided
   if (data.expiration_date) {
     params.expiration_date = data.expiration_date;
-  }
-
-  // Add schema if provided
-  if (data.schema) {
-    params.schema = data.schema;
   }
 
   console.log('[createMaskingPolicy] Query params:', params);
