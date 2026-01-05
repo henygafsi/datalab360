@@ -3,9 +3,15 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { getSession } from 'next-auth/react';
 import toast, { Toaster } from 'react-hot-toast';
 import { Node, Edge } from 'reactflow';
-import WorkflowBuilder from './Workflow';
+import { WorkflowBuilder, ETLPalette } from './components';
 import WorkflowCard from './WorkflowCard';
 import { SAMPLE_WORKFLOWS } from './sampleWorkflowData';
+import { cn } from '@/lib/utils';
+import VersionHistory from './components/VersionHistory';
+import ExecutionHistory from './components/ExecutionHistory';
+import DeploymentScheduler from './components/DeploymentScheduler';
+import DeploymentHistory from './components/DeploymentHistory';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck } from 'lucide-react';
 
 interface BackendWorkflow {
   workflow_name: string;
@@ -36,7 +42,6 @@ interface ReactFlowEdge {
 }
 
 let globalNodeIdCounter = 0;
-const SIDEBAR_WIDTH_PX = 256;
 
 const WorkflowHomePage: React.FC = () => {
   const [workflows, setWorkflows] = useState<BackendWorkflow[]>([]);
@@ -52,6 +57,16 @@ const WorkflowHomePage: React.FC = () => {
   const [isUsingSampleData, setIsUsingSampleData] = useState<boolean>(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
+
+  // Right panel state for Version History, Execution History, Deployment History, and Deploy
+  const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
+  const [showDeployModal, setShowDeployModal] = useState(false);
+
+  // Get workflow ID for the active workflow (using name as ID for now until backend provides IDs)
+  const activeWorkflowId = useMemo(() => {
+    const workflow = workflows.find(w => w.workflow_name === activeWorkflowName);
+    return workflow ? activeWorkflowName : null; // Using name as ID since backend doesn't expose ID
+  }, [workflows, activeWorkflowName]);
 
   const cronScheduleOptions = useMemo(() => ([
     { value: 'hourly', label: 'Every hour' },
@@ -526,8 +541,15 @@ const WorkflowHomePage: React.FC = () => {
       steps: finalSteps,
     };
     console.log("Generated Workflow JSON:", JSON.stringify(workflowJson, null, 2));
+
+    // Check if workflow already exists (update) or is new (create)
+    const workflowExists = workflows.some(w => w.workflow_name === activeWorkflowName);
+    const endpoint = workflowExists
+      ? `${process.env.NEXT_PUBLIC_API_URL}/workflow/update_workflow/`
+      : `${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`;
+
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`, {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -536,7 +558,7 @@ const WorkflowHomePage: React.FC = () => {
         body: JSON.stringify(workflowJson),
       });
       if (response.ok) {
-        toast.success('Workflow saved successfully!');
+        toast.success(workflowExists ? 'Workflow updated successfully!' : 'Workflow created successfully!');
         setIsWorkflowSaved(true);
         if (fetchWorkflows) {
           fetchWorkflows(accessToken);
@@ -692,94 +714,55 @@ const WorkflowHomePage: React.FC = () => {
     }
   };
 
-  const PaletteItem = ({
-    label,
-    type,
-    shape,
-    className,
-    tooltip,
-  }: {
-    label: string;
-    type: string;
-    shape: React.ReactNode;
-    className?: string;
-    tooltip?: string;
-  }) => (
-    <div
-      className={`flex items-center space-x-2 mb-3 p-2 rounded-lg cursor-move border shadow-sm bg-white hover:bg-gray-100 transition ${className}`}
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData('application/reactflow', type);
-        e.dataTransfer.effectAllowed = 'move';
-      }}
-      title={tooltip || label}
-    >
-      <div className="w-10 h-10 flex items-center justify-center">{shape}</div>
-      <span className="text-sm font-medium text-gray-700">{label}</span>
-    </div>
-  );
-
   if (loading) {
-    return <div className="flex justify-center items-center h-screen text-xl">Loading workflows...</div>;
+    return (
+      <div className="flex justify-center items-center h-screen text-xl bg-slate-50 dark:bg-slate-900">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
+          <span className="text-slate-600 dark:text-slate-300">Loading workflows...</span>
+        </div>
+      </div>
+    );
   }
   if (error) {
-    return <div className="flex justify-center items-center h-screen text-red-500 text-xl">Error: {error}</div>;
+    return (
+      <div className="flex justify-center items-center h-screen bg-slate-50 dark:bg-slate-900">
+        <div className="text-red-500 text-xl p-6 bg-white dark:bg-slate-800 rounded-lg shadow-lg">
+          Error: {error}
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex h-screen bg-gray-100">
-      <Toaster />
-      {/* Sidebar */}
-      <div className="w-64 bg-gray-50 p-4 border-r border-gray-300 flex flex-col justify-between overflow-y-auto z-20">
-        <div>
-          <h3 className="text-xl font-bold text-gray-800 mb-4">🧩 ETL Blocks</h3>
-<PaletteItem 
-  label="Source" 
-  type="src" 
-  shape={
-    <svg 
-      width="48px" 
-      height="48px" 
-      viewBox="0 0 24 24" 
-      role="img" 
-      xmlns="http://www.w3.org/2000/svg" 
-      aria-labelledby="databaseIconTitle" 
-      stroke="#000000" 
-      strokeWidth="1" 
-      strokeLinecap="square" 
-      strokeLinejoin="miter" 
-      fill="none" 
-      color="#000000"
-      className="w-12 h-12"
-    >
-      <title id="databaseIconTitle">Database</title>
-      <ellipse cx="12" cy="6" rx="8" ry="3"/>
-      <path d="M4,6 C4,8.209139 7.581722,10 12,10 C16.418278,10 20,8.209139 20,6"/>
-      <path d="M4,12 C4,14.209139 7.581722,16 12,16 C16.418278,16 20,14.209139 20,12"/>
-      <path d="M4,18 C4,20.209139 7.581722,22 12,22 C16.418278,22 20,20.209139 20,18"/>
-      <path d="M4 6L4 18"/>
-      <path d="M20 6L20 18"/>
-    </svg>
-  } 
-  tooltip="Input data source (e.g., DB)" 
-/>
-          <PaletteItem label="Join" type="join" shape={<span className="text-4xl">🔀</span>} tooltip="Join 2 sources" />
-          <PaletteItem label="Aggregate KPI" type="aggregate_kpi" shape={<span className="text-4xl">📊</span>} tooltip="Aggregate key performance indicator" />
-          <PaletteItem label="Sort" type="sort" shape={<span className="text-4xl">⬆️</span>} tooltip="Sort dataset" />
-          <PaletteItem label="Destination" type="destination" shape={<svg width="48px" height="48px" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 21C15.3137 17.6863 18 14.7912 18 10.5C18 6.35786 15.3137 3 12 3C8.68629 3 6 6.35786 6 10.5C6 14.7912 8.68629 17.6863 12 21Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" stroke="#000000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>} tooltip="Output target" />
-          <PaletteItem label="Drop Nulls" type="drop_nulls" shape={<span className="text-4xl">🗑️</span>} />
-          <PaletteItem label="Drop Duplicates" type="drop_duplicates" shape={<span className="text-4xl">✂️</span>} />
-          <PaletteItem label="Normalize" type="normalize" shape={<span className="text-4xl">⚖️</span>} />
-          <PaletteItem label="Export Excel" type="export_excel" shape={<svg xmlns="http://www.w3.org/2000/svg" className="w-12 h-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>} tooltip="Export to Excel file" />
-          <div className="mt-6">
-            <label htmlFor="workflowName" className="block text-sm font-medium text-gray-700 mb-1">Workflow Name</label>
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-900">
+      <Toaster position="bottom-right" />
+
+      {/* Left Sidebar - ETL Palette */}
+      <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-sm">
+        {/* ETL Blocks Palette */}
+        <div className="flex-1 overflow-hidden">
+          <ETLPalette />
+        </div>
+
+        {/* Workflow Controls */}
+        <div className="border-t border-slate-200 dark:border-slate-700 p-4 space-y-3 bg-slate-50 dark:bg-slate-800/50">
+          {/* Workflow Name */}
+          <div>
+            <label htmlFor="workflowName" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Workflow Name
+            </label>
             <input
               type="text"
               id="workflowName"
-              className="w-full border px-3 py-2 rounded-lg focus:ring-indigo-500 focus:border-indigo-500"
+              className={cn(
+                "w-full border px-3 py-2 rounded-lg text-sm",
+                "border-slate-200 dark:border-slate-600",
+                "bg-white dark:bg-slate-700",
+                "text-slate-800 dark:text-slate-100",
+                "focus:ring-2 focus:ring-indigo-500 focus:border-transparent",
+                "placeholder:text-slate-400"
+              )}
               value={activeWorkflowName}
               onChange={(e) => {
                 setActiveWorkflowName(e.target.value);
@@ -789,43 +772,58 @@ const WorkflowHomePage: React.FC = () => {
               readOnly={!!activeWorkflowName && activeWorkflowName !== '' && workflows.some(w => w.workflow_name === activeWorkflowName)}
             />
           </div>
-          <button onClick={saveWorkflow} className="mt-4 w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 transition"
-            disabled={!activeWorkflowName}
-          >
-            Save Workflow
-          </button>
-          <button
-            onClick={executeWorkflow}
-            className={`mt-3 w-full py-2 rounded-lg font-semibold transition ${
-              isWorkflowSaved && activeWorkflowName
-                ? 'bg-green-600 text-white hover:bg-green-700'
-                : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-            }`}
-            disabled={!isWorkflowSaved || !activeWorkflowName}
-          >
-            Execute Workflow
-          </button>
-          <div className="mt-4 pt-3 pb-3 px-2 bg-gray-100 rounded-lg shadow-sm space-y-2">
-            <div className="text-sm font-medium text-gray-700 text-center">
-              Current Schedule: {activeSchedule ? cronScheduleOptions.find(opt => opt.value === activeSchedule)?.label : 'None'}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={saveWorkflow}
+              className={cn(
+                "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
+                activeWorkflowName
+                  ? "bg-indigo-600 text-white hover:bg-indigo-700"
+                  : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+              )}
+              disabled={!activeWorkflowName}
+            >
+              {workflows.some(w => w.workflow_name === activeWorkflowName) ? 'Update' : 'Save'}
+            </button>
+            <button
+              onClick={executeWorkflow}
+              className={cn(
+                "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
+                isWorkflowSaved && activeWorkflowName
+                  ? "bg-green-600 text-white hover:bg-green-700"
+                  : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+              )}
+              disabled={!isWorkflowSaved || !activeWorkflowName}
+            >
+              Execute
+            </button>
+          </div>
+
+          {/* Schedule Section */}
+          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 text-center">
+              Schedule: {activeSchedule ? cronScheduleOptions.find(opt => opt.value === activeSchedule)?.label : 'None'}
             </div>
             <div className="relative">
               <button
                 onClick={() => setShowScheduleDropdown(!showScheduleDropdown)}
-                className={`w-full flex items-center justify-between py-2 px-4 rounded-lg font-semibold transition ease-in-out duration-150 ${
+                className={cn(
+                  "w-full flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium transition",
                   isWorkflowSaved && activeWorkflowName
-                    ? 'bg-blue-500 text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50'
-                    : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }`}
+                    ? "bg-blue-500 text-white hover:bg-blue-600"
+                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+                )}
                 disabled={!isWorkflowSaved || !activeWorkflowName}
               >
-                <span>Schedule <span className="font-normal text-sm opacity-80">(Once Saved)</span></span>
-                {showScheduleDropdown ? '▼' : '▲'}
+                <span>Schedule</span>
+                <span>{showScheduleDropdown ? '▲' : '▼'}</span>
               </button>
               {showScheduleDropdown && (
-                <div className="absolute bottom-full mb-1 w-full z-20 bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden origin-bottom animate-[fadeIn_120ms_ease-out]">
+                <div className="absolute bottom-full mb-1 w-full z-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg overflow-hidden">
                   <select
-                    className="w-full p-3 bg-white text-gray-800 border-none focus:outline-none focus:ring-0 appearance-none"
+                    className="w-full p-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none focus:outline-none"
                     value={activeSchedule}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -834,119 +832,266 @@ const WorkflowHomePage: React.FC = () => {
                       }
                     }}
                   >
-                    <option value="">Select Frequency to Schedule</option>
+                    <option value="">Select Frequency</option>
                     {cronScheduleOptions.map(option => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
                     ))}
                   </select>
-                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-                  </div>
                 </div>
               )}
             </div>
-            <div className="flex justify-around gap-2 pt-1">
+            <div className="flex gap-2 mt-2">
               <button
                 onClick={resumeTask}
-                className={`flex-1 p-2 rounded-lg flex items-center justify-center transition ease-in-out duration-150 text-xl
-                  ${
-                    isWorkflowSaved && activeWorkflowName
-                      ? 'bg-green-400 text-white hover:bg-green-500 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
+                className={cn(
+                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
+                  isWorkflowSaved && activeWorkflowName
+                    ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+                )}
                 title="Resume Task"
                 disabled={!isWorkflowSaved || !activeWorkflowName}
               >
-                ▶️
+                Resume
               </button>
               <button
                 onClick={suspendTask}
-                className={`flex-1 p-2 rounded-lg flex items-center justify-center transition ease-in-out duration-150 text-xl
-                  ${
-                    isWorkflowSaved && activeWorkflowName
-                      ? 'bg-red-400 text-white hover:bg-red-500 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-50'
-                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
+                className={cn(
+                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
+                  isWorkflowSaved && activeWorkflowName
+                    ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+                )}
                 title="Suspend Task"
                 disabled={!isWorkflowSaved || !activeWorkflowName}
               >
-                ⏸️
+                Suspend
               </button>
             </div>
           </div>
         </div>
       </div>
-      {/* Main content area (React Flow and Workflow Cards) */}
-      <div className="flex-1 relative flex flex-col">
-        {/* Workflow Cards Container - Adjusting margin-left to close the visual gap */}
-        <div
-          className="absolute top-4 z-30" // Removed px-4 from here, it's on the inner div
-          style={{
-            left: `${SIDEBAR_WIDTH_PX}px`, // Starts exactly at the right edge of the sidebar
-            right: `0px`, // Ends exactly at the right edge of its parent (.flex-1 area)
-            marginLeft: '-256px', // ADDED: Pulls the container slightly to the left to close the visual gap
-          }}
-        >
-          <div className="flex items-center gap-3 bg-white border border-gray-300 py-3 px-4 rounded-lg shadow-md w-full"> {/* px-4 is here */}
-            {/* NEW WORKFLOW BUTTON IS FIRST */}
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Workflow Tabs Header */}
+        <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
+          <div className="flex items-center gap-3">
+            {/* New Workflow Button */}
             <button
               onClick={createNewWorkflow}
-              className="w-8 h-8 rounded-full bg-green-500 hover:bg-green-600 text-white text-xl flex items-center justify-center flex-shrink-0"
+              className={cn(
+                "w-9 h-9 rounded-lg flex items-center justify-center transition",
+                "bg-green-500 hover:bg-green-600 text-white",
+                "shadow-sm hover:shadow"
+              )}
               title="Create New Workflow"
             >
-              +
+              <span className="text-xl">+</span>
             </button>
+
+            {/* Navigation Arrows */}
             <button
               onClick={() => scrollWorkflows('left')}
-              className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700 text-xl flex items-center justify-center flex-shrink-0"
+              className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center transition"
               title="Scroll Left"
             >
               &lt;
             </button>
-            <div ref={workflowCardsScrollContainerRef} className="flex flex-1 items-center gap-3 overflow-x-auto no-scrollbar py-1">
+
+            {/* Workflow Tabs */}
+            <div
+              ref={workflowCardsScrollContainerRef}
+              className="flex flex-1 items-center gap-2 overflow-x-auto no-scrollbar"
+            >
               {workflows.map((workflow) => (
                 <button
                   key={workflow.workflow_name}
                   onClick={() => loadWorkflow(workflow)}
-                  className={`px-4 py-2 rounded-full border text-sm font-medium transition whitespace-nowrap flex-shrink-0 ${
+                  className={cn(
+                    "px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap flex-shrink-0",
                     workflow.workflow_name === activeWorkflowName
-                      ? 'bg-indigo-600 text-white border-indigo-700'
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-800'
-                  }`}
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200"
+                  )}
                 >
                   {workflow.workflow_name}
                 </button>
               ))}
+              {workflows.length === 0 && (
+                <span className="text-sm text-slate-400 dark:text-slate-500 italic">
+                  No workflows yet. Click + to create one.
+                </span>
+              )}
             </div>
+
             <button
               onClick={() => scrollWorkflows('right')}
-              className="w-8 h-8 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700 text-xl flex items-center justify-center flex-shrink-0"
+              className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 flex items-center justify-center transition"
               title="Scroll Right"
             >
               &gt;
             </button>
+
+            {/* Right Panel Toggle Buttons */}
+            <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200 dark:border-slate-700">
+              <button
+                onClick={() => setRightPanelTab(rightPanelTab === 'versions' ? null : 'versions')}
+                className={cn(
+                  "p-2 rounded-lg transition flex items-center gap-1.5",
+                  rightPanelTab === 'versions'
+                    ? "bg-blue-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                )}
+                title="Version History"
+              >
+                <History className="h-4 w-4" />
+                <span className="text-xs font-medium hidden lg:inline">Versions</span>
+              </button>
+              <button
+                onClick={() => setRightPanelTab(rightPanelTab === 'runs' ? null : 'runs')}
+                className={cn(
+                  "p-2 rounded-lg transition flex items-center gap-1.5",
+                  rightPanelTab === 'runs'
+                    ? "bg-blue-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                )}
+                title="Execution History"
+              >
+                <PlayCircle className="h-4 w-4" />
+                <span className="text-xs font-medium hidden lg:inline">Runs</span>
+              </button>
+              <button
+                onClick={() => setRightPanelTab(rightPanelTab === 'deployments' ? null : 'deployments')}
+                className={cn(
+                  "p-2 rounded-lg transition flex items-center gap-1.5",
+                  rightPanelTab === 'deployments'
+                    ? "bg-blue-500 text-white"
+                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                )}
+                title="Deployment History"
+              >
+                <FileCheck className="h-4 w-4" />
+                <span className="text-xs font-medium hidden lg:inline">Deploys</span>
+              </button>
+              <button
+                onClick={() => setShowDeployModal(true)}
+                disabled={!isWorkflowSaved || !activeWorkflowName}
+                className={cn(
+                  "px-3 py-2 rounded-lg transition flex items-center gap-2 font-medium text-sm",
+                  isWorkflowSaved && activeWorkflowName
+                    ? "bg-green-500 text-white hover:bg-green-600 shadow-sm"
+                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
+                )}
+                title={isWorkflowSaved && activeWorkflowName ? "Deploy Workflow" : "Save workflow first to deploy"}
+              >
+                <Rocket className="h-4 w-4" />
+                <span>Deploy</span>
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Workflow Builder */}
-        <div className="flex-1 relative pt-20">
-          <WorkflowBuilder
-            initialNodes={activeNodes}
-            initialEdges={activeEdges}
-            initialWorkflowName={activeWorkflowName}
-            initialSelectedCronSchedule={activeSchedule}
-            accessToken={accessToken}
-            refreshWorkflows={() => accessToken && fetchWorkflows(accessToken)}
-            initialIdCounter={globalNodeIdCounter}
-            onSetIdCounter={onSetIdCounterFromBuilder}
-            setIsWorkflowSaved={setIsWorkflowSaved}
-            setParentNodes={(nodes: Node[]) => setActiveNodes(nodes as ReactFlowNode[])}
-            setParentEdges={(edges: Edge[]) => setActiveEdges(edges as ReactFlowEdge[])}
-          />
+        {/* Main Content with Optional Right Panel */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Workflow Builder Canvas */}
+          <div className={cn("flex-1 relative transition-all", rightPanelTab && "mr-0")}>
+            <WorkflowBuilder
+              initialNodes={activeNodes}
+              initialEdges={activeEdges}
+              accessToken={accessToken}
+              initialIdCounter={globalNodeIdCounter}
+              onSetIdCounter={onSetIdCounterFromBuilder}
+              setIsWorkflowSaved={setIsWorkflowSaved}
+              setParentNodes={(nodes: Node[]) => setActiveNodes(nodes as ReactFlowNode[])}
+              setParentEdges={(edges: Edge[]) => setActiveEdges(edges as ReactFlowEdge[])}
+            />
+          </div>
+
+          {/* Right Panel - Version History, Execution History, or Deployment History */}
+          {rightPanelTab && activeWorkflowId && (
+            <div className="w-96 border-l border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 flex flex-col overflow-hidden">
+              {/* Panel Header */}
+              <div className="flex items-center justify-between p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                <div className="flex items-center gap-2">
+                  {rightPanelTab === 'versions' ? (
+                    <>
+                      <History className="h-4 w-4 text-blue-500" />
+                      <span className="font-medium text-sm text-slate-700 dark:text-slate-200">Version History</span>
+                    </>
+                  ) : rightPanelTab === 'runs' ? (
+                    <>
+                      <PlayCircle className="h-4 w-4 text-blue-500" />
+                      <span className="font-medium text-sm text-slate-700 dark:text-slate-200">Execution History</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileCheck className="h-4 w-4 text-blue-500" />
+                      <span className="font-medium text-sm text-slate-700 dark:text-slate-200">Deployment History</span>
+                    </>
+                  )}
+                </div>
+                <button
+                  onClick={() => setRightPanelTab(null)}
+                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition"
+                >
+                  <X className="h-4 w-4 text-slate-400" />
+                </button>
+              </div>
+
+              {/* Panel Content */}
+              <div className="flex-1 overflow-auto">
+                {rightPanelTab === 'versions' ? (
+                  <VersionHistory
+                    workflowId={activeWorkflowId}
+                    workflowName={activeWorkflowName}
+                    onVersionChange={() => {
+                      // Refresh workflows after version change
+                      if (accessToken) {
+                        fetchWorkflowsRef.current?.(accessToken);
+                      }
+                    }}
+                    className="border-0 rounded-none"
+                  />
+                ) : rightPanelTab === 'runs' ? (
+                  <ExecutionHistory
+                    workflowId={activeWorkflowId}
+                    workflowName={activeWorkflowName}
+                    className="border-0 rounded-none"
+                  />
+                ) : (
+                  <DeploymentHistory
+                    workflowId={activeWorkflowId}
+                    workflowName={activeWorkflowName}
+                    className="border-0 rounded-none"
+                  />
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Deploy Modal */}
+      {activeWorkflowId && (
+        <DeploymentScheduler
+          workflowId={activeWorkflowId}
+          workflowName={activeWorkflowName}
+          steps={workflows.find(w => w.workflow_name === activeWorkflowName)?.steps || []}
+          isOpen={showDeployModal}
+          onClose={() => setShowDeployModal(false)}
+          onDeploymentCreated={(eventId, status) => {
+            toast.success(`Deployment ${status === 'PENDING_APPROVAL' ? 'submitted for approval' : status === 'ACTIVE' ? 'executed' : 'scheduled'}!`);
+            // Refresh deployment history after creating a new deployment
+            if (rightPanelTab === 'deployments') {
+              setRightPanelTab(null);
+              setTimeout(() => setRightPanelTab('deployments'), 100);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };
