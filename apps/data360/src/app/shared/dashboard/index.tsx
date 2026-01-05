@@ -13,6 +13,7 @@ import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
 import axios from 'axios';
 import * as ExploreDesignService from '@/app/services/explore-design';
+import * as WorkflowService from '@/app/services/workflow';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
@@ -29,6 +30,9 @@ interface ScheduledWorkflow {
   schedule_interval_str?: string;
   source?: 'workflow' | 'mapping' | 'explore_design'; // Track origin
   schedule_id?: string; // For explore-design deployments
+  event_id?: string; // For workflow deployments (new unified API)
+  workflow_id?: string; // For workflow deployments
+  module?: 'WORKFLOW' | 'MAPPING' | 'EXPLORE_DESIGN'; // Unified module identifier
 }
 
 export default function GouvernanceDashboard() {
@@ -134,8 +138,8 @@ export default function GouvernanceDashboard() {
         'X-Username': session?.user?.username || '',
       };
 
-      // Fetch workflows, mapping deployments, and explore-design deployments in parallel
-      const [workflowsResponse, deploymentsResponse, exploreDesignResponse] = await Promise.all([
+      // Fetch workflows, mapping deployments, explore-design deployments, and workflow deployments in parallel
+      const [workflowsResponse, deploymentsResponse, exploreDesignResponse, workflowDeploymentsResponse] = await Promise.all([
           axios.get(
             `${API_BASE_URL}/workflow/get_workflows/`,
             {
@@ -160,6 +164,11 @@ export default function GouvernanceDashboard() {
           ExploreDesignService.getScheduledDeployments().catch((err: any) => {
             console.warn('Explore-design deployments endpoint not available:', err.message);
             return { scheduled_deployments: [] };
+          }),
+          // Fetch workflow deployments (new deployment API with approval workflow)
+          WorkflowService.getWorkflowDeployments().catch((err: any) => {
+            console.warn('Workflow deployments endpoint not available:', err.message);
+            return { deployments: [], total: 0 };
           })
         ]);
 
@@ -171,6 +180,24 @@ export default function GouvernanceDashboard() {
             .filter((wf: any) => wf.schedule_interval_str)
             .map((wf: any) => ({ ...wf, source: 'workflow' as const }));
           allScheduled.push(...scheduledWorkflows);
+        }
+
+        // Add workflow deployments from new deployment API (approval workflow)
+        if (workflowDeploymentsResponse?.deployments) {
+          const workflowDeployments = workflowDeploymentsResponse.deployments.map((d: any) => ({
+            workflow_name: d.workflow_name,
+            scheduled_date: d.scheduled_date,
+            deployment_method: 'WORKFLOW_DEPLOYMENT',
+            project_id: d.project_id,
+            created_by: d.created_by,
+            created_at: d.created_at,
+            status: d.status,
+            source: 'workflow' as const,
+            event_id: d.event_id,
+            workflow_id: d.workflow_id,
+            module: 'WORKFLOW' as const,
+          }));
+          allScheduled.push(...workflowDeployments);
         }
 
         // Add mapping deployments
@@ -293,16 +320,21 @@ export default function GouvernanceDashboard() {
   };
 
   // Approve scheduled deployment (modeler action)
-  const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
+  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
+  const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
     const headers = getAuthHeaders();
     if (!headers) return;
 
     setApprovingWorkflow(workflowName);
     try {
-      // Handle explore-design deployments separately
-      if (source === 'explore_design' && scheduleId) {
+      // Handle different deployment types based on source/module
+      if (source === 'workflow' && eventId) {
+        // New workflow deployment API
+        await WorkflowService.approveDeployment(eventId);
+      } else if (source === 'explore_design' && scheduleId) {
         await ExploreDesignService.approveScheduledDeployment(scheduleId);
       } else {
+        // Default: mapping deployment
         await axios.post(
           `${API_BASE_URL}/mapping/approve_deployment/`,
           { workflow_name: workflowName },
@@ -320,9 +352,18 @@ export default function GouvernanceDashboard() {
       alert(`Successfully approved deployment: ${workflowName}`);
     } catch (error: any) {
       console.error('Error approving deployment:', error);
-      const errorMsg = error.code === 'ECONNABORTED'
-        ? 'Request timed out. The backend endpoint may not be implemented yet.'
-        : error.response?.data?.detail || error.message || 'Unknown error';
+      let errorMsg = 'Unknown error';
+      if (error.code === 'ECONNABORTED') {
+        errorMsg = 'Request timed out. The backend endpoint may not be implemented yet.';
+      } else if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : Array.isArray(error.response.data.detail)
+            ? error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
+            : JSON.stringify(error.response.data.detail);
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
       alert(`Failed to approve: ${errorMsg}`);
     } finally {
       setApprovingWorkflow(null);
@@ -330,7 +371,8 @@ export default function GouvernanceDashboard() {
   };
 
   // Reject scheduled deployment
-  const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
+  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
+  const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
     const headers = getAuthHeaders();
     if (!headers) return;
 
@@ -339,9 +381,13 @@ export default function GouvernanceDashboard() {
 
     setApprovingWorkflow(workflowName);
     try {
-      if (source === 'explore_design' && scheduleId) {
+      if (source === 'workflow' && eventId) {
+        // New workflow deployment API
+        await WorkflowService.rejectDeployment(eventId, reason);
+      } else if (source === 'explore_design' && scheduleId) {
         await ExploreDesignService.rejectScheduledDeployment(scheduleId, reason);
       } else {
+        // Default: mapping deployment
         await axios.post(
           `${API_BASE_URL}/mapping/reject_deployment/`,
           { workflow_name: workflowName, reason },
@@ -359,20 +405,46 @@ export default function GouvernanceDashboard() {
       alert(`Deployment rejected: ${workflowName}`);
     } catch (error: any) {
       console.error('Error rejecting deployment:', error);
-      alert(`Failed to reject: ${error.message}`);
+      let errorMsg = 'Unknown error';
+      if (error.response?.data?.detail) {
+        errorMsg = typeof error.response.data.detail === 'string'
+          ? error.response.data.detail
+          : Array.isArray(error.response.data.detail)
+            ? error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
+            : JSON.stringify(error.response.data.detail);
+      } else if (error.message) {
+        errorMsg = error.message;
+      }
+      alert(`Failed to reject: ${errorMsg}`);
     } finally {
       setApprovingWorkflow(null);
     }
   };
 
   // Activate approved deployment (final execution)
-  const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string) => {
+  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
+  const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
     const headers = getAuthHeaders();
     if (!headers) return;
 
     setActivatingWorkflow(workflowName);
     setDeploymentError(null); // Clear previous errors
     try {
+      // Handle workflow deployments (new API with event_id)
+      if (source === 'workflow' && eventId) {
+        await WorkflowService.activateDeployment(eventId);
+
+        setScheduledWorkflows((prev) =>
+          prev.map((wf) =>
+            wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
+          )
+        );
+
+        alert(`Successfully activated workflow deployment: ${workflowName}`);
+        setActivatingWorkflow(null);
+        return;
+      }
+
       // Handle explore-design deployments
       if (source === 'explore_design' && scheduleId) {
         await ExploreDesignService.executeScheduledDeploymentNow(scheduleId);
@@ -388,7 +460,7 @@ export default function GouvernanceDashboard() {
         return;
       }
 
-      // Determine if it's a mapping deployment or workflow
+      // Determine if it's a mapping deployment or legacy workflow
       const isMappingDeployment = workflowName.startsWith('mapping_deployment_');
       const endpoint = isMappingDeployment
         ? `${API_BASE_URL}/mapping/activate_deployment/`
@@ -888,10 +960,11 @@ export default function GouvernanceDashboard() {
                               )}
                             </div>
 
+                            {/* Mapping Deployment Actions */}
                             <div className="flex gap-2">
                               {status === 'PENDING_APPROVAL' && (
                                 <Button
-                                  onClick={() => handleApproveDeployment(workflow.workflow_name)}
+                                  onClick={() => handleApproveDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
                                   disabled={isApproving}
                                   className="flex-1 bg-blue-600 hover:bg-blue-700"
                                   size="sm"
@@ -911,7 +984,7 @@ export default function GouvernanceDashboard() {
                               )}
                               {status === 'APPROVED' && (
                                 <Button
-                                  onClick={() => handleActivateDeployment(workflow.workflow_name)}
+                                  onClick={() => handleActivateDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
                                   disabled={isActivating}
                                   className="flex-1 bg-green-600 hover:bg-green-700"
                                   size="sm"
@@ -1007,10 +1080,11 @@ export default function GouvernanceDashboard() {
                               )}
                             </div>
 
+                            {/* Workflow Deployment Actions */}
                             <div className="flex gap-2">
                               {status === 'PENDING_APPROVAL' && (
                                 <Button
-                                  onClick={() => handleApproveDeployment(workflow.workflow_name)}
+                                  onClick={() => handleApproveDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
                                   disabled={isApproving}
                                   className="flex-1 bg-blue-600 hover:bg-blue-700"
                                   size="sm"
@@ -1030,7 +1104,7 @@ export default function GouvernanceDashboard() {
                               )}
                               {status === 'APPROVED' && (
                                 <Button
-                                  onClick={() => handleActivateDeployment(workflow.workflow_name)}
+                                  onClick={() => handleActivateDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
                                   disabled={isActivating}
                                   className="flex-1 bg-green-600 hover:bg-green-700"
                                   size="sm"
