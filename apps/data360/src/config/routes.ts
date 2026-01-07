@@ -1,5 +1,3 @@
-import { View } from "lucide-react";
-
 export const routes = {
   home: '/',
   accountOverview: '/account-overview',
@@ -36,7 +34,7 @@ export const routes = {
     view: '/da-request',
   },
   observability: {
-    systemStatus: '/observability/system-status',
+    dashboard: '/observability',
   },
   intelligent: {
     dashboard: '/intelligent',

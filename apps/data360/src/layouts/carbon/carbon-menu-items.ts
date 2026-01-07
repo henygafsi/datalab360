@@ -19,6 +19,7 @@ import {
   PiBrainDuotone,
   PiCubeDuotone,
   PiChatCircleDuotone,
+  PiChartLineDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -175,8 +176,21 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // Hidden items (commented out - users can still access via direct URL)
-  // Mapping, KPI's Store, DaRquest/DAC, and Observability have been removed from the menu
+  // 8. Observability
+  {
+    id: 8,
+    name: 'Observability',
+    title: 'Observability',
+    icon: PiChartLineDuotone,
+    menuItems: [
+      {
+        name: 'Dashboard',
+        description: 'KPIs, Compliance & Monitoring',
+        href: routes.observability.dashboard,
+        icon: PiChartLineDuotone,
+      },
+    ],
+  },
 ];
 
 export const carbonMenuItemAtom = atom(carbonMenuItems[0]);

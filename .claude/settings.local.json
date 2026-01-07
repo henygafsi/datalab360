@@ -10,7 +10,13 @@
       "Bash(ls:*)",
       "Bash(grep:*)",
       "Bash(git checkout:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(python:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(playwright install:*)",
+      "Bash(dir:*)",
+      "Bash(npm run lint)"
     ]
   }
 }
