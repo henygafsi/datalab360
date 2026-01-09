@@ -36,6 +36,9 @@ export const routes = {
   observability: {
     dashboard: '/observability',
   },
+  clientAccounts: {
+    dashboard: '/client-accounts',
+  },
   intelligent: {
     dashboard: '/intelligent',
     semanticModels: '/intelligent/semantic-models',

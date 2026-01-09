@@ -13,7 +13,8 @@ import {
   HiOutlineHome,
   HiOutlineDocumentChartBar,
   HiOutlineSquares2X2,
-  HiOutlineSparkles
+  HiOutlineSparkles,
+  HiOutlineBuildingOffice2,
 } from 'react-icons/hi2';
 
 
@@ -97,6 +98,11 @@ const modernMenuItems = [
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       }
     ]
+  },
+  {
+    name: 'Client Accounts',
+    href: '/client-accounts',
+    icon: <HiOutlineBuildingOffice2 className="w-5 h-5" />,
   }
 ];
 
@@ -144,7 +150,7 @@ export function SidebarMenu() {
           };
         }
         // Hide other groups entirely when not connected
-        if (['Data Processing', 'Analytics', 'Governance'].includes(item.name)) {
+        if (['Data Processing', 'Analytics', 'Governance', 'Client Accounts'].includes(item.name)) {
           return null as any;
         }
         return item;

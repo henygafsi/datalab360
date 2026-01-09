@@ -111,7 +111,14 @@ export const MODULES: ModuleConfig[] = [
     description: 'Account overview and home page',
     visible: true
   },
-  
+  {
+    id: 14,
+    name: 'Client Accounts',
+    apiName: 'client_accounts',
+    description: 'Monitor and manage client Snowflake accounts',
+    visible: true
+  },
+
   // Hidden modules (not shown in menu but can be granted)
   { 
     id: 2, 

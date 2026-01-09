@@ -16,7 +16,9 @@
       "Bash(pip install:*)",
       "Bash(playwright install:*)",
       "Bash(dir:*)",
-      "Bash(npm run lint)"
+      "Bash(npm run lint)",
+      "Bash(npx next lint:*)",
+      "Bash(cat:*)"
     ]
   }
 }
