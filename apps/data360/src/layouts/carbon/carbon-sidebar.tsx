@@ -14,9 +14,10 @@ import dynamic from 'next/dynamic';
 import SimpleBar from 'simplebar-react';
 import { CarbonSidebarMenu } from './carbon-sidebar-menu';
 import { useSession } from 'next-auth/react';
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { normalizeToIds, getAllModuleIds } from '@/config/modules';
+import { useSidebarCollapsed } from '@/store/sidebar-store';
 
 const NeedSupport = dynamic(() => import('@/layouts/carbon/need-support'), {
   ssr: false,
@@ -56,8 +57,7 @@ export function CarbonSidebar({ className }: { className?: string }) {
   }, [userRole, sessionItems]);
 
   const username = session?.user?.username || 'Guest';
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
+  const { collapsed: sidebarCollapsed, setCollapsed: setSidebarCollapsed } = useSidebarCollapsed();
 
   // Keyboard navigation
   useEffect(() => {
@@ -114,8 +114,8 @@ export function CarbonSidebar({ className }: { className?: string }) {
               <motion.div
                 className="relative flex items-center justify-center transition-all duration-500 group-hover:scale-105"
                 animate={{
-                  width: sidebarCollapsed ? 32 : 192,
-                  height: sidebarCollapsed ? 32 : 96,
+                  width: sidebarCollapsed ? 32 : 150,
+                  height: sidebarCollapsed ? 32 : 50,
                 }}
                 transition={{ duration: 0.3 }}
               >

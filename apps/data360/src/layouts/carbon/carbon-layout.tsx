@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSession } from 'next-auth/react';
 import Header from '@/layouts/carbon/carbon-header';
 import { CarbonSidebar } from './carbon-sidebar';
+import { useSidebarCollapsed } from '@/store/sidebar-store';
+import cn from '@core/utils/class-names';
 
 // Loading state component
 function LoadingOverlay({ isLoading }: { isLoading: boolean }) {
@@ -64,6 +66,7 @@ export default function CarbonLayout({
   const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [isPageVisible, setIsPageVisible] = useState(true);
+  const { collapsed: sidebarCollapsed } = useSidebarCollapsed();
 
   // Page visibility API for better performance
   useEffect(() => {
@@ -221,7 +224,18 @@ export default function CarbonLayout({
       <CarbonSidebar className="fixed hidden flex-col justify-between xl:block z-50" />
       
       {/* Main content area */}
-      <div className="flex w-full flex-col xl:ms-[280px] xl:w-[calc(100%-280px)] 2xl:ms-80 2xl:w-[calc(100%-320px)] relative z-10">
+      <motion.div
+        className={cn(
+          "flex w-full flex-col relative z-10 transition-all duration-300",
+          "xl:ms-[280px] xl:w-[calc(100%-280px)]"
+        )}
+        animate={{
+          marginLeft: sidebarCollapsed ? 64 : 280,
+          width: sidebarCollapsed ? 'calc(100% - 64px)' : 'calc(100% - 280px)'
+        }}
+        transition={{ duration: 0.3, ease: 'easeInOut' }}
+        style={{ marginLeft: sidebarCollapsed ? 64 : 280 }}
+      >
         <Header />
         
         {/* Enhanced Page content with better UX */}
@@ -312,7 +326,7 @@ export default function CarbonLayout({
             </div>
           </div>
         </footer>
-      </div>
+      </motion.div>
 
       {/* Enhanced CSS with better performance and accessibility */}
       <style jsx>{`
