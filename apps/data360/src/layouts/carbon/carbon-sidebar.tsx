@@ -175,58 +175,77 @@ export function CarbonSidebar({ className }: { className?: string }) {
         >
           <CarbonSidebarMenu
             allowedIds={allowedIds}
+            collapsed={sidebarCollapsed}
           />
         </motion.div>
 
-        {/* Support section */}
-        <div className="from-white/98 dark:from-slate-950/98 sticky bottom-0 bg-gradient-to-t to-white/80 px-4 pb-6 backdrop-blur-md dark:to-slate-950/80">
-          <NeedSupport
-            title="Need Support?"
-            text="Get help from our expert team"
-            prefixIcon={<PiHeadsetBold className="h-5 w-5 text-blue-500" />}
-            className="group relative transform rounded-2xl border border-blue-200/60 bg-gradient-to-br from-blue-50/90 via-indigo-50/90 to-purple-50/90 p-6 transition-all duration-300 hover:scale-[1.02] hover:border-blue-300/70 hover:from-blue-100/90 hover:via-indigo-100/90 hover:to-purple-100/90 hover:shadow-lg hover:shadow-blue-500/20 dark:border-blue-800/40 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 dark:hover:border-blue-700/50 dark:hover:from-blue-900/50 dark:hover:via-indigo-900/50 dark:hover:to-purple-900/50"
-          >
-            {/* Animated background pattern */}
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-transparent via-blue-100/20 to-purple-100/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-transparent dark:via-blue-900/10 dark:to-purple-900/10" />
+        {/* Support section - hidden when collapsed */}
+        {!sidebarCollapsed && (
+          <div className="from-white/98 dark:from-slate-950/98 sticky bottom-0 bg-gradient-to-t to-white/80 px-4 pb-6 backdrop-blur-md dark:to-slate-950/80">
+            <NeedSupport
+              title="Need Support?"
+              text="Get help from our expert team"
+              prefixIcon={<PiHeadsetBold className="h-5 w-5 text-blue-500" />}
+              className="group relative transform rounded-2xl border border-blue-200/60 bg-gradient-to-br from-blue-50/90 via-indigo-50/90 to-purple-50/90 p-6 transition-all duration-300 hover:scale-[1.02] hover:border-blue-300/70 hover:from-blue-100/90 hover:via-indigo-100/90 hover:to-purple-100/90 hover:shadow-lg hover:shadow-blue-500/20 dark:border-blue-800/40 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 dark:hover:border-blue-700/50 dark:hover:from-blue-900/50 dark:hover:via-indigo-900/50 dark:hover:to-purple-900/50"
+            >
+              {/* Animated background pattern */}
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-transparent via-blue-100/20 to-purple-100/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-transparent dark:via-blue-900/10 dark:to-purple-900/10" />
 
-            {/* Floating particles */}
-            <div className="absolute right-2 top-2 h-1 w-1 animate-ping rounded-full bg-blue-400/40" />
-            <div className="absolute bottom-3 left-3 h-1.5 w-1.5 animate-pulse rounded-full bg-purple-400/40 delay-1000" />
-          </NeedSupport>
-        </div>
+              {/* Floating particles */}
+              <div className="absolute right-2 top-2 h-1 w-1 animate-ping rounded-full bg-blue-400/40" />
+              <div className="absolute bottom-3 left-3 h-1.5 w-1.5 animate-pulse rounded-full bg-purple-400/40 delay-1000" />
+            </NeedSupport>
+          </div>
+        )}
       </SimpleBar>
 
       {/* Profile section */}
-      <div className="from-slate-50/98 to-white/98 dark:from-slate-950/98 dark:to-slate-900/98 relative border-t border-slate-200/60 bg-gradient-to-t px-6 pb-6 pt-4 backdrop-blur-md dark:border-slate-700/60">
+      <div className={cn(
+        "from-slate-50/98 to-white/98 dark:from-slate-950/98 dark:to-slate-900/98 relative border-t border-slate-200/60 bg-gradient-to-t backdrop-blur-md dark:border-slate-700/60",
+        sidebarCollapsed ? "px-2 pb-4 pt-3" : "px-6 pb-6 pt-4"
+      )}>
         {/* Background accent */}
         <div className="absolute inset-0 bg-gradient-to-r from-blue-50/40 via-transparent to-purple-50/40 dark:from-blue-950/20 dark:via-transparent dark:to-purple-950/20" />
 
-        <ProfileCardMenu
-          title={username}
-          designation="Administrator"
-          placement="top"
-          image="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
-          avatarClassName="!w-14 !h-14 ring-4 ring-blue-500/30 dark:ring-blue-400/30 shadow-xl shadow-blue-500/20"
-          icon={
-            <PiDotsThreeVerticalBold
-              className={cn(
-                'h-6 w-6 text-slate-400 transition-all duration-300 group-hover:scale-110 group-hover:text-blue-500'
-              )}
-            />
-          }
-          className={cn(
-            'group relative mt-4 rounded-2xl px-3 py-3 transition-all duration-300 hover:scale-[1.02] hover:bg-slate-100/90 hover:shadow-lg hover:shadow-slate-500/10 dark:hover:bg-slate-800/90'
-          )}
-          buttonClassName="border-0 !border-t !border-slate-200/60 dark:!border-slate-700/60 pt-5 px-3 rounded-xl"
-        >
-          {/* Profile hover effect */}
-          <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-50/50 to-purple-50/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-blue-950/30 dark:to-purple-950/30" />
-
-          {/* Status indicator */}
-          <div className="absolute right-2 top-2">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
+        {sidebarCollapsed ? (
+          <div className="flex justify-center">
+            <div className="relative">
+              <img
+                src="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
+                alt={username}
+                className="h-10 w-10 rounded-full ring-2 ring-blue-500/30 dark:ring-blue-400/30"
+              />
+              <div className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-white dark:ring-slate-900" />
+            </div>
           </div>
-        </ProfileCardMenu>
+        ) : (
+          <ProfileCardMenu
+            title={username}
+            designation="Administrator"
+            placement="top"
+            image="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
+            avatarClassName="!w-14 !h-14 ring-4 ring-blue-500/30 dark:ring-blue-400/30 shadow-xl shadow-blue-500/20"
+            icon={
+              <PiDotsThreeVerticalBold
+                className={cn(
+                  'h-6 w-6 text-slate-400 transition-all duration-300 group-hover:scale-110 group-hover:text-blue-500'
+                )}
+              />
+            }
+            className={cn(
+              'group relative mt-4 rounded-2xl px-3 py-3 transition-all duration-300 hover:scale-[1.02] hover:bg-slate-100/90 hover:shadow-lg hover:shadow-slate-500/10 dark:hover:bg-slate-800/90'
+            )}
+            buttonClassName="border-0 !border-t !border-slate-200/60 dark:!border-slate-700/60 pt-5 px-3 rounded-xl"
+          >
+            {/* Profile hover effect */}
+            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-50/50 to-purple-50/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-blue-950/30 dark:to-purple-950/30" />
+
+            {/* Status indicator */}
+            <div className="absolute right-2 top-2">
+              <div className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
+            </div>
+          </ProfileCardMenu>
+        )}
       </div>
 
       {/* Bottom accent line */}

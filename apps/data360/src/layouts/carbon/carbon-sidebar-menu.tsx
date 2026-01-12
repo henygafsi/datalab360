@@ -12,10 +12,11 @@ import { SortableList } from '@core/components/dnd/dnd-sortable-list';
 import { DragEndEvent } from '@dnd-kit/core';
 import { arrayMove } from '@dnd-kit/sortable';
 import { useDndEnabled } from '@/store/dnd-enable-store';
+import { Tooltip } from 'rizzui';
 
 
 
-export function CarbonSidebarMenu({ allowedIds }: { allowedIds: number[] }) {
+export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedIds: number[]; collapsed?: boolean }) {
   const pathname = usePathname();
   const [items, setItems] = useState(carbonMenuItems);
   const { enabled } = useDndEnabled();
@@ -34,14 +35,16 @@ export function CarbonSidebarMenu({ allowedIds }: { allowedIds: number[] }) {
 
   return (
     <div className="mb-auto">
-      <Text
-        as="span"
-        className="block px-[25px] pt-5 font-lexend text-xs uppercase text-gray-400 dark:text-gray-600"
-      >
-        Menu
-      </Text>
+      {!collapsed && (
+        <Text
+          as="span"
+          className="block px-[25px] pt-5 font-lexend text-xs uppercase text-gray-400 dark:text-gray-600"
+        >
+          Menu
+        </Text>
+      )}
 
-      <ul className="pb-12">
+      <ul className={cn("pb-12", collapsed && "pt-4")}>
         <SortableList items={items} onChange={handleChange}>
           {items.map((item, index) => {
             const Icon = item.icon;
@@ -57,50 +60,77 @@ export function CarbonSidebarMenu({ allowedIds }: { allowedIds: number[] }) {
             return (
               <Fragment key={`sortable-menu-${item.name}-${index}`}>
                 <SortableList.Item id={item.id}>
-                  <Menu trigger="hover" placement="right-start" offset={2} closeDelay={0}>
+                  <Menu trigger="hover" placement="right-start" offset={collapsed ? 8 : 2} closeDelay={0}>
                     <Menu.Trigger>
-                      <div
-                        className={cn(
-                          'group relative mx-3.5 flex grow items-center justify-between overflow-hidden rounded-md px-3 py-2.5 font-medium transition-all lg:my-1 2xl:my-2 2xl:me-5',
-                          isDropdownOpen
-                            ? 'bg-primary text-gray-0'
-                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700',
-                          enabled && 'ps-7',
-                          disabled && 'pointer-events-none cursor-not-allowed opacity-40'
-                        )}
-                      >
-                        <span className="flex items-center">
-                          {enabled && (
-                            <SortableList.DragHandle
-                              className={cn(
-                                'absolute inset-t-0 start-1 me-1 size-5 [&>svg]:size-[20px]',
-                                isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
-                              )}
-                            />
-                          )}
-                          {Icon && (
-                            <span
-                              className={cn(
-                                'me-2 inline-flex size-6 items-center justify-center rounded-md [&>svg]:size-[24px]',
-                                isDropdownOpen
-                                  ? 'text-gray-0'
-                                  : 'text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-700'
-                              )}
-                            >
-                              <Icon />
-                            </span>
-                          )}
-                          {item.name}
-                        </span>
-
-                        <PiCaretDownBold
-                          strokeWidth={3}
+                      {collapsed ? (
+                        <Tooltip content={item.name} placement="right">
+                          <div
+                            className={cn(
+                              'group relative mx-auto flex items-center justify-center rounded-lg p-2.5 transition-all lg:my-1 2xl:my-2',
+                              isDropdownOpen
+                                ? 'bg-primary text-gray-0'
+                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700',
+                              disabled && 'pointer-events-none cursor-not-allowed opacity-40'
+                            )}
+                          >
+                            {Icon && (
+                              <span
+                                className={cn(
+                                  'inline-flex size-6 items-center justify-center rounded-md [&>svg]:size-[22px]',
+                                  isDropdownOpen
+                                    ? 'text-gray-0'
+                                    : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
+                                )}
+                              >
+                                <Icon />
+                              </span>
+                            )}
+                          </div>
+                        </Tooltip>
+                      ) : (
+                        <div
                           className={cn(
-                            'h-3.5 w-3.5 -rotate-90 transition-transform rtl:rotate-90',
-                            isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
+                            'group relative mx-3.5 flex grow items-center justify-between overflow-hidden rounded-md px-3 py-2.5 font-medium transition-all lg:my-1 2xl:my-2 2xl:me-5',
+                            isDropdownOpen
+                              ? 'bg-primary text-gray-0'
+                              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700',
+                            enabled && 'ps-7',
+                            disabled && 'pointer-events-none cursor-not-allowed opacity-40'
                           )}
-                        />
-                      </div>
+                        >
+                          <span className="flex items-center">
+                            {enabled && (
+                              <SortableList.DragHandle
+                                className={cn(
+                                  'absolute inset-t-0 start-1 me-1 size-5 [&>svg]:size-[20px]',
+                                  isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
+                                )}
+                              />
+                            )}
+                            {Icon && (
+                              <span
+                                className={cn(
+                                  'me-2 inline-flex size-6 items-center justify-center rounded-md [&>svg]:size-[24px]',
+                                  isDropdownOpen
+                                    ? 'text-gray-0'
+                                    : 'text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-700'
+                                )}
+                              >
+                                <Icon />
+                              </span>
+                            )}
+                            {item.name}
+                          </span>
+
+                          <PiCaretDownBold
+                            strokeWidth={3}
+                            className={cn(
+                              'h-3.5 w-3.5 -rotate-90 transition-transform rtl:rotate-90',
+                              isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
+                            )}
+                          />
+                        </div>
+                      )}
                     </Menu.Trigger>
 
                     <Menu.List className="relative w-[280px] !border-transparent !px-2 !py-3 dark:border-gray-300 dark:bg-gray-100">
