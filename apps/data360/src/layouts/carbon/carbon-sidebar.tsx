@@ -210,20 +210,18 @@ export function CarbonSidebar({ className }: { className?: string }) {
         {sidebarCollapsed ? (
           <div className="flex justify-center">
             <div className="relative">
-              <img
-                src="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
-                alt={username}
-                className="h-10 w-10 rounded-full ring-2 ring-blue-500/30 dark:ring-blue-400/30"
-              />
+              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-semibold text-sm ring-2 ring-blue-500/30 dark:ring-blue-400/30">
+                {username.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
+              </div>
               <div className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-white dark:ring-slate-900" />
             </div>
           </div>
         ) : (
           <ProfileCardMenu
             title={username}
-            designation="Administrator"
+            designation={userRole || 'User'}
             placement="top"
-            image="https://isomorphic-furyroad.s3.amazonaws.com/public/avatars/avatar-11.webp"
+            initial={username.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
             avatarClassName="!w-14 !h-14 ring-4 ring-blue-500/30 dark:ring-blue-400/30 shadow-xl shadow-blue-500/20"
             icon={
               <PiDotsThreeVerticalBold

@@ -1,11 +1,16 @@
 'use client';
-import { Avatar, Button, Popover, Title, Text } from 'rizzui';
+import { Avatar, Button, Popover, Title, Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { ReactNode, useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { routes } from '@/config/routes';
 import Link from 'next/link';
 import { Placement } from '@floating-ui/react';
+import {
+  HiOutlineUser,
+  HiOutlineCog6Tooth,
+  HiOutlineShieldCheck
+} from 'react-icons/hi2';
 
 type ProfileCardMenuProps = {
   className?: string;
@@ -20,52 +25,70 @@ type ProfileCardMenuProps = {
   children?: ReactNode;
 };
 
+// Generate initials from name
+function getInitials(name: string): string {
+  return name
+    .split(' ')
+    .map(word => word[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+}
+
 const menuItems = [
   {
     name: 'My Profile',
     href: routes.profile,
+    icon: HiOutlineUser,
   },
   {
     name: 'Account Settings',
     href: routes.forms.profileSettings,
-  },
-  {
-    name: 'Activity Log',
-    href: '#',
+    icon: HiOutlineCog6Tooth,
   },
 ];
 
 function DropdownMenu({
-  image,
   initial,
   title,
   designation,
 }: ProfileCardMenuProps) {
   return (
     <div className="w-64 text-left rtl:text-right">
-      <div className="flex items-center border-b border-gray-300 px-6 pb-5 pt-6">
+      <div className="flex items-center gap-3 border-b border-gray-200 dark:border-gray-700 px-5 pb-4 pt-5">
         <Avatar
-          src={image && image}
-          name={title! && title}
-          initials={initial && initial}
+          name={title!}
+          initials={initial || getInitials(title || 'U')}
+          className="bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold"
         />
-        <div className="ms-3">
+        <div className="flex-1 min-w-0">
           {title && (
-            <Title as="h6" className="font-semibold">
+            <Title as="h6" className="font-semibold text-gray-900 dark:text-gray-100 truncate">
               {title}
             </Title>
           )}
-          {designation && <Text className="text-gray-600">{designation}</Text>}
+          {designation && (
+            <Badge
+              variant="flat"
+              color="primary"
+              size="sm"
+              className="mt-1"
+            >
+              <HiOutlineShieldCheck className="w-3 h-3 mr-1" />
+              {designation}
+            </Badge>
+          )}
         </div>
       </div>
-      <div className="grid px-3.5 py-3.5 font-medium text-gray-700">
+      <div className="px-3 py-3">
         {menuItems.map((item) => (
           <Link
             key={item.name}
             href={item.href}
-            className="group my-0.5 flex items-center rounded-md px-2.5 py-2 hover:bg-gray-100 focus:outline-none hover:dark:bg-gray-50/50"
+            className="group flex items-center gap-3 rounded-lg px-3 py-2.5 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/50 transition-colors duration-200"
           >
-            {item.name}
+            <item.icon className="w-5 h-5 text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 transition-colors" />
+            <span className="font-medium">{item.name}</span>
           </Link>
         ))}
       </div>
@@ -81,7 +104,6 @@ export default function ProfileCardMenu({
   icon,
   title,
   designation,
-  image,
   initial = 'P',
 }: ProfileCardMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
@@ -111,11 +133,10 @@ export default function ProfileCardMenu({
               <span className="flex items-center gap-3">
                 <div>
                   <Avatar
-                    src={image && image}
                     name={title!}
-                    initials={initial && initial}
+                    initials={initial || getInitials(title || 'U')}
                     size="sm"
-                    className={cn(avatarClassName)}
+                    className={cn('bg-gradient-to-br from-blue-500 to-purple-600 text-white font-semibold', avatarClassName)}
                   />
                 </div>
                 <span className="flex max-w-[120px] flex-col">
@@ -140,8 +161,7 @@ export default function ProfileCardMenu({
 
           <Popover.Content className="z-[9999] p-0 dark:bg-gray-100 [&>svg]:dark:fill-gray-100">
             <DropdownMenu
-              image={image}
-              initial={initial}
+              initial={initial || getInitials(title || 'U')}
               title={title}
               designation={designation}
             />
