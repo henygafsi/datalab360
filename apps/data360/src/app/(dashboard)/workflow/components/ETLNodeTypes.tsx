@@ -3,40 +3,105 @@
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { cn } from '@/lib/utils';
-import { getBlockByType } from './etl-blocks';
-import {
-  Database,
-  GitMerge,
-  BarChart3,
-  ArrowUpDown,
-  Filter,
-  Copy,
-  Scale,
-  MapPin,
-  FileSpreadsheet,
-} from 'lucide-react';
+import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
+import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
 
 // Base ETL Node wrapper component
-interface ETLNodeProps {
+interface ETLNodeWrapperProps {
   data: any;
   selected?: boolean;
   type: string;
   children?: React.ReactNode;
 }
 
-const ETLNodeWrapper: React.FC<ETLNodeProps> = ({ data, selected, type, children }) => {
+const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, children }) => {
   const blockDef = getBlockByType(type);
 
   if (!blockDef) {
-    return <div className="p-4 bg-red-100 text-red-600">Unknown block type: {type}</div>;
+    return (
+      <div className="p-4 bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-400 rounded-lg border-2 border-red-400">
+        Unknown block type: {type}
+      </div>
+    );
   }
 
   const Icon = blockDef.icon;
+  const displayName = data?.name || blockDef.label;
+
+  // Determine handle positions for multi-input nodes
+  const renderInputHandles = () => {
+    if (!blockDef.hasInput) return null;
+
+    if (blockDef.maxInputs === 2) {
+      // Join node - 2 input handles
+      return (
+        <>
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="input1"
+            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-slate-900"
+            style={{ top: '30%' }}
+          />
+          <Handle
+            type="target"
+            position={Position.Left}
+            id="input2"
+            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-slate-900"
+            style={{ top: '70%' }}
+          />
+        </>
+      );
+    }
+
+    if (blockDef.maxInputs > 2) {
+      // Union node - multiple input handles
+      const handles = [];
+      for (let i = 0; i < Math.min(blockDef.maxInputs, 4); i++) {
+        const topPercent = 20 + (i * 60) / (Math.min(blockDef.maxInputs, 4) - 1);
+        handles.push(
+          <Handle
+            key={`input${i + 1}`}
+            type="target"
+            position={Position.Left}
+            id={`input${i + 1}`}
+            className="!w-3 !h-3 !bg-cyan-500 !border-2 !border-white dark:!border-slate-900"
+            style={{ top: `${topPercent}%` }}
+          />
+        );
+      }
+      return <>{handles}</>;
+    }
+
+    // Single input handle
+    return (
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!w-3 !h-3 !border-2 !border-white dark:!border-slate-900"
+        style={{ backgroundColor: blockDef.color.replace('text-', '').includes('green') ? '#22c55e' :
+                 blockDef.color.includes('amber') ? '#f59e0b' :
+                 blockDef.color.includes('orange') ? '#f97316' :
+                 blockDef.color.includes('purple') ? '#a855f7' :
+                 blockDef.color.includes('blue') ? '#3b82f6' :
+                 blockDef.color.includes('teal') ? '#14b8a6' :
+                 blockDef.color.includes('rose') ? '#f43f5e' :
+                 blockDef.color.includes('violet') ? '#8b5cf6' :
+                 blockDef.color.includes('indigo') ? '#6366f1' :
+                 blockDef.color.includes('cyan') ? '#06b6d4' :
+                 blockDef.color.includes('pink') ? '#ec4899' :
+                 blockDef.color.includes('slate') ? '#64748b' :
+                 blockDef.color.includes('emerald') ? '#10b981' :
+                 blockDef.color.includes('sky') ? '#0ea5e9' :
+                 '#64748b' }}
+      />
+    );
+  };
 
   return (
     <div
       className={cn(
-        'min-w-[160px] rounded-xl border-2 shadow-lg transition-all bg-white dark:bg-slate-800',
+        'min-w-[180px] max-w-[220px] rounded-xl border-2 shadow-lg transition-all bg-white dark:bg-slate-800',
         blockDef.borderColor,
         selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
       )}
@@ -46,8 +111,8 @@ const ETLNodeWrapper: React.FC<ETLNodeProps> = ({ data, selected, type, children
         <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', blockDef.color)}>
           <Icon className="h-4 w-4" />
         </div>
-        <span className="font-semibold text-sm text-slate-800 dark:text-slate-100">
-          {blockDef.label}
+        <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
+          {displayName}
         </span>
       </div>
 
@@ -57,267 +122,451 @@ const ETLNodeWrapper: React.FC<ETLNodeProps> = ({ data, selected, type, children
       </div>
 
       {/* Handles */}
-      {blockDef.hasInput && blockDef.inputCount === 2 ? (
-        // Join node has 2 input handles
-        <>
-          <Handle
-            type="target"
-            position={Position.Left}
-            id="input1"
-            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white"
-            style={{ top: '30%' }}
-          />
-          <Handle
-            type="target"
-            position={Position.Left}
-            id="input2"
-            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white"
-            style={{ top: '70%' }}
-          />
-        </>
-      ) : blockDef.hasInput ? (
-        <Handle
-          type="target"
-          position={Position.Left}
-          className={cn('!w-3 !h-3 !border-2 !border-white', `!${blockDef.bgColor.replace('bg-', 'bg-').split(' ')[0].replace('50', '500')}`)}
-        />
-      ) : null}
-
+      {renderInputHandles()}
       {blockDef.hasOutput && (
         <Handle
           type="source"
           position={Position.Right}
-          className={cn('!w-3 !h-3 !border-2 !border-white', `!${blockDef.bgColor.replace('bg-', 'bg-').split(' ')[0].replace('50', '500')}`)}
+          className="!w-3 !h-3 !border-2 !border-white dark:!border-slate-900"
+          style={{ backgroundColor: blockDef.color.replace('text-', '').includes('green') ? '#22c55e' :
+                   blockDef.color.includes('amber') ? '#f59e0b' :
+                   blockDef.color.includes('orange') ? '#f97316' :
+                   blockDef.color.includes('purple') ? '#a855f7' :
+                   blockDef.color.includes('blue') ? '#3b82f6' :
+                   blockDef.color.includes('teal') ? '#14b8a6' :
+                   blockDef.color.includes('rose') ? '#f43f5e' :
+                   blockDef.color.includes('violet') ? '#8b5cf6' :
+                   blockDef.color.includes('indigo') ? '#6366f1' :
+                   blockDef.color.includes('cyan') ? '#06b6d4' :
+                   blockDef.color.includes('pink') ? '#ec4899' :
+                   blockDef.color.includes('slate') ? '#64748b' :
+                   blockDef.color.includes('emerald') ? '#10b981' :
+                   blockDef.color.includes('sky') ? '#0ea5e9' :
+                   '#64748b' }}
         />
       )}
     </div>
   );
 };
 
-// Helper to get column count safely
-const getColumnCount = (columns: any): number => {
-  if (!columns) return 0;
-  if (Array.isArray(columns)) return columns.length;
-  if (typeof columns === 'string') return columns.split(',').filter(Boolean).length;
-  return 0;
+// Helper to display values safely
+const displayValue = (value: any, defaultText: string = 'Not set'): string => {
+  if (value === null || value === undefined || value === '') return defaultText;
+  if (Array.isArray(value)) return value.length > 0 ? value.join(', ') : defaultText;
+  return String(value);
 };
 
-// Helper to display columns safely (handles objects with {name} keys)
-const displayColumns = (columns: unknown): string => {
-  if (!columns) return '';
-  if (Array.isArray(columns)) {
-    return columns.map(c => {
-      if (typeof c === 'string') return c;
-      if (c && typeof c === 'object' && 'name' in c) return String((c as { name: string }).name);
-      return String(c);
-    }).join(', ');
-  }
-  if (typeof columns === 'string') return columns;
-  return String(columns);
+// Helper to truncate text
+const truncate = (text: string, maxLength: number = 20): string => {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
 };
 
-// Source Node
+// ============================================
+// SOURCE NODE
+// ============================================
 export const SourceNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="src">
+  <ETLNodeWrapper data={data} selected={selected} type="source">
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <span className="text-slate-400">DB:</span>
-        <span className="font-medium truncate">{data.database || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
       </div>
       <div className="flex items-center gap-1">
         <span className="text-slate-400">Schema:</span>
-        <span className="font-medium truncate">{data.schema || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
       </div>
       <div className="flex items-center gap-1">
         <span className="text-slate-400">Table:</span>
-        <span className="font-medium truncate">{data.table || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table || data.table)}</span>
       </div>
-      {data.columns && (
+      {(data.config?.columns || data.columns) && (
         <div className="flex items-center gap-1">
           <span className="text-slate-400">Cols:</span>
-          <span className="font-medium truncate">
-            {getColumnCount(data.columns)}
-          </span>
+          <span className="font-medium">{Array.isArray(data.config?.columns || data.columns) ? (data.config?.columns || data.columns).length : 'All'}</span>
         </div>
       )}
     </div>
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white" />
   </ETLNodeWrapper>
 ));
 SourceNode.displayName = 'SourceNode';
 
-// Join Node
+// ============================================
+// JOIN NODE
+// ============================================
 export const JoinNode = memo(({ data, selected }: NodeProps) => (
   <ETLNodeWrapper data={data} selected={selected} type="join">
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <span className="text-slate-400">Type:</span>
-        <span className="font-medium">{data.join_type || 'INNER'}</span>
+        <span className="font-medium">{displayValue(data.config?.join_type || data.join_type, 'INNER')}</span>
       </div>
       <div className="flex items-center gap-1">
         <span className="text-slate-400">L-Key:</span>
-        <span className="font-medium truncate">{data.left_key || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.left_key || data.left_key)}</span>
       </div>
       <div className="flex items-center gap-1">
         <span className="text-slate-400">R-Key:</span>
-        <span className="font-medium truncate">{data.right_key || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.right_key || data.right_key)}</span>
       </div>
     </div>
-    <Handle type="target" position={Position.Left} id="input1" className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white" style={{ top: '30%' }} />
-    <Handle type="target" position={Position.Left} id="input2" className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white" style={{ top: '70%' }} />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white" />
   </ETLNodeWrapper>
 ));
 JoinNode.displayName = 'JoinNode';
 
-// Aggregate Node
-export const AggregateNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="aggregate_kpi">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">KPI:</span>
-        <span className="font-medium truncate">{data.kpi_name || 'Not set'}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Agg:</span>
-        <span className="font-medium">{data.agg_type || 'SUM'}</span>
-      </div>
-      {data.columns && (
+// ============================================
+// FILTER NODE
+// ============================================
+export const FilterNode = memo(({ data, selected }: NodeProps) => {
+  const conditions = data.config?.conditions || data.conditions || [];
+  const logic = data.config?.logic || data.logic || 'AND';
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="filter">
+      <div className="space-y-1">
         <div className="flex items-center gap-1">
-          <span className="text-slate-400">Cols:</span>
-          <span className="font-medium truncate">
-            {displayColumns(data.columns)}
-          </span>
+          <span className="text-slate-400">Logic:</span>
+          <span className="font-medium">{logic}</span>
         </div>
-      )}
-    </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-purple-500 !border-2 !border-white" />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-purple-500 !border-2 !border-white" />
-  </ETLNodeWrapper>
-));
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Conditions:</span>
+          <span className="font-medium">{conditions.length}</span>
+        </div>
+        {conditions.length > 0 && conditions[0] && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {conditions[0].column} {conditions[0].operator} {conditions[0].value}
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+FilterNode.displayName = 'FilterNode';
+
+// ============================================
+// AGGREGATE NODE
+// ============================================
+export const AggregateNode = memo(({ data, selected }: NodeProps) => {
+  const groupBy = data.config?.group_by || data.group_by || [];
+  const aggregations = data.config?.aggregations || data.aggregations || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="aggregate">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Group By:</span>
+          <span className="font-medium truncate">{groupBy.length > 0 ? truncate(groupBy.join(', '), 15) : 'None'}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Aggs:</span>
+          <span className="font-medium">{aggregations.length}</span>
+        </div>
+        {aggregations.length > 0 && aggregations[0] && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {aggregations[0].function}({aggregations[0].column}) as {aggregations[0].alias}
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
 AggregateNode.displayName = 'AggregateNode';
 
-// Sort Node
-export const SortNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="sort">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Column:</span>
-        <span className="font-medium truncate">{data.sort_column || 'Not set'}</span>
+// ============================================
+// SELECT NODE
+// ============================================
+export const SelectNode = memo(({ data, selected }: NodeProps) => {
+  const columns = data.config?.columns || data.columns || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="select">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Columns:</span>
+          <span className="font-medium">{columns.length}</span>
+        </div>
+        {columns.length > 0 && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {truncate(columns.join(', '), 25)}
+          </div>
+        )}
       </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Order:</span>
-        <span className="font-medium">{data.sort_order || 'ASC'}</span>
+    </ETLNodeWrapper>
+  );
+});
+SelectNode.displayName = 'SelectNode';
+
+// ============================================
+// RENAME NODE
+// ============================================
+export const RenameNode = memo(({ data, selected }: NodeProps) => {
+  const mappings = data.config?.mappings || data.mappings || {};
+  const count = Object.keys(mappings).length;
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="rename">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Renames:</span>
+          <span className="font-medium">{count}</span>
+        </div>
+        {count > 0 && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {Object.entries(mappings).slice(0, 1).map(([old, newName]) => `${old} → ${newName}`).join(', ')}
+          </div>
+        )}
       </div>
-    </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-indigo-500 !border-2 !border-white" />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-indigo-500 !border-2 !border-white" />
-  </ETLNodeWrapper>
-));
+    </ETLNodeWrapper>
+  );
+});
+RenameNode.displayName = 'RenameNode';
+
+// ============================================
+// CAST NODE
+// ============================================
+export const CastNode = memo(({ data, selected }: NodeProps) => {
+  const casts = data.config?.casts || data.casts || {};
+  const count = Object.keys(casts).length;
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="cast">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Casts:</span>
+          <span className="font-medium">{count}</span>
+        </div>
+        {count > 0 && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {Object.entries(casts).slice(0, 1).map(([col, type]) => `${col}: ${type}`).join(', ')}
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+CastNode.displayName = 'CastNode';
+
+// ============================================
+// FORMULA NODE
+// ============================================
+export const FormulaNode = memo(({ data, selected }: NodeProps) => {
+  const formulas = data.config?.formulas || data.formulas || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="formula">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Formulas:</span>
+          <span className="font-medium">{formulas.length}</span>
+        </div>
+        {formulas.length > 0 && formulas[0] && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {formulas[0].name} = {truncate(formulas[0].expression, 15)}
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+FormulaNode.displayName = 'FormulaNode';
+
+// ============================================
+// SORT NODE
+// ============================================
+export const SortNode = memo(({ data, selected }: NodeProps) => {
+  const orderBy = data.config?.order_by || data.order_by || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="sort">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Columns:</span>
+          <span className="font-medium">{orderBy.length}</span>
+        </div>
+        {orderBy.length > 0 && orderBy[0] && (
+          <div className="text-slate-500 truncate text-[10px]">
+            {orderBy[0].column} {orderBy[0].direction}
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
 SortNode.displayName = 'SortNode';
 
-// Drop Nulls Node
-export const DropNullsNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="drop_nulls">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Column:</span>
-        <span className="font-medium truncate">{data.null_column || 'Not set'}</span>
-      </div>
-    </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-orange-500 !border-2 !border-white" />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-orange-500 !border-2 !border-white" />
-  </ETLNodeWrapper>
-));
-DropNullsNode.displayName = 'DropNullsNode';
+// ============================================
+// UNION NODE
+// ============================================
+export const UnionNode = memo(({ data, selected }: NodeProps) => {
+  const unionAll = data.config?.union_all ?? data.union_all ?? false;
 
-// Drop Duplicates Node
-export const DropDuplicatesNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="drop_duplicates">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Dedup:</span>
-        <span className="font-medium truncate">
-          {data.dedup_columns
-            ? displayColumns(data.dedup_columns)
-            : 'Not set'}
-        </span>
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="union">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Mode:</span>
+          <span className="font-medium">{unionAll ? 'UNION ALL' : 'UNION'}</span>
+        </div>
       </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Order:</span>
-        <span className="font-medium truncate">{data.order_column || 'Not set'}</span>
-      </div>
-    </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-pink-500 !border-2 !border-white" />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-pink-500 !border-2 !border-white" />
-  </ETLNodeWrapper>
-));
-DropDuplicatesNode.displayName = 'DropDuplicatesNode';
+    </ETLNodeWrapper>
+  );
+});
+UnionNode.displayName = 'UnionNode';
 
-// Normalize Node
-export const NormalizeNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="normalize">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Type:</span>
-        <span className="font-medium">{data.normalize_type === 'zscore' ? 'Z-Score' : 'Min-Max'}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Target:</span>
-        <span className="font-medium truncate">
-          {data.normalize_type === 'zscore' ? data.zscore_column : data.minmax_column || 'Not set'}
-        </span>
-      </div>
-    </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-cyan-500 !border-2 !border-white" />
-    <Handle type="source" position={Position.Right} className="!w-3 !h-3 !bg-cyan-500 !border-2 !border-white" />
-  </ETLNodeWrapper>
-));
-NormalizeNode.displayName = 'NormalizeNode';
+// ============================================
+// DISTINCT NODE
+// ============================================
+export const DistinctNode = memo(({ data, selected }: NodeProps) => {
+  const columns = data.config?.columns || data.columns || [];
 
-// Destination Node
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="distinct">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Columns:</span>
+          <span className="font-medium">{columns.length > 0 ? columns.length : 'All'}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+DistinctNode.displayName = 'DistinctNode';
+
+// ============================================
+// LIMIT NODE
+// ============================================
+export const LimitNode = memo(({ data, selected }: NodeProps) => {
+  const limit = data.config?.limit || data.limit || 0;
+  const offset = data.config?.offset || data.offset || 0;
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="limit">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Limit:</span>
+          <span className="font-medium">{limit || 'Not set'}</span>
+        </div>
+        {offset > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-slate-400">Offset:</span>
+            <span className="font-medium">{offset}</span>
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+LimitNode.displayName = 'LimitNode';
+
+// ============================================
+// DESTINATION NODE
+// ============================================
 export const DestinationNode = memo(({ data, selected }: NodeProps) => (
   <ETLNodeWrapper data={data} selected={selected} type="destination">
     <div className="space-y-1">
       <div className="flex items-center gap-1">
         <span className="text-slate-400">DB:</span>
-        <span className="font-medium truncate">{data.database || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Schema:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
       </div>
       <div className="flex items-center gap-1">
         <span className="text-slate-400">Table:</span>
-        <span className="font-medium truncate">{data.destination_table || 'Not set'}</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table || data.table)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Mode:</span>
+        <span className="font-medium">{displayValue(data.config?.write_mode || data.write_mode, 'overwrite')}</span>
       </div>
     </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-green-500 !border-2 !border-white" />
   </ETLNodeWrapper>
 ));
 DestinationNode.displayName = 'DestinationNode';
 
-// Export Excel Node
-export const ExportExcelNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="export_excel">
+// ============================================
+// EXPORT FILE NODE
+// ============================================
+export const ExportFileNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="export_file">
     <div className="space-y-1">
       <div className="flex items-center gap-1">
-        <span className="text-slate-400">File:</span>
-        <span className="font-medium truncate">{data.filename || 'output.xlsx'}</span>
+        <span className="text-slate-400">Format:</span>
+        <span className="font-medium">{displayValue(data.config?.format || data.format, 'csv').toUpperCase()}</span>
       </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">File:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.file_name || data.file_name, 'Auto')}</span>
+      </div>
+      {(data.config?.compression || data.compression) && (
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Compress:</span>
+          <span className="font-medium">{data.config?.compression || data.compression}</span>
+        </div>
+      )}
     </div>
-    <Handle type="target" position={Position.Left} className="!w-3 !h-3 !bg-emerald-500 !border-2 !border-white" />
   </ETLNodeWrapper>
 ));
-ExportExcelNode.displayName = 'ExportExcelNode';
+ExportFileNode.displayName = 'ExportFileNode';
 
-// Export all node types for ReactFlow
+// ============================================
+// LEGACY NODE TYPES (for backward compatibility)
+// ============================================
+
+// Legacy Source Node (maps to new Source)
+export const LegacySourceNode = memo(({ data, selected }: NodeProps) => (
+  <SourceNode data={data} selected={selected} id="" type="source" dragging={false} zIndex={0} isConnectable={true} xPos={0} yPos={0} />
+));
+LegacySourceNode.displayName = 'LegacySourceNode';
+
+// Legacy Aggregate KPI Node (maps to new Aggregate)
+export const LegacyAggregateKPINode = memo(({ data, selected }: NodeProps) => {
+  // Convert legacy format to new format
+  const convertedData = {
+    ...data,
+    config: {
+      group_by: data.columns || [],
+      aggregations: data.kpi_name ? [{
+        column: data.agg_column || data.columns?.[0] || '',
+        function: data.agg_type || 'SUM',
+        alias: data.kpi_name,
+      }] : [],
+    },
+  };
+  return (
+    <AggregateNode data={convertedData} selected={selected} id="" type="aggregate" dragging={false} zIndex={0} isConnectable={true} xPos={0} yPos={0} />
+  );
+});
+LegacyAggregateKPINode.displayName = 'LegacyAggregateKPINode';
+
+// ============================================
+// EXPORT NODE TYPES MAP
+// ============================================
 export const etlNodeTypes = {
-  src: SourceNode,
+  // New component types
+  source: SourceNode,
   join: JoinNode,
-  aggregate_kpi: AggregateNode,
+  filter: FilterNode,
+  aggregate: AggregateNode,
+  select: SelectNode,
+  rename: RenameNode,
+  cast: CastNode,
+  formula: FormulaNode,
   sort: SortNode,
-  drop_nulls: DropNullsNode,
-  drop_duplicates: DropDuplicatesNode,
-  normalize: NormalizeNode,
+  union: UnionNode,
+  distinct: DistinctNode,
+  limit: LimitNode,
   destination: DestinationNode,
-  export_excel: ExportExcelNode,
+  export_file: ExportFileNode,
+
+  // Legacy mappings for backward compatibility
+  src: SourceNode, // Legacy source
+  aggregate_kpi: LegacyAggregateKPINode, // Legacy aggregate
+  drop_nulls: FilterNode, // Legacy filter (drop nulls)
+  drop_duplicates: DistinctNode, // Legacy distinct
+  normalize: FormulaNode, // Legacy normalize (now formula)
+  export_excel: ExportFileNode, // Legacy export
 };
 
 export default etlNodeTypes;

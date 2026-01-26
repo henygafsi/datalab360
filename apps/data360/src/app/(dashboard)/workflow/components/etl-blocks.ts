@@ -11,16 +11,23 @@ import {
   Filter,
   Calculator,
   Columns,
+  Edit3,
+  Hash,
+  FunctionSquare,
+  Layers,
+  ListFilter,
+  FileDown,
   type LucideIcon,
 } from 'lucide-react';
+import type { ComponentType, ComponentCategory } from '@/app/services/etl/types';
 
-// ETL Block category types
-export type ETLCategory = 'source' | 'transform' | 'destination';
+// Re-export types for backward compatibility
+export type ETLCategory = ComponentCategory;
 
 // ETL Block definition
 export interface ETLBlockDefinition {
   id: string;
-  type: string;
+  type: ComponentType;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -30,34 +37,41 @@ export interface ETLBlockDefinition {
   borderColor: string;
   hasInput: boolean;
   hasOutput: boolean;
-  inputCount?: number; // For blocks like Join that have multiple inputs
+  minInputs: number;
+  maxInputs: number;
   tooltip?: string;
 }
 
-// All ETL blocks with consistent Lucide icons
+// All ETL blocks aligned with new backend component templates
 export const ETL_BLOCKS: ETLBlockDefinition[] = [
-  // Source blocks
+  // ============================================
+  // SOURCE BLOCKS
+  // ============================================
   {
-    id: 'src',
-    type: 'src',
+    id: 'source',
+    type: 'source',
     label: 'Source',
-    description: 'Extract data from database',
+    description: 'Read data from Snowflake table',
     icon: Database,
     category: 'source',
-    color: 'text-blue-600',
-    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
-    borderColor: 'border-blue-400',
+    color: 'text-green-600',
+    bgColor: 'bg-green-50 dark:bg-green-900/20',
+    borderColor: 'border-green-400',
     hasInput: false,
     hasOutput: true,
-    tooltip: 'Input data source (e.g., database table)',
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Read data from a Snowflake table',
   },
 
-  // Transform blocks
+  // ============================================
+  // TRANSFORM BLOCKS
+  // ============================================
   {
     id: 'join',
     type: 'join',
     label: 'Join',
-    description: 'Combine two datasets',
+    description: 'Join two data sources',
     icon: GitMerge,
     category: 'transform',
     color: 'text-amber-600',
@@ -65,42 +79,15 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     borderColor: 'border-amber-400',
     hasInput: true,
     hasOutput: true,
-    inputCount: 2,
-    tooltip: 'Join two data sources on matching keys',
+    minInputs: 2,
+    maxInputs: 2,
+    tooltip: 'Join two data sources on matching keys (INNER, LEFT, RIGHT, FULL, CROSS)',
   },
   {
-    id: 'aggregate_kpi',
-    type: 'aggregate_kpi',
-    label: 'Aggregate',
-    description: 'Calculate KPIs',
-    icon: BarChart3,
-    category: 'transform',
-    color: 'text-purple-600',
-    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
-    borderColor: 'border-purple-400',
-    hasInput: true,
-    hasOutput: true,
-    tooltip: 'Aggregate data with SUM, AVG, COUNT, MIN, MAX',
-  },
-  {
-    id: 'sort',
-    type: 'sort',
-    label: 'Sort',
-    description: 'Order data by column',
-    icon: ArrowUpDown,
-    category: 'transform',
-    color: 'text-indigo-600',
-    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
-    borderColor: 'border-indigo-400',
-    hasInput: true,
-    hasOutput: true,
-    tooltip: 'Sort dataset by column (ASC/DESC)',
-  },
-  {
-    id: 'drop_nulls',
-    type: 'drop_nulls',
-    label: 'Drop Nulls',
-    description: 'Remove null values',
+    id: 'filter',
+    type: 'filter',
+    label: 'Filter',
+    description: 'Filter rows by conditions',
     icon: Filter,
     category: 'transform',
     color: 'text-orange-600',
@@ -108,12 +95,126 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     borderColor: 'border-orange-400',
     hasInput: true,
     hasOutput: true,
-    tooltip: 'Remove rows with null values in specified column',
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Filter rows based on column conditions (WHERE clause)',
   },
   {
-    id: 'drop_duplicates',
-    type: 'drop_duplicates',
-    label: 'Deduplicate',
+    id: 'aggregate',
+    type: 'aggregate',
+    label: 'Aggregate',
+    description: 'GROUP BY + aggregations',
+    icon: BarChart3,
+    category: 'transform',
+    color: 'text-purple-600',
+    bgColor: 'bg-purple-50 dark:bg-purple-900/20',
+    borderColor: 'border-purple-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Group data and calculate aggregations (SUM, AVG, COUNT, MIN, MAX)',
+  },
+  {
+    id: 'select',
+    type: 'select',
+    label: 'Select',
+    description: 'Select specific columns',
+    icon: Columns,
+    category: 'transform',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    borderColor: 'border-blue-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Select specific columns to include in output',
+  },
+  {
+    id: 'rename',
+    type: 'rename',
+    label: 'Rename',
+    description: 'Rename columns',
+    icon: Edit3,
+    category: 'transform',
+    color: 'text-teal-600',
+    bgColor: 'bg-teal-50 dark:bg-teal-900/20',
+    borderColor: 'border-teal-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Rename one or more columns',
+  },
+  {
+    id: 'cast',
+    type: 'cast',
+    label: 'Cast',
+    description: 'Cast column types',
+    icon: Hash,
+    category: 'transform',
+    color: 'text-rose-600',
+    bgColor: 'bg-rose-50 dark:bg-rose-900/20',
+    borderColor: 'border-rose-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Cast column data types (e.g., STRING to DATE)',
+  },
+  {
+    id: 'formula',
+    type: 'formula',
+    label: 'Formula',
+    description: 'Add calculated columns',
+    icon: FunctionSquare,
+    category: 'transform',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Add new columns with calculated expressions',
+  },
+  {
+    id: 'sort',
+    type: 'sort',
+    label: 'Sort',
+    description: 'Order by columns',
+    icon: ArrowUpDown,
+    category: 'transform',
+    color: 'text-indigo-600',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+    borderColor: 'border-indigo-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Sort data by one or more columns (ORDER BY)',
+  },
+  {
+    id: 'union',
+    type: 'union',
+    label: 'Union',
+    description: 'Combine multiple datasets',
+    icon: Layers,
+    category: 'transform',
+    color: 'text-cyan-600',
+    bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
+    borderColor: 'border-cyan-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 2,
+    maxInputs: 10, // Support multiple inputs
+    tooltip: 'Combine multiple datasets vertically (UNION / UNION ALL)',
+  },
+  {
+    id: 'distinct',
+    type: 'distinct',
+    label: 'Distinct',
     description: 'Remove duplicate rows',
     icon: Copy,
     category: 'transform',
@@ -122,51 +223,61 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     borderColor: 'border-pink-400',
     hasInput: true,
     hasOutput: true,
-    tooltip: 'Remove duplicate rows based on columns',
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Remove duplicate rows (SELECT DISTINCT)',
   },
   {
-    id: 'normalize',
-    type: 'normalize',
-    label: 'Normalize',
-    description: 'Scale numeric values',
-    icon: Scale,
+    id: 'limit',
+    type: 'limit',
+    label: 'Limit',
+    description: 'Limit number of rows',
+    icon: ListFilter,
     category: 'transform',
-    color: 'text-cyan-600',
-    bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
-    borderColor: 'border-cyan-400',
+    color: 'text-slate-600',
+    bgColor: 'bg-slate-50 dark:bg-slate-900/20',
+    borderColor: 'border-slate-400',
     hasInput: true,
     hasOutput: true,
-    tooltip: 'Normalize values using Z-Score or Min-Max scaling',
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Limit the number of output rows (LIMIT)',
   },
 
-  // Destination blocks
+  // ============================================
+  // DESTINATION BLOCKS
+  // ============================================
   {
     id: 'destination',
     type: 'destination',
     label: 'Destination',
-    description: 'Load to database',
+    description: 'Write to Snowflake table',
     icon: MapPin,
-    category: 'destination',
-    color: 'text-green-600',
-    bgColor: 'bg-green-50 dark:bg-green-900/20',
-    borderColor: 'border-green-400',
-    hasInput: true,
-    hasOutput: false,
-    tooltip: 'Load data to target database table',
-  },
-  {
-    id: 'export_excel',
-    type: 'export_excel',
-    label: 'Export Excel',
-    description: 'Export to spreadsheet',
-    icon: FileSpreadsheet,
     category: 'destination',
     color: 'text-emerald-600',
     bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
     borderColor: 'border-emerald-400',
     hasInput: true,
     hasOutput: false,
-    tooltip: 'Export data to Excel file',
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Write data to a target Snowflake table (overwrite, append, or merge)',
+  },
+  {
+    id: 'export_file',
+    type: 'export_file',
+    label: 'Export File',
+    description: 'Export to file',
+    icon: FileDown,
+    category: 'destination',
+    color: 'text-sky-600',
+    bgColor: 'bg-sky-50 dark:bg-sky-900/20',
+    borderColor: 'border-sky-400',
+    hasInput: true,
+    hasOutput: false,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Export data to CSV, Parquet, or JSON file',
   },
 ];
 
@@ -193,3 +304,23 @@ export const CATEGORY_ICONS: Record<ETLCategory, LucideIcon> = {
   transform: Calculator,
   destination: MapPin,
 };
+
+// ============================================
+// LEGACY MAPPINGS (for backward compatibility)
+// ============================================
+
+// Map old node types to new types
+export const LEGACY_TYPE_MAP: Record<string, ComponentType> = {
+  src: 'source',
+  join_tables: 'join',
+  aggregate_kpi: 'aggregate',
+  drop_nulls: 'filter',
+  drop_duplicates: 'distinct',
+  normalize: 'formula', // Can be implemented as formula
+  export_excel: 'export_file',
+};
+
+// Convert legacy node type to new type
+export function convertLegacyType(legacyType: string): ComponentType {
+  return LEGACY_TYPE_MAP[legacyType] || (legacyType as ComponentType);
+}

@@ -11,7 +11,8 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck } from 'lucide-react';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight } from 'lucide-react';
+import ETLPipelineBuilder from './ETLPipelineBuilder';
 
 interface BackendWorkflow {
   workflow_name: string;
@@ -1096,4 +1097,48 @@ const WorkflowHomePage: React.FC = () => {
   );
 };
 
-export default WorkflowHomePage;
+// Wrapper component with toggle between new ETL and legacy workflow builder
+const WorkflowPageWithToggle: React.FC = () => {
+  const [useNewETL, setUseNewETL] = useState(true); // Default to new ETL builder
+
+  // Show toggle banner at the top
+  const ToggleBanner = () => (
+    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-medium">
+          {useNewETL ? 'New ETL Pipeline Builder (Beta)' : 'Legacy Workflow Builder'}
+        </span>
+        <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
+          {useNewETL ? '/etl/* API' : '/workflow/* API'}
+        </span>
+      </div>
+      <button
+        onClick={() => setUseNewETL(!useNewETL)}
+        className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition text-sm font-medium"
+      >
+        {useNewETL ? (
+          <>
+            <ToggleRight className="h-4 w-4" />
+            <span>Switch to Legacy</span>
+          </>
+        ) : (
+          <>
+            <ToggleLeft className="h-4 w-4" />
+            <span>Switch to New ETL</span>
+          </>
+        )}
+      </button>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col h-screen">
+      <ToggleBanner />
+      <div className="flex-1 overflow-hidden">
+        {useNewETL ? <ETLPipelineBuilder /> : <WorkflowHomePage />}
+      </div>
+    </div>
+  );
+};
+
+export default WorkflowPageWithToggle;
