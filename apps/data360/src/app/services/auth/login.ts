@@ -34,7 +34,8 @@ export interface LoginResponse {
 
 export const login = async (loginData: LoginData): Promise<LoginResponse> => {
   try {
-    const endpoint = `${process.env.NEXT_PUBLIC_API_URL}/user/login/`;
+    const { API_CONTRACTS } = await import('@/lib/api-contracts');
+    const endpoint = API_CONTRACTS.auth.login.getUrl();
 
     // Make the POST request with credentials in the body (NOT in URL)
     const response = await axios.post<LoginResponse>(

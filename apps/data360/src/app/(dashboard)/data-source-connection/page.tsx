@@ -13,8 +13,9 @@ import {
   HiOutlineTrash,
   HiOutlineExclamationCircle
 } from 'react-icons/hi2';
-import { Database } from 'lucide-react';
+import { Database, ArrowLeft } from 'lucide-react';
 import { ROLE_PERMISSIONS } from '@/config/constants';
+import { routes } from '@/config/routes';
 
 // Import the new connection services from the same folder
 import {
@@ -26,7 +27,18 @@ import {
     connectSnowflakeDatalake,
     listSnowflakeStages,
     listSnowflakeStageFiles,
-    getIntegrationDetails, // Ensure this is imported
+    getIntegrationDetails,
+    postgresIngest,
+    mysqlIngest,
+    databricksTest,
+    databricksCatalogs,
+    databricksSchemas,
+    databricksTables,
+    databricksIngest,
+    icebergTest,
+    icebergNamespaces,
+    icebergTables,
+    icebergIngest,
 } from './connectionServices';
 import { silentReauth } from '@/app/services/auth/silentReauth';
 
@@ -37,18 +49,20 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 import { Label } from '@/components/ui/label';
 import DatalakeBrowser from './DatalakeBrowser';
 
-// Modern breadcrumb component
-function Breadcrumb() {
+// Modern breadcrumb component – Home links to dashboard
+function Breadcrumb({ onHomeClick }: { onHomeClick?: () => void }) {
   return (
-    <nav className="mb-8">
+    <nav className="mb-8" aria-label="Breadcrumb">
       <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400">
-        <span className="cursor-pointer transition-colors hover:text-slate-900 dark:hover:text-slate-200">
-          Home
-        </span>
+        {onHomeClick ? (
+          <button type="button" onClick={onHomeClick} className="cursor-pointer transition-colors hover:text-slate-900 dark:hover:text-slate-200 focus:outline-none focus:underline">
+            Home
+          </button>
+        ) : (
+          <span>Home</span>
+        )}
         <span>/</span>
-        <span className="cursor-pointer transition-colors hover:text-slate-900 dark:hover:text-slate-200">
-          Integration
-        </span>
+        <span>Integration</span>
         <span>/</span>
         <span className="font-medium text-slate-900 dark:text-slate-200">
           Data Source Connection
@@ -65,22 +79,31 @@ function DataSourceCard({
   description,
   isSelected,
   onClick,
+  comingSoon,
 }: {
   name: string;
   icon: string;
   description: string;
   isSelected: boolean;
   onClick: () => void;
+  comingSoon?: boolean;
 }) {
   return (
     <div
       onClick={onClick}
-      className={`group relative cursor-pointer rounded-2xl border-2 p-8 transition-all duration-300 hover:scale-105 ${
-        isSelected
-          ? 'border-blue-500 bg-blue-50/50 shadow-lg shadow-blue-500/20 dark:bg-blue-950/20'
-          : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-slate-600'
+      className={`group relative rounded-2xl border-2 p-8 transition-all duration-300 ${
+        comingSoon
+          ? 'cursor-pointer border-slate-200 bg-slate-50/80 opacity-75 dark:border-slate-700 dark:bg-slate-800/30'
+          : 'cursor-pointer hover:scale-105 ' + (isSelected
+            ? 'border-blue-500 bg-blue-50/50 shadow-lg shadow-blue-500/20 dark:bg-blue-950/20'
+            : 'border-slate-200 bg-white/50 hover:border-slate-300 hover:shadow-lg dark:border-slate-700 dark:bg-slate-800/50 dark:hover:border-slate-600')
       }`}
     >
+      {comingSoon && (
+        <div className="absolute right-4 top-4">
+          <Badge size="sm" className="bg-amber-500/90 text-white">Coming soon</Badge>
+        </div>
+      )}
       {/* Background pattern */}
       <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-transparent via-white/10 to-white/20 dark:from-transparent dark:via-slate-800/10 dark:to-slate-900/20" />
 
@@ -88,7 +111,7 @@ function DataSourceCard({
         <div className="mb-6 flex justify-center">
           <div
             className={`flex h-16 w-16 items-center justify-center rounded-xl transition-all duration-300 ${
-              isSelected
+              comingSoon ? 'bg-slate-200 dark:bg-slate-600' : isSelected
                 ? 'bg-blue-100 dark:bg-blue-900/30'
                 : 'bg-slate-100 group-hover:bg-slate-200 dark:bg-slate-700 dark:group-hover:bg-slate-600'
             }`}
@@ -99,6 +122,7 @@ function DataSourceCard({
               width={40}
               height={40}
               className="transition-transform duration-300 group-hover:scale-110"
+              unoptimized={icon.endsWith('.svg')}
             />
           </div>
         </div>
@@ -193,7 +217,7 @@ type SnowflakeFormData = {
 
 type DatalakeConnection = {
     id: string;
-    provider: 'snowflake' | 'azure' | 'aws';
+    provider: 'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
     name: string;
     connected_at: string;
     details: {
@@ -203,6 +227,11 @@ type DatalakeConnection = {
         bucket_name?: string;
         integration_name?: string;
         stage_name?: string;
+        host?: string;
+        catalog?: string;
+        uri?: string;
+        namespace?: string;
+        database?: string;
     };
 };
 
@@ -213,7 +242,7 @@ export default function DataSourceConnectionPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
-  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | null>(null);
+  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | null>(null);
   const [activeConnections, setActiveConnections] = useState<DatalakeConnection[]>([]);
   const [errorMessages, setErrorMessages] = useState<string[]>([]); // État persistant pour les erreurs
   const [showAddConnection, setShowAddConnection] = useState<boolean>(false); // Contrôle affichage section Add Connection
@@ -251,9 +280,13 @@ export default function DataSourceConnectionPage() {
       snowflake: '/data-sources/snowflake-logo.png',
       azure: '/data-sources/azure-logo.png',
       aws: '/data-sources/aws-s3.png',
+      databricks: '/data-sources/databricks-logo.svg',
+      iceberg: '/data-sources/iceberg-logo.svg',
+      postgres: '/data-sources/postgres-logo.svg',
+      mysql: '/data-sources/mysql-logo.svg',
   };
 
-  const dataSources = [
+  const dataSources: { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[] = [
     {
       id: 'snowflake',
       name: 'Snowflake',
@@ -264,14 +297,37 @@ export default function DataSourceConnectionPage() {
       id: 'azure',
       name: 'Azure Blob Storage',
       icon: '/data-sources/azure-logo.png',
-      description:
-        'Microsoft cloud storage solution for big data and analytics',
+      description: 'Microsoft cloud storage solution for big data and analytics',
     },
     {
       id: 'aws',
       name: 'Amazon S3',
       icon: '/data-sources/aws-s3.png',
       description: 'Amazon Simple Storage Service for scalable cloud storage',
+    },
+    {
+      id: 'databricks',
+      name: 'Databricks',
+      icon: '/data-sources/databricks-logo.svg',
+      description: 'Unified analytics and lakehouse platform',
+    },
+    {
+      id: 'iceberg',
+      name: 'Apache Iceberg',
+      icon: '/data-sources/iceberg-logo.svg',
+      description: 'Open table format for large analytic datasets',
+    },
+    {
+      id: 'postgres',
+      name: 'PostgreSQL',
+      icon: '/data-sources/postgres-logo.svg',
+      description: 'Open-source relational database',
+    },
+    {
+      id: 'mysql',
+      name: 'MySQL',
+      icon: '/data-sources/mysql-logo.svg',
+      description: 'Popular open-source relational database',
     },
   ];
 
@@ -283,7 +339,7 @@ export default function DataSourceConnectionPage() {
   useEffect(() => {
     if (status === 'loading') return;
     if (status === 'unauthenticated') {
-      router.push('/auth/sign-in');
+      router.push(routes.signIn);
       return;
     }
     if (!canManageConnections) {
@@ -292,13 +348,14 @@ export default function DataSourceConnectionPage() {
     }
   }, [status, canManageConnections, router]);
 
-  // Load connections from localStorage on mount
+  // Load connections from localStorage only (no mock/static list; connections are created by user via form + API)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const stored = localStorage.getItem('datalake_connections');
       if (stored) {
         try {
-          setActiveConnections(JSON.parse(stored) as DatalakeConnection[]);
+          const parsed = JSON.parse(stored) as DatalakeConnection[];
+          setActiveConnections(Array.isArray(parsed) ? parsed : []);
         } catch (e) {
           console.error('Failed to parse stored connections', e);
         }
@@ -350,6 +407,12 @@ export default function DataSourceConnectionPage() {
       setSnowflakeFormData({
           datalake_username: '', datalake_password: '', datalake_account: '', datalake_role: ''
       });
+      setDatabricksFormData({ host: '', http_path: '', access_token: '', catalog: '', schema_name: '', tables: [] });
+      setDatabricksStep('connect');
+      setIcebergFormData({ uri: '', warehouse: '', credential: '', namespace: '', tables: [] });
+      setIcebergStep('connect');
+      setPostgresFormData({ host: '', port: 5432, database: '', user: '', password: '' });
+      setMySQLFormData({ host: '', port: 3306, database: '', user: '', password: '' });
   };
 
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws' | 'snowflake') => {
@@ -413,15 +476,21 @@ export default function DataSourceConnectionPage() {
       setErrorMessages([]); // Clear previous errors
       try {
           if (azureCurrentSubStep === 1) { // Step 1: Create Storage Integration
-              await setupAzureStorageIntegration(
+              const createResponse = await setupAzureStorageIntegration(
                   azureFormData.storage_integration_name,
                   azureFormData.tenant_id,
                   azureFormData.storage_url
               );
               setAzureStorageIntegrationCreated(true);
               toast.success('Azure Storage Integration created successfully!');
-              setAzureCurrentSubStep(2); // Move to Storage consent/details step
-          } else if (azureCurrentSubStep === 2) { // Step 2: Get Storage Integration Details (Consent URL)
+              setAzureCurrentSubStep(2); // Move to Storage consent/details step (wait for user consent)
+              // Use consent URL from create response so user sees it immediately without clicking "Fetch Consent Details"
+              if (createResponse.azure_consent_url) {
+                  setAzureStorageConsentUrl(createResponse.azure_consent_url);
+                  setAzureStorageMultiTenantAppName(createResponse.azure_multi_tenant_app_name ?? null);
+                  setAzureStorageDetailsFetched(true);
+              }
+          } else if (azureCurrentSubStep === 2) { // Step 2: Show consent URL / optional: re-fetch (Verify)
               const response = await getIntegrationDetails(azureFormData.storage_integration_name);
               setAzureStorageConsentUrl(response?.azure_consent_url || null);
               setAzureStorageMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
@@ -538,6 +607,33 @@ export default function DataSourceConnectionPage() {
 
   // --- Snowflake Connection ---
   const [snowflakeConnected, setSnowflakeConnected] = useState<boolean>(false);
+
+  // --- Databricks ---
+  const [databricksFormData, setDatabricksFormData] = useState({
+    host: '', http_path: '', access_token: '',
+    catalog: '', schema_name: '', tables: [] as string[],
+  });
+  const [databricksCatalogsList, setDatabricksCatalogsList] = useState<string[]>([]);
+  const [databricksSchemasList, setDatabricksSchemasList] = useState<string[]>([]);
+  const [databricksTablesList, setDatabricksTablesList] = useState<string[]>([]);
+  const [databricksStep, setDatabricksStep] = useState<'connect' | 'catalog' | 'schema' | 'tables' | 'ingest'>('connect');
+
+  // --- Iceberg ---
+  const [icebergFormData, setIcebergFormData] = useState({
+    uri: '', warehouse: '', credential: '',
+    namespace: '', tables: [] as string[],
+  });
+  const [icebergNamespacesList, setIcebergNamespacesList] = useState<string[]>([]);
+  const [icebergTablesList, setIcebergTablesList] = useState<string[]>([]);
+  const [icebergStep, setIcebergStep] = useState<'connect' | 'namespace' | 'tables' | 'ingest'>('connect');
+
+  // --- PostgreSQL / MySQL ---
+  const [postgresFormData, setPostgresFormData] = useState({
+    host: '', port: 5432, database: '', user: '', password: '',
+  });
+  const [mysqlFormData, setMySQLFormData] = useState({
+    host: '', port: 3306, database: '', user: '', password: '',
+  });
 
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
@@ -739,11 +835,12 @@ export default function DataSourceConnectionPage() {
 
                   {azureCurrentSubStep === 2 && (
                       <>
-                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Azure Storage Consent Details</h4>
-                          <div className="bg-blue-50 dark:bg-blue-950/20 border-l-4 border-blue-500 p-4 mb-4">
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Azure Storage Consent (wait for you)</h4>
+                          <div className="bg-amber-50 dark:bg-amber-950/20 border-l-4 border-amber-500 p-4 mb-4">
                               <Text className="text-sm text-gray-700 dark:text-gray-300">
-                                  <strong>What to do:</strong> Click "Fetch Consent Details" to get the Azure consent URL.
-                                  Open it in Azure Portal, grant permissions to the Snowflake app, then return here.
+                                  {azureStorageDetailsFetched
+                                      ? "Waiting for consent: open the URL below in a new tab, grant permissions to the Snowflake app in Azure Portal, then return here and click Continue."
+                                      : "Click \"Fetch Consent Details\" to get the Azure consent URL, then open it in Azure Portal and grant permissions."}
                               </Text>
                           </div>
 
@@ -953,7 +1050,8 @@ export default function DataSourceConnectionPage() {
                       </>
                   ) : null}
               </form>
-              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading}>
+              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading} title="Back to Data Source Selection">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
                   Back to Data Source Selection
               </Button>
           </div>
@@ -1070,7 +1168,8 @@ export default function DataSourceConnectionPage() {
                       </>
                   )}
               </form>
-              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading}>
+              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading} title="Back to Data Source Selection">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
                   Back to Data Source Selection
               </Button>
           </div>
@@ -1133,9 +1232,338 @@ export default function DataSourceConnectionPage() {
                       {loading ? 'Connecting...' : 'Connect to Snowflake'}
                   </Button>
               </form>
-              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading}>
+              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading} title="Back to Data Source Selection">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
                   Back to Data Source Selection
               </Button>
+          </div>
+      );
+  };
+
+  const renderDatabricksForm = () => {
+      const handleDbxTest = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await databricksTest({ host: databricksFormData.host, http_path: databricksFormData.http_path, access_token: databricksFormData.access_token });
+              toast.success('Connection successful');
+              const { catalogs } = await databricksCatalogs(databricksFormData);
+              setDatabricksCatalogsList(catalogs || []);
+              setDatabricksStep('catalog');
+          } catch (err: any) {
+              toast.error(err?.message || 'Connection failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const handleDbxSelectCatalog = async (catalog: string) => {
+          setDatabricksFormData((p) => ({ ...p, catalog }));
+          setLoading(true);
+          try {
+              const { schemas } = await databricksSchemas(databricksFormData, catalog);
+              setDatabricksSchemasList(schemas || []);
+              setDatabricksStep('schema');
+          } catch (err: any) {
+              toast.error(err?.message || 'Failed to list schemas');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const handleDbxSelectSchema = async (schema_name: string) => {
+          setDatabricksFormData((p) => ({ ...p, schema_name }));
+          setLoading(true);
+          try {
+              const { tables } = await databricksTables(databricksFormData, databricksFormData.catalog, schema_name);
+              setDatabricksTablesList(tables || []);
+              setDatabricksStep('tables');
+          } catch (err: any) {
+              toast.error(err?.message || 'Failed to list tables');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const handleDbxIngest = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await databricksIngest({
+                  host: databricksFormData.host,
+                  http_path: databricksFormData.http_path,
+                  access_token: databricksFormData.access_token,
+                  catalog: databricksFormData.catalog,
+                  schema_name: databricksFormData.schema_name,
+                  tables: databricksFormData.tables.length ? databricksFormData.tables : undefined,
+              });
+              toast.success('Databricks ingest completed');
+              const connection: DatalakeConnection = {
+                  id: `databricks_${Date.now()}`,
+                  provider: 'databricks',
+                  name: `Databricks - ${databricksFormData.catalog}`,
+                  connected_at: new Date().toISOString(),
+                  details: { host: databricksFormData.host, catalog: databricksFormData.catalog },
+              };
+              saveConnection(connection);
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const box = 'mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50';
+      if (databricksStep === 'connect') {
+          return (
+              <div className={box}>
+                  <div className="mb-6 flex items-center justify-between">
+                      <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Databricks</h3>
+                      <Image src={logos.databricks} alt="Databricks" width={56} height={56} unoptimized />
+                  </div>
+                  <form onSubmit={handleDbxTest} className="space-y-4">
+                      <Input label="Workspace host" placeholder="adb-xxx.azuredatabricks.net" value={databricksFormData.host} onChange={(e) => setDatabricksFormData((p) => ({ ...p, host: e.target.value }))} required disabled={loading} />
+                      <Input label="HTTP path (SQL warehouse)" placeholder="/sql/1.0/..." value={databricksFormData.http_path} onChange={(e) => setDatabricksFormData((p) => ({ ...p, http_path: e.target.value }))} required disabled={loading} />
+                      <Password label="Access token" value={databricksFormData.access_token} onChange={(e) => setDatabricksFormData((p) => ({ ...p, access_token: e.target.value }))} required disabled={loading} />
+                      <Button type="submit" disabled={loading}>{loading ? 'Testing...' : 'Test & list catalogs'}</Button>
+                  </form>
+              </div>
+          );
+      }
+      if (databricksStep === 'catalog') {
+          return (
+              <div className={box}>
+                  <h3 className="text-xl font-semibold mb-4">Select catalog</h3>
+                  <div className="space-y-2">
+                      {databricksCatalogsList.map((c) => (
+                          <button key={c} type="button" onClick={() => handleDbxSelectCatalog(c)} className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">{c}</button>
+                      ))}
+                  </div>
+                  <Button className="mt-4" variant="outline" onClick={() => setDatabricksStep('connect')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
+              </div>
+          );
+      }
+      if (databricksStep === 'schema') {
+          return (
+              <div className={box}>
+                  <h3 className="text-xl font-semibold mb-4">Select schema</h3>
+                  <div className="space-y-2">
+                      {databricksSchemasList.map((s) => (
+                          <button key={s} type="button" onClick={() => handleDbxSelectSchema(s)} className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">{s}</button>
+                      ))}
+                  </div>
+                  <Button className="mt-4" variant="outline" onClick={() => setDatabricksStep('catalog')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
+              </div>
+          );
+      }
+      if (databricksStep === 'tables') {
+          const toggle = (t: string) => setDatabricksFormData((p) => ({ ...p, tables: p.tables.includes(t) ? p.tables.filter((x) => x !== t) : [...p.tables, t] }));
+          return (
+              <div className={box}>
+                  <h3 className="text-xl font-semibold mb-2">Select tables to ingest (or leave empty for all)</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to Snowflake schema CP_DATA360.DATABRICKS</p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {databricksTablesList.map((t) => (
+                          <label key={t} className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={databricksFormData.tables.includes(t)} onChange={() => toggle(t)} />
+                              <span>{t}</span>
+                          </label>
+                      ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                      <Button variant="outline" onClick={() => setDatabricksStep('schema')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
+                      <Button onClick={handleDbxIngest} disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                  </div>
+              </div>
+          );
+      }
+      return null;
+  };
+
+  const renderIcebergForm = () => {
+      const handleIceTest = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await icebergTest({ uri: icebergFormData.uri, warehouse: icebergFormData.warehouse || undefined, credential: icebergFormData.credential || undefined });
+              toast.success('Connection successful');
+              const { namespaces } = await icebergNamespaces(icebergFormData);
+              setIcebergNamespacesList(namespaces || []);
+              setIcebergStep('namespace');
+          } catch (err: any) {
+              toast.error(err?.message || 'Connection failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const handleIceSelectNamespace = (namespace: string) => {
+          setIcebergFormData((p) => ({ ...p, namespace }));
+          setLoading(true);
+          icebergTables(icebergFormData, namespace).then(({ tables }) => {
+              setIcebergTablesList(tables || []);
+              setIcebergStep('tables');
+          }).catch((err: any) => toast.error(err?.message || 'Failed to list tables')).finally(() => setLoading(false));
+      };
+      const handleIceIngest = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await icebergIngest({
+                  uri: icebergFormData.uri,
+                  warehouse: icebergFormData.warehouse || undefined,
+                  credential: icebergFormData.credential || undefined,
+                  namespace: icebergFormData.namespace,
+                  tables: icebergFormData.tables.length ? icebergFormData.tables : undefined,
+              });
+              toast.success('Iceberg ingest completed');
+              const connection: DatalakeConnection = {
+                  id: `iceberg_${Date.now()}`,
+                  provider: 'iceberg',
+                  name: `Iceberg - ${icebergFormData.namespace}`,
+                  connected_at: new Date().toISOString(),
+                  details: { uri: icebergFormData.uri, namespace: icebergFormData.namespace },
+              };
+              saveConnection(connection);
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const box = 'mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50';
+      if (icebergStep === 'connect') {
+          return (
+              <div className={box}>
+                  <div className="mb-6 flex items-center justify-between">
+                      <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Apache Iceberg</h3>
+                      <Image src={logos.iceberg} alt="Iceberg" width={56} height={56} unoptimized />
+                  </div>
+                  <form onSubmit={handleIceTest} className="space-y-4">
+                      <Input label="REST catalog URI" placeholder="http://host:8181" value={icebergFormData.uri} onChange={(e) => setIcebergFormData((p) => ({ ...p, uri: e.target.value }))} required disabled={loading} />
+                      <Input label="Warehouse (optional)" value={icebergFormData.warehouse} onChange={(e) => setIcebergFormData((p) => ({ ...p, warehouse: e.target.value }))} disabled={loading} />
+                      <Password label="Credential (optional)" value={icebergFormData.credential} onChange={(e) => setIcebergFormData((p) => ({ ...p, credential: e.target.value }))} disabled={loading} />
+                      <Button type="submit" disabled={loading}>{loading ? 'Testing...' : 'Test & list namespaces'}</Button>
+                  </form>
+              </div>
+          );
+      }
+      if (icebergStep === 'namespace') {
+          return (
+              <div className={box}>
+                  <h3 className="text-xl font-semibold mb-4">Select namespace</h3>
+                  <div className="space-y-2">
+                      {icebergNamespacesList.map((n) => (
+                          <button key={n} type="button" onClick={() => handleIceSelectNamespace(n)} className="w-full text-left px-4 py-3 rounded-lg border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800">{n}</button>
+                      ))}
+                  </div>
+                  <Button className="mt-4" variant="outline" onClick={() => setIcebergStep('connect')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
+              </div>
+          );
+      }
+      if (icebergStep === 'tables') {
+          const toggle = (t: string) => setIcebergFormData((p) => ({ ...p, tables: p.tables.includes(t) ? p.tables.filter((x) => x !== t) : [...p.tables, t] }));
+          return (
+              <div className={box}>
+                  <h3 className="text-xl font-semibold mb-2">Select tables to ingest (or leave empty for all)</h3>
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Data will be copied to Snowflake schema CP_DATA360.ICEBERG</p>
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {icebergTablesList.map((t) => (
+                          <label key={t} className="flex items-center gap-2 cursor-pointer">
+                              <input type="checkbox" checked={icebergFormData.tables.includes(t)} onChange={() => toggle(t)} />
+                              <span>{t}</span>
+                          </label>
+                      ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                      <Button variant="outline" onClick={() => setIcebergStep('namespace')} title="Back"><ArrowLeft className="w-4 h-4 mr-2" />Back</Button>
+                      <Button onClick={handleIceIngest} disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+                  </div>
+              </div>
+          );
+      }
+      return null;
+  };
+
+  const renderPostgresForm = () => {
+      const handleSubmit = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await postgresIngest(postgresFormData);
+              toast.success('PostgreSQL ingest completed. Tables in CP_DATA360.POSTGRES');
+              const connection: DatalakeConnection = {
+                  id: `postgres_${Date.now()}`,
+                  provider: 'postgres',
+                  name: `PostgreSQL - ${postgresFormData.database}`,
+                  connected_at: new Date().toISOString(),
+                  details: { host: postgresFormData.host, database: postgresFormData.database },
+              };
+              saveConnection(connection);
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-6 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-slate-800 dark:text-white">PostgreSQL</h3>
+                  <Image src={logos.postgres} alt="PostgreSQL" width={56} height={56} unoptimized />
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                  <Input label="Host" value={postgresFormData.host} onChange={(e) => setPostgresFormData((p) => ({ ...p, host: e.target.value }))} required disabled={loading} />
+                  <Input type="number" label="Port" value={String(postgresFormData.port)} onChange={(e) => setPostgresFormData((p) => ({ ...p, port: parseInt(e.target.value, 10) || 5432 }))} disabled={loading} />
+                  <Input label="Database" value={postgresFormData.database} onChange={(e) => setPostgresFormData((p) => ({ ...p, database: e.target.value }))} required disabled={loading} />
+                  <Input label="User" value={postgresFormData.user} onChange={(e) => setPostgresFormData((p) => ({ ...p, user: e.target.value }))} required disabled={loading} />
+                  <Password label="Password" value={postgresFormData.password} onChange={(e) => setPostgresFormData((p) => ({ ...p, password: e.target.value }))} disabled={loading} />
+                  <Button type="submit" disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+              </form>
+              <p className="text-xs text-slate-500 mt-2">Public tables will be copied to CP_DATA360.POSTGRES</p>
+          </div>
+      );
+  };
+
+  const renderMySQLForm = () => {
+      const handleSubmit = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              await mysqlIngest(mysqlFormData);
+              toast.success('MySQL ingest completed. Tables in CP_DATA360.MYSQL');
+              const connection: DatalakeConnection = {
+                  id: `mysql_${Date.now()}`,
+                  provider: 'mysql',
+                  name: `MySQL - ${mysqlFormData.database}`,
+                  connected_at: new Date().toISOString(),
+                  details: { host: mysqlFormData.host, database: mysqlFormData.database },
+              };
+              saveConnection(connection);
+              setCurrentStep(0);
+              setSelectedSource('');
+          } catch (err: any) {
+              toast.error(err?.message || 'Ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-6 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-slate-800 dark:text-white">MySQL</h3>
+                  <Image src={logos.mysql} alt="MySQL" width={56} height={56} unoptimized />
+              </div>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                  <Input label="Host" value={mysqlFormData.host} onChange={(e) => setMySQLFormData((p) => ({ ...p, host: e.target.value }))} required disabled={loading} />
+                  <Input type="number" label="Port" value={String(mysqlFormData.port)} onChange={(e) => setMySQLFormData((p) => ({ ...p, port: parseInt(e.target.value, 10) || 3306 }))} disabled={loading} />
+                  <Input label="Database" value={mysqlFormData.database} onChange={(e) => setMySQLFormData((p) => ({ ...p, database: e.target.value }))} required disabled={loading} />
+                  <Input label="User" value={mysqlFormData.user} onChange={(e) => setMySQLFormData((p) => ({ ...p, user: e.target.value }))} required disabled={loading} />
+                  <Password label="Password" value={mysqlFormData.password} onChange={(e) => setMySQLFormData((p) => ({ ...p, password: e.target.value }))} disabled={loading} />
+                  <Button type="submit" disabled={loading}>{loading ? 'Ingesting...' : 'Ingest to Snowflake'}</Button>
+              </form>
+              <p className="text-xs text-slate-500 mt-2">Tables will be copied to CP_DATA360.MYSQL</p>
           </div>
       );
   };
@@ -1310,7 +1738,14 @@ export default function DataSourceConnectionPage() {
                                         icon={source.icon}
                                         description={source.description}
                                         isSelected={selectedSource === source.id}
-                                        onClick={() => handleSourceSelect(source.id)}
+                                        comingSoon={source.comingSoon}
+                                        onClick={() => {
+                                            if (source.comingSoon) {
+                                                toast('This connector will be available soon.', { icon: '🔜' });
+                                                return;
+                                            }
+                                            handleSourceSelect(source.id);
+                                        }}
                                     />
                                 ))}
                             </div>
@@ -1361,7 +1796,7 @@ export default function DataSourceConnectionPage() {
                 case 'azure':
                     return (
                         <div className="mx-auto max-w-2xl space-y-8">
-                            <Breadcrumb />
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
                             <StepIndicator currentStep={azureCurrentSubStep} totalSteps={showAzureNotificationOption ? 5 : 4} />
                             {renderAzureForm()}
                         </div>
@@ -1369,7 +1804,7 @@ export default function DataSourceConnectionPage() {
                 case 'aws':
                     return (
                         <div className="mx-auto max-w-2xl space-y-8">
-                            <Breadcrumb />
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
                             <StepIndicator currentStep={awsCurrentSubStep} totalSteps={2} />
                             {renderAwsForm()}
                         </div>
@@ -1377,8 +1812,36 @@ export default function DataSourceConnectionPage() {
                 case 'snowflake':
                     return (
                         <div className="mx-auto max-w-2xl space-y-8">
-                            <Breadcrumb />
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
                             {renderSnowflakeForm()}
+                        </div>
+                    );
+                case 'databricks':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderDatabricksForm()}
+                        </div>
+                    );
+                case 'iceberg':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderIcebergForm()}
+                        </div>
+                    );
+                case 'postgres':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderPostgresForm()}
+                        </div>
+                    );
+                case 'mysql':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderMySQLForm()}
                         </div>
                     );
                 default:
@@ -1405,30 +1868,45 @@ export default function DataSourceConnectionPage() {
         return null;
     }
 
+    const showHeaderBack = currentStep === 1 || showDatalakeBrowser;
+
     return (
         <div className="space-y-8">
-            <Breadcrumb />
+            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
 
             {/* Page Header */}
-            <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
+            <div className="flex items-center justify-between flex-wrap gap-4">
+                <div className="flex items-center space-x-4 flex-1 min-w-0">
+                    {showHeaderBack && (
+                        <Button
+                            variant="outline"
+                            onClick={handleBackToProviderSelection}
+                            disabled={loading}
+                            className="shrink-0 border-slate-300 dark:border-slate-600"
+                            title="Back to Data Source Selection"
+                            aria-label="Back to Data Source Selection"
+                        >
+                            <ArrowLeft className="w-4 h-4 mr-2" />
+                            Back
+                        </Button>
+                    )}
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shrink-0">
                         <Database className="w-6 h-6 text-white" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                         <h1 className="text-3xl font-bold bg-gradient-to-r from-slate-900 to-slate-600 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
                             Data Source Connection
                         </h1>
-                        <p className="text-slate-600 dark:text-slate-400">
-                            {selectedSource 
+                        <p className="text-slate-600 dark:text-slate-400 truncate">
+                            {selectedSource
                                 ? `Configure your ${dataSources.find(s => s.id === selectedSource)?.name} connection`
                                 : "Connect and integrate your data sources with powerful cloud platforms"
                             }
                         </p>
                     </div>
                 </div>
-                
-                {selectedSource && (
+
+                {selectedSource && !showHeaderBack && (
                     <div className="flex items-center space-x-3">
                         <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                             {dataSources.find(s => s.id === selectedSource)?.name}
@@ -1436,7 +1914,7 @@ export default function DataSourceConnectionPage() {
                     </div>
                 )}
             </div>
-            
+
             <div className="animate-fade-in-up">{renderForm()}</div>
         </div>
     );

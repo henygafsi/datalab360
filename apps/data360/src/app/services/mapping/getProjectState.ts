@@ -52,9 +52,9 @@ export async function getProjectState(projectId: string): Promise<MappingState> 
 
   // Try common patterns; adjust as needed
   const endpoints = [
-    `${API_BASE_URL}/mapping/project-state`,
-    `${API_BASE_URL}/mapping/get_project_state`,
-    `${API_BASE_URL}/mapping/project/${encodeURIComponent(projectId)}`,
+    `${API_BASE_URL}/explore-design/guided/project-state`,
+    `${API_BASE_URL}/explore-design/guided/get_project_state`,
+    `${API_BASE_URL}/explore-design/guided/project/${encodeURIComponent(projectId)}`,
   ];
 
   let lastErr: any;

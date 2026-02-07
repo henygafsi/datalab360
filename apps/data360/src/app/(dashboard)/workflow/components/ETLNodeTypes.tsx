@@ -93,6 +93,8 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
                  blockDef.color.includes('slate') ? '#64748b' :
                  blockDef.color.includes('emerald') ? '#10b981' :
                  blockDef.color.includes('sky') ? '#0ea5e9' :
+                 blockDef.color.includes('fuchsia') ? '#d946ef' :
+                 blockDef.color.includes('lime') ? '#84cc16' :
                  '#64748b' }}
       />
     );

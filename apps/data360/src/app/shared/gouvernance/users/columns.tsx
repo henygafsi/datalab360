@@ -98,7 +98,7 @@ export const userListColumns = [
                   : 'border-amber-500 text-amber-600 hover:bg-amber-50'
               }`}
               onClick={() => {
-                meta?.handleToggleDisabled?.(row.original);
+                (meta as { handleToggleDisabled?: (r: UserTableDataType) => void })?.handleToggleDisabled?.(row.original);
               }}
             >
               {isDisabled ? (

@@ -428,58 +428,87 @@ export const getStorageInfo = (): { used: number; available: number; percentage:
   }
 };
 
+const API_BASE = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_API_URL || '') : '';
+
+function mapCheckToMetric(check: Record<string, unknown>, index: number): QualityMetric {
+  const checkType = (check.check_type as string) || 'custom';
+  const status = (check.status as string)?.toLowerCase() === 'pass' ? 'pass' : (check.status as string)?.toLowerCase() === 'fail' ? 'fail' : 'warning';
+  let value = 0;
+  let threshold: number | undefined;
+  if (checkType === 'COMPLETENESS' && typeof check.completeness_pct === 'number') {
+    value = check.completeness_pct;
+    threshold = (check.threshold as number) ?? 95;
+  } else if (checkType === 'ROW_COUNT') {
+    value = typeof check.row_count === 'number' ? Math.min(100, check.row_count) : 0;
+    threshold = 1;
+  } else if (checkType === 'FRESHNESS') {
+    const maxAge = (check.max_age_hours_threshold as number) ?? 24;
+    const age = (check.age_hours as number) ?? 0;
+    value = age <= maxAge ? 100 : Math.max(0, 100 - (age - maxAge));
+    threshold = 100;
+  } else {
+    value = status === 'pass' ? 100 : 0;
+    threshold = 100;
+  }
+  const categoryMap: Record<string, QualityMetric['category']> = {
+    COMPLETENESS: 'completeness',
+    UNIQUENESS: 'consistency',
+    FRESHNESS: 'timeliness',
+    SCHEMA_VALIDATION: 'validity',
+    ROW_COUNT: 'completeness',
+    CUSTOM_RULE: 'validity',
+  };
+  return {
+    id: `dq_${index}_${checkType}`,
+    name: (check.column as string) ? `${checkType}: ${check.column}` : checkType.replace(/_/g, ' '),
+    value: Math.round(value * 10) / 10,
+    threshold,
+    status: status as 'pass' | 'warning' | 'fail',
+    category: categoryMap[checkType] ?? 'validity',
+  };
+}
+
+export interface RunQualityChecksOptions {
+  table?: string;
+  completeness_checks?: string[];
+  uniqueness_checks?: string[];
+}
+
 /**
- * Run quality checks on a report (mock implementation)
+ * Run quality checks via backend (real data). No mock.
+ * If no table is provided, uses the report's first data source name as qualified table.
  */
 export const runQualityChecks = async (
   reportId: string,
-  token?: string
+  token?: string,
+  options?: RunQualityChecksOptions
 ): Promise<QualityMetric[]> => {
-  return new Promise((resolve) => {
-    // Mock quality metrics - in real implementation, this would call backend APIs
-    const mockMetrics: QualityMetric[] = [
-      {
-        id: 'completeness_1',
-        name: 'Data Completeness',
-        value: 98.5,
-        threshold: 95,
-        status: 'pass',
-        category: 'completeness',
-      },
-      {
-        id: 'accuracy_1',
-        name: 'Data Accuracy',
-        value: 92.3,
-        threshold: 95,
-        status: 'warning',
-        category: 'accuracy',
-      },
-      {
-        id: 'consistency_1',
-        name: 'Data Consistency',
-        value: 88.7,
-        threshold: 90,
-        status: 'warning',
-        category: 'consistency',
-      },
-      {
-        id: 'timeliness_1',
-        name: 'Data Timeliness',
-        value: 95.2,
-        threshold: 90,
-        status: 'pass',
-        category: 'timeliness',
-      },
-      {
-        id: 'validity_1',
-        name: 'Data Validity',
-        value: 99.1,
-        threshold: 95,
-        status: 'pass',
-        category: 'validity',
-      },
-    ];
-
-    setTimeout(() => resolve(mockMetrics), 500);
+  const reports = getAllReports();
+  const report = reports.find((r) => r.id === reportId);
+  const table = options?.table ?? report?.dataSources?.[0]?.name;
+  if (!table) return [];
+  if (!token) throw new Error('Authentication required to run quality checks');
+  const apiUrl = `${API_BASE}/data-quality/run-check`;
+  const res = await fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      table,
+      completeness_checks: options?.completeness_checks ?? null,
+      uniqueness_checks: options?.uniqueness_checks ?? null,
+      freshness_config: null,
+      expected_schema: null,
+      custom_rules: null,
+    }),
   });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(err || `Quality check failed: ${res.status}`);
+  }
+  const json = (await res.json()) as { data?: { checks?: Record<string, unknown>[] }; message?: string };
+  const checks = json?.data?.checks ?? [];
+  return checks.map((c, i) => mapCheckToMetric(c as Record<string, unknown>, i));
 };

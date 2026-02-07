@@ -237,8 +237,14 @@ export interface CreateSessionPolicyRequest {
 
 export async function getRLSPolicyDetails(
   policy_name: string,
+  database?: string,
+  schema?: string,
 ): Promise<any> {
-  const url = `${POLICIES_API}/row-access/${policy_name}/details`;
+  const params = new URLSearchParams();
+  if (database) params.set('database', database);
+  if (schema) params.set('schema', schema);
+  const qs = params.toString();
+  const url = `${POLICIES_API}/row-access/${encodeURIComponent(policy_name)}/details${qs ? `?${qs}` : ''}`;
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
@@ -275,7 +281,7 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   const mappedPolicies: RLSPolicy[] = await Promise.all(
     backendPolicies.map(async (policy: BackendPolicy) => {
       // Try to fetch details for signature and expression
-      const details = await getRLSPolicyDetails(policy.name);
+      const details = await getRLSPolicyDetails(policy.name, policy.database_name, policy.schema_name);
 
       return {
         policy_name: policy.name,

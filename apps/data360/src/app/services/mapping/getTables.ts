@@ -21,7 +21,7 @@ function isTableObject(obj: unknown): obj is TableObject {
  */
 export const getTables = async (databaseName: string, schemaName: string): Promise<string[]> => {
   try {
-    const response = await apiClient.get(`/mapping/tables/${databaseName}/${schemaName}`);
+    const response = await apiClient.get(`/explore-design/guided/tables/${databaseName}/${schemaName}`);
 
     // Handle different response formats and always return string[]
     if (Array.isArray(response.data)) {

@@ -6,7 +6,7 @@ export const routes = {
   },
   
   mapping: {
-    viewMap: '/mapping',
+    viewMap: '/mapping', // Redirects to explore-design (migrated)
   },
   exploreDesign: {
     view: '/explore-design',
@@ -36,13 +36,19 @@ export const routes = {
   observability: {
     dashboard: '/observability',
   },
+  data360Config: {
+    /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
+    view: '/admin/data360-config',
+  },
   clientAccounts: {
     dashboard: '/client-accounts',
   },
   intelligent: {
     dashboard: '/intelligent',
     semanticModels: '/intelligent/semantic-models',
-    cortexChat: '/intelligent/cortex-chat',
+    /** @deprecated Use dataGovernance instead. Cortex Chat tab was replaced by Data & Governance. */
+    cortexChat: '/intelligent',
+    dataGovernance: '/intelligent?tab=data-governance',
   },
 
   eCommerce: {

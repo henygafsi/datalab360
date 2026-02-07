@@ -18,26 +18,24 @@ async function getAuthHeaders() {
 }
 
 /**
- * Fetches constraints for a specific database and schema from the API.
- * @param {string} databaseName - The database name.
- * @param {string} schemaName - The schema name.
- * @returns {Promise<any[]>} - A promise that resolves to an array of constraints (objects).
+ * Fetches constraints for a specific database, schema and optional table from the API.
+ * Backend returns { constraints: [...] }; empty when params missing or not found.
  */
-export const fetchConst = async (databaseName: string, schemaName: string): Promise<any[]> => {
-    const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/constraints?database_name=${databaseName}&schema=${schemaName}`;
+export const fetchConst = async (
+  databaseName: string,
+  schemaName: string,
+  tableName?: string
+): Promise<any[]> => {
+  const headers = await getAuthHeaders();
+  const params = new URLSearchParams({
+    database_name: databaseName,
+    schema: schemaName,
+  });
+  if (tableName) params.set('table', tableName);
+  const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/constraints?${params.toString()}`;
 
-    try {
-        const response = await axios.get(url, { headers });
-        // Check if the request was successful
-        if (response.status !== 200) {
-            throw new Error('Failed to fetch constraints');
-        }
-
-        // Return the data (which will be automatically parsed to JSON by axios)
-        return response.data;
-    } catch (error) {
-        console.error('Error fetching constraints:', error);
-        throw error;
-    }
+  const response = await axios.get(url, { headers });
+  if (response.status !== 200) throw new Error('Failed to fetch constraints');
+  const data = response.data;
+  return Array.isArray(data) ? data : (data?.constraints ?? []);
 };

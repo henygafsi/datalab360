@@ -1,7 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Badge, Button } from 'rizzui';
+import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
 import {
   PiBrain,
   PiDatabase,
@@ -18,10 +20,10 @@ import KPICard from '@/components/analytics/KPICard';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
-import CortexChatContent from './cortex-chat-content';
+import DataGovernanceContent from './data-governance-content';
 import MLFeaturesContent from './ml-features-content';
 
-type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features';
+type TabType = 'semantic-models' | 'data-governance' | 'ml-features';
 
 const TABS = [
   {
@@ -33,11 +35,11 @@ const TABS = [
     badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
   },
   {
-    id: 'cortex-chat' as TabType,
-    name: 'Cortex Chat',
+    id: 'data-governance' as TabType,
+    name: 'Data & Governance',
     icon: PiChatCircleDots,
-    description: 'Natural language data queries',
-    badge: 'Beta',
+    description: 'ETL blocks, policies & security matrix',
+    badge: 'Reusable',
     badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
   },
   {
@@ -50,8 +52,43 @@ const TABS = [
   },
 ];
 
+function formatKpiValue(value: number | null | undefined, format: 'number' | 'percent' | 'seconds'): string {
+  if (value === null || value === undefined) return '—';
+  if (format === 'percent') return `${value}%`;
+  if (format === 'seconds') return `${value}s`;
+  return String(value);
+}
+
 export default function IntelligentPage() {
-  const [activeTab, setActiveTab] = useState<TabType>('semantic-models');
+  const searchParams = useSearchParams();
+  const tabFromUrl = useMemo(() => {
+    const t = searchParams.get('tab');
+    if (t === 'data-governance' || t === 'ml-features' || t === 'semantic-models') return t as TabType;
+    return 'semantic-models';
+  }, [searchParams]);
+  const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
+  const [kpis, setKpis] = useState<CortexKpis | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
+
+  useEffect(() => {
+    setActiveTab(tabFromUrl);
+  }, [tabFromUrl]);
+
+  const loadKpis = async () => {
+    setKpisLoading(true);
+    try {
+      const data = await getCortexKpis();
+      setKpis(data);
+    } catch {
+      setKpis(null);
+    } finally {
+      setKpisLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadKpis();
+  }, []);
 
   return (
     <div className="space-y-8">
@@ -75,64 +112,47 @@ export default function IntelligentPage() {
         <Button
           variant="outline"
           className="gap-2"
+          onClick={loadKpis}
+          disabled={kpisLoading}
         >
-          <HiOutlineRefresh className="w-4 h-4" />
+          <HiOutlineRefresh className={`w-4 h-4 ${kpisLoading ? 'animate-spin' : ''}`} />
           Refresh
         </Button>
       </div>
 
-      {/* KPI Stats Grid */}
+      {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="Models Active"
-          value={12}
+          value={kpisLoading ? '…' : formatKpiValue(kpis?.models_active ?? null, 'number')}
           subtitle="Semantic models deployed"
-          change={{
-            value: 3,
-            trend: 'up',
-            label: 'this month',
-          }}
           icon={<PiDatabase className="w-6 h-6" />}
           color="purple"
+          loading={kpisLoading}
         />
-
         <KPICard
           title="Queries Today"
-          value="1,248"
+          value={kpisLoading ? '…' : formatKpiValue(kpis?.queries_today ?? null, 'number')}
           subtitle="Natural language queries"
-          change={{
-            value: 18,
-            trend: 'up',
-            label: 'vs yesterday',
-          }}
           icon={<PiChatCircleDots className="w-6 h-6" />}
           color="blue"
+          loading={kpisLoading}
         />
-
         <KPICard
           title="Avg Response"
-          value="1.2s"
+          value={kpisLoading ? '…' : formatKpiValue(kpis?.avg_response_sec ?? null, 'seconds')}
           subtitle="Query response time"
-          change={{
-            value: -15,
-            trend: 'up',
-            label: 'improvement',
-          }}
           icon={<PiLightning className="w-6 h-6" />}
           color="amber"
+          loading={kpisLoading}
         />
-
         <KPICard
           title="Accuracy Rate"
-          value="94%"
+          value={kpisLoading ? '…' : formatKpiValue(kpis?.accuracy_rate ?? null, 'percent')}
           subtitle="Query accuracy"
-          change={{
-            value: 2,
-            trend: 'up',
-            label: 'this week',
-          }}
           icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
+          loading={kpisLoading}
         />
       </div>
 
@@ -174,7 +194,7 @@ export default function IntelligentPage() {
         {/* Tab Content */}
         <div className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
-          {activeTab === 'cortex-chat' && <CortexChatContent />}
+          {activeTab === 'data-governance' && <DataGovernanceContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
         </div>
       </div>

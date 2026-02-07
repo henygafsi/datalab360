@@ -50,6 +50,15 @@ export async function getPermissions(): Promise<GrantTableDataType[]> {
 }
 
 /**
+ * Returns grants for a single role (alias for getGrantsForRole for matrix/view usage).
+ * @param roleName The name of the role.
+ * @returns A promise that resolves to an array of grant strings.
+ */
+export async function getRolesForGrantsMatrix(roleName: string): Promise<string[]> {
+  return getGrantsForRole(roleName);
+}
+
+/**
  * Fetches grants (privileges) for a specific role from the backend.
  * @param roleName The name of the role to fetch grants for.
  * @returns A promise that resolves to an array of grant strings.

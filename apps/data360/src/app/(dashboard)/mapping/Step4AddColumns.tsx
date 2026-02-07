@@ -213,7 +213,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                         columns: cols.map(col => ({ name: col.name, type: col.type, default: '', comment: '' })),
                     };
                     const addColumnsResponse = await axios.post(
-                        `${API_BASE_URL}/mapping/add-columns`,
+                        `${API_BASE_URL}/explore-design/guided/add-columns`,
                         addColumnsPayload,
                         { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
                     );
@@ -245,7 +245,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                 };
 
                 const addColumnsResponse = await axios.post(
-                    `${API_BASE_URL}/mapping/add-columns`,
+                    `${API_BASE_URL}/explore-design/guided/add-columns`,
                     addColumnsPayload,
                     { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
                 );

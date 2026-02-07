@@ -24,6 +24,9 @@ export type ComponentType =
   | 'union'
   | 'distinct'
   | 'limit'
+  | 'recommendation'
+  | 'segmentation'
+  | 'clustering'
   | 'destination'
   | 'export_file';
 
@@ -117,6 +120,29 @@ export interface LimitConfig {
   offset?: number;
 }
 
+/** Recommendation: score/ranking (Cortex LLM or custom model). Default capability for workflow. */
+export interface RecommendationConfig {
+  score_column: string;
+  model_type?: 'cortex' | 'custom';
+  input_id_column?: string;
+  output_table?: string;
+}
+
+/** Segmentation: assign segment (RFM, rules, or model). Default capability for workflow. */
+export interface SegmentationConfig {
+  segment_column: string;
+  method: 'rules' | 'rfm' | 'model';
+  rules?: Array<{ name: string; condition: string }>;
+}
+
+/** Clustering: assign cluster (Cortex ML or SQL). Default capability for workflow. */
+export interface ClusteringConfig {
+  cluster_column: string;
+  method: 'cortex_ml' | 'kmeans_sql';
+  n_clusters?: number;
+  feature_columns?: string[];
+}
+
 export interface DestinationConfig {
   database: string;
   schema: string;
@@ -146,6 +172,9 @@ export type ComponentConfig =
   | UnionConfig
   | DistinctConfig
   | LimitConfig
+  | RecommendationConfig
+  | SegmentationConfig
+  | ClusteringConfig
   | DestinationConfig
   | ExportFileConfig;
 
@@ -342,6 +371,20 @@ export interface ValidatePipelineRequest {
 }
 
 export interface ValidatePipelineResponse extends PipelineValidation {}
+
+export interface ValidateSuggestionsRequest {
+  errors?: string[];
+  warnings?: string[];
+  components?: PipelineComponent[];
+  execution_order?: string[];
+  estimated_complexity?: string;
+  model?: string;
+}
+
+export interface ValidateSuggestionsResponse {
+  response: string;
+  model: string;
+}
 
 // ============================================
 // UI HELPERS

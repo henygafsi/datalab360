@@ -26,7 +26,7 @@ export const getProjectLatestEvents = async (projectId: string): Promise<StepEve
         }
 
         const response = await axios.post<LatestEventApiResponse>(
-            `${process.env.NEXT_PUBLIC_API_URL}/mapping/get-steps-event/`,
+            `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get-steps-event/`,
             null,
             {
                 params: { project_id: projectId },

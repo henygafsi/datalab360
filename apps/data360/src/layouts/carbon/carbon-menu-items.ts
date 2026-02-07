@@ -62,9 +62,28 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.connexion.dataSourceConnection,
         icon: PiHouseLineDuotone,
       },
+      {
+        name: 'Configuration',
+        href: '/data-source-config',
+        icon: PiHouseLineDuotone,
+      },
     ]
   },
-  // 2. Explore & Design
+  // 2. Mapping
+  {
+    id: 2,
+    name: 'Mapping',
+    title: 'Mapping',
+    icon: PiMapPinLineDuotone,
+    menuItems: [
+      {
+        name: 'View Mapping',
+        href: routes.exploreDesign.view,
+        icon: PiMapPinLineDuotone,
+      },
+    ],
+  },
+  // 3. Explore & Design
   {
     id: 12,
     name: 'Explore & Design',
@@ -78,7 +97,7 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ]
   },
-  // 3. Workflow
+  // 4. Workflow
   {
     id: 3,
     name: 'Workflow',
@@ -92,7 +111,7 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 4. Governance
+  // 5. Governance
   {
     id: 6,
     name: 'Governance',
@@ -127,7 +146,7 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 5. Business Reporting
+  // 6. Business Reporting
   {
     id: 4,
     name: 'Business Reporting',
@@ -141,7 +160,7 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 6. AI Intelligence
+  // 7. AI Intelligence
   {
     id: 10,
     name: 'AI Intelligence',
@@ -155,14 +174,14 @@ export const carbonMenuItems: MenuItemsType[] = [
         icon: PiCubeDuotone,
       },
       {
-        name: 'Cortex Chat',
-        description: 'Natural language data queries',
-        href: routes.intelligent.cortexChat,
+        name: 'Data & Governance',
+        description: 'ETL blocks, policies & security matrix',
+        href: routes.intelligent.dataGovernance,
         icon: PiChatCircleDuotone,
       },
     ],
   },
-  // 7. Data Health
+  // 8. Data Health
   {
     id: 5,
     name: 'Data Health',
@@ -176,7 +195,7 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 8. Observability
+  // 9. Observability
   {
     id: 8,
     name: 'Observability',
@@ -188,6 +207,12 @@ export const carbonMenuItems: MenuItemsType[] = [
         description: 'KPIs, Compliance & Monitoring',
         href: routes.observability.dashboard,
         icon: PiChartLineDuotone,
+      },
+      {
+        name: 'Config Data360',
+        description: 'Metadata, tables, colonnes date, cache & refresh',
+        href: routes.data360Config.view,
+        icon: PiCubeDuotone,
       },
     ],
   },

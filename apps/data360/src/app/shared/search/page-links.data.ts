@@ -75,8 +75,8 @@ export const pageLinks = [
     href: routes.intelligent.dashboard,
   },
   {
-    name: 'Cortex Chat',
-    href: routes.intelligent.cortexChat,
+    name: 'Data & Governance',
+    href: routes.intelligent.dataGovernance,
   },
   {
     name: 'Observability',

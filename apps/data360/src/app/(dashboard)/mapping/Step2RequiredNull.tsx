@@ -166,7 +166,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 }
             });
             const payload = { database: table.database, schema: table.schema, table: table.table, new_lengths } as any;
-            await axios.post(`${API_BASE_URL}/mapping/update_column_length/`, payload, {
+            await axios.post(`${API_BASE_URL}/explore-design/guided/update_column_length/`, payload, {
                 headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             });
             updateMappingData({ column_attributes: internalColumnAttributes });
@@ -249,7 +249,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
             await Promise.all(
                 changes.map(c =>
                     axios.post(
-                        `${API_BASE_URL}/mapping/manage_table`,
+                        `${API_BASE_URL}/explore-design/guided/manage_table`,
                         null,
                         {
                             params: {

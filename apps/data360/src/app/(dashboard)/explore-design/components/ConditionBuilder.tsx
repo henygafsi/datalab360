@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Tooltip, Switch } from 'rizzui';
+import { Button, Badge, Input, Tooltip, Switch, Checkbox } from 'rizzui';
 import {
   Plus, Trash2, Clock, Calendar, Database, User, Code2, Link2,
   ChevronDown, ChevronRight, AlertTriangle, Check, HelpCircle,
@@ -585,16 +585,12 @@ const ConditionBuilder: React.FC<ConditionBuilderProps> = ({
                       {renderConfigEditor(condition)}
 
                       <div className="flex items-center justify-between pt-3 border-t dark:border-slate-700">
-                        <label className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={condition.required}
-                            onChange={(e) => updateCondition(condition.id, { required: e.target.checked })}
-                            className="rounded"
-                          />
-                          Required condition
-                        </label>
-
+                        <Checkbox
+                          checked={condition.required}
+                          onChange={() => updateCondition(condition.id, { required: !condition.required })}
+                          label="Required condition"
+                          className="text-sm"
+                        />
                         <Tooltip content="If required, execution will fail if this condition is not met">
                           <HelpCircle className="h-4 w-4 text-slate-400" />
                         </Tooltip>

@@ -13,9 +13,11 @@ import {
 import GrantsTable from '@/app/shared/gouvernance/grants/table';
 import UserGrantsTable from '@/app/shared/gouvernance/user-grants/table';
 import PolicyGrantsTable from '@/app/shared/gouvernance/policy-grants/table';
+import StageGrantsTable from '@/app/shared/gouvernance/stage-grants/table';
 import PageHeader from '@/components/layout/PageHeader';
+import { HiOutlineCube } from 'react-icons/hi2';
 
-type TabType = 'role-grants' | 'user-grants' | 'policy-grants';
+type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants';
 
 export default function GrantsManagementPage() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
@@ -121,6 +123,20 @@ export default function GrantsManagementPage() {
                 Policies
               </Badge>
             </button>
+            <button
+              onClick={() => setActiveTab('stage-grants')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'stage-grants'
+                  ? 'border-b-2 border-teal-600 text-teal-600 dark:border-teal-400 dark:text-teal-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineCube className="h-4 w-4" />
+              Stage Grants
+              <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
+                Snowflake
+              </Badge>
+            </button>
           </div>
         </div>
 
@@ -154,6 +170,21 @@ export default function GrantsManagementPage() {
               </div>
             </div>
             <UserGrantsTable />
+          </div>
+        ) : activeTab === 'stage-grants' ? (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Stage access (Snowflake)
+                </h2>
+                <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
+                  <HiOutlineCube className="w-3 h-3 mr-1 inline" />
+                  Stages
+                </Badge>
+              </div>
+            </div>
+            <StageGrantsTable />
           </div>
         ) : (
           <div>

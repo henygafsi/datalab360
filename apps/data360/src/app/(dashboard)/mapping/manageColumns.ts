@@ -33,7 +33,7 @@ interface RemoveColumnsPayload {
  */
 export const addTableColumns = async (payload: AddColumnsPayload): Promise<any> => {
     try {
-        const response = await axios.post(`${API_BASE_URL}/mapping/add-columns`, payload);
+        const response = await axios.post(`${API_BASE_URL}/explore-design/guided/add-columns`, payload);
         return response.data;
     } catch (error: any) {
         console.error("Error adding columns:", error);
@@ -49,7 +49,7 @@ export const addTableColumns = async (payload: AddColumnsPayload): Promise<any> 
 export const removeTableColumns = async (payload: RemoveColumnsPayload): Promise<any> => {
     try {
         // Remplacez '/mapping/remove-columns' par votre véritable endpoint
-        const response = await axios.post(`${API_BASE_URL}/mapping/remove-columns`, payload);
+        const response = await axios.post(`${API_BASE_URL}/explore-design/guided/remove-columns`, payload);
         return response.data;
     } catch (error: any) {
         console.error("Error removing columns:", error);

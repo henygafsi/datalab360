@@ -5,7 +5,6 @@ import toast, { Toaster } from 'react-hot-toast';
 import { Node, Edge } from 'reactflow';
 import { WorkflowBuilder, ETLPalette } from './components';
 import WorkflowCard from './WorkflowCard';
-import { SAMPLE_WORKFLOWS } from './sampleWorkflowData';
 import { cn } from '@/lib/utils';
 import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
@@ -55,7 +54,6 @@ const WorkflowHomePage: React.FC = () => {
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
-  const [isUsingSampleData, setIsUsingSampleData] = useState<boolean>(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
 
@@ -94,7 +92,6 @@ const WorkflowHomePage: React.FC = () => {
   const fetchWorkflows = useCallback(async (token: string) => {
     setLoading(true);
     setError(null);
-    setIsUsingSampleData(false);
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
         headers: {
@@ -143,7 +140,6 @@ const WorkflowHomePage: React.FC = () => {
       }
 
       setWorkflows([]);
-      setIsUsingSampleData(false);
     } finally {
       setLoading(false);
     }
@@ -741,7 +737,11 @@ const WorkflowHomePage: React.FC = () => {
 
       {/* Left Sidebar - ETL Palette */}
       <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-sm">
-        {/* ETL Blocks Palette */}
+        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-indigo-50/80 dark:bg-indigo-900/20">
+          <p className="text-xs text-slate-700 dark:text-slate-300">
+            Glissez les blocs sur le canvas : <strong>Source</strong> → <strong>Transformations</strong> → <strong>Destination</strong>. Planifiez ou exécutez pour automatiser.
+          </p>
+        </div>
         <div className="flex-1 overflow-hidden">
           <ETLPalette />
         </div>

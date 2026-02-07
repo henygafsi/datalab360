@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
+import { formatApiDetail } from '@/lib/utils';
 
 /**
  * Helper to get authentication headers with Snowflake account context
@@ -43,7 +44,7 @@ async function ensureProjectExists(projectId: string): Promise<void> {
 
     try {
         await axios.post(
-            `${API_BASE_URL}/mapping/create_project`,
+            `${API_BASE_URL}/explore-design/guided/create_project`,
             { name: projectId },
             { headers }
         );
@@ -81,7 +82,7 @@ export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
             };
 
             return axios.post(
-                `${API_BASE_URL}/mapping/add-event/`,
+                `${API_BASE_URL}/explore-design/guided/add-event/`,
                 eventPayload,
                 { headers }
             );
@@ -90,7 +91,9 @@ export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
         await Promise.all(promises);
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            const errorMessage = error.response?.data?.detail || error.message;
+            const errorMessage = typeof error.response?.data?.detail === 'string'
+                ? error.response.data.detail
+                : formatApiDetail(error.response?.data?.detail) || error.message;
             throw new Error(`Failed to save group events: ${errorMessage}`);
         }
         throw new Error('Failed to save group events: Unknown error');

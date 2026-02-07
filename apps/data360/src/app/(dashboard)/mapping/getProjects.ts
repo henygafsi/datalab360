@@ -45,7 +45,7 @@ export const getProjects = async (): Promise<Project[]> => {
 
     try {
         const response = await axios.post<GetProjectsResponse>(
-            `${API_BASE_URL}/mapping/get_projects`,
+            `${API_BASE_URL}/explore-design/guided/get_projects`,
             {}, // POST request with empty body as per backend
             { headers }
         );

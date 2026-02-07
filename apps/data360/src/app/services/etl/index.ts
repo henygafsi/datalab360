@@ -13,6 +13,7 @@
 
 import axios from 'axios';
 import { getSession } from 'next-auth/react';
+import apiClient from '@/lib/api-client';
 import type {
   ComponentTemplatesResponse,
   Pipeline,
@@ -31,6 +32,8 @@ import type {
   ScheduleHistoryResponse,
   ValidatePipelineRequest,
   ValidatePipelineResponse,
+  ValidateSuggestionsRequest,
+  ValidateSuggestionsResponse,
 } from './types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
@@ -41,14 +44,18 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
   const session = await getSession();
-  const token = (session as any)?.user?.access_token || (session as any)?.accessToken;
+  const user = (session as any)?.user;
+  const token = user?.access_token || (session as any)?.accessToken;
   if (!token) {
     throw new Error('Authentication required');
   }
-  return {
+  const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
   };
+  if (user?.account_name) headers['X-Account-Name'] = user.account_name;
+  if (user?.username) headers['X-Username'] = user.username;
+  return headers;
 }
 
 // ============================================
@@ -130,19 +137,19 @@ export async function deletePipeline(pipelineId: string): Promise<{ message: str
 /**
  * Execute a pipeline (synchronous)
  * POST /etl/pipelines/{pipeline_id}/execute
+ * Uses apiClient so auth token and account headers (X-Account-Name, X-Username) are always sent.
  */
 export async function executePipeline(
   pipelineId: string,
   dryRun: boolean = false
 ): Promise<ExecutePipelineResponse> {
-  const headers = await getAuthHeaders();
   const params = dryRun ? { dry_run: true } : {};
-  const response = await axios.post(
-    `${API_BASE_URL}/etl/pipelines/${pipelineId}/execute`,
+  const { data } = await apiClient.post<ExecutePipelineResponse>(
+    `/etl/pipelines/${pipelineId}/execute`,
     {},
-    { headers, params }
+    { params }
   );
-  return response.data;
+  return data ?? ({} as ExecutePipelineResponse);
 }
 
 /**
@@ -185,6 +192,21 @@ export async function validatePipeline(
   const headers = await getAuthHeaders();
   const response = await axios.post(`${API_BASE_URL}/etl/pipelines/validate`, request, { headers });
   return response.data;
+}
+
+/**
+ * Get AI suggestions for validation errors, warnings and optimizations
+ * POST /etl/pipelines/validate/suggestions
+ * Uses Cortex LLM with reference to Workflow and Explore & Design actions.
+ */
+export async function getValidateSuggestions(
+  request: ValidateSuggestionsRequest
+): Promise<ValidateSuggestionsResponse> {
+  const { data } = await apiClient.post<ValidateSuggestionsResponse>(
+    '/etl/pipelines/validate/suggestions',
+    request
+  );
+  return data ?? { response: '', model: '' };
 }
 
 // ============================================

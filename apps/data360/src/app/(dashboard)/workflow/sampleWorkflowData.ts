@@ -1,6 +1,7 @@
 /**
  * Sample Data for Workflow Module
- * This file contains fallback sample data when API calls fail (e.g., CORS errors)
+ * Dev/demo only. Do not display to users when API fails: show empty list and message instead.
+ * The workflow page already sets workflows to [] on fetch error and does not use this file.
  */
 
 // ============================

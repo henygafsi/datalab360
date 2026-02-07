@@ -83,9 +83,9 @@ export const MODULES: ModuleConfig[] = [
       },
       {
         id: 'cortex_chat',
-        name: 'Cortex Chat',
+        name: 'Data & Governance',
         apiName: 'cortex_chat',
-        description: 'Natural language data queries',
+        description: 'ETL blocks, governance policies & security matrix',
         parentModule: 'intelligent'
       }
     ]

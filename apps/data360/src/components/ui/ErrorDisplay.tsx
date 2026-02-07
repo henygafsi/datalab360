@@ -6,7 +6,7 @@ import { RefreshCw, AlertCircle, Wifi, Clock, Lock, Server } from 'lucide-react'
 export interface ErrorDisplayProps {
   error: Error | string | null;
   onRetry?: () => void;
-  context?: 'users' | 'roles' | 'grants' | 'general';
+  context?: 'users' | 'roles' | 'grants' | 'general' | 'policy-grants';
   className?: string;
 }
 
@@ -39,7 +39,16 @@ function getErrorType(error: Error | string): ErrorType {
 }
 
 function getErrorConfig(type: ErrorType, context?: string): ErrorConfig {
-  const contextName = context === 'users' ? 'utilisateurs' : context === 'roles' ? 'rôles' : context === 'grants' ? 'permissions' : 'données';
+  const contextName =
+    context === 'users'
+      ? 'utilisateurs'
+      : context === 'roles'
+        ? 'rôles'
+        : context === 'grants'
+          ? 'permissions'
+          : context === 'policy-grants'
+            ? 'policy grants'
+            : 'données';
 
   switch (type) {
     case 'timeout':

@@ -10,9 +10,11 @@
  */
 
 import axios from 'axios';
-import { getSession } from 'next-auth/react';
+import { getAuthHeaders } from '@/lib/auth';
+import { API_CONTRACTS } from '@/lib/api-contracts';
+import { API_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 // ============================================
 // TYPES
@@ -104,17 +106,9 @@ export interface WorkflowDeployment {
 // AUTH HELPER
 // ============================================
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const session = await getSession();
-  // Check both possible token locations for compatibility
-  const token = (session as any)?.user?.access_token || (session as any)?.accessToken;
-  if (!token) {
-    throw new Error('Authentication required');
-  }
-  return {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
+async function getWorkflowAuthHeaders(): Promise<Record<string, string>> {
+  const headers = await getAuthHeaders();
+  return headers as unknown as Record<string, string>;
 }
 
 // ============================================
@@ -125,8 +119,9 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
  * Get all workflows for the authenticated user
  */
 export async function getWorkflows(): Promise<Workflow[]> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/workflow/get_workflows/`, { headers });
+  const headers = await getWorkflowAuthHeaders();
+  const url = API_CONTRACTS.workflow.getWorkflows.getUrl();
+  const response = await axios.get(url, { headers });
   return response.data.workflows || [];
 }
 
@@ -138,8 +133,9 @@ export async function createWorkflow(workflow: {
   steps: WorkflowStep[];
   project_id?: string;
 }): Promise<{ message: string; workflow_name: string; workflow_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/workflow/create_workflow/`, workflow, { headers });
+  const headers = await getWorkflowAuthHeaders();
+  const url = API_CONTRACTS.workflow.createWorkflow.getUrl();
+  const response = await axios.post(url, workflow, { headers });
   return response.data;
 }
 
@@ -150,7 +146,7 @@ export async function updateWorkflow(workflow: {
   workflow_name: string;
   steps: WorkflowStep[];
 }): Promise<{ message: string; workflow_name: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(`${API_BASE_URL}/workflow/update_workflow/`, workflow, { headers });
   return response.data;
 }
@@ -162,7 +158,7 @@ export async function renameWorkflow(
   oldWorkflowName: string,
   newWorkflowName: string
 ): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/rename_workflow/`,
     { old_workflow_name: oldWorkflowName, new_workflow_name: newWorkflowName },
@@ -175,12 +171,9 @@ export async function renameWorkflow(
  * Execute a workflow immediately
  */
 export async function executeWorkflow(workflowName: string): Promise<{ message: string; task_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${API_BASE_URL}/workflow/execute_workflow/?workflow_name=${encodeURIComponent(workflowName)}`,
-    {},
-    { headers }
-  );
+  const headers = await getWorkflowAuthHeaders();
+  const url = API_CONTRACTS.workflow.executeWorkflow.getUrl(workflowName);
+  const response = await axios.post(url, {}, { headers });
   return response.data;
 }
 
@@ -191,7 +184,7 @@ export async function scheduleWorkflow(
   workflowName: string,
   cronSchedule: 'hourly' | 'daily' | 'weekly' | 'monthly'
 ): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/schedule_workflow/`,
     { workflow_name: workflowName, cron_schedule: cronSchedule },
@@ -204,7 +197,7 @@ export async function scheduleWorkflow(
  * Suspend a scheduled workflow task
  */
 export async function suspendTask(taskName: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/suspend_task/?task_name=${encodeURIComponent(taskName)}`,
     {},
@@ -217,7 +210,7 @@ export async function suspendTask(taskName: string): Promise<{ message: string }
  * Resume a suspended workflow task
  */
 export async function resumeTask(taskName: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/resume_task/?task_name=${encodeURIComponent(taskName)}`,
     {},
@@ -242,7 +235,7 @@ export async function getWorkflowVersions(
   versions: WorkflowVersion[];
   total_versions: number;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const params = new URLSearchParams();
   if (options?.limit) params.append('limit', String(options.limit));
   if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
@@ -266,7 +259,7 @@ export async function createWorkflowVersion(
   version_name: string;
   status: VersionStatus;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/${workflowId}/versions`,
     options || {},
@@ -289,7 +282,7 @@ export async function rollbackWorkflow(
   versions_rolled_back: number;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/${workflowId}/rollback/${versionId}`,
     { reason },
@@ -313,7 +306,7 @@ export async function getWorkflowRuns(
   runs: WorkflowRun[];
   total_runs: number;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const params = new URLSearchParams();
   if (options?.limit) params.append('limit', String(options.limit));
   if (options?.status) params.append('status', options.status);
@@ -349,7 +342,7 @@ export async function scheduleDeployment(options: {
   status: DeploymentStatus;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
 
   // Determine deployment type
   const isImmediate = options.immediate === true;
@@ -439,7 +432,7 @@ export async function approveDeployment(eventId: string, comment?: string): Prom
   workflow_id: string;
   approved_by: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/explore-design/deployments/${eventId}/approve`,
     { comment: comment || '' },
@@ -467,7 +460,7 @@ export async function rejectDeployment(
   rejected_by: string;
   reason?: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/explore-design/deployments/${eventId}/reject`,
     { reason: reason || '' },
@@ -493,7 +486,7 @@ export async function activateDeployment(eventId: string): Promise<{
   workflow_name: string;
   activated_by: string;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/explore-design/deployments/${eventId}/execute`,
     { rollback_on_error: true },
@@ -519,30 +512,30 @@ export async function getWorkflowDeployments(options?: {
   deployments: WorkflowDeployment[];
   total: number;
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const params = new URLSearchParams();
   params.append('module_type', 'workflow');
   if (options?.status) params.append('status', options.status);
   if (options?.limit) params.append('limit', String(options.limit));
 
-  // Get all deployments and filter for workflow module
   const response = await axios.get(
     `${API_BASE_URL}/explore-design/scheduled-deployments/?${params.toString()}`,
-    { headers }
+    { headers, timeout: 15000 }
   );
 
-  // Filter and map the response to workflow deployment format
-  const deployments = (response.data.deployments || response.data || [])
-    .filter((d: any) => d.config?.module_type === 'workflow' || d.module_type === 'workflow')
+  const raw = response.data?.scheduled_deployments ?? [];
+  const list = Array.isArray(raw) ? raw : [];
+  const deployments = list
+    .filter((d: any) => (d.module || d.module_name || '').toString().toUpperCase() === 'WORKFLOW')
     .map((d: any) => ({
-      event_id: d.deployment_id || d.id || d.schedule_id,
-      workflow_id: d.config?.workflow_id || d.project_id,
-      workflow_name: d.config?.workflow_name || d.version || '',
+      event_id: d.deployment_id || d.event_id || d.id || d.schedule_id,
+      workflow_id: d.project_id || d.config?.workflow_id,
+      workflow_name: d.workflow_name || d.config?.workflow_name || d.version || '',
       module: 'WORKFLOW' as const,
       status: d.status,
-      scheduled_date: d.scheduled_at || d.scheduled_date,
-      steps: d.config?.steps || [],
-      created_by: d.config?.created_by || d.created_by,
+      scheduled_date: d.scheduled_date || d.scheduled_at,
+      steps: d.steps || d.config?.steps || [],
+      created_by: d.created_by || d.config?.created_by,
       created_at: d.created_at,
       approved_by: d.approved_by,
       approved_at: d.approved_at,
@@ -575,7 +568,7 @@ function getDeploymentActions(status: string): ('approve' | 'reject' | 'activate
  * Get contributors for a workflow
  */
 export async function getWorkflowContributors(workflowId: string): Promise<WorkflowContributor[]> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.get(
     `${API_BASE_URL}/workflow/${workflowId}/contributors`,
     { headers }
@@ -591,7 +584,7 @@ export async function addWorkflowContributor(
   userName: string,
   role: ContributorRole
 ): Promise<{ message: string; contributor_id: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/${workflowId}/contributors`,
     { user_name: userName, role },
@@ -607,7 +600,7 @@ export async function removeWorkflowContributor(
   workflowId: string,
   contributorId: string
 ): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.delete(
     `${API_BASE_URL}/workflow/${workflowId}/contributors/${contributorId}`,
     { headers }
@@ -627,7 +620,7 @@ export async function initializeTables(): Promise<{
   message: string;
   tables_created: string[];
 }> {
-  const headers = await getAuthHeaders();
+  const headers = await getWorkflowAuthHeaders();
   const response = await axios.post(
     `${API_BASE_URL}/workflow/setup/initialize-tables`,
     {},

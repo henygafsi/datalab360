@@ -17,6 +17,9 @@ import {
   Layers,
   ListFilter,
   FileDown,
+  Sparkles,
+  Users,
+  CircleDot,
   type LucideIcon,
 } from 'lucide-react';
 import type { ComponentType, ComponentCategory } from '@/app/services/etl/types';
@@ -242,6 +245,58 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     minInputs: 1,
     maxInputs: 1,
     tooltip: 'Limit the number of output rows (LIMIT)',
+  },
+
+  // ============================================
+  // ML / AI DEFAULT CAPABILITIES (Recommendation, Segmentation, Clustering)
+  // ============================================
+  {
+    id: 'recommendation',
+    type: 'recommendation',
+    label: 'Recommendation',
+    description: 'Score or rank items (Cortex LLM or custom model)',
+    icon: Sparkles,
+    category: 'transform',
+    color: 'text-fuchsia-600',
+    bgColor: 'bg-fuchsia-50 dark:bg-fuchsia-900/20',
+    borderColor: 'border-fuchsia-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Add recommendation scores using Cortex or custom model; output scored/ranked data',
+  },
+  {
+    id: 'segmentation',
+    type: 'segmentation',
+    label: 'Segmentation',
+    description: 'Assign segments (RFM, rules, or model)',
+    icon: Users,
+    category: 'transform',
+    color: 'text-lime-600',
+    bgColor: 'bg-lime-50 dark:bg-lime-900/20',
+    borderColor: 'border-lime-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Segment data by rules, RFM, or ML model; add segment column',
+  },
+  {
+    id: 'clustering',
+    type: 'clustering',
+    label: 'Clustering',
+    description: 'Assign clusters (Cortex ML or k-means)',
+    icon: CircleDot,
+    category: 'transform',
+    color: 'text-amber-600',
+    bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+    borderColor: 'border-amber-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Cluster data using Cortex ML or SQL k-means; add cluster_id column',
   },
 
   // ============================================

@@ -232,11 +232,11 @@ const SourceConfigModal = ({ isOpen, onClose, onSave, initialData, accessToken, 
         if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
         const result = await response.json() as any;
         let processedData: string[] = [];
-        if (url.includes('/mapping/databases') || url.includes('/mapping/schemas/') || url.includes('/mapping/tables/')) {
-          const key = url.includes('/mapping/databases') ? 'databases' : url.includes('/mapping/schemas/') ? 'schemas' : 'tables';
+        if (url.includes('/explore-design/guided/databases') || url.includes('/explore-design/guided/schemas/') || url.includes('/explore-design/guided/tables/')) {
+          const key = url.includes('/explore-design/guided/databases') ? 'databases' : url.includes('/explore-design/guided/schemas/') ? 'schemas' : 'tables';
           const raw = result[key] || result;
           processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-        } else if (url.includes('/mapping/get_table_columns')) {
+        } else if (url.includes('/explore-design/guided/get_table_columns')) {
           const raw = result.columns || result;
           processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
         } else { processedData = Array.isArray(result) ? result.map((item: any) => typeof item === 'string' ? item : item.name) : []; }
@@ -245,10 +245,10 @@ const SourceConfigModal = ({ isOpen, onClose, onSave, initialData, accessToken, 
     },
     [accessToken]
   );
-  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
-  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && accessToken) { setTables([]); setTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && table && accessToken) { setColumnsList([]); setColumns(initialData?.columns || []); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/get_table_columns/?database_name=${database}&schema_name=${schema}&table_name=${table}`, setColumnsList); } }, [database, schema, table, accessToken, fetchOptions, initialData]);
+  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
+  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
+  useEffect(() => { if (database && schema && accessToken) { setTables([]); setTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
+  useEffect(() => { if (database && schema && table && accessToken) { setColumnsList([]); setColumns(initialData?.columns || []); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get_table_columns/?database_name=${database}&schema_name=${schema}&table_name=${table}`, setColumnsList); } }, [database, schema, table, accessToken, fetchOptions, initialData]);
   const handleSave = () => { onSave({ database, schema, table, columns: columns.join(', ') }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
@@ -352,20 +352,20 @@ const DestinationConfigModal = ({ isOpen, onClose, onSave, initialData, availabl
       if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
       const result = await response.json() as any;
       let processedData: string[] = [];
-      if (url.includes('/mapping/databases') || url.includes('/mapping/schemas/') || url.includes('/mapping/tables/')) {
-        const key = url.includes('/mapping/databases') ? 'databases' : url.includes('/mapping/schemas/') ? 'schemas' : 'tables';
+      if (url.includes('/explore-design/guided/databases') || url.includes('/explore-design/guided/schemas/') || url.includes('/explore-design/guided/tables/')) {
+        const key = url.includes('/explore-design/guided/databases') ? 'databases' : url.includes('/explore-design/guided/schemas/') ? 'schemas' : 'tables';
         const raw = result[key] || result;
         processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-      } else if (url.includes('/mapping/get_table_columns')) {
+      } else if (url.includes('/explore-design/guided/get_table_columns')) {
         const raw = result.columns || result;
         processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
       } else { processedData = Array.isArray(result) ? result.map((item: any) => String(item)) : []; }
       setter(processedData);
     } catch (error) { console.error(`DestinationConfigModal: Error fetching data from ${url}:`, error); toast.error(`Destination Configuration Error: Failed to load data. Check console for details. Error: ${error instanceof Error ? error.message : String(error)}`); }
   }, [accessToken]);
-  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
-  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && accessToken) { setTables([]); setDestinationTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
+  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
+  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
+  useEffect(() => { if (database && schema && accessToken) { setTables([]); setDestinationTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
   useEffect(() => {
     if (isOpen && initialData) {
       setDatabase(initialData.database || '');

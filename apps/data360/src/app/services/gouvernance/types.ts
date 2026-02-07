@@ -59,6 +59,21 @@ export interface DwhHealthInfo {
   tables: DwhTableHealth[];
 }
 
+export interface TopModuleItem {
+  module_name: string;
+  count: number;
+}
+
+export interface RecentActivityPreviewItem {
+  EVENT_ID?: string;
+  USERNAME?: string;
+  MODULE_NAME?: string;
+  EVENT_TYPE?: string;
+  STATUS?: string;
+  EVENT_DATE?: string;
+  EVENT_ERROR?: string | null;
+}
+
 export interface ClientDashboardInfo {
   total_events: number;
   success_rate: number;
@@ -67,6 +82,26 @@ export interface ClientDashboardInfo {
   last_ingestion: string | null;
   last_mapping: string | null;
   events_by_module: Record<string, number>;
+  /** Period in days for main KPIs (e.g. 30) */
+  period_days?: number;
+  /** Events in last 7 days */
+  events_7d?: number;
+  /** Events in last 30 days (same as total_events when period_days=30) */
+  events_30d?: number;
+  /** Trend: (events_7d - prev_7d) / prev_7d * 100 */
+  events_trend_pct?: number;
+  /** Distinct users in last 7 / 30 days */
+  active_users_7d?: number;
+  active_users_30d?: number;
+  /** For charts: top modules by count */
+  top_modules?: TopModuleItem[];
+  /** Last 10 events for "Latest activity" block */
+  recent_activity_preview?: RecentActivityPreviewItem[];
+  /** Snowflake credits (7d / 30d) from ACCOUNT_USAGE */
+  credits_7d?: number;
+  credits_30d?: number;
+  estimated_cost_usd_7d?: number;
+  estimated_cost_usd_30d?: number;
 }
 
 export interface ConnectorInfo {
@@ -83,11 +118,14 @@ export interface ConnectorsResponse {
 }
 
 export interface UserActivityWithQuery {
+  EVENT_ID?: string;
   USERNAME: string;
   MODULE_NAME: string;
   EVENT_TYPE: string;
   EVENT_STATUS: string;
   EVENT_DATE: string;
+  EVENT_DETAILS?: Record<string, unknown> | string | null;
+  EVENT_ERROR?: string | null;
   QUERY_ID: string | null;
   QUERY_TEXT: string | null;
   QUERY_STATUS: string | null;
@@ -100,9 +138,26 @@ export interface ActivityFilterParams {
   username?: string;
   module_name?: string;
   event_type?: string;
+  status?: string;
   start_date?: string;
   end_date?: string;
   query_status?: string;
+}
+
+export interface DashboardErrorEvent {
+  EVENT_ID?: string;
+  USERNAME?: string;
+  MODULE_NAME?: string;
+  EVENT_TYPE?: string;
+  EVENT_STATUS?: string;
+  EVENT_DATE?: string;
+  EVENT_DETAILS?: unknown;
+  EVENT_ERROR?: string | null;
+}
+
+export interface DashboardErrorsResponse {
+  errors: DashboardErrorEvent[];
+  count: number;
 }
 
 export interface MfaStatus {

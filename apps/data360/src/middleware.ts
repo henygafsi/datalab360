@@ -20,7 +20,7 @@ export const config = {
     '/',
     '/account-overview',
     '/data-source-connection/:path*',
-    '/mapping/:path*',
+    '/explore-design/guided/:path*',
     '/workflow/:path*',
     '/gouvernance/:path*',
     '/bi-reporting/:path*',

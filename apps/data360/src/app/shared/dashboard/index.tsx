@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { Badge, Button, Select, Modal, Text } from 'rizzui';
 import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
 import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
@@ -14,9 +15,28 @@ import KPICard from '@/components/analytics/KPICard';
 import axios from 'axios';
 import * as ExploreDesignService from '@/app/services/explore-design';
 import * as WorkflowService from '@/app/services/workflow';
+import DataEngineerHub from '@/app/shared/data-engineer-hub/DataEngineerHub';
+import { routes } from '@/config/routes';
+import * as GouvernanceService from '@/app/services/gouvernance';
+import { getCortexRecommend } from '@/app/services/cortex';
+import { redirectToLogin } from '@/lib/api-client';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+
+/** Links to all platform modules for Account Overview "Features across modules" section */
+const MODULE_FEATURES: { href: string; name: string; description: string; eventKey?: string }[] = [
+  { href: routes.connexion.dataSourceConnection, name: 'Connect Data', description: 'Data source connection and stages', eventKey: 'INGESTION' },
+  { href: routes.exploreDesign.view, name: 'Explore & Design', description: 'Explore and design data models', eventKey: 'EXPLORE_DESIGN' },
+  { href: routes.mapping.viewMap, name: 'Mapping', description: 'View and manage mappings', eventKey: 'MAPPING' },
+  { href: routes.workflow.ViewWorkflow, name: 'Workflow', description: 'Workflow and ETL pipelines', eventKey: 'WORKFLOW' },
+  { href: routes.gouvernance.users, name: 'Governance', description: 'Users, roles, and policies', eventKey: 'GOUVERNANCE' },
+  { href: routes.dataQuality.viewReports, name: 'Data Health', description: 'Data quality reports', eventKey: 'DATA_QUALITY' },
+  { href: routes.intelligent.dashboard, name: 'AI Intelligence', description: 'Cortex AI and semantic models', eventKey: 'CORTEX' },
+  { href: routes.observability.dashboard, name: 'Observability', description: 'System monitoring', eventKey: 'OBSERVABILITY' },
+  { href: routes.biReporting.viewReporting, name: 'Business Reporting', description: 'BI reports and dashboards', eventKey: 'BI_REPORTING' },
+  { href: routes.clientAccounts.dashboard, name: 'Client Accounts', description: 'Manage client Snowflake accounts' },
+];
 
 interface ScheduledWorkflow {
   workflow_name: string;
@@ -80,13 +100,11 @@ export default function GouvernanceDashboard() {
   const [moduleFilter, setModuleFilter] = useState<string>('');
   const [eventTypeFilter, setEventTypeFilter] = useState<string>('');
   const [queryStatusFilter, setQueryStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [recommendations, setRecommendations] = useState<string | null>(null);
+  const [recommendationsLoading, setRecommendationsLoading] = useState(false);
 
-  // Set current user as default filter when session loads
-  useEffect(() => {
-    if (currentUsername && !userFilter) {
-      setUserFilter(currentUsername);
-    }
-  }, [currentUsername]);
+  // Admin / data modeler view: no default user filter so all users' activity is shown
 
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
@@ -147,26 +165,42 @@ export default function GouvernanceDashboard() {
               timeout: 5000,
             }
           ).catch((err: any) => {
+            if (err?.response?.status === 401) {
+              redirectToLogin();
+              return { data: { workflows: [] } };
+            }
             console.warn('Workflows endpoint not available:', err.message);
             return { data: { workflows: [] } };
           }),
           axios.get(
-            `${API_BASE_URL}/mapping/get_scheduled_deployments/`,
+            `${API_BASE_URL}/explore-design/guided/get_scheduled_deployments/`,
             {
               headers: authHeaders,
               timeout: 5000,
             }
           ).catch((err: any) => {
+            if (err?.response?.status === 401) {
+              redirectToLogin();
+              return { data: { deployments: [] } };
+            }
             console.warn('Mapping deployments endpoint not available:', err.message);
             return { data: { deployments: [] } };
           }),
           // Fetch explore-design scheduled deployments
           ExploreDesignService.getScheduledDeployments().catch((err: any) => {
+            if (err?.response?.status === 401) {
+              redirectToLogin();
+              return { scheduled_deployments: [] };
+            }
             console.warn('Explore-design deployments endpoint not available:', err.message);
             return { scheduled_deployments: [] };
           }),
           // Fetch workflow deployments (new deployment API with approval workflow)
           WorkflowService.getWorkflowDeployments().catch((err: any) => {
+            if (err?.response?.status === 401) {
+              redirectToLogin();
+              return { deployments: [], total: 0 };
+            }
             console.warn('Workflow deployments endpoint not available:', err.message);
             return { deployments: [], total: 0 };
           })
@@ -241,6 +275,15 @@ export default function GouvernanceDashboard() {
 
         prevDeploymentCountRef.current = uniqueWorkflows.length;
         setScheduledWorkflows(uniqueWorkflows);
+        hasFetchedScheduledRef.current = true;
+
+        // Fetch recent deployment errors (schema deploy failures) for display and Cortex recommendations
+        try {
+          const errRes = await ExploreDesignService.getRecentDeploymentErrors(20);
+          setRecentDeploymentErrors(errRes.errors || []);
+        } catch (e) {
+          setRecentDeploymentErrors([]);
+        }
       } catch (error: any) {
         console.error('Error fetching scheduled items:', error);
       } finally {
@@ -250,18 +293,11 @@ export default function GouvernanceDashboard() {
       }
     };
 
-  // Fetch on mount - only once when we have a valid token
+  // Account overview: do NOT fetch scheduled deployments on mount (workflow, mapping, explore-design).
+  // Only fetch when user opens the deployments section or on SSE cache invalidation.
+  const hasFetchedScheduledRef = useRef(false);
   useEffect(() => {
-    if (accessToken && !hasFetchedRef.current) {
-      hasFetchedRef.current = true;
-      fetchScheduledItems(true);
-    }
-  }, [accessToken]);
-
-  // Smart refresh: also refresh deployments when SSE cache is invalidated
-  useEffect(() => {
-    if (wasInvalidated && accessToken) {
-      // Silent refresh (no loading indicator) to check for new deployments
+    if (wasInvalidated && accessToken && hasFetchedScheduledRef.current) {
       fetchScheduledItems(false);
     }
   }, [wasInvalidated, accessToken]);
@@ -277,9 +313,10 @@ export default function GouvernanceDashboard() {
     if (moduleFilter) filters.module_name = moduleFilter;
     if (eventTypeFilter) filters.event_type = eventTypeFilter;
     if (queryStatusFilter) filters.query_status = queryStatusFilter;
+    if (statusFilter) filters.status = statusFilter;
 
     return filters;
-  }, [defaultStartDate, defaultEndDate, userFilter, moduleFilter, eventTypeFilter, queryStatusFilter]);
+  }, [defaultStartDate, defaultEndDate, userFilter, moduleFilter, eventTypeFilter, queryStatusFilter, statusFilter]);
 
   const { data: activityData, loading: activityLoading, error: activityError } = useClientDashboardAll(apiFilters);
 
@@ -287,13 +324,16 @@ export default function GouvernanceDashboard() {
   const [selectedQuery, setSelectedQuery] = useState<{ text: string; id: string } | null>(null);
   const [isQueryModalOpen, setIsQueryModalOpen] = useState(false);
 
-  // Scheduled workflows and mappings state
+  // Scheduled workflows and mappings state (lazy-loaded when user opens deployments section)
   const [scheduledWorkflows, setScheduledWorkflows] = useState<ScheduledWorkflow[]>([]);
-  const [scheduledWorkflowsLoading, setScheduledWorkflowsLoading] = useState(true);
+  const [scheduledWorkflowsLoading, setScheduledWorkflowsLoading] = useState(false);
   const [approvingWorkflow, setApprovingWorkflow] = useState<string | null>(null);
   const [activatingWorkflow, setActivatingWorkflow] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'mappings' | 'workflows' | 'modeling'>('mappings');
   const [deploymentError, setDeploymentError] = useState<{ workflow: string; message: string } | null>(null);
+  const [recentDeploymentErrors, setRecentDeploymentErrors] = useState<ExploreDesignService.RecentDeploymentError[]>([]);
+  const [recommendationsForError, setRecommendationsForError] = useState<{ id: string; text: string } | null>(null);
+  const [deploymentRecommendationsLoading, setDeploymentRecommendationsLoading] = useState(false);
 
   // Quick filter presets
   const applyQuickFilter = (preset: string) => {
@@ -301,21 +341,48 @@ export default function GouvernanceDashboard() {
       case 'workflow':
         setModuleFilter('WORKFLOW');
         setQueryStatusFilter('');
+        setStatusFilter('');
         break;
       case 'auth':
         setModuleFilter('AUTH');
+        setQueryStatusFilter('');
+        setStatusFilter('');
+        break;
+      case 'errors':
+        setStatusFilter('ERROR');
+        setModuleFilter('');
         setQueryStatusFilter('');
         break;
       case 'query-failed':
         setModuleFilter('');
         setQueryStatusFilter('FAILED');
+        setStatusFilter('');
         break;
       case 'query-success':
         setModuleFilter('');
         setQueryStatusFilter('SUCCESS');
+        setStatusFilter('');
         break;
       default:
         break;
+    }
+  };
+
+  const fetchRecommendations = async () => {
+    setRecommendationsLoading(true);
+    setRecommendations(null);
+    try {
+      const { errors } = await GouvernanceService.getDashboardErrors({ limit: 20 });
+      if (errors.length === 0) {
+        setRecommendations('No recent errors to analyze. The platform is healthy.');
+        return;
+      }
+      const result = await getCortexRecommend({ events: errors });
+      setRecommendations(result?.response ?? 'No recommendations generated.');
+    } catch (err: any) {
+      setRecommendations(`Failed to get recommendations: ${err?.message || err}. Ensure Cortex LLM is available.`);
+    } finally {
+      setRecommendationsLoading(false);
     }
   };
 
@@ -336,7 +403,7 @@ export default function GouvernanceDashboard() {
       } else {
         // Default: mapping deployment
         await axios.post(
-          `${API_BASE_URL}/mapping/approve_deployment/`,
+          `${API_BASE_URL}/explore-design/guided/approve_deployment/`,
           { workflow_name: workflowName },
           { headers, timeout: 10000 }
         );
@@ -389,7 +456,7 @@ export default function GouvernanceDashboard() {
       } else {
         // Default: mapping deployment
         await axios.post(
-          `${API_BASE_URL}/mapping/reject_deployment/`,
+          `${API_BASE_URL}/explore-design/guided/reject_deployment/`,
           { workflow_name: workflowName, reason },
           { headers, timeout: 10000 }
         );
@@ -463,7 +530,7 @@ export default function GouvernanceDashboard() {
       // Determine if it's a mapping deployment or legacy workflow
       const isMappingDeployment = workflowName.startsWith('mapping_deployment_');
       const endpoint = isMappingDeployment
-        ? `${API_BASE_URL}/mapping/activate_deployment/`
+        ? `${API_BASE_URL}/explore-design/guided/activate_deployment/`
         : `${API_BASE_URL}/workflow/activate_workflow/`;
 
       await axios.post(
@@ -649,8 +716,21 @@ export default function GouvernanceDashboard() {
     return allQueryStatuses.sort();
   }, [activityData]);
 
+  // Event status (for audit: SUCCESS / ERROR)
+  const uniqueEventStatuses = useMemo(() => [
+    { value: '', label: 'All' },
+    { value: 'SUCCESS', label: 'Success' },
+    { value: 'ERROR', label: 'Error' },
+  ], []);
+
   // No client-side filtering needed - API handles all filtering
   const filteredActivityData = activityData || [];
+
+  // Errors count in current period (for Account Overview KPI)
+  const errorsCount = useMemo(() => {
+    if (!activityData || !Array.isArray(activityData)) return 0;
+    return activityData.filter(a => a.EVENT_STATUS === 'ERROR').length;
+  }, [activityData]);
 
   return (
     <div className="space-y-8">
@@ -690,6 +770,37 @@ export default function GouvernanceDashboard() {
         </Button>
       </div>
 
+      {/* Features across modules - single view to all platform capabilities */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg p-6">
+        <h2 className="text-xl font-bold text-slate-900 dark:text-white mb-1">Features across modules</h2>
+        <p className="text-sm text-slate-600 dark:text-slate-400 mb-6">
+          Access all platform capabilities from one place
+        </p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {MODULE_FEATURES.map((mod) => {
+            const eventCount = mod.eventKey && dashboardData?.events_by_module?.[mod.eventKey];
+            return (
+              <Link key={mod.href} href={mod.href}>
+                <div className="group p-4 rounded-xl border border-slate-200 dark:border-slate-700 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 transition-all cursor-pointer h-full">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-900 dark:text-white truncate group-hover:text-blue-600 dark:group-hover:text-blue-400">{mod.name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">{mod.description}</p>
+                    </div>
+                    {typeof eventCount === 'number' && eventCount > 0 && (
+                      <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300 shrink-0" size="sm">{eventCount}</Badge>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Data Modeler / Data Engineer quick access */}
+      <DataEngineerHub />
+
       {/* Account Info Card */}
       {session?.user && (
         <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-2xl p-6 text-white shadow-lg">
@@ -722,10 +833,60 @@ export default function GouvernanceDashboard() {
         <KPICard
           title="Total Events"
           value={dashboardData?.total_events || 0}
-          subtitle="All platform activities"
+          subtitle={dashboardData?.period_days ? `Last ${dashboardData.period_days} days` : 'All platform activities'}
           icon={<PiChartLine className="w-6 h-6" />}
           color="blue"
           loading={dashboardLoading}
+        />
+
+        <KPICard
+          title="Active Users (7d)"
+          value={dashboardData?.active_users_7d ?? dashboardData?.active_users_30d ?? 0}
+          subtitle="Distinct users in period"
+          icon={<PiUsers className="w-6 h-6" />}
+          color="indigo"
+          loading={dashboardLoading}
+        />
+
+        <KPICard
+          title="Events trend (7d)"
+          value={dashboardData?.events_trend_pct != null ? `${dashboardData.events_trend_pct > 0 ? '+' : ''}${dashboardData.events_trend_pct}%` : '—'}
+          subtitle="vs previous 7 days"
+          change={dashboardData?.events_trend_pct != null ? {
+            value: Math.abs(dashboardData.events_trend_pct),
+            trend: (dashboardData.events_trend_pct ?? 0) >= 0 ? 'up' : 'down',
+            label: 'week over week',
+          } : undefined}
+          icon={<PiChartLine className="w-6 h-6" />}
+          color="blue"
+          loading={dashboardLoading}
+        />
+
+        <KPICard
+          title="Credits (7d)"
+          value={dashboardData?.credits_7d ?? dashboardData?.credits_30d ?? 0}
+          subtitle="Snowflake warehouse credits"
+          icon={<PiDatabase className="w-6 h-6" />}
+          color="blue"
+          loading={dashboardLoading}
+        />
+
+        <KPICard
+          title="Est. cost (7d)"
+          value={dashboardData?.estimated_cost_usd_7d != null ? `$${dashboardData.estimated_cost_usd_7d.toFixed(2)}` : dashboardData?.estimated_cost_usd_30d != null ? `$${dashboardData.estimated_cost_usd_30d.toFixed(2)} (30d)` : '—'}
+          subtitle="Approx. USD from credits"
+          icon={<PiChartLine className="w-6 h-6" />}
+          color="purple"
+          loading={dashboardLoading}
+        />
+
+        <KPICard
+          title="Errors (period)"
+          value={errorsCount}
+          subtitle="Events with status ERROR in selected period"
+          icon={<PiWarning className="w-6 h-6" />}
+          color="red"
+          loading={activityLoading}
         />
 
         <KPICard
@@ -806,6 +967,41 @@ export default function GouvernanceDashboard() {
         />
       </div>
 
+      {/* Latest activity (from dashboard summary) */}
+      {dashboardData?.recent_activity_preview && dashboardData.recent_activity_preview.length > 0 && (
+        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg p-6">
+          <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-4">Latest activity</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 text-left text-slate-600 dark:text-slate-400">
+                  <th className="py-2 pr-4">User</th>
+                  <th className="py-2 pr-4">Module</th>
+                  <th className="py-2 pr-4">Type</th>
+                  <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dashboardData.recent_activity_preview.map((a: any, i: number) => (
+                  <tr key={a.EVENT_ID || i} className="border-b border-slate-100 dark:border-slate-800">
+                    <td className="py-2 pr-4 font-medium">{a.USERNAME ?? '—'}</td>
+                    <td className="py-2 pr-4">{a.MODULE_NAME ?? '—'}</td>
+                    <td className="py-2 pr-4">{a.EVENT_TYPE ?? '—'}</td>
+                    <td className="py-2 pr-4">
+                      <Badge size="sm" color={a.STATUS === 'SUCCESS' ? 'success' : a.STATUS === 'FAILED' || a.STATUS === 'ERROR' ? 'danger' : 'secondary'}>
+                        {a.STATUS ?? '—'}
+                      </Badge>
+                    </td>
+                    <td className="py-2 pr-4 text-slate-500">{a.EVENT_DATE ? new Date(a.EVENT_DATE).toLocaleString() : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {/* Deployment Plans Section */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-6">
           <div className="flex items-center justify-between mb-6">
@@ -823,6 +1019,18 @@ export default function GouvernanceDashboard() {
               </div>
             </div>
             <div className="flex items-center gap-3">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => fetchScheduledItems(true)}
+                disabled={scheduledWorkflowsLoading}
+              >
+                {scheduledWorkflowsLoading ? (
+                  <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4 animate-spin" /> Loading...</span>
+                ) : (
+                  <span className="flex items-center gap-2"><RefreshCw className="h-4 w-4" /> Load deployments</span>
+                )}
+              </Button>
               <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 text-base px-3 py-1.5">
                 {deploymentMetrics.mappingDeployments.length} Mappings
               </Badge>
@@ -832,7 +1040,7 @@ export default function GouvernanceDashboard() {
             </div>
           </div>
 
-          {/* Deployment Error Display */}
+          {/* Deployment Error Display (activation failed) */}
           {deploymentError && (
             <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-700 rounded-lg">
               <div className="flex items-start gap-3">
@@ -851,6 +1059,63 @@ export default function GouvernanceDashboard() {
                     Dismiss
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Recent deployment errors (schema deploy, etc.) with Cortex recommendations */}
+          {recentDeploymentErrors.length > 0 && (
+            <div className="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-lg">
+              <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-200 mb-3 flex items-center gap-2">
+                <PiWarning className="w-5 h-5" />
+                Recent deployment errors
+              </h4>
+              <div className="space-y-3">
+                {recentDeploymentErrors.slice(0, 5).map((err) => (
+                  <div key={err.id} className="rounded-lg bg-white dark:bg-slate-800/50 p-3 border border-amber-200 dark:border-amber-800">
+                    <p className="text-xs text-slate-700 dark:text-slate-300 font-mono break-all mb-2">
+                      {err.error_message}
+                    </p>
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs text-slate-500">
+                        {err.project_id && <span>Project: {err.project_id}</span>}
+                        {err.created_at && <span className="ml-2">{new Date(err.created_at).toLocaleString()}</span>}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-amber-700 border-amber-400 hover:bg-amber-100 dark:text-amber-400 dark:border-amber-600 dark:hover:bg-amber-900/30"
+                        disabled={deploymentRecommendationsLoading}
+                        onClick={async () => {
+                          setDeploymentRecommendationsLoading(true);
+                          setRecommendationsForError(null);
+                          try {
+                            const res = await getCortexRecommend({ error_context: err.error_message });
+                            setRecommendationsForError({ id: err.id, text: res?.response ?? 'No recommendations.' });
+                          } catch (e) {
+                            setRecommendationsForError({ id: err.id, text: 'Failed to load recommendations.' });
+                          } finally {
+                            setDeploymentRecommendationsLoading(false);
+                          }
+                        }}
+                      >
+                        {deploymentRecommendationsLoading ? 'Loading...' : 'Get Cortex recommendations'}
+                      </Button>
+                    </div>
+                    {recommendationsForError?.id === err.id && (
+                      <div className="mt-3 p-3 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700">
+                        <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Recommendations:</p>
+                        <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{recommendationsForError.text}</p>
+                        <button
+                          onClick={() => setRecommendationsForError(null)}
+                          className="text-xs text-slate-500 hover:text-slate-700 mt-2"
+                        >
+                          Close
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -1305,6 +1570,14 @@ export default function GouvernanceDashboard() {
           </Button>
           <Button
             size="sm"
+            variant={statusFilter === 'ERROR' ? 'solid' : 'outline'}
+            onClick={() => applyQuickFilter('errors')}
+            className={statusFilter === 'ERROR' ? 'bg-red-600 hover:bg-red-700' : ''}
+          >
+            Errors only
+          </Button>
+          <Button
+            size="sm"
             variant={queryStatusFilter === 'SUCCESS' ? 'solid' : 'outline'}
             onClick={() => applyQuickFilter('query-success')}
             className={queryStatusFilter === 'SUCCESS' ? 'bg-green-600 hover:bg-green-700' : ''}
@@ -1322,7 +1595,7 @@ export default function GouvernanceDashboard() {
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 mb-6">
           <div>
             <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">
               User
@@ -1383,6 +1656,18 @@ export default function GouvernanceDashboard() {
             />
           </div>
 
+          <div>
+            <label className="text-xs font-medium text-slate-700 dark:text-slate-300 mb-1.5 block">
+              Status
+            </label>
+            <Select
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={uniqueEventStatuses}
+              placeholder="All"
+            />
+          </div>
+
           <div className="flex items-end">
             <Button
               onClick={() => {
@@ -1390,6 +1675,7 @@ export default function GouvernanceDashboard() {
                 setModuleFilter('');
                 setEventTypeFilter('');
                 setQueryStatusFilter('');
+                setStatusFilter('');
               }}
               variant="outline"
               size="sm"
@@ -1425,6 +1711,9 @@ export default function GouvernanceDashboard() {
                   Query Status
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Error
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   Execution Time
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
@@ -1435,7 +1724,7 @@ export default function GouvernanceDashboard() {
             <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
               {activityLoading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center">
+                  <td colSpan={11} className="px-4 py-8 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
                       <Text className="text-sm text-slate-500">Loading activity data...</Text>
@@ -1444,29 +1733,16 @@ export default function GouvernanceDashboard() {
                 </tr>
               ) : activityError ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8">
+                  <td colSpan={11} className="px-4 py-8">
                     <div className="flex flex-col items-center gap-4">
                       <div className="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800 max-w-2xl">
                         <h4 className="text-red-800 dark:text-red-400 font-semibold mb-2 flex items-center gap-2">
                           <PiWarning className="w-5 h-5" />
-                          API Error - Backend Issue
+                          Erreur chargement activité
                         </h4>
                         <p className="text-red-700 dark:text-red-300 text-sm mb-3">
-                          {activityError.message || 'Failed to load activity data'}
+                          {activityError.message || 'Impossible de charger les activités. Vérifiez la connexion et les droits.'}
                         </p>
-                        <div className="bg-white dark:bg-slate-900 p-3 rounded border border-red-200 dark:border-red-800">
-                          <p className="text-xs font-mono text-slate-600 dark:text-slate-400 mb-2">
-                            <strong>Backend Python Fix Required:</strong>
-                          </p>
-                          <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-{`# Fix the .upper() error in the backend:
-if username:
-    query += " AND UPPER(e.USERNAME) = UPPER(%s)"
-    params.append(username)  # Don't use .upper() here
-
-# Apply same fix for module_name, event_type, query_status`}
-                          </pre>
-                        </div>
                         <Button
                           onClick={() => window.location.reload()}
                           className="mt-3 bg-red-600 hover:bg-red-700 text-white"
@@ -1530,6 +1806,16 @@ if username:
                         <span className="text-slate-400">-</span>
                       )}
                     </td>
+                    <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400 max-w-[200px]">
+                      {(activity as any).EVENT_ERROR ? (
+                        <span title={(activity as any).EVENT_ERROR} className="block truncate text-red-600 dark:text-red-400">
+                          {String((activity as any).EVENT_ERROR).slice(0, 80)}
+                          {String((activity as any).EVENT_ERROR).length > 80 ? '…' : ''}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-600 dark:text-slate-400">
                       {activity.EXECUTION_TIME_SEC !== null && activity.EXECUTION_TIME_SEC !== undefined ? (
                         <span className="font-mono">
@@ -1564,13 +1850,39 @@ if username:
                 ))
               ) : (
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
-                    No recent activities
+                  <td colSpan={11} className="px-4 py-8 text-center">
+                    <div className="text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                      <p className="font-medium">Aucune activité sur la période sélectionnée</p>
+                      <p className="text-sm mt-2">
+                        Les événements sont enregistrés lorsque les utilisateurs exécutent des workflows, des mappings, Explore &amp; Design, ou se connectent. Vérifiez le filtre (utilisateur, module, dates) ou que la base <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">EVENT_STORE.USER_ACTIVITY</code> contient des données (variable <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">SNOWFLAKE_METADATA_DATABASE</code> côté backend).
+                      </p>
+                    </div>
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* AI Recommendations (Cortex LLM) */}
+        <div className="mt-6 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-1">AI Recommendations</h3>
+          <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+            Analyze recent platform errors and get resolution suggestions from Cortex LLM.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={fetchRecommendations}
+            disabled={recommendationsLoading}
+          >
+            {recommendationsLoading ? 'Analyzing…' : 'Get AI recommendations'}
+          </Button>
+          {recommendations != null && (
+            <div className="mt-4 p-4 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-sm text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+              {recommendations}
+            </div>
+          )}
         </div>
       </div>
 

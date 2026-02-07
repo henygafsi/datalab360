@@ -4,6 +4,7 @@ import { Checkbox, Button, Loader } from 'rizzui';
 import { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { updateGrants } from '@/app/services/gouvernance/grants';
+import { formatApiDetail } from '@/lib/utils';
 
 // Menu modules with their IDs - must match carbonMenuItems
 // ID mapping: modules use string names, menu uses numeric IDs
@@ -74,7 +75,8 @@ export default function EditGrantsForm({
       onClose?.();
     } catch (error: any) {
       console.error('Error updating grants:', error);
-      toast.error(error.response?.data?.detail || error.message || 'Failed to update grants');
+      const msg = error?.response?.data?.detail != null ? formatApiDetail(error.response.data.detail) : (error?.message ?? 'Failed to update grants');
+      toast.error(typeof msg === 'string' ? msg : 'Failed to update grants');
     } finally {
       setSaving(false);
     }

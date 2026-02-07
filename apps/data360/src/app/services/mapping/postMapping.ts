@@ -43,7 +43,7 @@ export interface TestMappingPayload {
  */
 export async function postMapping(payload: TestMappingPayload) {
     const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/test_mapping/`;
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/test_mapping/`;
     try {
         const response = await axios.post<TestMappingPayload>(url, payload, { headers });
         return response.data;

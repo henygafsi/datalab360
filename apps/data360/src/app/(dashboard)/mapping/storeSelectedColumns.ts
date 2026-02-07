@@ -29,7 +29,7 @@ export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload)
         console.log(`Service: storeSelectedColumns - Sending POST request to ${API_BASE_URL}/mapping/store-selected-columns`);
         console.log('Service: storeSelectedColumns - Request payload:', payload);
         const response = await axios.post<StoreSelectedColumnsResponse>(
-            `${API_BASE_URL}/mapping/store-selected-columns`.replace(/\/$/, ''),
+            `${API_BASE_URL}/explore-design/guided/store-selected-columns`.replace(/\/$/, ''),
             payload,
             {
                 headers: {

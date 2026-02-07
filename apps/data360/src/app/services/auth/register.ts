@@ -14,7 +14,8 @@ export interface userData {
 
 
 export const registerUser = async (userData: userData) => {
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/user/register/`;
+    const { API_CONTRACTS } = await import('@/lib/api-contracts');
+    const url = API_CONTRACTS.auth.register.getUrl();
 
     try {
       const response = await axios.post(url, userData, {

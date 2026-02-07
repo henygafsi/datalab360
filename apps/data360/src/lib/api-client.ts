@@ -26,9 +26,29 @@ const apiClient: AxiosInstance = axios.create({
   },
 });
 
+// Redundancy detection (dev): log when same (method, url) is called within REDUNDANCY_WINDOW_MS
+const REDUNDANCY_WINDOW_MS = 2000;
+const _recentCalls: { key: string; ts: number }[] = [];
+function _detectRedundantCall(method: string, url: string): void {
+  if (process.env.NODE_ENV !== 'development' || typeof window === 'undefined') return;
+  const key = `${method}:${url}`;
+  const now = Date.now();
+  const recent = _recentCalls.filter((c) => now - c.ts < REDUNDANCY_WINDOW_MS);
+  if (recent.some((c) => c.key === key)) {
+    console.warn(`[API Redundancy] Same request within ${REDUNDANCY_WINDOW_MS}ms: ${method} ${url}`);
+  }
+  _recentCalls.length = 0;
+  _recentCalls.push(...recent, { key, ts: now });
+}
+
 // Request interceptor - Add authentication token and account context to all requests
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    const url = config.url ?? '';
+    const method = (config.method ?? 'get').toUpperCase();
+    const fullUrl = config.baseURL ? `${config.baseURL}${url}` : url;
+    _detectRedundantCall(method, fullUrl);
+
     try {
       // Use unified auth helper that works in both server and client
       const session = await getAuthSession();
@@ -74,10 +94,13 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status;
 
-    // Handle 401 Unauthorized - Token expired or invalid
+    // Handle 401 Unauthorized - Token expired or invalid → redirect to sign-in
     if (status === 401) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn('[API Client] 401 Unauthorized - Token may be expired or invalid');
+        console.warn('[API Client] 401 Unauthorized - Redirecting to sign-in');
+      }
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
+        window.location.href = '/signin';
       }
       return Promise.reject(new AuthenticationError('Session expired. Please sign in again.'));
     }
@@ -108,9 +131,12 @@ apiClient.interceptors.response.use(
       return Promise.reject(new TimeoutError('Request took too long. The server may be slow or unavailable.'));
     }
 
-    // Handle network errors
+    // Handle network errors (server disconnected) → redirect to sign-in so user can retry when back
     if (!error.response) {
-      console.error('[API Client] Network error:', error.message);
+      console.error('[API Client] Network error (server disconnected?):', error.message);
+      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/') && (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error'))) {
+        window.location.href = '/signin';
+      }
       return Promise.reject(new NetworkError('Unable to connect to the server. Please check your connection.'));
     }
 

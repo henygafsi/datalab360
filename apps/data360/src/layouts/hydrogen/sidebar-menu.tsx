@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold, PiDatabase, PiChartBar } from 'react-icons/pi';
+import { PiCaretDownBold, PiDatabase, PiChartBar, PiBrain } from 'react-icons/pi';
 import {
   HiOutlineMap,
   HiOutlineCog8Tooth,
@@ -15,6 +15,7 @@ import {
   HiOutlineSquares2X2,
   HiOutlineSparkles,
   HiOutlineBuildingOffice2,
+  HiOutlineChartBarSquare,
 } from 'react-icons/hi2';
 
 
@@ -40,10 +41,11 @@ const modernMenuItems = [
   },
   {
     name: 'Data Processing',
+    icon: <HiOutlineCog8Tooth className="w-5 h-5" />,
     dropdownItems: [
       {
         name: 'Mapping',
-        href: '/mapping',
+        href: '/explore-design',
         icon: <HiOutlineMap className="w-4 h-4" />,
       },
       {
@@ -61,6 +63,7 @@ const modernMenuItems = [
   },
   {
     name: 'Analytics',
+    icon: <PiChartBar className="w-5 h-5" />,
     dropdownItems: [
       {
         name: 'BI Reporting',
@@ -71,11 +74,22 @@ const modernMenuItems = [
         name: 'Dashboards',
         href: '/analytics',
         icon: <HiOutlineDocumentChartBar className="w-4 h-4" />,
-      }
+      },
+      {
+        name: 'Intelligent (Cortex)',
+        href: '/intelligent',
+        icon: <PiBrain className="w-4 h-4" />,
+      },
     ]
   },
   {
+    name: 'Observability',
+    href: '/observability',
+    icon: <HiOutlineChartBarSquare className="w-5 h-5" />,
+  },
+  {
     name: 'Governance',
+    icon: <HiOutlineShieldCheck className="w-5 h-5" />,
     dropdownItems: [
       {
         name: 'Users',
@@ -91,6 +105,11 @@ const modernMenuItems = [
         name: 'Grants',
         href: '/gouvernance/grants',
         icon: <HiOutlineKey className="w-4 h-4" />,
+      },
+      {
+        name: 'Policies',
+        href: '/gouvernance/policies',
+        icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'Masking Policy',
@@ -150,7 +169,7 @@ export function SidebarMenu() {
           };
         }
         // Hide other groups entirely when not connected
-        if (['Data Processing', 'Analytics', 'Governance', 'Client Accounts'].includes(item.name)) {
+        if (['Data Processing', 'Analytics', 'Observability', 'Governance', 'Client Accounts'].includes(item.name)) {
           return null as any;
         }
         return item;

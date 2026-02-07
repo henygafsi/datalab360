@@ -4,6 +4,7 @@
 
 import Table from '@core/components/table';
 import { useTanStackTable } from '@core/components/table/custom/use-TanStack-Table';
+import type { TableMeta } from '@tanstack/react-table';
 import Filters from './filters';
 import { userListColumns } from './columns';
 import TablePagination from '@core/components/table/pagination';
@@ -102,7 +103,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
         },
       },
       meta: {
-        handleDeleteRow: async (row) => {
+        handleDeleteRow: async (row: UserTableDataType) => {
           const confirmMessage = `⚠️ ATTENTION - Suppression définitive\n\nÊtes-vous sûr de vouloir supprimer l'utilisateur "${row.name}" ?\n\nCette action est irréversible et supprimera l'utilisateur de Snowflake.`;
           if (!confirm(confirmMessage)) return;
 
@@ -144,7 +145,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
             await fetchUsersData();
           }
         },
-        handleToggleDisabled: async (row) => {
+        handleToggleDisabled: async (row: UserTableDataType) => {
           const isCurrentlyDisabled = row.status === 'Disabled';
           const action = isCurrentlyDisabled ? 'activer' : 'désactiver';
           const confirmMessage = `Êtes-vous sûr de vouloir ${action} l'utilisateur "${row.name}" ?`;
@@ -166,7 +167,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
             await fetchUsersData();
           }
         },
-      },
+      } as TableMeta<UserTableDataType> & { handleToggleDisabled: (row: UserTableDataType) => void },
       enableColumnResizing: false,
     },
   });

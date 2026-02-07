@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Modal, Button, Input, Select, Badge } from 'rizzui';
+import { Modal, Button, Input, Select, Badge, Checkbox } from 'rizzui';
 import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
@@ -385,16 +385,13 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
               {/* Checkboxes */}
               <div className="flex items-center gap-4 mt-3 pt-3 border-t dark:border-slate-600">
-                <label className="flex items-center gap-2 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={!column.nullable}
-                    onChange={(e) => handleColumnChange(column.id, 'nullable', !e.target.checked)}
-                    disabled={column.primaryKey}
-                    className="rounded"
-                  />
-                  NOT NULL
-                </label>
+                <Checkbox
+                  checked={!column.nullable}
+                  onChange={() => handleColumnChange(column.id, 'nullable', !column.nullable)}
+                  disabled={column.primaryKey}
+                  label="NOT NULL"
+                  className="text-xs"
+                />
               </div>
             </div>
           ))}

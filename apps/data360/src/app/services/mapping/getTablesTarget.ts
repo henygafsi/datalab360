@@ -38,7 +38,7 @@ function isTableObject(obj: unknown): obj is TableObject {
  */
 export const getTablesTarget = async (databaseName: string, schemaName: string): Promise<string[]> => {
     const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${databaseName}/${schemaName}`;
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${databaseName}/${schemaName}`;
 
     try {
         const response = await axios.get(url, { headers });

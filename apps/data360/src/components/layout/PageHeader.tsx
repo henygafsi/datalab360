@@ -6,7 +6,7 @@ import cn from '@core/utils/class-names';
 
 export interface PageHeaderProps {
   /** Icon component to display */
-  icon: ReactNode;
+  icon?: ReactNode;
   /** Page title */
   title: string;
   /** Optional subtitle/description */
@@ -95,15 +95,17 @@ export default function PageHeader({
     <div className={cn('space-y-6', className)}>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-4">
-          {/* Icon Container */}
-          <div
-            className={cn(
-              'flex h-12 w-12 items-center justify-center rounded-lg',
-              styles.bg
-            )}
-          >
-            <div className={styles.icon}>{icon}</div>
-          </div>
+          {/* Icon Container (optional) */}
+          {icon != null && (
+            <div
+              className={cn(
+                'flex h-12 w-12 items-center justify-center rounded-lg',
+                styles.bg
+              )}
+            >
+              <div className={styles.icon}>{icon}</div>
+            </div>
+          )}
 
           {/* Title & Subtitle */}
           <div>

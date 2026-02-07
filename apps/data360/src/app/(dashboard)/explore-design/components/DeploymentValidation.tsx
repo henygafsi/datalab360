@@ -33,6 +33,7 @@ import {
   SchemaDeploymentResponse,
   SQLStatement,
 } from '@/app/services/explore-design';
+import { getCortexRecommend } from '@/app/services/cortex';
 
 // Test result interface
 interface TestResult {
@@ -829,6 +830,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   // Backend integration state
   const [useBackend, setUseBackend] = useState(true);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const [cortexRecommendations, setCortexRecommendations] = useState<string | null>(null);
+  const [cortexRecommendationsLoading, setCortexRecommendationsLoading] = useState(false);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
 
   // Schema versioning state (Option A: Two-phase deployment)
@@ -1878,24 +1881,51 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         </div>
       </div>
 
-      {/* Backend Error Banner */}
+      {/* Backend Error Banner with Cortex recommendations */}
       {backendError && (
         <div className="px-6 py-3 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">
           <div className="flex items-start gap-3">
             <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-800 dark:text-red-200">Backend Error</p>
-              <p className="text-xs text-red-600 dark:text-red-300 mt-1">{backendError}</p>
-              <p className="text-xs text-red-500 dark:text-red-400 mt-2">
-                Ensure the backend endpoint <code className="px-1 bg-red-100 dark:bg-red-950 rounded">/mapping/schedule_deployment/</code> is available.
-              </p>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-red-800 dark:text-red-200">Deployment Error</p>
+              <p className="text-xs text-red-600 dark:text-red-300 mt-1 break-words font-mono">{backendError}</p>
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-blue-600 border-blue-400 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                  disabled={cortexRecommendationsLoading}
+                  onClick={async () => {
+                    setCortexRecommendationsLoading(true);
+                    setCortexRecommendations(null);
+                    try {
+                      const res = await getCortexRecommend({ error_context: backendError });
+                      setCortexRecommendations(res?.response ?? 'No recommendations.');
+                    } catch (e) {
+                      setCortexRecommendations('Failed to load recommendations.');
+                    } finally {
+                      setCortexRecommendationsLoading(false);
+                    }
+                  }}
+                >
+                  {cortexRecommendationsLoading ? 'Loading...' : 'Get Cortex recommendations'}
+                </Button>
+                <button
+                  onClick={() => { setBackendError(null); setCortexRecommendations(null); }}
+                  className="text-red-400 hover:text-red-600 p-1"
+                  aria-label="Dismiss"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {cortexRecommendations && (
+                <div className="mt-3 p-3 bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-600">
+                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Recommendations:</p>
+                  <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{cortexRecommendations}</p>
+                  <button onClick={() => setCortexRecommendations(null)} className="text-xs text-slate-500 hover:text-slate-700 mt-2">Close</button>
+                </div>
+              )}
             </div>
-            <button
-              onClick={() => setBackendError(null)}
-              className="text-red-400 hover:text-red-600"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
         </div>
       )}

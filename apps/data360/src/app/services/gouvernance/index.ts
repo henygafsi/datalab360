@@ -15,6 +15,7 @@ import type {
   UserActivityWithQuery,
   ActivityFilterParams,
   MfaStatus,
+  DashboardErrorsResponse,
 } from './types';
 import { DATABASE_CONFIG } from '@/config/database.config';
 
@@ -45,9 +46,11 @@ export async function getQueryAccessHistory(): Promise<QueryAccessHistory[]> {
 /**
  * Get stage storage sizes
  * GET /gouvernance/get_stage_storage_info
+ * Backend returns { count, stages }; we return stages array for hooks.
  */
 export async function getStageStorageInfo(): Promise<StageSize[]> {
-  return apiCall<StageSize[]>('/gouvernance/get_stage_storage_info');
+  const res = await apiCall<{ count?: number; stages?: StageSize[] }>('/gouvernance/get_stage_storage_info');
+  return Array.isArray(res?.stages) ? res.stages : [];
 }
 
 /**
@@ -118,6 +121,7 @@ export async function getAllUsersActivity(
   if (filters.username) params.append('username', filters.username);
   if (filters.module_name) params.append('module_name', filters.module_name);
   if (filters.event_type) params.append('event_type', filters.event_type);
+  if (filters.status) params.append('status', filters.status);
   if (filters.start_date) params.append('start_date', filters.start_date);
   if (filters.end_date) params.append('end_date', filters.end_date);
   if (filters.query_status) params.append('query_status', filters.query_status);
@@ -139,6 +143,25 @@ export async function getClientDashboardAll(
   filters: ActivityFilterParams = {}
 ): Promise<UserActivityWithQuery[]> {
   return getAllUsersActivity(filters);
+}
+
+/**
+ * Get recent ERROR events for audit and AI recommendations
+ * GET /gouvernance/dashboard/errors
+ */
+export async function getDashboardErrors(params?: {
+  limit?: number;
+  module_name?: string;
+  start_date?: string;
+  end_date?: string;
+}): Promise<DashboardErrorsResponse> {
+  const search = new URLSearchParams();
+  if (params?.limit != null) search.set('limit', String(params.limit));
+  if (params?.module_name) search.set('module_name', params.module_name);
+  if (params?.start_date) search.set('start_date', params.start_date);
+  if (params?.end_date) search.set('end_date', params.end_date);
+  const qs = search.toString();
+  return apiCall(qs ? `/gouvernance/dashboard/errors?${qs}` : '/gouvernance/dashboard/errors');
 }
 
 /**

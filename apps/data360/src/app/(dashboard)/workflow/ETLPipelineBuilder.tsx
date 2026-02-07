@@ -22,7 +22,7 @@ import toast from 'react-hot-toast';
 import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, CheckCircle,
-  Eye, Code, Calendar
+  Eye, Code, Calendar, Sparkles
 } from 'lucide-react';
 
 // Components
@@ -135,11 +135,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai'>('runs');
 
   // Execution state
   const [lastExecution, setLastExecution] = useState<ExecutePipelineResponse | null>(null);
   const [validation, setValidation] = useState<PipelineValidation | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
+  const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
 
   // ============================================
   // LOAD DATA
@@ -590,6 +592,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
 
     try {
+      setAiSuggestions(null);
       const components = nodesToComponents(nodes, edges);
       const result = await etlService.validatePipeline({ components });
       setValidation(result);
@@ -604,6 +607,28 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       toast.error(error.response?.data?.detail || 'Validation failed');
     }
   }, [nodes, edges]);
+
+  const handleGetAiSuggestions = useCallback(async () => {
+    if (!validation) return;
+    setAiSuggestionsLoading(true);
+    setAiSuggestions(null);
+    try {
+      const components = nodesToComponents(nodes, edges);
+      const res = await etlService.getValidateSuggestions({
+        errors: validation.errors,
+        warnings: validation.warnings,
+        components,
+        execution_order: validation.execution_order,
+        estimated_complexity: validation.estimated_complexity,
+      });
+      setAiSuggestions(res.response || 'No suggestion.');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'AI suggestions unavailable');
+      setAiSuggestions(null);
+    } finally {
+      setAiSuggestionsLoading(false);
+    }
+  }, [validation, nodes, edges]);
 
   // ============================================
   // RENDER
@@ -775,6 +800,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               { id: 'runs', label: 'Runs', icon: History },
               { id: 'schedules', label: 'Schedules', icon: Calendar },
               { id: 'sql', label: 'SQL', icon: Code },
+              { id: 'ai', label: 'AI', icon: Sparkles },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -826,6 +852,63 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 ) : (
                   <p className="text-sm text-slate-500 text-center py-4">
                     Run "Preview SQL" to see generated queries
+                  </p>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'ai' && (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  Corrections, avertissements et optimisations (Workflow & Explore & Design).
+                </p>
+                {validation ? (
+                  <>
+                    {validation.errors.length > 0 && (
+                      <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
+                        <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Erreurs</div>
+                        <ul className="text-xs text-red-600 dark:text-red-300 list-disc list-inside space-y-0.5">
+                          {validation.errors.map((e, i) => (
+                            <li key={i}>{e}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {validation.warnings.length > 0 && (
+                      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
+                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Avertissements</div>
+                        <ul className="text-xs text-amber-600 dark:text-amber-300 list-disc list-inside space-y-0.5">
+                          {validation.warnings.map((w, i) => (
+                            <li key={i}>{w}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={handleGetAiSuggestions}
+                      disabled={aiSuggestionsLoading}
+                      className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                    >
+                      {aiSuggestionsLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-4 w-4" />
+                      )}
+                      {aiSuggestionsLoading ? 'Analyse…' : 'Suggestions IA (Cortex)'}
+                    </button>
+                    {aiSuggestions != null && (
+                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
+                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">Réponse IA</div>
+                        <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
+                          {aiSuggestions}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-slate-500 text-center py-4">
+                    Cliquez sur &quot;Validate&quot; pour voir erreurs, avertissements et demander des suggestions IA.
                   </p>
                 )}
               </div>

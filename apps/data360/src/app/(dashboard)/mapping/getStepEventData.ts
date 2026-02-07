@@ -1,6 +1,7 @@
 // src/app/services/mapping/getLatestStepEvent.ts
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
+import { formatApiDetail } from '@/lib/utils';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
 
@@ -31,7 +32,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
     try {
         console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
         const response = await axios.post<LatestStepEventResponse>(
-            `${API_BASE_URL}/mapping/get-steps-event/`,
+            `${API_BASE_URL}/explore-design/guided/get-steps-event/`,
             null, // POST request with empty body as per your Swagger
             {
                 headers: {
@@ -56,7 +57,8 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
                  console.warn(`Service: getLatestStepEvent - No event found or invalid request for step ${stepType}.`);
                  return null;
             }
-            throw new Error(error.response.data.detail || `Failed to fetch latest event for step ${stepType}.`);
+            const msg = formatApiDetail(error.response.data?.detail) || `Failed to fetch latest event for step ${stepType}.`;
+            throw new Error(msg);
         }
         throw error;
     }

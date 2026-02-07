@@ -172,7 +172,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
             console.log('Step5: Testing mapping with /mapping/test_mapping/', mappingsForPayload);
             const response = await axios.post(
-                `${API_BASE_URL}/mapping/test_mapping/`,
+                `${API_BASE_URL}/explore-design/guided/test_mapping/`,
                 { project_id: projectId, mappings: mappingsForPayload },
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
@@ -285,7 +285,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
             console.log('Step5: Scheduling deployment:', scheduleData);
             const response = await axios.post(
-                `${API_BASE_URL}/mapping/schedule_deployment/`,
+                `${API_BASE_URL}/explore-design/guided/schedule_deployment/`,
                 scheduleData,
                 { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
@@ -488,7 +488,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                                         {scheduleError}
                                     </p>
                                     <p className="text-xs text-red-600 dark:text-red-500 mt-3 pt-3 border-t border-red-200 dark:border-red-800">
-                                        <strong>Action Required:</strong> Please ensure the backend endpoint <code className="px-1 py-0.5 bg-red-100 dark:bg-red-950 rounded">/mapping/schedule_deployment/</code> is implemented and accessible.
+                                        <strong>Action Required:</strong> Please ensure the backend endpoint <code className="px-1 py-0.5 bg-red-100 dark:bg-red-950 rounded">/explore-design/guided/schedule_deployment/</code> is implemented and accessible.
                                     </p>
                                 </div>
                             </div>

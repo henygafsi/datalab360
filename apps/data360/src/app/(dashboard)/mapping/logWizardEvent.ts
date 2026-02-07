@@ -29,7 +29,7 @@ export const logWizardEvent = async (payload: LogWizardEventPayload): Promise<Lo
         console.log(`Service: logWizardEvent - Sending POST request to ${API_BASE_URL}/mapping/log_wizard_event`);
         console.log('Service: logWizardEvent - Request payload:', payload);
         const response = await axios.post<LogWizardEventResponse>(
-            `${API_BASE_URL}/mapping/log_wizard_event`,
+            `${API_BASE_URL}/explore-design/guided/log_wizard_event`,
             payload,
             {
                 headers: {

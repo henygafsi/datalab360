@@ -191,7 +191,7 @@ const SourceConfigForm: React.FC<{
   useEffect(() => {
     if (!accessToken) return;
     setLoading('databases');
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())
@@ -204,7 +204,7 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database) return;
     setLoading('schemas');
     setSchemas([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${config.database}`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${config.database}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())
@@ -217,7 +217,7 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database || !config.schema) return;
     setLoading('tables');
     setTables([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/tables/${config.database}/${config.schema}`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${config.database}/${config.schema}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())
@@ -230,7 +230,7 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database || !config.schema || !config.table) return;
     setLoading('columns');
     setColumns([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/get_table_columns/?database_name=${config.database}&schema_name=${config.schema}&table_name=${config.table}`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get_table_columns/?database_name=${config.database}&schema_name=${config.schema}&table_name=${config.table}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())
@@ -1033,7 +1033,7 @@ const DestinationConfigForm: React.FC<{
   useEffect(() => {
     if (!accessToken) return;
     setLoading('databases');
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/databases`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())
@@ -1046,7 +1046,7 @@ const DestinationConfigForm: React.FC<{
     if (!accessToken || !config.database) return;
     setLoading('schemas');
     setSchemas([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/mapping/schemas/${config.database}`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${config.database}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
       .then((res) => res.json())

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
+import { formatApiDetail } from '@/lib/utils';
 
 // This interface defines a single event object from the API
 export interface StepEvent {
@@ -32,7 +33,7 @@ export const getProjectStepsEvents = async (projectId: string): Promise<StepEven
         }
 
         const response = await axios.post<ApiResponse>(
-            `${process.env.NEXT_PUBLIC_API_URL}/mapping/get-steps-event/`,
+            `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get-steps-event/`,
             null, // The body is null for this POST request
             {
                 params: { project_id: projectId },
@@ -49,7 +50,8 @@ export const getProjectStepsEvents = async (projectId: string): Promise<StepEven
 
     } catch (error) {
         if (axios.isAxiosError(error)) {
-            console.error(`API Error fetching event history for project ${projectId}:`, error.response?.data || error.message);
+            const msg = formatApiDetail(error.response?.data?.detail) || error.message;
+            console.error(`API Error fetching event history for project ${projectId}:`, msg, error.response?.data);
         } else {
             console.error(`Failed to get event history for project ${projectId}:`, error);
         }

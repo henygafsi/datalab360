@@ -28,7 +28,7 @@ export const createProject = async (payload: CreateProjectPayload): Promise<Crea
 
     try {
         const response = await axios.post<CreateProjectResponse>(
-            `${API_BASE_URL}/mapping/create_project`,
+            `${API_BASE_URL}/explore-design/guided/create_project`,
             payload,
             {
                 headers: {

@@ -32,7 +32,7 @@ export const getAllProjectEvents = async (projectId: string): Promise<StepEvent[
 
         const response = await axios.post<ApiResponse>(
             // Ensure this URL is correct and accessible
-            `${process.env.NEXT_PUBLIC_API_URL}/mapping/get-steps-event/`,
+            `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get-steps-event/`,
             null, // No body is needed for a POST request with params
             {
                 params: { project_id: projectId },

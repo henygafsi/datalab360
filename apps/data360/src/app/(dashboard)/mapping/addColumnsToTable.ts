@@ -39,7 +39,7 @@ export const addColumnsToTable = async (payload: AddColumnsPayload): Promise<Add
     try {
         console.log(`Service: addColumnsToTable - Sending POST request to ${API_BASE_URL}/mapping/add-columns with payload:`, payload);
         const response = await axios.post<AddColumnsResponse>(
-            `${API_BASE_URL}/mapping/add-columns`,
+            `${API_BASE_URL}/explore-design/guided/add-columns`,
             payload,
             {
                 headers: {

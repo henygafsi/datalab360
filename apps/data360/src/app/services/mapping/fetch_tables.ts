@@ -55,7 +55,7 @@ export const getTableColumns = async (
     const headers = await getAuthHeaders();
 
     try {
-        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/mapping/get_table_columns/`, {
+        const response = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get_table_columns/`, {
             headers,
             params: { database_name: databaseName, schema_name: schemaName, table_name: tableName },
         });

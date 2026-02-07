@@ -25,7 +25,7 @@ function isSchemaObject(obj: unknown): obj is SchemaObject {
  */
 export const getSchemas = async (databaseName: string): Promise<string[]> => {
   try {
-    const response = await apiClient.get(`/mapping/schemas/${databaseName}`);
+    const response = await apiClient.get(`/explore-design/guided/schemas/${databaseName}`);
     const data = response.data;
 
     // If response is an array directly

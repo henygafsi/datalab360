@@ -35,7 +35,7 @@ export const manageTableStructure = async (payload: ManageTablePayload): Promise
     }
     const token = session.user.access_token;
 
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/mapping/manage_table`;
+    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/manage_table`;
     console.log(`Service: manageTableStructure - Sending GET request to ${url} with params:`, payload);
 
     try {

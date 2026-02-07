@@ -14,7 +14,7 @@ export const saveProjectState = async (projectId: string | null, mappingData: an
         }
 
         await axios.post(
-            `${process.env.NEXT_PUBLIC_API_URL}/mapping/save-state/`,
+            `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/save-state/`,
             { project_id: projectId, step: currentStep, state: mappingData },
             {
                 headers: {

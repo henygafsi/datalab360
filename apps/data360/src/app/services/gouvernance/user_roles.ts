@@ -15,11 +15,11 @@ export async function getUserRoles(username: string): Promise<string[]> {
     const response = await apiClient.get(`/gouvernance/users/${username}/roles`);
     // Backend should return array of role names directly
     if (Array.isArray(response.data)) {
-      return response.data;
+      return response.data as string[];
     }
     // Fallback: if backend returns object with roles property
     if (response.data?.roles && Array.isArray(response.data.roles)) {
-      return response.data.roles;
+      return response.data.roles as string[];
     }
     console.warn('Unexpected response format from getUserRoles:', response.data);
     return [];
@@ -62,7 +62,7 @@ export async function getUserRoles(username: string): Promise<string[]> {
 export async function getAvailableRolesForUser(username: string): Promise<string[]> {
   try {
     const response = await apiClient.get(`/gouvernance/roles-for-user/${username}`);
-    return Array.isArray(response.data) ? response.data : [];
+    return Array.isArray(response.data) ? (response.data as string[]) : [];
   } catch (error) {
     console.error(`Error fetching available roles for user ${username}:`, error);
     throw error;

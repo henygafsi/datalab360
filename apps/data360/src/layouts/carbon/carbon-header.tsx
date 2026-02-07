@@ -39,7 +39,7 @@ const searchSuggestions = {
     { label: 'BI Reporting', href: '/bi-reporting', icon: HiOutlineChartBarSquare, description: 'View analytics and reports' },
     { label: 'Data Sources', href: '/data-source-connection', icon: HiOutlineGlobeAlt, description: 'Manage data connections' },
     { label: 'Governance', href: '/gouvernance', icon: HiOutlineUsers, description: 'User and role management' },
-    { label: 'Mapping', href: '/mapping', icon: HiOutlineDocumentText, description: 'Data mapping wizard' }
+    { label: 'Explore & Design', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Data modeling, wrangling, policies' }
   ],
   actions: [
     { label: 'Create New Report', href: '/reports/create', icon: HiOutlineArrowTrendingUp, description: 'Generate analytics report' },

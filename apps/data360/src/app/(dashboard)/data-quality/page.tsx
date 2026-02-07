@@ -300,13 +300,24 @@ export default function DataQualityPage() {
   };
 
   const handleRunQualityChecks = async () => {
+    const token = session?.user?.access_token as string | undefined;
+    if (!token) {
+      toast.error('Please log in to run quality checks');
+      return;
+    }
+    const report = reports.find((r) => r.id === (currentReportId || ''));
+    const table = report?.dataSources?.[0]?.name;
+    if (!table) {
+      toast.error('Add a data source (table name, e.g. DB.SCHEMA.TABLE) to this report to run quality checks');
+      return;
+    }
     setIsRunningChecks(true);
     try {
-      const metrics = await runQualityChecks(currentReportId || 'temp');
+      const metrics = await runQualityChecks(currentReportId || 'temp', token, { table });
       setQualityMetrics(metrics);
-      toast.success('✅ Quality checks completed!');
+      toast.success(metrics.length ? '✅ Quality checks completed!' : 'No checks run (configure columns or rules).');
     } catch (error: any) {
-      toast.error('Failed to run quality checks');
+      toast.error(error?.message || 'Failed to run quality checks');
     } finally {
       setIsRunningChecks(false);
     }

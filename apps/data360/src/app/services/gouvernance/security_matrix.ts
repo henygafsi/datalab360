@@ -5,7 +5,23 @@
 import apiClient from '@/lib/api-client';
 
 /**
- * Security Matrix Entry Type
+ * Single row from Snowflake SECURITY_MATRIX (GET response)
+ */
+export type SecurityMatrixEntryRow = {
+  id: number;
+  role_name: string;
+  region_id?: string | null;
+  store_id?: string | null;
+  department_id?: string | null;
+  product_category?: string | null;
+  customer_segment?: string | null;
+  access_level: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+/**
+ * Security Matrix Entry Type (legacy / create payload shape)
  */
 export type SecurityMatrixEntry = {
   id?: number;
@@ -19,20 +35,23 @@ export type SecurityMatrixEntry = {
 };
 
 /**
- * Available security axes (for dropdowns)
+ * Available security axes (for dropdowns) - matches backend GET
  */
 export type SecurityAxes = {
   regions: Array<{ id: string; name: string }>;
   stores: Array<{ id: string; name: string }>;
   departments: Array<{ id: string; name: string }>;
-  customs: Array<{ id: string; name: string }>;
+  product_categories?: string[];
+  customer_segments?: string[];
+  access_levels?: string[];
 };
 
 /**
  * Security Matrix Response (includes both entries and available axes)
  */
 export type SecurityMatrixResponse = {
-  entries: SecurityMatrixEntry[];
+  entries: SecurityMatrixEntryRow[];
+  total_entries: number;
   available_axes: SecurityAxes;
 };
 
@@ -65,12 +84,27 @@ export async function getSecurityMatrix(): Promise<SecurityMatrixResponse> {
 }
 
 /**
+ * Payload to create one matrix entry (backend expects role_name, axes, access_level)
+ */
+export type CreateMatrixEntryPayload = {
+  role_name: string;
+  axes: {
+    region_id?: string | null;
+    store_id?: string | null;
+    department_id?: string | null;
+    product_category?: string | null;
+    customer_segment?: string | null;
+  };
+  access_level: string;
+};
+
+/**
  * Create a single security matrix entry
  * POST /gouvernance/security-matrix
  */
 export async function createSecurityMatrixEntry(
-  entry: Omit<SecurityMatrixEntry, 'id' | 'created_at' | 'updated_at'>
-): Promise<SecurityMatrixEntry> {
+  entry: CreateMatrixEntryPayload
+): Promise<{ message: string; role_name: string; axes: Record<string, unknown>; access_level: string }> {
   try {
     const response = await apiClient.post('/gouvernance/security-matrix', entry);
     return response.data;
@@ -98,13 +132,27 @@ export async function bulkCreateSecurityMatrixEntries(entries: {
 }
 
 /**
+ * Payload to update one matrix entry (backend: axes dict + access_level)
+ */
+export type UpdateMatrixEntryPayload = {
+  axes?: {
+    region_id?: string | null;
+    store_id?: string | null;
+    department_id?: string | null;
+    product_category?: string | null;
+    customer_segment?: string | null;
+  };
+  access_level?: string;
+};
+
+/**
  * Update a security matrix entry
  * PUT /gouvernance/security-matrix/{id}
  */
 export async function updateSecurityMatrixEntry(
   id: number,
-  entry: Partial<Omit<SecurityMatrixEntry, 'id' | 'created_at' | 'updated_at'>>
-): Promise<SecurityMatrixEntry> {
+  entry: UpdateMatrixEntryPayload
+): Promise<{ message: string }> {
   try {
     const response = await apiClient.put(`/gouvernance/security-matrix/${id}`, entry);
     return response.data;

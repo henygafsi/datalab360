@@ -1,11 +1,20 @@
 // src/app/services/data-source-connection/connectionServices.ts
 
-import { getSession } from "next-auth/react";
+import { getAuthHeaders } from '@/lib/auth';
+import { API_CONTRACTS } from '@/lib/api-contracts';
+import { API_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 interface ApiResponse {
-    message: string; // Generic message
+    message: string;
+}
+
+/** Response from Azure storage integration creation: may include consent URL for wait flow */
+export interface AzureStorageIntegrationResponse extends ApiResponse {
+    requires_consent?: boolean;
+    azure_consent_url?: string | null;
+    azure_multi_tenant_app_name?: string | null;
 }
 
 // New interface for the expected structured response from getIntegrationDetails
@@ -22,33 +31,7 @@ interface AzureIntegrationDetailsResponse {
     };
 }
 
-interface AuthInfo {
-    token: string;
-    account_name: string;
-    username: string;
-}
-
-async function getAuthInfo(): Promise<AuthInfo> {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-        console.error('No access token available in session.');
-        throw new Error('Not authenticated');
-    }
-    return {
-        token: session.user.access_token as string,
-        account_name: session.user.account_name || '',
-        username: session.user.username || '',
-    };
-}
-
-function getAuthHeaders(auth: AuthInfo): Record<string, string> {
-    return {
-        'Authorization': `Bearer ${auth.token}`,
-        'Content-Type': 'application/json',
-        'X-Account-Name': auth.account_name,
-        'X-Username': auth.username,
-    };
-}
+// Auth helpers removed - using centralized getAuthHeaders from @/lib/auth
 
 function buildUrlWithQueryParams(baseUrl: string, params: Record<string, string | boolean | null | undefined>): string {
     const url = new URL(baseUrl);
@@ -67,25 +50,27 @@ export async function setupAzureStorageIntegration(
     integration_name: string,
     tenant_id: string,
     url: string
-): Promise<ApiResponse> {
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/azure/storage_integration`,
-        { integration_name, tenant_id, url }
-    );
-    const auth = await getAuthInfo();
-    const response = await fetch(endpoint, {
+): Promise<AzureStorageIntegrationResponse> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/azure/storage_integration`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_name, tenant_id, url }),
     });
     if (!response.ok) {
-        const errorData: any = await response.json();
+        const errorData: any = await response.json().catch(() => ({}));
         const errorMessage = typeof errorData.detail === 'string'
             ? errorData.detail
             : errorData.message || 'Failed to set up Azure Storage Integration';
         throw new Error(errorMessage);
     }
     const data: any = await response.json();
-    return { message: data };
+    return {
+        message: data.message ?? 'Azure Storage integration created.',
+        requires_consent: data.requires_consent ?? true,
+        azure_consent_url: data.azure_consent_url ?? null,
+        azure_multi_tenant_app_name: data.azure_multi_tenant_app_name ?? null,
+    };
 }
 
 export async function setupAzureNotificationIntegration(
@@ -93,14 +78,11 @@ export async function setupAzureNotificationIntegration(
     tenant_id: string,
     queue_url: string
 ): Promise<ApiResponse> {
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/azure/notification_integration`,
-        { integration_name, tenant_id, queue_url }
-    );
-    const auth = await getAuthInfo();
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/azure/notification_integration`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_name, tenant_id, queue_url }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -113,19 +95,16 @@ export async function setupAzureNotificationIntegration(
     return { message: data };
 }
 
-export async function setupAzureSnowpipe( // This function is not currently used in the UI flow for notification/stage
+export async function setupAzureSnowpipe(
     integration_name: string,
     tenant_id: string,
     queue_url: string
 ): Promise<ApiResponse> {
-    const auth = await getAuthInfo();
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/azure/snowpipe`,
-        { integration_name, tenant_id, queue_url }
-    );
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/azure/snowpipe`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_name, tenant_id, queue_url }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -146,14 +125,18 @@ export async function createAzureStage(
     auto_update: boolean,
     notification_integration?: string | null
 ): Promise<ApiResponse> {
-    const auth = await getAuthInfo();
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/azure/stage`,
-        { stage_name, url, integration_name, load_data, auto_update, notification_integration }
-    );
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/azure/stage`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            stage_name,
+            url,
+            integration_name,
+            load_data,
+            auto_update,
+            ...(notification_integration != null && { notification_integration }),
+        }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -175,14 +158,11 @@ export async function setupAwsStorageIntegration(
     aws_role_arn: string,
     external_id: string
 ): Promise<ApiResponse> {
-    const auth = await getAuthInfo();
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/aws/storage_integration`,
-        { integration_name, bucket_name, aws_role_arn, external_id }
-    );
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/aws/storage_integration`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ integration_name, bucket_name, aws_role_arn, external_id }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -202,14 +182,11 @@ export async function createAwsStage(
     load_data: boolean,
     auto_update: boolean
 ): Promise<ApiResponse> {
-    const auth = await getAuthInfo();
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/aws/stage`,
-        { stage_name, bucket_name, integration_name, load_data, auto_update }
-    );
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/aws/stage`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage_name, bucket_name, integration_name, load_data, auto_update }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -222,6 +199,27 @@ export async function createAwsStage(
     return { message: data };
 }
 
+// --- Internal stage (raw zone, no Azure/AWS) ---
+
+export async function createInternalStage(stage_name: string): Promise<ApiResponse> {
+    const headers = await getAuthHeaders();
+    const url = API_CONTRACTS.dataSource.createInternalStage.getUrl();
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage_name }),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        const errorMessage = typeof errorData.detail === 'string'
+            ? errorData.detail
+            : errorData.message || 'Failed to create internal stage';
+        throw new Error(errorMessage);
+    }
+    const data: any = await response.json();
+    return { message: data.message ?? `Internal stage '${stage_name}' created. You can upload files to it.` };
+}
+
 // --- Snowflake Services ---
 
 export async function connectSnowflakeDatalake(
@@ -230,14 +228,16 @@ export async function connectSnowflakeDatalake(
     datalake_account: string,
     datalake_role: string
 ): Promise<ApiResponse> {
-    const auth = await getAuthInfo();
-    const endpoint = buildUrlWithQueryParams(
-        `${API_BASE_URL}/connect/snowflake_lake/datalake/connect`,
-        { datalake_username, datalake_password, datalake_account, datalake_role }
-    );
-    const response = await fetch(endpoint, {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/snowflake_lake/datalake/connect`, {
         method: 'POST',
-        headers: getAuthHeaders(auth),
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            datalake_username,
+            datalake_password,
+            datalake_account,
+            datalake_role,
+        }),
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -251,11 +251,11 @@ export async function connectSnowflakeDatalake(
 }
 
 export async function listSnowflakeStages(): Promise<any> {
-    const auth = await getAuthInfo();
-    const endpoint = `${API_BASE_URL}/connect/stages`;
+    const headers = await getAuthHeaders();
+    const endpoint = API_CONTRACTS.dataSource.listStages.getUrl();
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: getAuthHeaders(auth),
+        headers,
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -267,13 +267,17 @@ export async function listSnowflakeStages(): Promise<any> {
     return await response.json();
 }
 
-export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
-    const auth = await getAuthInfo();
-    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files`;
-    const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: getAuthHeaders(auth),
-    });
+export async function listSnowflakeStageFiles(
+    stageName: string,
+    opts?: { path?: string; sort?: 'name' | 'size' | 'last_modified' }
+): Promise<{ files: any[]; count: number; stage_name: string }> {
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams();
+    if (opts?.path) params.set('path', opts.path);
+    if (opts?.sort) params.set('sort', opts.sort);
+    const qs = params.toString();
+    const endpoint = `${API_CONTRACTS.dataSource.listStageFiles.getUrl(stageName)}${qs ? `?${qs}` : ''}`;
+    const response = await fetch(endpoint, { method: 'GET', headers });
     if (!response.ok) {
         const errorData: any = await response.json();
         const errorMessage = typeof errorData.detail === 'string'
@@ -286,14 +290,14 @@ export async function listSnowflakeStageFiles(stageName: string): Promise<any> {
 
 // --- Common Integration Details ---
 export async function getIntegrationDetails(integration_name: string): Promise<AzureIntegrationDetailsResponse> {
-    const auth = await getAuthInfo();
+    const headers = await getAuthHeaders();
     const endpoint = buildUrlWithQueryParams(
         `${API_BASE_URL}/connect/integration`,
         { integration_name }
     );
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: getAuthHeaders(auth),
+        headers,
     });
     if (!response.ok) {
         const errorData: any = await response.json();
@@ -308,19 +312,27 @@ export async function getIntegrationDetails(integration_name: string): Promise<A
 
 // --- File Operations ---
 
+export interface StageFilePreviewResponse {
+    file_name: string;
+    file_type: string;
+    file_size: number;
+    stage_name: string;
+    total_rows: number;
+    preview_limit: number;
+    offset: number;
+    columns: string[];
+    rows: Record<string, unknown>[];
+}
+
 export async function previewStageFile(
     stageName: string,
     filePath: string,
-    limit: number = 100
-): Promise<any> {
-    const auth = await getAuthInfo();
-    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}/preview?limit=${limit}`;
-
-    const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: getAuthHeaders(auth),
-    });
-
+    limit: number = 100,
+    offset: number = 0
+): Promise<StageFilePreviewResponse> {
+    const headers = await getAuthHeaders();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}/preview?limit=${limit}&offset=${offset}`;
+    const response = await fetch(endpoint, { method: 'GET', headers });
     if (!response.ok) {
         const errorData: any = await response.json();
         const errorMessage = typeof errorData.detail === 'string'
@@ -328,7 +340,17 @@ export async function previewStageFile(
             : errorData.message || 'Failed to preview file';
         throw new Error(errorMessage);
     }
+    return await response.json();
+}
 
+export async function getStageGrants(stageName: string): Promise<{ stage_name: string; grants: any[]; count: number }> {
+    const headers = await getAuthHeaders();
+    const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/grants`;
+    const response = await fetch(endpoint, { method: 'GET', headers });
+    if (!response.ok) {
+        const errorData: any = await response.json();
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to load stage grants');
+    }
     return await response.json();
 }
 
@@ -336,12 +358,12 @@ export async function downloadStageFile(
     stageName: string,
     filePath: string
 ): Promise<void> {
-    const auth = await getAuthInfo();
+    const headers = await getAuthHeaders();
     const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}/download`;
 
     const response = await fetch(endpoint, {
         method: 'GET',
-        headers: getAuthHeaders(auth),
+        headers,
     });
 
     if (!response.ok) {
@@ -370,11 +392,12 @@ export async function uploadStageFile(
     overwrite: boolean = false,
     path?: string
 ): Promise<any> {
-    const auth = await getAuthInfo();
+    const headers = await getAuthHeaders();
 
-    let endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload?overwrite=${overwrite}`;
+    const endpoint = API_CONTRACTS.dataSource.uploadToStage.getUrl(stageName, overwrite);
+    const url = new URL(endpoint);
     if (path) {
-        endpoint += `&path=${encodeURIComponent(path)}`;
+        url.searchParams.set('path', path);
     }
 
     const formData = new FormData();
@@ -382,12 +405,12 @@ export async function uploadStageFile(
         formData.append('files', file);
     });
 
-    const response = await fetch(endpoint, {
+    const response = await fetch(url.toString(), {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${auth.token}`,
-            'X-Account-Name': auth.account_name,
-            'X-Username': auth.username,
+            'Authorization': headers.Authorization,
+            'X-Account-Name': headers['X-Account-Name'],
+            'X-Username': headers['X-Username'],
             // Do NOT set Content-Type for multipart/form-data - browser handles it
         },
         body: formData,
@@ -408,12 +431,12 @@ export async function deleteStageFile(
     stageName: string,
     filePath: string
 ): Promise<any> {
-    const auth = await getAuthInfo();
+    const headers = await getAuthHeaders();
     const endpoint = `${API_BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files/${encodeURIComponent(filePath)}`;
 
     const response = await fetch(endpoint, {
         method: 'DELETE',
-        headers: getAuthHeaders(auth),
+        headers,
     });
 
     if (!response.ok) {
@@ -424,5 +447,219 @@ export async function deleteStageFile(
         throw new Error(errorMessage);
     }
 
+    return await response.json();
+}
+
+// ============================================================================
+// Standardized connectors API
+// ============================================================================
+
+export interface ConnectorInfo {
+    id: string;
+    name: string;
+    capabilities: string[];
+    has_stages?: boolean;
+}
+
+export async function listConnectors(): Promise<{ connectors: ConnectorInfo[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/connectors`, { method: 'GET', headers });
+    if (!response.ok) throw new Error('Failed to list connectors');
+    return await response.json();
+}
+
+// --- PostgreSQL ---
+export async function postgresIngest(body: {
+    host: string;
+    port?: number;
+    database: string;
+    user: string;
+    password?: string;
+    tables?: string[];
+}): Promise<{ message: string; tables?: number }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/postgres/ingest`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: 5432, password: '', ...body }),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'PostgreSQL ingest failed');
+    }
+    return await response.json();
+}
+
+// --- MySQL ---
+export async function mysqlIngest(body: {
+    host: string;
+    port?: number;
+    database: string;
+    user: string;
+    password?: string;
+    tables?: string[];
+}): Promise<{ message: string }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/mysql/ingest`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port: 3306, password: '', ...body }),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'MySQL ingest failed');
+    }
+    return await response.json();
+}
+
+// --- Databricks ---
+export async function databricksTest(body: { host: string; http_path: string; access_token: string }): Promise<{ ok: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/databricks/test`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Databricks connection failed');
+    }
+    return await response.json();
+}
+
+export async function databricksCatalogs(body: { host: string; http_path: string; access_token: string }): Promise<{ catalogs: string[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/databricks/catalogs`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list catalogs');
+    }
+    return await response.json();
+}
+
+export async function databricksSchemas(
+    body: { host: string; http_path: string; access_token: string },
+    catalog: string
+): Promise<{ schemas: string[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/databricks/schemas?catalog=${encodeURIComponent(catalog)}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list schemas');
+    }
+    return await response.json();
+}
+
+export async function databricksTables(
+    body: { host: string; http_path: string; access_token: string },
+    catalog: string,
+    schema_name: string
+): Promise<{ tables: string[] }> {
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams({ catalog, schema_name });
+    const response = await fetch(`${API_BASE_URL}/connect/databricks/tables?${params}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list tables');
+    }
+    return await response.json();
+}
+
+export async function databricksIngest(body: {
+    host: string;
+    http_path: string;
+    access_token: string;
+    catalog: string;
+    schema_name: string;
+    tables?: string[];
+}): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/databricks/ingest`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Databricks ingest failed');
+    }
+    return await response.json();
+}
+
+// --- Iceberg ---
+export async function icebergTest(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ ok: boolean }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/iceberg/test`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Iceberg connection failed');
+    }
+    return await response.json();
+}
+
+export async function icebergNamespaces(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ namespaces: string[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/iceberg/namespaces`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list namespaces');
+    }
+    return await response.json();
+}
+
+export async function icebergTables(
+    body: { uri: string; warehouse?: string; credential?: string },
+    namespace: string
+): Promise<{ tables: string[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/iceberg/tables?namespace=${encodeURIComponent(namespace)}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list tables');
+    }
+    return await response.json();
+}
+
+export async function icebergIngest(body: {
+    uri: string;
+    warehouse?: string;
+    credential?: string;
+    namespace: string;
+    tables?: string[];
+}): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_BASE_URL}/connect/iceberg/ingest`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+        const errorData: any = await response.json().catch(() => ({}));
+        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Iceberg ingest failed');
+    }
     return await response.json();
 }

@@ -81,7 +81,7 @@ const getLocalDeployments = (): LocalDeployment[] => {
   if (typeof window === 'undefined') return [];
   try {
     const stored = localStorage.getItem(WORKFLOW_DEPLOYMENTS_KEY);
-    return stored ? JSON.parse(stored) : [];
+    return (stored ? JSON.parse(stored) : []) as LocalDeployment[];
   } catch {
     return [];
   }

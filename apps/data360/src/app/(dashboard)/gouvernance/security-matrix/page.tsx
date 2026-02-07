@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button, Badge, Input, Select, Modal, Text } from 'rizzui';
 import {
   HiOutlineShieldCheck,
@@ -11,6 +11,7 @@ import {
   HiOutlineBuildingStorefront,
   HiOutlineBriefcase,
   HiOutlineUsers,
+  HiOutlineTableCells,
 } from 'react-icons/hi2';
 import { toast } from 'react-hot-toast';
 import {
@@ -20,8 +21,18 @@ import {
   deleteSecurityAxis,
   SecurityAxis,
 } from '@/app/services/gouvernance/security-matrix';
+import {
+  getSecurityMatrix,
+  createSecurityMatrixEntry,
+  updateSecurityMatrixEntry,
+  deleteSecurityMatrixEntry,
+  type SecurityMatrixEntryRow,
+  type SecurityMatrixResponse,
+  type CreateMatrixEntryPayload,
+} from '@/app/services/gouvernance/security_matrix';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import { formatApiDetail } from '@/lib/utils';
 
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -49,6 +60,16 @@ const AXIS_TYPE_COLORS = {
   custom: 'from-amber-500 to-orange-600',
 };
 
+const defaultMatrixForm = {
+  role_name: '',
+  region_id: '' as string | null,
+  store_id: '' as string | null,
+  department_id: '' as string | null,
+  product_category: '' as string | null,
+  customer_segment: '' as string | null,
+  access_level: 'READ',
+};
+
 export default function SecurityMatrixPage() {
   const [axes, setAxes] = useState<SecurityAxis[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,9 +83,35 @@ export default function SecurityMatrixPage() {
     values: '',
   });
 
+  // Access matrix (Snowflake SECURITY_MATRIX table)
+  const [matrixData, setMatrixData] = useState<SecurityMatrixResponse | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
+  const [matrixError, setMatrixError] = useState<string | null>(null);
+  const [showMatrixEntryModal, setShowMatrixEntryModal] = useState(false);
+  const [editingMatrixRow, setEditingMatrixRow] = useState<SecurityMatrixEntryRow | null>(null);
+  const [matrixForm, setMatrixForm] = useState<typeof defaultMatrixForm>(defaultMatrixForm);
+
   useEffect(() => {
     loadAxes();
   }, []);
+
+  const loadMatrix = useCallback(async () => {
+    try {
+      setMatrixLoading(true);
+      setMatrixError(null);
+      const data = await getSecurityMatrix();
+      setMatrixData(data);
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail != null ? formatApiDetail(err.response.data.detail) : (err?.message ?? 'Failed to load access matrix');
+      setMatrixError(typeof msg === 'string' ? msg : 'Failed to load access matrix');
+    } finally {
+      setMatrixLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMatrix();
+  }, [loadMatrix]);
 
   const loadAxes = async () => {
     try {
@@ -73,7 +120,8 @@ export default function SecurityMatrixPage() {
       const data = await getSecurityAxes();
       setAxes(data);
     } catch (err: any) {
-      setError(err instanceof Error ? err.message : 'Failed to load security axes');
+      const msg = err?.response?.data?.detail != null ? formatApiDetail(err.response.data.detail) : (err?.message ?? 'Failed to load security axes');
+      setError(typeof msg === 'string' ? msg : 'Failed to load security axes');
     } finally {
       setLoading(false);
     }
@@ -93,7 +141,7 @@ export default function SecurityMatrixPage() {
       resetForm();
       loadAxes();
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to create security axis');
+      toast.error(formatApiDetail(error.response?.data?.detail) || 'Failed to create security axis');
     }
   };
 
@@ -111,7 +159,7 @@ export default function SecurityMatrixPage() {
       resetForm();
       loadAxes();
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to update security axis');
+      toast.error(formatApiDetail(error.response?.data?.detail) || 'Failed to update security axis');
     }
   };
 
@@ -122,7 +170,7 @@ export default function SecurityMatrixPage() {
       toast.success('Security axis deleted successfully');
       loadAxes();
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to delete security axis');
+      toast.error(formatApiDetail(error.response?.data?.detail) || 'Failed to delete security axis');
     }
   };
 
@@ -138,6 +186,80 @@ export default function SecurityMatrixPage() {
 
   const resetForm = () => {
     setFormData({ name: '', type: 'region', description: '', values: '' });
+  };
+
+  const resetMatrixForm = () => {
+    setMatrixForm(defaultMatrixForm);
+    setEditingMatrixRow(null);
+  };
+
+  const handleAddMatrixEntry = async () => {
+    try {
+      await createSecurityMatrixEntry({
+        role_name: matrixForm.role_name.trim(),
+        axes: {
+          region_id: matrixForm.region_id || null,
+          store_id: matrixForm.store_id || null,
+          department_id: matrixForm.department_id || null,
+          product_category: matrixForm.product_category || null,
+          customer_segment: matrixForm.customer_segment || null,
+        },
+        access_level: matrixForm.access_level,
+      });
+      toast.success('Entrée ajoutée à la matrice d\'accès');
+      setShowMatrixEntryModal(false);
+      resetMatrixForm();
+      loadMatrix();
+    } catch (err: any) {
+      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Erreur lors de l\'ajout');
+    }
+  };
+
+  const handleUpdateMatrixEntry = async () => {
+    if (!editingMatrixRow) return;
+    try {
+      await updateSecurityMatrixEntry(editingMatrixRow.id, {
+        axes: {
+          region_id: matrixForm.region_id || null,
+          store_id: matrixForm.store_id || null,
+          department_id: matrixForm.department_id || null,
+          product_category: matrixForm.product_category || null,
+          customer_segment: matrixForm.customer_segment || null,
+        },
+        access_level: matrixForm.access_level,
+      });
+      toast.success('Entrée mise à jour');
+      setShowMatrixEntryModal(false);
+      resetMatrixForm();
+      loadMatrix();
+    } catch (err: any) {
+      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Erreur lors de la mise à jour');
+    }
+  };
+
+  const handleDeleteMatrixEntry = async (row: SecurityMatrixEntryRow) => {
+    if (!confirm('Supprimer cette entrée de la matrice d\'accès ?')) return;
+    try {
+      await deleteSecurityMatrixEntry(row.id);
+      toast.success('Entrée supprimée');
+      loadMatrix();
+    } catch (err: any) {
+      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Erreur lors de la suppression');
+    }
+  };
+
+  const openEditMatrix = (row: SecurityMatrixEntryRow) => {
+    setEditingMatrixRow(row);
+    setMatrixForm({
+      role_name: row.role_name,
+      region_id: row.region_id ?? '',
+      store_id: row.store_id ?? '',
+      department_id: row.department_id ?? '',
+      product_category: row.product_category ?? '',
+      customer_segment: row.customer_segment ?? '',
+      access_level: row.access_level || 'READ',
+    });
+    setShowMatrixEntryModal(true);
   };
 
   const Breadcrumb = () => {
@@ -296,6 +418,85 @@ export default function SecurityMatrixPage() {
         </div>
       )}
 
+      {/* Access Matrix (Snowflake SECURITY_MATRIX table) - editable grid */}
+      <ModernCard className="p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+              <HiOutlineTableCells className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">Matrice d&apos;accès (table Snowflake)</h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Table stockée dans Snowflake : modifiez chaque ligne pour définir les accès par rôle (gouvernance).
+              </p>
+            </div>
+          </div>
+          <Button
+            onClick={() => { resetMatrixForm(); setShowMatrixEntryModal(true); }}
+            className="bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white"
+          >
+            <HiOutlinePlus className="w-5 h-5 mr-2" />
+            Ajouter une entrée
+          </Button>
+        </div>
+
+        {matrixLoading ? (
+          <TableSkeleton rows={5} columns={8} />
+        ) : matrixError ? (
+          <ErrorDisplay error={matrixError} onRetry={loadMatrix} context="general" />
+        ) : !matrixData?.entries?.length ? (
+          <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 p-8 text-center">
+            <p className="text-slate-600 dark:text-slate-400">Aucune entrée. Initialisez le schéma ou ajoutez une entrée.</p>
+            <Button onClick={() => { resetMatrixForm(); setShowMatrixEntryModal(true); }} className="mt-4">
+              Ajouter une entrée
+            </Button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80">
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Rôle</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Région</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Store</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Département</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Catégorie produit</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Segment client</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300">Niveau accès</th>
+                  <th className="px-4 py-3 font-semibold text-slate-700 dark:text-slate-300 w-24">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {matrixData.entries.map((row) => (
+                  <tr key={row.id} className="border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+                    <td className="px-4 py-3 font-medium text-slate-900 dark:text-white">{row.role_name}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.region_id ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.store_id ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.department_id ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.product_category ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.customer_segment ?? '—'}</td>
+                    <td className="px-4 py-3">
+                      <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">{row.access_level}</Badge>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        <Button size="sm" variant="outline" onClick={() => openEditMatrix(row)} className="text-blue-600">
+                          <HiOutlinePencil className="w-4 h-4" />
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => handleDeleteMatrixEntry(row)} className="text-red-600">
+                          <HiOutlineTrash className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </ModernCard>
+
       {/* Add/Edit Modal */}
       <Modal isOpen={showAddModal || !!editingAxis} onClose={() => { setShowAddModal(false); setEditingAxis(null); resetForm(); }}>
         <div className="p-6 space-y-6">
@@ -379,6 +580,119 @@ export default function SecurityMatrixPage() {
               className="bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white"
             >
               {editingAxis ? 'Update' : 'Create'} Axis
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add/Edit Access Matrix Entry Modal */}
+      <Modal
+        isOpen={showMatrixEntryModal}
+        onClose={() => { setShowMatrixEntryModal(false); resetMatrixForm(); }}
+      >
+        <div className="p-6 space-y-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
+              <HiOutlineTableCells className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                {editingMatrixRow ? 'Modifier l\'entrée' : 'Nouvelle entrée matrice d\'accès'}
+              </h2>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Rôle et axes (région, store, département, etc.)</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rôle</label>
+              <Input
+                value={matrixForm.role_name}
+                onChange={(e) => setMatrixForm((f) => ({ ...f, role_name: e.target.value }))}
+                placeholder="ex: ROLE_REGION_NORTH"
+                disabled={!!editingMatrixRow}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Niveau d&apos;accès</label>
+              <Select
+                options={[
+                  { label: 'READ', value: 'READ' },
+                  { label: 'WRITE', value: 'WRITE' },
+                  { label: 'ADMIN', value: 'ADMIN' },
+                ]}
+                value={matrixForm.access_level}
+                onChange={(v: any) => setMatrixForm((f) => ({ ...f, access_level: v?.value ?? 'READ' }))}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Région</label>
+              <Select
+                options={[
+                  { label: '— Toutes', value: '' },
+                  ...(matrixData?.available_axes?.regions?.map((r) => ({ label: r.name, value: r.id })) ?? []),
+                ]}
+                value={matrixForm.region_id ?? ''}
+                onChange={(v: any) => setMatrixForm((f) => ({ ...f, region_id: v?.value || null }))}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Store</label>
+              <Select
+                options={[
+                  { label: '— Tous', value: '' },
+                  ...(matrixData?.available_axes?.stores?.map((s) => ({ label: s.name, value: s.id })) ?? []),
+                ]}
+                value={matrixForm.store_id ?? ''}
+                onChange={(v: any) => setMatrixForm((f) => ({ ...f, store_id: v?.value || null }))}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Département</label>
+              <Select
+                options={[
+                  { label: '— Tous', value: '' },
+                  ...(matrixData?.available_axes?.departments?.map((d) => ({ label: d.name, value: d.id })) ?? []),
+                ]}
+                value={matrixForm.department_id ?? ''}
+                onChange={(v: any) => setMatrixForm((f) => ({ ...f, department_id: v?.value || null }))}
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Catégorie produit</label>
+              <Input
+                value={matrixForm.product_category ?? ''}
+                onChange={(e) => setMatrixForm((f) => ({ ...f, product_category: e.target.value || null }))}
+                placeholder="optionnel"
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Segment client</label>
+              <Input
+                value={matrixForm.customer_segment ?? ''}
+                onChange={(e) => setMatrixForm((f) => ({ ...f, customer_segment: e.target.value || null }))}
+                placeholder="optionnel"
+                className="w-full"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setShowMatrixEntryModal(false); resetMatrixForm(); }}>
+              Annuler
+            </Button>
+            <Button
+              onClick={editingMatrixRow ? handleUpdateMatrixEntry : handleAddMatrixEntry}
+              disabled={!matrixForm.role_name.trim()}
+              className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white"
+            >
+              {editingMatrixRow ? 'Enregistrer' : 'Ajouter'}
             </Button>
           </div>
         </div>

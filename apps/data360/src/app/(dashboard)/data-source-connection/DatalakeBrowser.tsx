@@ -1,14 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button, Text, Badge } from 'rizzui';
+import { useState, useEffect, useCallback } from 'react';
+import { Button, Text, Badge, Modal } from 'rizzui';
 import {
   HiOutlineDocument,
   HiOutlineArrowLeft,
   HiOutlineTrash,
   HiOutlineEye,
   HiOutlineChevronRight,
-  HiOutlineHome
+  HiOutlineHome,
+  HiOutlineShieldCheck
 } from 'react-icons/hi2';
 import { HiRefresh, HiViewGrid, HiViewList, HiDownload, HiUpload } from 'react-icons/hi';
 import { Database } from 'lucide-react';
@@ -19,11 +20,15 @@ import {
   previewStageFile,
   downloadStageFile,
   deleteStageFile,
-  uploadStageFile
+  uploadStageFile,
+  getStageGrants,
+  type StageFilePreviewResponse
 } from './connectionServices';
 
-type Provider = 'snowflake' | 'azure' | 'aws';
+type Provider = 'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
 type ViewMode = 'grid' | 'table';
+
+const BROWSER_ONLY_PROVIDERS: Provider[] = ['snowflake', 'azure', 'aws'];
 
 interface DatalakeBrowserProps {
   provider: Provider;
@@ -51,67 +56,80 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
   const [uploading, setUploading] = useState(false);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<StageFilePreviewResponse | null>(null);
+  const [previewFile, setPreviewFile] = useState<StageItem | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewPage, setPreviewPage] = useState(0);
+  const [previewPageSize, setPreviewPageSize] = useState(100);
+  const [grantsOpen, setGrantsOpen] = useState(false);
+  const [grants, setGrants] = useState<any[]>([]);
+  const [grantsLoading, setGrantsLoading] = useState(false);
 
-  // Load stages on mount
-  useEffect(() => {
-    loadStages();
-  }, [provider]);
-
-  const loadStages = async () => {
+  const loadStages = useCallback(async () => {
     setLoading(true);
+    setCurrentStage(null);
+    setFiles([]);
     try {
       let stageList: any[] = [];
 
       if (provider === 'snowflake') {
         const response = await listSnowflakeStages();
-        stageList = response.stages || [];
+        stageList = Array.isArray(response?.stages) ? response.stages : [];
       } else if (provider === 'azure') {
         toast.error('Azure container listing not yet implemented');
+        setLoading(false);
         return;
       } else if (provider === 'aws') {
         toast.error('AWS bucket listing not yet implemented');
+        setLoading(false);
         return;
       }
 
       const formattedStages: StageItem[] = stageList.map((stage: any) => ({
-        name: stage.name || stage.stage_name || stage,
+        name: stage.name ?? stage.stage_name ?? String(stage),
         type: 'stage' as const,
         schema_name: stage.schema_name,
         database_name: stage.database_name,
         error: stage.error,
       }));
 
-      // Filter out stages with errors
       const validStages = formattedStages.filter(s => !s.error);
       setAllStages(validStages);
 
-      // Auto-select first valid stage
       if (validStages.length > 0) {
-        const firstStage = validStages[0].name;
-        setCurrentStage(firstStage);
-        loadStageFiles(firstStage);
+        setCurrentStage(validStages[0].name);
+      } else {
+        setCurrentStage(null);
+        setFiles([]);
       }
     } catch (error: any) {
       toast.error(`Failed to load stages: ${error.message}`);
       console.error('Error loading stages:', error);
+      setAllStages([]);
+      setCurrentStage(null);
+      setFiles([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [provider]);
 
-  const loadStageFiles = async (stageName: string) => {
+  const loadStageFiles = useCallback(async (stageName: string) => {
     setLoading(true);
     try {
       let fileList: any[] = [];
+      const sortParam = sortBy === 'modified' ? 'last_modified' : sortBy;
 
       if (provider === 'snowflake') {
-        const response = await listSnowflakeStageFiles(stageName);
+        const response = await listSnowflakeStageFiles(stageName, { sort: sortParam });
         fileList = response.files || [];
       } else if (provider === 'azure') {
         toast.error('Azure blob listing not yet implemented');
+        setLoading(false);
         return;
       } else if (provider === 'aws') {
         toast.error('AWS S3 object listing not yet implemented');
+        setLoading(false);
         return;
       }
 
@@ -122,14 +140,28 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         last_modified: file.last_modified,
       }));
 
+      if (sortOrder === 'desc' && sortBy === 'name') {
+        formattedFiles.reverse();
+      } else if (sortOrder === 'desc' && (sortBy === 'size' || sortBy === 'modified')) {
+        formattedFiles.reverse();
+      }
       setFiles(formattedFiles);
     } catch (error: any) {
       toast.error(`Failed to load files: ${error.message}`);
-      console.error('Error loading files:', error);
+      console.error('Error loading stage files:', error);
+      setFiles([]);
     } finally {
       setLoading(false);
     }
-  };
+  }, [provider, sortBy, sortOrder]);
+
+  useEffect(() => {
+    if (BROWSER_ONLY_PROVIDERS.includes(provider)) loadStages();
+  }, [provider, loadStages]);
+
+  useEffect(() => {
+    if (currentStage) loadStageFiles(currentStage);
+  }, [currentStage, loadStageFiles]);
 
   const handleStageChange = (newStageName: string) => {
     setCurrentStage(newStageName);
@@ -137,23 +169,50 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     loadStageFiles(newStageName);
   };
 
+  const fetchPreview = useCallback(async (stageName: string, fileName: string, limit: number, offset: number) => {
+    const data = await previewStageFile(stageName, fileName, limit, offset);
+    setPreviewData(data);
+  }, []);
+
   const handlePreview = async (file: StageItem) => {
     if (!currentStage) return;
-
-    setLoading(true);
+    setPreviewFile(file);
+    setPreviewOpen(true);
+    setPreviewPage(0);
+    setPreviewLoading(true);
+    setPreviewData(null);
     try {
-      const previewData = await previewStageFile(currentStage, file.name, 100);
-
-      // TODO: Show preview in modal (for now, show success toast)
-      toast.success(`Preview loaded: ${previewData.preview_limit} rows from ${previewData.file_name}`);
-      console.log('Preview data:', previewData);
-
-      // You can add a modal here to display the data in a table
+      await fetchPreview(currentStage, file.name, previewPageSize, 0);
     } catch (error: any) {
       toast.error(`Failed to preview: ${error.message}`);
-      console.error('Preview error:', error);
+      setPreviewOpen(false);
     } finally {
-      setLoading(false);
+      setPreviewLoading(false);
+    }
+  };
+
+  const handlePreviewPageChange = (newPage: number) => {
+    if (!currentStage || !previewFile) return;
+    setPreviewLoading(true);
+    const offset = newPage * previewPageSize;
+    fetchPreview(currentStage, previewFile.name, previewPageSize, offset)
+      .then(() => setPreviewPage(newPage))
+      .catch((e) => toast.error(e.message))
+      .finally(() => setPreviewLoading(false));
+  };
+
+  const handleGrantsClick = async () => {
+    if (!currentStage) return;
+    setGrantsOpen(true);
+    setGrantsLoading(true);
+    try {
+      const res = await getStageGrants(currentStage);
+      setGrants(res.grants || []);
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to load grants');
+      setGrants([]);
+    } finally {
+      setGrantsLoading(false);
     }
   };
 
@@ -364,9 +423,31 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       case 'snowflake': return 'Snowflake';
       case 'azure': return 'Azure Blob Storage';
       case 'aws': return 'Amazon S3';
+      case 'databricks': return 'Databricks';
+      case 'iceberg': return 'Apache Iceberg';
+      case 'postgres': return 'PostgreSQL';
+      case 'mysql': return 'MySQL';
       default: return 'Datalake';
     }
   };
+
+  if (!BROWSER_ONLY_PROVIDERS.includes(provider)) {
+    return (
+      <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900 p-6">
+        <Button variant="outline" onClick={onBack} className="self-start">
+          <HiOutlineArrowLeft className="w-4 h-4 mr-2" />
+          Back
+        </Button>
+        <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 text-center max-w-md mx-auto">
+          <Database className="h-12 w-12 mx-auto text-slate-400 mb-4" />
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{getProviderName()}</h3>
+          <Text className="text-slate-600 dark:text-slate-400 mt-2">
+            No file browser for this connector. Data is ingested to Snowflake (CP_DATA360).
+          </Text>
+        </div>
+      </div>
+    );
+  }
 
   const getFileIcon = (fileName: string) => {
     const ext = fileName.split('.').pop()?.toLowerCase();
@@ -430,7 +511,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         <div className="px-6 py-4">
           {/* Breadcrumb */}
           <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400 mb-4">
-            <button onClick={onBack} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+            <button type="button" onClick={onBack} className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors" title="Back to Data Source Connection" aria-label="Back to Data Source Connection">
               <HiOutlineHome className="h-4 w-4" />
             </button>
             <HiOutlineChevronRight className="h-4 w-4" />
@@ -448,22 +529,37 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
           {/* Main toolbar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4 flex-1">
-              {/* Stage Selector */}
+              {/* Stage Selector - API-driven only, no static list */}
               <div className="flex items-center space-x-2">
                 <Database className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                <select
-                  value={currentStage || ''}
-                  onChange={(e) => handleStageChange(e.target.value)}
-                  className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[250px]"
+                {allStages.length === 0 ? (
+                  <span className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-400 min-w-[250px] text-sm">
+                    {loading ? 'Loading stages…' : 'No stages (from API)'}
+                  </span>
+                ) : (
+                  <select
+                    value={currentStage || ''}
+                    onChange={(e) => handleStageChange(e.target.value)}
+                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[250px]"
+                    disabled={loading}
+                  >
+                    {allStages.map((stage) => (
+                      <option key={stage.name} value={stage.name}>
+                        {stage.name}
+                        {stage.database_name && stage.schema_name ? ` (${stage.database_name}.${stage.schema_name})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <Button
+                  onClick={() => loadStages()}
                   disabled={loading}
+                  className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
+                  title="Refresh stages list"
+                  aria-label="Refresh stages list"
                 >
-                  {allStages.map((stage) => (
-                    <option key={stage.name} value={stage.name}>
-                      {stage.name}
-                      {stage.database_name && stage.schema_name && ` (${stage.database_name}.${stage.schema_name})`}
-                    </option>
-                  ))}
-                </select>
+                  <HiRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                </Button>
                 <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                   {files.length} files
                 </Badge>
@@ -521,22 +617,84 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                 </Button>
               </label>
 
-              {/* Refresh */}
+              {/* Refresh files in current stage */}
               <Button
                 onClick={() => currentStage && loadStageFiles(currentStage)}
                 className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
                 disabled={loading || !currentStage}
+                title="Refresh files"
+                aria-label="Refresh files in current stage"
               >
                 <HiRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               </Button>
+
+              {/* Stage grants (governance) */}
+              {provider === 'snowflake' && (
+                <Button
+                  onClick={handleGrantsClick}
+                  disabled={!currentStage || grantsLoading}
+                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
+                  title="View stage grants"
+                  aria-label="View stage grants"
+                >
+                  <HiOutlineShieldCheck className="h-4 w-4 mr-2" />
+                  Grants
+                </Button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Content - Scrollable */}
+      {/* Sort dropdown for file list */}
+      {files.length > 0 && (
+        <div className="px-6 py-2 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700">
+          <Text className="text-sm text-slate-600 dark:text-slate-400">Sort by:</Text>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as 'name' | 'size' | 'modified')}
+            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm px-3 py-1.5"
+          >
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="modified">Last modified</option>
+          </select>
+          <button
+            type="button"
+            onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
+            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+          </button>
+        </div>
+      )}
+
+      {/* Content - Scrollable (no static/mock data: stages and files from API only) */}
       <div className="flex-1 overflow-auto">
-        {loading && files.length === 0 ? (
+        {loading && allStages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <Text className="text-slate-600 dark:text-slate-400">Loading stages from API...</Text>
+            </div>
+          </div>
+        ) : allStages.length === 0 ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center max-w-md px-4">
+              <Database className="h-16 w-16 text-slate-400 mx-auto mb-4" />
+              <Text className="text-lg font-medium text-slate-900 dark:text-white mb-2">
+                No stages returned
+              </Text>
+              <Text className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                Stages are loaded from the backend (GET /connect/stages). Create stages in Snowflake schema CP_DATA360.STAGING or click Refresh above to retry.
+              </Text>
+              <Button onClick={() => loadStages()} disabled={loading}>
+                <HiRefresh className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                Refresh stages
+              </Button>
+            </div>
+          </div>
+        ) : loading && files.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -548,10 +706,10 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             <div className="text-center">
               <HiOutlineDocument className="h-16 w-16 text-slate-400 mx-auto mb-4" />
               <Text className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-                {searchQuery ? 'No files match your search' : 'No files found'}
+                {searchQuery ? 'No files match your search' : 'No files in this stage'}
               </Text>
               <Text className="text-sm text-slate-600 dark:text-slate-400">
-                {searchQuery ? 'Try a different search term' : 'This stage is currently empty'}
+                {searchQuery ? 'Try a different search term' : 'Files are loaded from the API for the selected stage.'}
               </Text>
             </div>
           </div>
@@ -757,6 +915,129 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         )}
       </div>
 
+      {/* File Preview Modal with pagination */}
+      <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} size="xl" className="max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate">
+            {previewFile?.name ?? 'Preview'}
+          </h3>
+          <Button size="sm" variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          {previewLoading && !previewData ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : previewData ? (
+            <>
+              <div className="mb-4 flex flex-wrap items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
+                <span>{previewData.total_rows} rows (page size: {previewPageSize})</span>
+                <span>Columns: {previewData.columns?.join(', ') || '—'}</span>
+              </div>
+              <div className="overflow-x-auto border rounded-lg dark:border-slate-700">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800">
+                    <tr>
+                      {(previewData.columns || []).map((col) => (
+                        <th key={col} className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300 border-b dark:border-slate-700">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(previewData.rows || []).map((row, idx) => (
+                      <tr key={idx} className="border-b dark:border-slate-700 last:border-0">
+                        {(previewData.columns || []).map((col) => (
+                          <td key={col} className="px-3 py-2 text-slate-900 dark:text-slate-200 max-w-xs truncate" title={String((row as any)[col] ?? '')}>
+                            {String((row as any)[col] ?? '')}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Page size:</span>
+                  <select
+                    value={previewPageSize}
+                    onChange={(e) => {
+                      const v = Number(e.target.value);
+                      setPreviewPageSize(v);
+                      if (previewFile && currentStage) {
+                        setPreviewLoading(true);
+                        fetchPreview(currentStage, previewFile.name, v, 0).then(() => setPreviewPage(0)).finally(() => setPreviewLoading(false));
+                      }
+                    }}
+                    className="rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-sm"
+                  >
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={250}>250</option>
+                    <option value={500}>500</option>
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={previewPage === 0 || previewLoading}
+                    onClick={() => handlePreviewPageChange(previewPage - 1)}
+                  >
+                    Previous
+                  </Button>
+                  <span className="text-sm text-slate-600 dark:text-slate-400">Page {previewPage + 1}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={previewLoading || (previewData.rows?.length ?? 0) < previewPageSize}
+                    onClick={() => handlePreviewPageChange(previewPage + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+      </Modal>
+
+      {/* Stage grants modal */}
+      <Modal isOpen={grantsOpen} onClose={() => setGrantsOpen(false)} size="md">
+        <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Stage grants — {currentStage}</h3>
+          <Button size="sm" variant="outline" onClick={() => setGrantsOpen(false)}>Close</Button>
+        </div>
+        <div className="p-4 max-h-96 overflow-auto">
+          {grantsLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : grants.length === 0 ? (
+            <Text className="text-slate-500">No grants returned for this stage.</Text>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-800">
+                <tr>
+                  <th className="px-2 py-2 text-left font-medium">Privilege</th>
+                  <th className="px-2 py-2 text-left font-medium">Granted To</th>
+                  <th className="px-2 py-2 text-left font-medium">Grantee</th>
+                </tr>
+              </thead>
+              <tbody>
+                {grants.map((g, i) => (
+                  <tr key={i} className="border-b dark:border-slate-700">
+                    <td className="px-2 py-2">{g.PRIVILEGE ?? g.privilege ?? '—'}</td>
+                    <td className="px-2 py-2">{g.GRANTED_TO ?? g.granted_to ?? '—'}</td>
+                    <td className="px-2 py-2">{g.GRANTEE_NAME ?? g.grantee_name ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </Modal>
+
       {/* Footer - Fixed */}
       <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-4">
         <div className="flex items-center justify-between">
@@ -767,6 +1048,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
           <Button
             onClick={onBack}
             className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300"
+            title="Back to Data Source Connection"
+            aria-label="Back to Data Source Connection"
           >
             <HiOutlineArrowLeft className="h-4 w-4 mr-2" />
             Back to Connections

@@ -6,10 +6,14 @@
  */
 
 import axios from 'axios';
-import { getAuthSession } from '@/lib/auth';
+import { getAuthHeaders } from '@/lib/auth';
+import { API_CONTRACTS } from '@/lib/api-contracts';
+import { API_CONFIG } from '@/config/database.config';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const API_URL = API_CONFIG.BASE_URL;
 const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
+/** Explore & Design guided data flow: /explore-design/guided/* */
+const GUIDED_BASE = `${API_URL}/explore-design/guided`;
 
 // Types
 export type IngestionMode =
@@ -153,20 +157,7 @@ export interface RelationDetection {
   value_overlap_percent?: number;
 }
 
-// Helper to get auth headers with Snowflake account context
-// Works in both server-side (SSR) and client-side contexts
-async function getAuthHeaders() {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No authentication token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
-}
+// Using centralized getAuthHeaders from @/lib/auth
 
 // ============================================
 // METADATA APIS
@@ -185,7 +176,7 @@ export async function batchGetTableMetadata(
 ): Promise<{ tables: TableMetadata[]; metadata: { fetched_at: string; total_tables: number } }> {
   const headers = await getAuthHeaders();
   const response = await axios.post(
-    `${API_URL}/mapping/metadata/batch`,
+    `${GUIDED_BASE}/metadata/batch`,
     {
       tables,
       include_columns: options?.include_columns ?? true,
@@ -586,9 +577,10 @@ export async function createProject(
   tables?: TableReference[]
 ): Promise<{ project_id: string; name: string }> {
   const headers = await getAuthHeaders();
+  const url = API_CONTRACTS.exploreDesign.createProject.getUrl();
   const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/project`,
-    { name, tables },
+    url,
+    { project_name: name, metadata: tables ? { tables } : undefined },
     { headers }
   );
   return response.data;
@@ -771,8 +763,9 @@ export async function createDeployment(
   approval_request_id?: string;
 }> {
   const headers = await getAuthHeaders();
+  const url = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
   const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments`,
+    url,
     {
       project_id: projectId,
       version,
@@ -1670,6 +1663,38 @@ export async function getSchemaVersions(
       versions: [],
       total_versions: 0,
     };
+  }
+}
+
+/** Recent deployment error (schema deploy, etc.) for dashboard and Cortex recommendations */
+export interface RecentDeploymentError {
+  id: string;
+  module: string;
+  project_id: string | null;
+  deployment_id: string | null;
+  error_message: string;
+  source: string;
+  created_by: string | null;
+  created_at: string | null;
+}
+
+/**
+ * Fetch recent deployment errors for Deployment Plans UI and Cortex recommendations.
+ * Backend: GET /explore-design/recent-deployment-errors
+ */
+export async function getRecentDeploymentErrors(
+  limit: number = 20
+): Promise<{ errors: RecentDeploymentError[]; total: number }> {
+  const headers = await getAuthHeaders();
+  try {
+    const response = await axios.get<{ errors: RecentDeploymentError[]; total: number }>(
+      `${EXPLORE_DESIGN_BASE}/recent-deployment-errors?limit=${limit}`,
+      { headers }
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('[getRecentDeploymentErrors] Error:', error);
+    return { errors: [], total: 0 };
   }
 }
 
@@ -2635,8 +2660,9 @@ export async function deployEventsImmediate(
 
   try {
     // Create the deployment
+    const createUrl = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
     const createResponse = await axios.post(
-      `${API_URL}/explore-design/deployments`,
+      createUrl,
       createPayload,
       { headers }
     );
@@ -2820,7 +2846,7 @@ export async function getScheduledDeploymentsFromBackend(): Promise<{
 
   try {
     const response = await axios.get(
-      `${API_URL}/mapping/get_scheduled_deployments/`,
+      `${GUIDED_BASE}/get_scheduled_deployments/`,
       { headers }
     );
 
@@ -2843,7 +2869,7 @@ export async function approveScheduledDeploymentBackend(
   const headers = await getAuthHeaders();
 
   const response = await axios.post(
-    `${API_URL}/mapping/approve_deployment/`,
+    `${GUIDED_BASE}/approve_deployment/`,
     { workflow_name: workflowName },
     { headers }
   );
@@ -2861,7 +2887,7 @@ export async function activateDeploymentBackend(
   const headers = await getAuthHeaders();
 
   const response = await axios.post(
-    `${API_URL}/mapping/activate_deployment/`,
+    `${GUIDED_BASE}/activate_deployment/`,
     { workflow_name: workflowName },
     { headers }
   );
@@ -2887,7 +2913,7 @@ export async function scheduleDeployment(
   // Try /mapping/schedule_deployment/ first (which exists on the backend)
   try {
     const response = await axios.post(
-      `${API_URL}/mapping/schedule_deployment/`,
+      `${GUIDED_BASE}/schedule_deployment/`,
       {
         ...config,
         module_type: 'explore-design',
@@ -2947,8 +2973,8 @@ export async function getScheduledDeployments(
       { headers }
     );
 
-    // Filter deployments for explore-design module if needed
-    let deployments = response.data?.deployments || [];
+    let deployments = response.data?.scheduled_deployments ?? [];
+    if (!Array.isArray(deployments)) deployments = [];
 
     // Apply filters
     if (projectId) {
@@ -3956,7 +3982,7 @@ export interface ManageTableRequest {
  */
 export async function manageTable(request: ManageTableRequest): Promise<any> {
   const headers = await getAuthHeaders();
-  const url = `${API_URL}/mapping/manage_table`;
+  const url = `${GUIDED_BASE}/manage_table`;
 
   // Build query params
   const params = new URLSearchParams();

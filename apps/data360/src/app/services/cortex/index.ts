@@ -1,5 +1,9 @@
 export { queryCortex } from './query';
 export type { CortexQueryRequest, CortexQueryResponse, CortexQueryResult } from './query';
+export { getCortexRecommend } from './recommend';
+export type { RecommendRequest, RecommendResponse } from './recommend';
+export { getCortexKpis } from './kpis';
+export type { CortexKpis } from './kpis';
 
 // Semantic Models
 export {

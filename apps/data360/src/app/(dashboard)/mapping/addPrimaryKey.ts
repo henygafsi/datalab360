@@ -31,7 +31,7 @@ export const addPrimaryKey = async (payload: AddPrimaryKeyPayload): Promise<AddP
 
     try {
         const response = await axios.post<AddPrimaryKeyResponse>(
-            `${API_BASE_URL}/mapping/primary-key`,
+            `${API_BASE_URL}/explore-design/guided/primary-key`,
             payload,
             {
                 headers: {
