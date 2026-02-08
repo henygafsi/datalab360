@@ -488,7 +488,7 @@ const GlobalSearch: React.FC<{
 
 // Small slot for ProjectContextPanel: recent deployment errors list
 function RecentDeploymentErrorsSlot() {
-  const [errors, setErrors] = useState<{ id: string; error_message?: string; project_id?: string; created_at?: string }[]>([]);
+  const [errors, setErrors] = useState<{ id: string; error_message?: string; project_id?: string | null; created_at?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
