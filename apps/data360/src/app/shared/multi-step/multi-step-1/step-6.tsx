@@ -186,7 +186,7 @@ export default function StepTwo() {
                 control={control}
                 render={({ field: { value, onChange } }) => (
                   <CheckboxGroup
-                    // TODO: needed to be fixed
+                    // ////to do//// Fix validation or submit behavior
                     // @ts-ignore
                     values={value}
                     setValues={onChange}
@@ -218,7 +218,7 @@ export default function StepTwo() {
                 control={control}
                 render={({ field: { value, onChange } }) => (
                   <CheckboxGroup
-                    // TODO: needed to be fixed
+                    // ////to do//// Fix validation or submit behavior
                     // @ts-ignore
                     values={value}
                     setValues={onChange}

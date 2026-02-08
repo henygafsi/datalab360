@@ -57,7 +57,7 @@ function AverageRatings({
   ratings,
   ratingCount,
 }: AverageRatingsProps) {
-  //TODO: need to check
+  // ////to do//// Verify review validation or display logic
   if (!ratingCount) return null;
 
   return (

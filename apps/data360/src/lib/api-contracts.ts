@@ -1,10 +1,5 @@
-/**
- * API Contracts Configuration
- * 
- * Centralized API endpoint definitions based on backend flow_contracts.yaml
- * This ensures frontend services align with backend contracts.
- */
-
+/** Centralized API endpoints (backend contract). Data journey: services call getUrl() → backend path. */
+// ////dependency//// lib → config.database.config only
 import { API_CONFIG } from '@/config/database.config';
 
 /**

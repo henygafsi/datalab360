@@ -52,12 +52,12 @@ export default function SignInForm() {
       });
 
       if (result?.error) {
-        setError('Invalid credentials. Please check your account name, username, and password.');
+        setError(typeof result.error === 'string' ? result.error : 'Invalid credentials. Check account name, username and password.');
       } else if (result?.ok) {
         router.push('/account-overview');
       }
-    } catch (err) {
-      setError('An error occurred. Please try again.');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }

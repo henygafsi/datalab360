@@ -32,7 +32,7 @@ import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import { GrantsMatrixSkeleton } from '@/components/ui/TableSkeleton';
-import { isAuthClientError, redirectToLogin } from '@/lib/api-client';
+import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
 export type UserGrantTableDataType = {
   username: string;
@@ -117,14 +117,9 @@ export default function UserGrantsTable() {
       console.error('[User Grants Table] Error code:', err.code);
       console.error('[User Grants Table] Error message:', err.message);
 
-      // Only redirect to login for authentication errors (401)
-      // DO NOT redirect for timeout/network errors - show error message instead
-      if (
-        isAuthClientError(err) ||
-        err.name === 'AuthenticationError' ||
-        err.response?.status === 401
-      ) {
-        console.warn('[User Grants Table] Authentication error detected, redirecting to login...', err.name);
+      // Only redirect when real auth (no token, expired) or 500 connection; not on 503/401 endpoint issues
+      if (shouldRedirectToLoginOnError(err)) {
+        console.warn('[User Grants Table] Auth/connection error, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }
@@ -437,13 +432,8 @@ export default function UserGrantsTable() {
       console.error('[User Grants] Error message:', err.message);
       console.error('[User Grants] Error response:', err.response?.data);
 
-      // Only redirect to login for authentication errors (401)
-      if (
-        isAuthClientError(err) ||
-        err.name === 'AuthenticationError' ||
-        err.response?.status === 401
-      ) {
-        console.warn('[User Grants Table] Authentication error during save, redirecting to login...', err.name);
+      if (shouldRedirectToLoginOnError(err)) {
+        console.warn('[User Grants Table] Auth/connection error during save, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }

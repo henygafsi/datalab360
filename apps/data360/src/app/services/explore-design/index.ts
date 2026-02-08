@@ -1,10 +1,5 @@
-/**
- * Explore & Design API Service
- *
- * This service handles all API calls for the Explore & Design feature
- * including metadata fetching, event management, and deployment
- */
-
+/** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
+// ////dependency//// service → lib.auth, lib.api-contracts, config.database.config, axios
 import axios from 'axios';
 import { getAuthHeaders } from '@/lib/auth';
 import { API_CONTRACTS } from '@/lib/api-contracts';
@@ -2969,7 +2964,7 @@ export async function getScheduledDeployments(
   try {
     // Use the working /mapping/get_scheduled_deployments/ endpoint
     const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/scheduled-deployments/`,
+      `${EXPLORE_DESIGN_BASE}/scheduled-deployments`,
       { headers }
     );
 

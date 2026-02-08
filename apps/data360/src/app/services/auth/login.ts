@@ -1,3 +1,4 @@
+// ////dependency//// service → lib.api-contracts (endpoint), axios (no apiClient: no token yet). Data: sign-in form → login() → POST /signin → token
 import axios, { AxiosError } from 'axios';
 
 /**
@@ -57,28 +58,35 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
       throw new Error('Invalid response from server');
     }
   } catch (error: any) {
-    const axiosError = error as AxiosError<any>;
+    const axiosError = error as AxiosError<{
+      detail?: string | { detail?: string; error_code?: string; message?: string } | Array<{ msg?: string }>;
+      message?: string;
+    }>;
 
-    // Handle API error response
-    if (axiosError.response?.data?.detail) {
-      const detail = axiosError.response.data.detail;
-
-      // detail peut être string OU array d'objets
+    // Handle API error response (backend returns detail and optionally message, error_code)
+    const data = axiosError.response?.data;
+    if (data?.message && typeof data.message === 'string') {
+      throw new Error(data.message);
+    }
+    if (data?.detail) {
+      const detail = data.detail;
       if (Array.isArray(detail)) {
         const errorMessages = detail.map((e: any) => e.msg || e).join(', ');
-        throw new Error(`Login failed: ${errorMessages}`);
-      } else if (typeof detail === 'string') {
-        throw new Error(`Login failed: ${detail}`);
-      } else {
-        throw new Error('Login failed: Invalid credentials');
+        throw new Error(errorMessages);
+      }
+      if (typeof detail === 'string') {
+        throw new Error(detail);
+      }
+      if (typeof detail === 'object' && detail !== null && 'detail' in detail && typeof (detail as { detail?: string }).detail === 'string') {
+        throw new Error((detail as { detail: string }).detail);
       }
     }
 
     // Handle network or other errors
     if (axiosError.message) {
-      throw new Error(`Login error: ${axiosError.message}`);
+      throw new Error(axiosError.message);
     }
 
-    throw new Error('Login error: An unexpected issue occurred during login.');
+    throw new Error('An error occurred while signing in.');
   }
 };

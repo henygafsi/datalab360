@@ -18,7 +18,7 @@ export default function GrantForm({ title = 'Add New Grant' }: GrantFormProps) {
     setLoading(true);
 
     try {
-      // TODO: Implement grant creation API call
+      // ////to do//// Implement grant creation API call (backend endpoint + frontend submit)
       console.log('Creating grant:', grantName);
       closeModal();
     } catch (error) {

@@ -1,4 +1,5 @@
-// app/services/mapping/fetch_tables.ts
+/** Data journey: UI → getTableColumns() → GET /explore-design/guided/get_table_columns/ → backend. */
+// ////dependency//// service → axios, next-auth (getSession for token)
 'use client';
 
 import axios from "axios";

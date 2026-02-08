@@ -92,7 +92,7 @@ export default function PersonSelect({
                 <p className="font-normal xl:mt-1">Age 18+</p>
               </div>
               <QuantityInput
-                // FIXME: This is not working
+                // ////to do//// Fix person-select filter behavior
                 // @ts-ignore
                 name={adults}
                 onChange={setAdults}
@@ -107,7 +107,7 @@ export default function PersonSelect({
                 <p className="font-normal xl:mt-1">Age 1-7</p>
               </div>
               <QuantityInput
-                // FIXME: This is not working
+                // ////to do//// Fix person-select filter behavior
                 // @ts-ignore
                 name={child}
                 onChange={setChild}
@@ -122,7 +122,7 @@ export default function PersonSelect({
                 <p className="font-normal xl:mt-1">Under 2</p>
               </div>
               <QuantityInput
-                // FIXME: This is not working
+                // ////to do//// Fix person-select filter behavior
                 // @ts-ignore
                 name={infants}
                 onChange={setInfants}

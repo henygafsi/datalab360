@@ -1,14 +1,7 @@
 /**
- * Secure API Client with Authentication Handling
- *
- * This module provides a centralized axios instance that:
- * - Automatically adds authentication headers from NextAuth session
- * - Works in both server-side (SSR) and client-side contexts
- * - Handles 401/403 responses with appropriate error classes
- * - Provides consistent error handling without auto-signout
- * - Lets components handle auth errors gracefully
+ * Secure API client: adds auth headers, handles 401/403. Data journey: UI/service → apiClient → backend.
  */
-
+// ////dependency//// lib → config.database.config, lib.auth (session/token)
 import axios, { AxiosError, AxiosInstance, InternalAxiosRequestConfig } from 'axios';
 import { API_CONFIG } from '@/config/database.config';
 import {
@@ -94,15 +87,27 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const status = error.response?.status;
 
-    // Handle 401 Unauthorized - Token expired or invalid → redirect to sign-in
+    // 401 = real auth only (no token, invalid/expired token). Do NOT redirect on endpoint/infra issues.
+    // Backend uses 503 for SESSION_NOT_IN_PROCESS so only real auth returns 401 → redirect to sign-in
     if (status === 401) {
-      if (process.env.NODE_ENV === 'development') {
-        console.warn('[API Client] 401 Unauthorized - Redirecting to sign-in');
-      }
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
+      const data = error.response?.data as { error_code?: string; detail?: string } | undefined;
+      const errorCode = data?.error_code;
+      const isRealAuth = !errorCode || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(errorCode);
+      if (isRealAuth && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
+        if (process.env.NODE_ENV === 'development') {
+          console.warn('[API Client] 401 Unauthorized (auth) - Redirecting to sign-in');
+        }
         window.location.href = '/signin';
       }
-      return Promise.reject(new AuthenticationError('Session expired. Please sign in again.'));
+      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'Session expired. Please sign in again.';
+      return Promise.reject(new AuthenticationError(message));
+    }
+
+    // 503 = endpoint/infra (e.g. SESSION_NOT_IN_PROCESS) → do NOT redirect, show message
+    if (status === 503) {
+      const data = error.response?.data as { error_code?: string; detail?: string; hint?: string } | undefined;
+      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'Service temporarily unavailable.';
+      return Promise.reject(new ServerError(message, error));
     }
 
     // Handle 403 Forbidden - Insufficient permissions
@@ -113,13 +118,32 @@ apiClient.interceptors.response.use(
       return Promise.reject(new AuthorizationError('You do not have permission to access this resource.'));
     }
 
-    // Handle 500 Internal Server Error
-    // Pass through the original error so components can access the actual backend error message
+    // Handle 404 Not Found - pass through so components can show "not found" message
+    if (status === 404) {
+      return Promise.reject(error);
+    }
+
+    // Handle 422 Unprocessable Entity - validation/body error, show backend detail in UI
+    if (status === 422) {
+      return Promise.reject(error);
+    }
+
+    // Handle 400 Bad Request - pass through so components can show backend message
+    if (status === 400) {
+      return Promise.reject(error);
+    }
+
+    // 500 - Only redirect to signin when detail indicates connection/session failure (no connection)
     if (status === 500) {
       if (process.env.NODE_ENV === 'development') {
         console.error('[API Client] 500 Internal Server Error:', error.response?.data);
       }
-      // Don't wrap in ServerError - pass through original error so response.data.detail is accessible
+      const data = error.response?.data as { detail?: string | { detail?: string }; error_code?: string } | undefined;
+      const detailStr = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail;
+      const suggestsNoConnection = detailStr && typeof detailStr === 'string' && /connection|session\s*expired|not\s*authenticated|cursor\s*closed/i.test(detailStr);
+      if (suggestsNoConnection && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
+        window.location.href = '/signin';
+      }
       return Promise.reject(error);
     }
 
@@ -216,6 +240,74 @@ export function redirectToLogin(): void {
   if (typeof window !== 'undefined') {
     window.location.href = '/signin';
   }
+}
+
+/**
+ * Only redirect when error is real auth (no token, expired token). Do not redirect on 503 or 401 endpoint/infra issues.
+ */
+export function shouldRedirectToLoginOnError(err: { response?: { status?: number; data?: { error_code?: string } } }): boolean {
+  const status = err?.response?.status;
+  const code = err?.response?.data?.error_code;
+  if (status === 503) return false;
+  if (status === 401) {
+    const realAuth = !code || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(code);
+    return realAuth;
+  }
+  if (status === 500) {
+    const detail = (err?.response?.data as any)?.detail;
+    const s = typeof detail === 'string' ? detail : (detail?.detail ?? '');
+    return /connection|session\s*expired|not\s*authenticated|cursor\s*closed/i.test(String(s));
+  }
+  return false;
+}
+
+/** Smart captions for Snowflake error_code / errno (best practices). */
+const SNOWFLAKE_CAPTIONS: Record<string, string> = {
+  '000904': 'Objet (table, schéma ou base) inexistant. Vérifiez les noms ou exécutez init_metadata.',
+  '090105': 'Objet inexistant. Vérifiez les permissions et le schéma.',
+  '250001': 'Privilèges insuffisants. Vérifiez les rôles et grants Snowflake.',
+  '390111': 'Session expirée. Reconnectez-vous.',
+  '252006': 'Connexion ou curseur fermé. Relancez le backend avec --workers 1 ou reconnectez-vous.',
+  '250002': 'Connexion fermée. Reconnectez-vous.',
+};
+
+/**
+ * Extract user-friendly error message from API error (AxiosError or similar).
+ * Uses detail, error_code, and snowflake (errno, sqlstate, msg) for smart captions.
+ */
+export function getApiErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const res = (error as { response?: { data?: unknown; status?: number } }).response;
+    const data = res?.data as Record<string, unknown> | undefined;
+    const status = res?.status;
+    if (data && typeof data === 'object') {
+      const snowflake = data.snowflake as { errno?: number; sqlstate?: string; msg?: string } | undefined;
+      if (snowflake?.errno != null && SNOWFLAKE_CAPTIONS[String(snowflake.errno)]) {
+        return SNOWFLAKE_CAPTIONS[String(snowflake.errno)];
+      }
+      if (snowflake?.msg && typeof snowflake.msg === 'string' && snowflake.msg.length < 300) {
+        return snowflake.msg;
+      }
+      const code = data.error_code as string | undefined;
+      if (code === 'SESSION_NOT_IN_PROCESS') {
+        return 'Session non disponible (backend multi-workers). Utilisez --workers 1 ou reconnectez-vous.';
+      }
+      let detail = data.detail;
+      if (typeof detail === 'string' && detail.length > 0 && detail.length < 400) return detail;
+      if (detail && typeof detail === 'object' && typeof (detail as Record<string, unknown>).detail === 'string') {
+        return (detail as Record<string, unknown>).detail as string;
+      }
+      if (typeof data.message === 'string') return data.message;
+    }
+    if (status === 401) return 'Session expirée. Veuillez vous reconnecter.';
+    if (status === 503) return 'Service temporairement indisponible. Utilisez un seul worker ou reconnectez-vous.';
+    if (status === 403) return 'Accès refusé.';
+    if (status === 404) return 'Ressource introuvable.';
+    if (status === 422 || status === 400) return 'Données invalides. Vérifiez les champs ou la requête Snowflake.';
+    if (status === 500) return 'Erreur serveur. Réessayez ou vérifiez les logs Snowflake.';
+  }
+  if (error instanceof Error) return error.message;
+  return 'Une erreur est survenue.';
 }
 
 /**

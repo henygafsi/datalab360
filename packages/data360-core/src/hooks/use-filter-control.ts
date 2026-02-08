@@ -4,7 +4,7 @@ import isEqual from 'lodash/isEqual';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback } from 'react';
 
-//TODO: proper typescript support fix
+// ////to do//// Add proper TypeScript types for filter control
 type State<T> = T & {
   reset?: T;
   sort?: string;

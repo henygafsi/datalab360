@@ -1,7 +1,5 @@
-/**
- * Mapping Service - Get Databases
- * Works in both server-side (SSR) and client-side contexts
- */
+/** Mapping: get databases. Data journey: UI (e.g. explore-design/mapping) → getDatabases() → GET /explore-design/guided/databases → backend. */
+// ////dependency//// service → lib.api-client (auth + base URL)
 import apiClient from '@/lib/api-client';
 
 interface DatabaseObject {

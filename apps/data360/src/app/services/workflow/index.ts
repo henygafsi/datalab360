@@ -519,7 +519,7 @@ export async function getWorkflowDeployments(options?: {
   if (options?.limit) params.append('limit', String(options.limit));
 
   const response = await axios.get(
-    `${API_BASE_URL}/explore-design/scheduled-deployments/?${params.toString()}`,
+    `${API_BASE_URL}/explore-design/scheduled-deployments?${params.toString()}`,
     { headers, timeout: 15000 }
   );
 

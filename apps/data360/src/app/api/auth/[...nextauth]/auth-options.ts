@@ -9,7 +9,7 @@ import { login, LoginData, LoginResponse } from '@/app/services/auth/login';
 const SNOWFLAKE_TOKEN_LIFETIME_MS = 55 * 60 * 1000;
 
 export const authOptions: NextAuthOptions = {
-  debug: process.env.NODE_ENV === 'development',
+  debug: process.env.NEXTAUTH_DEBUG === 'true',
   pages: {
     ...pagesOptions,
   },
@@ -127,12 +127,11 @@ export const authOptions: NextAuthOptions = {
             items: response.items || [],
           };
         } catch (error: any) {
-          // Log error for debugging (not in production)
           if (process.env.NODE_ENV === 'development') {
-            console.error('[Auth] Login failed:', error.message);
+            console.error('[Auth] Login failed:', error?.message ?? error);
           }
-          // Return null triggers NextAuth error handling
-          return null;
+          // Rethrow so the client receives the backend error message (e.g. Snowflake account not found)
+          throw error;
         }
       },
     }),

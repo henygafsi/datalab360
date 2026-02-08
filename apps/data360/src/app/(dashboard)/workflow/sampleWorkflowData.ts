@@ -207,7 +207,7 @@ export const SAMPLE_WORKFLOWS: WorkflowItem[] = [
  */
 
 /**
- * TODO (Backend): Configure CORS headers to allow requests from the frontend
+ * ////to do//// (Backend): Configure CORS headers to allow requests from the frontend
  *
  * Required CORS configuration on backend:
  * ```python

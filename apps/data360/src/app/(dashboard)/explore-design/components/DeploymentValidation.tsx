@@ -1825,6 +1825,23 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         </div>
       </div>
 
+      {/* Banner: X of Y in error – you can still submit valid events for approval */}
+      {stats.failed > 0 && stats.total > 0 && (
+        <div className="px-6 py-3 border-b dark:border-slate-700 bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                {stats.failed} of {stats.total} event{stats.total !== 1 ? 's' : ''} have validation errors.
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                Only the {stats.validated} valid event{stats.validated !== 1 ? 's' : ''} will be submitted. You can still submit for approval to deploy the valid changes; fix or remove failed events if you want to include them.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Stats Bar */}
       <div className="px-6 py-3 border-b dark:border-slate-700 flex items-center gap-6 text-sm flex-wrap">
         <div className="flex items-center gap-2">
@@ -2687,16 +2704,25 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               </Button>
             )}
 
-            {/* Deploy button - always accessible */}
-            {!isValidating && !isDeploying && (
-              <Button
-                onClick={handleDeploy}
-                className="gap-2 bg-green-600 hover:bg-green-700"
-              >
-                <Rocket className="h-4 w-4" />
-                {deploymentType === 'immediate' ? 'Deploy Now' : deploymentType === 'scheduled' ? 'Schedule' : 'Submit'} {pendingEvents.length > 0 ? `(${pendingEvents.length})` : ''}
-              </Button>
-            )}
+            {/* Deploy button - always accessible; show count of events that will be submitted (validated or all pending) */}
+            {!isValidating && !isDeploying && (() => {
+              const validatedCount = events.filter((e) => e.status === 'validated').length;
+              const toSubmitCount = validatedCount > 0 ? validatedCount : pendingEvents.length;
+              const label = deploymentType === 'immediate' ? 'Deploy Now' : deploymentType === 'scheduled' ? 'Schedule' : 'Submit for approval';
+              const countLabel = stats.failed > 0 && toSubmitCount > 0
+                ? `(${toSubmitCount} valid${stats.failed > 0 ? `, ${stats.failed} in error` : ''})`
+                : (pendingEvents.length > 0 ? `(${pendingEvents.length})` : '');
+              return (
+                <Button
+                  onClick={handleDeploy}
+                  className="gap-2 bg-green-600 hover:bg-green-700"
+                  disabled={toSubmitCount === 0 && !(events.some(e => e.type === 'COLUMN_MAPPING_CREATED'))}
+                >
+                  <Rocket className="h-4 w-4" />
+                  {label} {countLabel}
+                </Button>
+              );
+            })()}
 
             {isDeploying && (
               <Button disabled className="gap-2">

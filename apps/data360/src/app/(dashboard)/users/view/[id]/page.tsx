@@ -44,7 +44,7 @@ export default function UserViewPage() {
     setLoading(true);
     setError(null);
     try {
-      // TODO: Replace with actual API call when backend implements GET /gouvernance/users/{username}
+      // ////to do//// Replace with actual API call when backend implements GET /gouvernance/users/{username}
       // const response = await apiClient.get(`/gouvernance/users/${userId}`);
       // setUser(response.data);
 

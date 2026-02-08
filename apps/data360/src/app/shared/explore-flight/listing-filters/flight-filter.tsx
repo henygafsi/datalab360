@@ -174,7 +174,7 @@ function OneWayFilter({ state }: any) {
                 control={control}
                 render={({ field: { onChange, value } }) => (
                   <PersonSelect
-                    // FIXME: This is not working
+                    // ////to do//// Fix flight filter behavior
                     // @ts-ignore
                     defaultSelected={value}
                     onChange={onChange}
@@ -337,7 +337,7 @@ function RoundWayFilter({ state }: any) {
                 control={control}
                 render={({ field: { onChange, value } }) => (
                   <PersonSelect
-                    // FIXME: This is not working
+                    // ////to do//// Fix flight filter behavior
                     // @ts-ignore
                     defaultSelected={value}
                     onChange={onChange}

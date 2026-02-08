@@ -1516,7 +1516,7 @@ async def column_preview_endpoint(
     """
     try:
         conn = get_snowflake_connection_for_user(current_user)
-        # TODO: Uncomment when connection is configured
+        # ////to do//// Uncomment when connection is configured
         result = await get_column_preview(
              conn=conn,
              database=request.database,
@@ -1607,7 +1607,7 @@ async def column_profile_endpoint(
     try:
         conn = get_snowflake_connection_for_user(current_user)
 
-        # TODO: Uncomment when connection is configured
+        # ////to do//// Uncomment when connection is configured
         result = await get_column_profile(
              conn=conn,
              database=request.database,
@@ -1650,7 +1650,7 @@ async def table_profile_endpoint(
     """
     try:
         conn = get_snowflake_connection_for_user(current_user)
-        # TODO: Uncomment when connection is configured
+        # ////to do//// Uncomment when connection is configured
         result = await get_table_profile(
             conn=conn,
             database=request.database,
@@ -1693,7 +1693,7 @@ async def mark_sensitive_endpoint(
     """
     try:
         conn = get_snowflake_connection_for_user(current_user)
-        # TODO: Uncomment when database session is configured
+        # ////to do//// Uncomment when database session is configured
         result = await mark_column_sensitive(
             conn=conn,
             project_id=request.project_id,
@@ -1741,7 +1741,7 @@ async def column_exclusion_endpoint(
     
     try:
         conn = get_snowflake_connection_for_user(current_user)
-        # TODO: Uncomment when database session is configured
+        # ////to do//// Uncomment when database session is configured
         result = await set_column_exclusion(
             conn=conn,
             project_id=request.project_id,

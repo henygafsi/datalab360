@@ -1,5 +1,6 @@
 'use client';
-
+// Data journey: dashboard → hooks (gouvernance) + ExploreDesignService/WorkflowService/GouvernanceService/axios → GET workflows, scheduled-deployments, approve/reject/activate
+// ////dependency//// page → hooks.use-gouvernance, hooks.useCache*, services.explore-design, services.workflow, services.gouvernance, services.cortex, lib.api-client
 import Link from 'next/link';
 import { Badge, Button, Select, Modal, Text } from 'rizzui';
 import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
@@ -19,7 +20,7 @@ import DataEngineerHub from '@/app/shared/data-engineer-hub/DataEngineerHub';
 import { routes } from '@/config/routes';
 import * as GouvernanceService from '@/app/services/gouvernance';
 import { getCortexRecommend } from '@/app/services/cortex';
-import { redirectToLogin } from '@/lib/api-client';
+import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
@@ -56,7 +57,7 @@ interface ScheduledWorkflow {
 }
 
 export default function GouvernanceDashboard() {
-  const { data: session } = useSession();
+  const { data: session, getSession } = useSession();
   const currentUsername = session?.user?.username || '';
 
   // Helper to get auth headers with Snowflake account context
@@ -138,73 +139,53 @@ export default function GouvernanceDashboard() {
   // Store access token as stable reference
   const accessToken = session?.user?.access_token;
 
-  // Fetch scheduled workflows, mapping deployments, and explore-design deployments
-  const fetchScheduledItems = async (showLoadingIndicator = true) => {
-    if (!accessToken) return;
+  // Fetch scheduled workflows, mapping deployments, and explore-design deployments.
+  // Optional sessionOverride: use latest session when refreshing to avoid 401 (e.g. after token refresh).
+  // Sequential requests reduce "cursor closed" / connection issues when backend runs with a single worker.
+  const fetchScheduledItems = async (showLoadingIndicator = true, sessionOverride?: { user?: { access_token?: string; account_name?: string; username?: string } } | null) => {
+    const sess = sessionOverride ?? session;
+    const token = sess?.user?.access_token ?? accessToken;
+    if (!token) return;
 
     if (showLoadingIndicator) {
       setScheduledWorkflowsLoading(true);
     }
     try {
-      // Build common headers with account context for Snowflake multi-tenant support
-      // Backend handles the uchsfvb- prefix internally
-      const snowflakeAccount = session?.user?.account_name || '';
+      const snowflakeAccount = sess?.user?.account_name || session?.user?.account_name || '';
       const authHeaders = {
-        Authorization: `Bearer ${accessToken}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
         'X-Account-Name': snowflakeAccount,
-        'X-Username': session?.user?.username || '',
+        'X-Username': sess?.user?.username || session?.user?.username || '',
       };
 
-      // Fetch workflows, mapping deployments, explore-design deployments, and workflow deployments in parallel
-      const [workflowsResponse, deploymentsResponse, exploreDesignResponse, workflowDeploymentsResponse] = await Promise.all([
-          axios.get(
-            `${API_BASE_URL}/workflow/get_workflows/`,
-            {
-              headers: authHeaders,
-              timeout: 5000,
-            }
-          ).catch((err: any) => {
-            if (err?.response?.status === 401) {
-              redirectToLogin();
-              return { data: { workflows: [] } };
-            }
-            console.warn('Workflows endpoint not available:', err.message);
-            return { data: { workflows: [] } };
-          }),
-          axios.get(
-            `${API_BASE_URL}/explore-design/guided/get_scheduled_deployments/`,
-            {
-              headers: authHeaders,
-              timeout: 5000,
-            }
-          ).catch((err: any) => {
-            if (err?.response?.status === 401) {
-              redirectToLogin();
-              return { data: { deployments: [] } };
-            }
-            console.warn('Mapping deployments endpoint not available:', err.message);
-            return { data: { deployments: [] } };
-          }),
-          // Fetch explore-design scheduled deployments
-          ExploreDesignService.getScheduledDeployments().catch((err: any) => {
-            if (err?.response?.status === 401) {
-              redirectToLogin();
-              return { scheduled_deployments: [] };
-            }
-            console.warn('Explore-design deployments endpoint not available:', err.message);
-            return { scheduled_deployments: [] };
-          }),
-          // Fetch workflow deployments (new deployment API with approval workflow)
-          WorkflowService.getWorkflowDeployments().catch((err: any) => {
-            if (err?.response?.status === 401) {
-              redirectToLogin();
-              return { deployments: [], total: 0 };
-            }
-            console.warn('Workflow deployments endpoint not available:', err.message);
-            return { deployments: [], total: 0 };
-          })
-        ]);
+      const withAuth = (req: () => Promise<any>, fallback: any) =>
+        req().catch((err: any) => {
+          if (shouldRedirectToLoginOnError(err)) {
+            redirectToLogin();
+            return fallback;
+          }
+          console.warn('Scheduled items fetch error:', err?.message || err);
+          return fallback;
+        });
+
+      // Sequential fetch to avoid connection/cursor issues (backend recommended: --workers 1 for Account Overview)
+      const workflowsResponse = await withAuth(
+        () => axios.get(`${API_BASE_URL}/workflow/get_workflows/`, { headers: authHeaders, timeout: 8000 }),
+        { data: { workflows: [] } }
+      );
+      const deploymentsResponse = await withAuth(
+        () => axios.get(`${API_BASE_URL}/explore-design/guided/get_scheduled_deployments/`, { headers: authHeaders, timeout: 8000 }),
+        { data: { deployments: [] } }
+      );
+      const exploreDesignResponse = await withAuth(
+        () => ExploreDesignService.getScheduledDeployments(),
+        { scheduled_deployments: [] }
+      );
+      const workflowDeploymentsResponse = await withAuth(
+        () => WorkflowService.getWorkflowDeployments(),
+        { deployments: [], total: 0 }
+      );
 
         const allScheduled: ScheduledWorkflow[] = [];
 
@@ -217,8 +198,8 @@ export default function GouvernanceDashboard() {
         }
 
         // Add workflow deployments from new deployment API (approval workflow)
-        if (workflowDeploymentsResponse?.deployments) {
-          const workflowDeployments = workflowDeploymentsResponse.deployments.map((d: any) => ({
+        if (workflowDeploymentsResponse && (workflowDeploymentsResponse as any).deployments) {
+          const workflowDeployments = (workflowDeploymentsResponse as any).deployments.map((d: any) => ({
             workflow_name: d.workflow_name,
             scheduled_date: d.scheduled_date,
             deployment_method: 'WORKFLOW_DEPLOYMENT',
@@ -242,8 +223,8 @@ export default function GouvernanceDashboard() {
         }
 
         // Add explore-design scheduled deployments
-        if (exploreDesignResponse?.scheduled_deployments) {
-          const exploreDeployments = exploreDesignResponse.scheduled_deployments.map((d: any) => ({
+        if (exploreDesignResponse && (exploreDesignResponse as any).scheduled_deployments) {
+          const exploreDeployments = (exploreDesignResponse as any).scheduled_deployments.map((d: any) => ({
             workflow_name: d.workflow_name || `model_deployment_${d.schedule_id}`,
             scheduled_date: d.scheduled_date,
             deployment_method: d.deployment_method,
@@ -293,11 +274,11 @@ export default function GouvernanceDashboard() {
       }
     };
 
-  // Account overview: do NOT fetch scheduled deployments on mount (workflow, mapping, explore-design).
-  // Only fetch when user opens the deployments section or on SSE cache invalidation.
+  // Refetch scheduled deployments when SSE invalidation fires (e.g. after schedule/approve/reject/activate from workflow or explore-design).
+  // So approval/schedule/execute handling is identical: backend invalidates → we refetch so list stays in sync.
   const hasFetchedScheduledRef = useRef(false);
   useEffect(() => {
-    if (wasInvalidated && accessToken && hasFetchedScheduledRef.current) {
+    if (wasInvalidated && accessToken) {
       fetchScheduledItems(false);
     }
   }, [wasInvalidated, accessToken]);
@@ -409,12 +390,13 @@ export default function GouvernanceDashboard() {
         );
       }
 
-      // Update local state to mark as approved
+      // Update local state and refetch so get_workflows + get_scheduled_deployments are fresh (backend invalidates cache)
       setScheduledWorkflows((prev) =>
         prev.map((wf) =>
           wf.workflow_name === workflowName ? { ...wf, status: 'APPROVED' } : wf
         )
       );
+      await fetchScheduledItems(false);
 
       alert(`Successfully approved deployment: ${workflowName}`);
     } catch (error: any) {
@@ -462,12 +444,13 @@ export default function GouvernanceDashboard() {
         );
       }
 
-      // Update local state to mark as rejected
+      // Update local state and refetch (backend invalidates cache on reject)
       setScheduledWorkflows((prev) =>
         prev.map((wf) =>
           wf.workflow_name === workflowName ? { ...wf, status: 'REJECTED' } : wf
         )
       );
+      await fetchScheduledItems(false);
 
       alert(`Deployment rejected: ${workflowName}`);
     } catch (error: any) {
@@ -506,6 +489,7 @@ export default function GouvernanceDashboard() {
             wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
           )
         );
+        await fetchScheduledItems(false);
 
         alert(`Successfully activated workflow deployment: ${workflowName}`);
         setActivatingWorkflow(null);
@@ -521,6 +505,7 @@ export default function GouvernanceDashboard() {
             wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
           )
         );
+        await fetchScheduledItems(false);
 
         alert(`Successfully activated model deployment: ${workflowName}`);
         setActivatingWorkflow(null);
@@ -539,12 +524,13 @@ export default function GouvernanceDashboard() {
         { headers, timeout: 30000 } // 30 second timeout (deployment can take longer)
       );
 
-      // Update local state to mark as active
+      // Update local state and refetch (backend invalidates cache on activate)
       setScheduledWorkflows((prev) =>
         prev.map((wf) =>
           wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
         )
       );
+      await fetchScheduledItems(false);
 
       alert(`Successfully activated ${isMappingDeployment ? 'mapping deployment' : 'workflow'}: ${workflowName}`);
     } catch (error: any) {
@@ -753,13 +739,18 @@ export default function GouvernanceDashboard() {
           </p>
         </div>
         <Button
-          onClick={() => {
+          onClick={async () => {
             setIsRefreshing(true);
-            Promise.all([
-              refetchDashboard?.(),
-              refetchStages?.(),
-              fetchScheduledItems(false), // Also refresh deployments
-            ]).finally(() => setIsRefreshing(false));
+            try {
+              const latestSession = await getSession?.();
+              await Promise.all([
+                refetchDashboard?.(),
+                refetchStages?.(),
+                fetchScheduledItems(false, latestSession ?? undefined),
+              ]);
+            } finally {
+              setIsRefreshing(false);
+            }
           }}
           variant="outline"
           className="gap-2"

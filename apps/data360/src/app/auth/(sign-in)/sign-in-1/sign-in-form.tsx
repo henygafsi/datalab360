@@ -18,7 +18,7 @@ const initialValues: LoginSchema = {
 };
 
 export default function SignInForm() {
-  //TODO: why we need to reset it here
+  // ////to do//// Confirm if reset is required here (auth state / redirect)
   const [reset, setReset] = useState({});
 
   //const router = useRouter()

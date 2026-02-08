@@ -124,7 +124,7 @@ function AccordionContent({ flight }: ContentProps) {
             <Badge
               rounded="md"
               variant="flat"
-              // FIXME: Need to fixed this type error
+              // ////to do//// Fix type error for this prop or component
               // @ts-ignore
               color={badgeStyle[flight.class].color}
               className={cn(

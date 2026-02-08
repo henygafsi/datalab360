@@ -1,5 +1,6 @@
 'use client';
-
+// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + getProjectEvents/recordDesignEvents (explore-design) → API → backend
+// ////dependency//// page → services.mapping (getDatabases, getSchemas, getTables, getTableColumns), services.explore-design, services.gouvernance (policies)
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -1706,7 +1707,7 @@ export default function ExploreDesignPage() {
     switch (action) {
       case 'transfer_ownership':
         toast.loading(`Transferring ownership for schema ${schema}...`);
-        // TODO: Implement transfer ownership API call
+        // ////to do//// Implement transfer ownership API call (backend + frontend)
         setTimeout(() => {
           toast.dismiss();
           toast.success(`Ownership transfer initiated for ${schema}`);

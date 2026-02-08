@@ -16,7 +16,7 @@ export const siteConfig = {
   icon: logoIconImg,
   mode: MODE.LIGHT,
   layout: LAYOUT_OPTIONS.HYDROGEN,
-  // TODO: favicon
+  // ////to do//// Add favicon asset and path
 };
 
 export const metaObject = (

@@ -57,7 +57,7 @@ export default function NetworkPoliciesPage() {
     try {
       setLoading(true);
       setError(null);
-      // TODO: Replace with actual API call
+      // ////to do//// Replace with actual API call
       // const data = await getNetworkPolicies();
       // setPolicies(data);
 
@@ -93,7 +93,7 @@ export default function NetworkPoliciesPage() {
     try {
       const ip_ranges = formData.ip_ranges.split(',').map(ip => ip.trim()).filter(Boolean);
 
-      // TODO: Replace with actual API call
+      // ////to do//// Replace with actual API call
       // await createNetworkPolicy({
       //   name: formData.name,
       //   type: formData.type,
@@ -125,7 +125,7 @@ export default function NetworkPoliciesPage() {
     try {
       const ip_ranges = formData.ip_ranges.split(',').map(ip => ip.trim()).filter(Boolean);
 
-      // TODO: Replace with actual API call
+      // ////to do//// Replace with actual API call
       // await updateNetworkPolicy(editingPolicy.id, {
       //   name: formData.name,
       //   description: formData.description,
@@ -149,7 +149,7 @@ export default function NetworkPoliciesPage() {
   const handleDelete = async (id: string) => {
     if (!confirm('Are you sure you want to delete this network policy?')) return;
     try {
-      // TODO: Replace with actual API call
+      // ////to do//// Replace with actual API call
       // await deleteNetworkPolicy(id);
 
       setPolicies(policies.filter(p => p.id !== id));

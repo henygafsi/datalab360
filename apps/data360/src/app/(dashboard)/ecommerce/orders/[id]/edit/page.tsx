@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return metaObject(`Edit ${id}`);
 }
 
-// TODO: Need added Order date default value
+// ////to do//// Add default value for Order date field
 
 const pageHeader = {
   title: 'Edit Order',

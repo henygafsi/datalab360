@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Button, Card, Badge, Input } from 'rizzui';
+import { Button, Badge, Input } from 'rizzui';
+import { Card } from '@/components/ui/card';
 import { HiOutlineCog6Tooth, HiOutlineArrowPath, HiOutlineTableCells } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
 import { routes } from '@/config/routes';
@@ -14,6 +15,7 @@ import {
   type Data360ConfigResponse,
   type TableRefreshMappingItem,
 } from '@/app/services/data360-config';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 function Breadcrumb() {
   return (
@@ -80,7 +82,7 @@ export default function Data360ConfigPage() {
       await loadMapping();
       await loadConfig();
     } catch (e: unknown) {
-      toast.error((e as Error)?.message || 'Erreur refresh');
+      toast.error(getApiErrorMessage(e) || 'Erreur refresh');
     } finally {
       setRefreshing(null);
     }
@@ -93,7 +95,7 @@ export default function Data360ConfigPage() {
       toast.success(`Refresh table ${table} effectué`);
       await loadMapping();
     } catch (e: unknown) {
-      toast.error((e as Error)?.message || 'Erreur refresh');
+      toast.error(getApiErrorMessage(e) || 'Erreur refresh');
     } finally {
       setRefreshing(null);
     }

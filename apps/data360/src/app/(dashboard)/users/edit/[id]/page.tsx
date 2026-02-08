@@ -45,7 +45,7 @@ export default function UserEditPage() {
     setLoading(true);
     setError(null);
     try {
-      // TODO: Replace with actual API call when backend implements GET /gouvernance/users/{username}
+      // ////to do//// Replace with actual API call when backend implements GET /gouvernance/users/{username}
       // const response = await apiClient.get(`/gouvernance/users/${userId}`);
       // setFormData({
       //   email: response.data.email,
@@ -81,7 +81,7 @@ export default function UserEditPage() {
     setSaving(true);
 
     try {
-      // TODO: Replace with actual API call when backend implements PUT /gouvernance/users/{username}
+      // ////to do//// Replace with actual API call when backend implements PUT /gouvernance/users/{username}
       // await apiClient.put(`/gouvernance/users/${userId}`, formData);
 
       // MOCK SUCCESS - Remove when backend is ready
