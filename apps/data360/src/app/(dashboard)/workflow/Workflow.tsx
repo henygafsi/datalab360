@@ -20,6 +20,10 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import toast, { Toaster } from 'react-hot-toast';
+import { getDatabases } from '@/app/services/mapping/getDatabases';
+import { getSchemas } from '@/app/services/mapping/getSchema';
+import { getTables } from '@/app/services/mapping/getTables';
+import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 
 let id = 0;
 const getId = () => `node_${id++}`;
@@ -224,31 +228,28 @@ const SourceConfigModal = ({ isOpen, onClose, onSave, initialData, accessToken, 
   const [table, setTable] = useState(initialData?.table || '');
   const [columns, setColumns] = useState<string[]>(initialData?.columns || []); 
 
-  const fetchOptions = useCallback(
-    async (url: string, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
-      if (!accessToken) { console.warn("fetchOptions: No access token provided."); return; }
-      try {
-        const response = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json', }, });
-        if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
-        const result = await response.json() as any;
-        let processedData: string[] = [];
-        if (url.includes('/explore-design/guided/databases') || url.includes('/explore-design/guided/schemas/') || url.includes('/explore-design/guided/tables/')) {
-          const key = url.includes('/explore-design/guided/databases') ? 'databases' : url.includes('/explore-design/guided/schemas/') ? 'schemas' : 'tables';
-          const raw = result[key] || result;
-          processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-        } else if (url.includes('/explore-design/guided/get_table_columns')) {
-          const raw = result.columns || result;
-          processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-        } else { processedData = Array.isArray(result) ? result.map((item: any) => typeof item === 'string' ? item : item.name) : []; }
-        setter(processedData);
-      } catch (error) { console.error(`fetchOptions: Error fetching from ${url}`, error); toast.error(`Error loading data from API.\n${error instanceof Error ? error.message : String(error)}`); }
-    },
-    [accessToken]
-  );
-  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
-  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && accessToken) { setTables([]); setTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && table && accessToken) { setColumnsList([]); setColumns(initialData?.columns || []); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get_table_columns/?database_name=${database}&schema_name=${schema}&table_name=${table}`, setColumnsList); } }, [database, schema, table, accessToken, fetchOptions, initialData]);
+  useEffect(() => {
+    if (!isOpen || !accessToken) return;
+    setDatabases([]);
+    getDatabases().then(setDatabases).catch((e) => { console.error('SourceConfigModal getDatabases', e); toast.error('Error loading databases'); });
+  }, [isOpen, accessToken]);
+  useEffect(() => {
+    if (!database || !accessToken) return;
+    setSchemas([]); setSchema('');
+    getSchemas(database).then(setSchemas).catch((e) => { console.error('SourceConfigModal getSchemas', e); toast.error('Error loading schemas'); });
+  }, [database, accessToken]);
+  useEffect(() => {
+    if (!database || !schema || !accessToken) return;
+    setTables([]); setTable('');
+    getTables(database, schema).then(setTables).catch((e) => { console.error('SourceConfigModal getTables', e); toast.error('Error loading tables'); });
+  }, [database, schema, accessToken]);
+  useEffect(() => {
+    if (!database || !schema || !table || !accessToken) return;
+    setColumnsList([]); setColumns(initialData?.columns || []);
+    getTableColumns(database, schema, table)
+      .then((cols) => setColumnsList(cols.map((c) => (c.name ?? (c as any).COLUMN_NAME) || '').filter(Boolean)))
+      .catch((e) => { console.error('SourceConfigModal getTableColumns', e); toast.error('Error loading columns'); });
+  }, [database, schema, table, accessToken, initialData]);
   const handleSave = () => { onSave({ database, schema, table, columns: columns.join(', ') }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
@@ -345,27 +346,21 @@ const DestinationConfigModal = ({ isOpen, onClose, onSave, initialData, availabl
   const [schema, setSchema] = useState(initialData?.schema || '');
   const [destinationTable, setDestinationTable] = useState(initialData?.destination_table || '');
   const [destinationColumns, setDestinationColumns] = useState<string[]>(initialData?.columns || []);
-  const fetchOptions = useCallback(async (url: string, setter: React.Dispatch<React.SetStateAction<string[]>>) => {
-    if (!accessToken) { console.warn("DestinationConfigModal: No access token available for API calls. Please log in."); return; }
-    try {
-      const response = await fetch(url, { headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json', }, });
-      if (!response.ok) { const errorText = await response.text(); throw new Error(`HTTP error! Status: ${response.status}. Message: ${errorText}`); }
-      const result = await response.json() as any;
-      let processedData: string[] = [];
-      if (url.includes('/explore-design/guided/databases') || url.includes('/explore-design/guided/schemas/') || url.includes('/explore-design/guided/tables/')) {
-        const key = url.includes('/explore-design/guided/databases') ? 'databases' : url.includes('/explore-design/guided/schemas/') ? 'schemas' : 'tables';
-        const raw = result[key] || result;
-        processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-      } else if (url.includes('/explore-design/guided/get_table_columns')) {
-        const raw = result.columns || result;
-        processedData = Array.isArray(raw) ? raw.map((item: any) => typeof item === 'string' ? item : item.name) : [];
-      } else { processedData = Array.isArray(result) ? result.map((item: any) => String(item)) : []; }
-      setter(processedData);
-    } catch (error) { console.error(`DestinationConfigModal: Error fetching data from ${url}:`, error); toast.error(`Destination Configuration Error: Failed to load data. Check console for details. Error: ${error instanceof Error ? error.message : String(error)}`); }
-  }, [accessToken]);
-  useEffect(() => { if (isOpen && accessToken) { setDatabases([]); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, setDatabases); } }, [isOpen, accessToken, fetchOptions]);
-  useEffect(() => { if (database && accessToken) { setSchemas([]); setSchema(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${database}`, setSchemas); } }, [database, accessToken, fetchOptions]);
-  useEffect(() => { if (database && schema && accessToken) { setTables([]); setDestinationTable(''); fetchOptions(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${database}/${schema}`, setTables); } }, [database, schema, accessToken, fetchOptions]);
+  useEffect(() => {
+    if (!isOpen || !accessToken) return;
+    setDatabases([]);
+    getDatabases().then(setDatabases).catch((e) => { console.error('DestinationConfigModal getDatabases', e); toast.error('Error loading databases'); });
+  }, [isOpen, accessToken]);
+  useEffect(() => {
+    if (!database || !accessToken) return;
+    setSchemas([]); setSchema('');
+    getSchemas(database).then(setSchemas).catch((e) => { console.error('DestinationConfigModal getSchemas', e); toast.error('Error loading schemas'); });
+  }, [database, accessToken]);
+  useEffect(() => {
+    if (!database || !schema || !accessToken) return;
+    setTables([]); setDestinationTable('');
+    getTables(database, schema).then(setTables).catch((e) => { console.error('DestinationConfigModal getTables', e); toast.error('Error loading tables'); });
+  }, [database, schema, accessToken]);
   useEffect(() => {
     if (isOpen && initialData) {
       setDatabase(initialData.database || '');

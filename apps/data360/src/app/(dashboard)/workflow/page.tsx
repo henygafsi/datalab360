@@ -12,6 +12,7 @@ import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
 import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight } from 'lucide-react';
 import ETLPipelineBuilder from './ETLPipelineBuilder';
+import { ProjectContextPanel } from '@/app/shared/project-context';
 
 interface BackendWorkflow {
   workflow_name: string;
@@ -722,10 +723,11 @@ const WorkflowHomePage: React.FC = () => {
     );
   }
   if (error) {
+    const errorText = typeof error === 'string' ? error : (error && typeof (error as any).message === 'string' ? (error as any).message : JSON.stringify(error));
     return (
       <div className="flex justify-center items-center h-screen bg-slate-50 dark:bg-slate-900">
         <div className="text-red-500 text-xl p-6 bg-white dark:bg-slate-800 rounded-lg shadow-lg">
-          Error: {error}
+          Error: {errorText}
         </div>
       </div>
     );
@@ -994,6 +996,40 @@ const WorkflowHomePage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
+        <ProjectContextPanel
+          projectId={activeWorkflowId}
+          projectName={activeWorkflowName}
+          variant="workflow"
+          defaultExpanded={false}
+          hideWhenEmpty={!activeWorkflowName}
+          versionsSlot={activeWorkflowId ? (
+            <VersionHistory
+              workflowId={activeWorkflowId}
+              workflowName={activeWorkflowName}
+              onVersionChange={() => accessToken && fetchWorkflowsRef.current?.(accessToken)}
+              className="border-0 rounded-none"
+            />
+          ) : undefined}
+          deploymentSlot={activeWorkflowId ? (
+            <DeploymentHistory
+              workflowId={activeWorkflowId}
+              workflowName={activeWorkflowName}
+              className="border-0 rounded-none"
+            />
+          ) : undefined}
+          historySlot={activeWorkflowId ? (
+            <div className="p-2">
+              <div className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Execution History</div>
+              <ExecutionHistory
+                workflowId={activeWorkflowId}
+                workflowName={activeWorkflowName}
+                className="border-0 rounded-none"
+              />
+            </div>
+          ) : undefined}
+        />
 
         {/* Main Content with Optional Right Panel */}
         <div className="flex-1 flex overflow-hidden">

@@ -93,10 +93,11 @@ export const API_CONTRACTS = {
     },
   },
   exploreDesign: {
+    /** Backend: POST /explore-design/projects (body: project_name, metadata?) */
     createProject: {
       method: 'POST' as const,
-      path: '/explore-design/create_project',
-      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/create_project`,
+      path: '/explore-design/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/projects`,
     },
     getProjects: {
       method: 'GET' as const,
@@ -108,12 +109,48 @@ export const API_CONTRACTS = {
       path: '/explore-design/deployments',
       getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/deployments`,
     },
+    /** Backend: GET /explore-design/projects/{projectId}/events */
+    getProjectEvents: {
+      method: 'GET' as const,
+      path: '/explore-design/projects/{projectId}/events',
+      getUrl: (projectId: string, params?: { status?: string; event_type?: string }) => {
+        const url = new URL(`${API_CONFIG.BASE_URL}/explore-design/projects/${encodeURIComponent(projectId)}/events`);
+        if (params?.status) url.searchParams.set('status', params.status);
+        if (params?.event_type) url.searchParams.set('event_type', params.event_type);
+        return url.toString();
+      },
+    },
+    /** Backend: POST /explore-design/events (record one event) */
+    recordEvent: {
+      method: 'POST' as const,
+      path: '/explore-design/events',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/events`,
+    },
+    /** Backend: POST /explore-design/add-event (batch record design events) */
+    addEvent: {
+      method: 'POST' as const,
+      path: '/explore-design/add-event',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/add-event`,
+    },
+    /** Backend: POST /explore-design/validate-events */
+    validateEvents: {
+      method: 'POST' as const,
+      path: '/explore-design/validate-events',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/validate-events`,
+    },
+    /** Backend: POST /explore-design/deployments/{id}/execute */
+    executeDeployment: {
+      method: 'POST' as const,
+      path: '/explore-design/deployments/{id}/execute',
+      getUrl: (deploymentId: string) => `${API_CONFIG.BASE_URL}/explore-design/deployments/${encodeURIComponent(deploymentId)}/execute`,
+    },
   },
   mapping: {
+    /** List projects: same as exploreDesign.getProjects (GET /explore-design/projects) for cross-module consistency. */
     getProjects: {
-      method: 'POST' as const,
-      path: '/explore-design/guided/get_projects',
-      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/guided/get_projects`,
+      method: 'GET' as const,
+      path: '/explore-design/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design/projects`,
     },
   },
   workflow: {
@@ -140,6 +177,12 @@ export const API_CONTRACTS = {
       method: 'POST' as const,
       path: '/workflow/deployments/schedule',
       getUrl: () => `${API_CONFIG.BASE_URL}/workflow/deployments/schedule`,
+    },
+    /** Backend: POST /workflow/rename_workflow/ */
+    renameWorkflow: {
+      method: 'POST' as const,
+      path: '/workflow/rename_workflow/',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/rename_workflow/`,
     },
   },
   biRetail: {

@@ -379,9 +379,22 @@ LIMIT 50 OFFSET 0;
 
 ---
 
+### Explore Design – Events & Projects (canonical)
+
+| Action | Method | Path |
+|--------|--------|------|
+| List projects | GET | `/explore-design/projects` |
+| Create project | POST | `/explore-design/projects` (body: `project_name`, `metadata?`) |
+| List events for project | GET | `/explore-design/projects/{project_id}/events` (query: `status?`, `event_type?`) |
+| Record one event | POST | `/explore-design/events` (body: `project_id`, `event_type`, `target?`, `payload?`) |
+| Record design events (batch) | POST | `/explore-design/add-event` (body: `project_id`, `event_type`, `event_details`, `module_type?`) |
+| Validate events | POST | `/explore-design/validate-events` (body: `project_id`, `event_ids`, `dry_run?`) |
+
+---
+
 ### 7. Get Project Events
 
-**Endpoint:** `GET /explore-design/events/{project_id}?status=pending&event_type=TABLE_CREATED`
+**Endpoint:** `GET /explore-design/projects/{project_id}/events?status=pending&event_type=TABLE_CREATED`
 
 **Description:** Retrieves all events for a project with optional filters.
 
@@ -421,7 +434,7 @@ LIMIT 50 OFFSET 0;
 
 ### 8. Validate Events
 
-**Endpoint:** `POST /explore-design/events/validate`
+**Endpoint:** `POST /explore-design/validate-events`
 
 **Description:** Validates events before deployment.
 

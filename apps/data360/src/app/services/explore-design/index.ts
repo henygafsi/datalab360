@@ -377,25 +377,31 @@ export async function getProjectEvents(
   if (filters?.event_type) params.append('event_type', filters.event_type);
 
   const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/events/${projectId}?${params.toString()}`,
+    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
     { headers }
   );
   return response.data;
 }
 
 /**
- * Delete an event
+ * Get a single event by project and event id (from project events list).
  */
-export async function deleteEvent(
+export async function getEvent(
   projectId: string,
   eventId: string
+): Promise<DesignEvent | null> {
+  const { events } = await getProjectEvents(projectId);
+  return events?.find((e: DesignEvent) => (e as any).event_id === eventId || (e as any).id === eventId) ?? null;
+}
+
+/**
+ * Delete an event (backend may not implement; prefer filtering in UI).
+ */
+export async function deleteEvent(
+  _projectId: string,
+  _eventId: string
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.delete(
-    `${EXPLORE_DESIGN_BASE}/events/${projectId}/${eventId}`,
-    { headers }
-  );
-  return response.data;
+  return { success: false, message: 'Delete event not implemented on backend; use list and filter in UI.' };
 }
 
 // ============================================
@@ -415,7 +421,7 @@ export async function validateEvents(
 }> {
   const headers = await getAuthHeaders();
   const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events/validate`,
+    `${EXPLORE_DESIGN_BASE}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
@@ -518,15 +524,15 @@ export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
 
 /**
  * Create a new explore project
- * Backend endpoint: POST /explore-design/projects
+ * Backend endpoint: POST /explore-design/projects or POST /explore-design/create_project
  */
 export async function createExploreProject(
   projectName: string,
   metadata?: Record<string, any>
-): Promise<{ project_id: string; message: string }> {
+): Promise<{ success: boolean; project_id: string; project_name: string; message: string }> {
   const headers = await getAuthHeaders();
   const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/create_project`,
+    `${EXPLORE_DESIGN_BASE}/projects`,
     {
       project_name: projectName,
       metadata: metadata || {},
@@ -2962,16 +2968,17 @@ export async function getScheduledDeployments(
   const headers = await getAuthHeaders();
 
   try {
-    // Use the working /mapping/get_scheduled_deployments/ endpoint
+    const params = new URLSearchParams();
+    if (projectId) params.append('project_id', projectId);
     const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/scheduled-deployments`,
+      `${EXPLORE_DESIGN_BASE}/scheduled-deployments${params.toString() ? `?${params.toString()}` : ''}`,
       { headers }
     );
 
-    let deployments = response.data?.scheduled_deployments ?? [];
+    let deployments = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
     if (!Array.isArray(deployments)) deployments = [];
 
-    // Apply filters
+    // Client-side filter by project if not already filtered by backend
     if (projectId) {
       deployments = deployments.filter((d: any) => d.project_id === projectId);
     }
@@ -4655,7 +4662,7 @@ export async function getDesignEvents(
   if (eventType) params.append('event_type', eventType);
 
   const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/events/${projectId}?${params.toString()}`,
+    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
     { headers }
   );
   return response.data;
@@ -4689,7 +4696,7 @@ export async function validateDesignEvents(
 }> {
   const headers = await getAuthHeaders();
   const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events/validate`,
+    `${EXPLORE_DESIGN_BASE}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,

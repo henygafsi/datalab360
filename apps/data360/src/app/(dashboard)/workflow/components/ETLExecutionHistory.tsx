@@ -75,7 +75,23 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       setRuns(filteredRuns);
     } catch (err: any) {
       console.error('Failed to fetch runs:', err);
-      setError(err.response?.data?.detail || 'Failed to load execution history');
+      const errObj = err.response?.data?.error;
+      let errMsg: string;
+      if (errObj && typeof errObj === 'object' && typeof (errObj as any).message === 'string') {
+        errMsg = (errObj as any).message;
+      } else if (typeof err.response?.data?.detail === 'string') {
+        errMsg = err.response.data.detail;
+      } else {
+        const d = err.response?.data?.detail;
+        if (d != null && typeof d === 'object' && ((d as any).message != null || (d as any).msg != null)) {
+          errMsg = String((d as any).message ?? (d as any).msg);
+        } else if (d != null) {
+          errMsg = typeof d === 'string' ? d : JSON.stringify(d);
+        } else {
+          errMsg = 'Failed to load execution history';
+        }
+      }
+      setError(typeof errMsg === 'string' ? errMsg : 'Failed to load execution history');
     } finally {
       setIsLoading(false);
     }
@@ -383,7 +399,11 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           Error
                         </div>
                         <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap">
-                          {run.error_message}
+                          {typeof run.error_message === 'string'
+                            ? run.error_message
+                            : run.error_message != null
+                              ? JSON.stringify(run.error_message, null, 2)
+                              : 'Unknown error'}
                         </pre>
                       </div>
                     )}

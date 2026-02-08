@@ -13,7 +13,7 @@ import {
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 30000, // 30 seconds (allows for multiple parallel Snowflake queries + network latency)
+  timeout: 120000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
   headers: {
     'Content-Type': 'application/json',
   },
@@ -294,15 +294,24 @@ export function getApiErrorMessage(error: unknown): string {
       }
       let detail = data.detail;
       if (typeof detail === 'string' && detail.length > 0 && detail.length < 400) return detail;
-      if (detail && typeof detail === 'object' && typeof (detail as Record<string, unknown>).detail === 'string') {
-        return (detail as Record<string, unknown>).detail as string;
+      if (detail && typeof detail === 'object') {
+        const d = detail as Record<string, unknown>;
+        if (typeof d.message === 'string' && d.message.length > 0) return d.message;
+        if (typeof d.detail === 'string') return d.detail as string;
       }
+      const errObj = data.error as { message?: string; error_code?: string } | undefined;
+      if (errObj && typeof errObj === 'object' && typeof errObj.message === 'string') return errObj.message;
+      if (errObj && typeof errObj === 'object' && errObj.error_code != null) return String(errObj.error_code);
       if (typeof data.message === 'string') return data.message;
     }
     if (status === 401) return 'Session expirée. Veuillez vous reconnecter.';
     if (status === 503) return 'Service temporairement indisponible. Utilisez un seul worker ou reconnectez-vous.';
     if (status === 403) return 'Accès refusé.';
     if (status === 404) return 'Ressource introuvable.';
+    if (status === 501) {
+      const detail = data?.detail;
+      return typeof detail === 'string' ? detail : 'Fonctionnalité non disponible pour le moment.';
+    }
     if (status === 422 || status === 400) return 'Données invalides. Vérifiez les champs ou la requête Snowflake.';
     if (status === 500) return 'Erreur serveur. Réessayez ou vérifiez les logs Snowflake.';
   }

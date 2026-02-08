@@ -118,6 +118,7 @@ export default function RolesTable() {
             const usersInfo = result.revoked_from_users ? ` - ${result.revoked_from_users} utilisateur(s) affecté(s)` : '';
             const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
             toast.success(`✅ Rôle ${row.role} supprimé avec succès${usersInfo}${grantsInfo}`);
+            setData((prev) => prev.filter((r) => r.role !== row.role));
             await fetchRolesData();
           } catch (error: any) {
             console.error('Error deleting role:', error);
@@ -157,6 +158,7 @@ export default function RolesTable() {
             } else {
               toast.error(`❌ Échec de la suppression de tous les rôles`);
             }
+            setData((prev) => prev.filter((r) => !deletableRoles.includes(r.role)));
             await fetchRolesData();
           } catch (error: any) {
             console.error('Error deleting multiple roles:', error);

@@ -24,6 +24,7 @@ import {
   getProjectEvents,
   recordDesignEvents,
   fetchRelationships,
+  getRecentDeploymentErrors,
   TableRelationship
 } from '@/app/services/explore-design';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
@@ -33,6 +34,7 @@ import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
 import ProjectSelector from './components/ProjectSelector';
+import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
   useEventStore,
@@ -483,6 +485,33 @@ const GlobalSearch: React.FC<{
     </div>
   );
 };
+
+// Small slot for ProjectContextPanel: recent deployment errors list
+function RecentDeploymentErrorsSlot() {
+  const [errors, setErrors] = useState<{ id: string; error_message?: string; project_id?: string; created_at?: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    getRecentDeploymentErrors(10).then((res) => {
+      if (!cancelled) setErrors(res?.errors ?? []);
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+  if (loading) return <div className="p-4 text-sm text-slate-500">Loading…</div>;
+  if (errors.length === 0) return <div className="p-4 text-sm text-slate-500">No recent deployment errors.</div>;
+  return (
+    <div className="p-4 space-y-2 max-h-[300px] overflow-auto">
+      {errors.map((e) => (
+        <div key={e.id} className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-2 text-xs">
+          <p className="font-mono text-slate-700 dark:text-slate-300 break-all">{e.error_message ?? '—'}</p>
+          {(e.project_id || e.created_at) && (
+            <p className="mt-1 text-slate-500">{e.project_id && `Project: ${e.project_id}`}{e.created_at && ` · ${new Date(e.created_at).toLocaleString()}`}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // Main Page Component
 export default function ExploreDesignPage() {
@@ -1262,8 +1291,10 @@ export default function ExploreDesignPage() {
             // - details: { database, schema, table, columns, sql }
             // - event_id, event_type, status, timestamp, username, error_message
 
-            // Backend might return as 'details' or 'event_details' depending on endpoint
+            // Backend returns event_details/details (may be { target, payload } or flat { database, schema, table, ... })
             const details = e.details || e.event_details || {};
+            const targetFromDetails = details.target || {};
+            const payloadFromDetails = details.payload || details;
 
             // Map backend status to frontend status
             let status: 'pending' | 'validated' | 'failed' | 'applied' = 'pending';
@@ -1275,25 +1306,23 @@ export default function ExploreDesignPage() {
             const convertedEvent = {
               id: e.event_id || `event-${Date.now()}-${Math.random()}`,
               type: e.event_type,
-              timestamp: new Date(e.timestamp),
+              timestamp: new Date(e.timestamp || Date.now()),
               status: status,
               projectId: projectId,
               target: {
-                database: details.database || '',
-                schema: details.schema || '',
-                table: details.table || 'Unknown Table',
-                column: details.column,
+                database: targetFromDetails.database ?? details.database ?? '',
+                schema: targetFromDetails.schema ?? details.schema ?? '',
+                table: targetFromDetails.table ?? details.table ?? 'Unknown Table',
+                column: targetFromDetails.column ?? details.column,
               },
               payload: {
-                columns: details.columns,
-                sql: details.sql,
-                // For COLUMN_MAPPING events, ensure proper structure
-                sourceColumn: details.sourceColumn,
-                targetTable: details.targetTable,
-                targetColumn: details.targetColumn,
-                transformation: details.transformation,
-                // Spread remaining details
-                ...details,
+                columns: payloadFromDetails.columns,
+                sql: payloadFromDetails.sql,
+                sourceColumn: payloadFromDetails.sourceColumn,
+                targetTable: payloadFromDetails.targetTable,
+                targetColumn: payloadFromDetails.targetColumn,
+                transformation: payloadFromDetails.transformation,
+                ...payloadFromDetails,
               },
               backendId: e.event_id,
               synced: true,
@@ -1990,6 +2019,46 @@ export default function ExploreDesignPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
+      {!isFullscreen && (
+        <ProjectContextPanel
+          projectId={selectedProjectId}
+          projectName={selectedProjectName}
+          variant="explore-design"
+          defaultExpanded={false}
+          hideWhenEmpty={!selectedProjectId}
+          deploymentSlot={selectedProjectId ? (
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-slate-600 dark:text-slate-400">
+                Pending events: {displayablePendingEvents.length}. Validate and deploy from the Deploy button above.
+              </p>
+              <Button
+                size="sm"
+                className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
+                onClick={() => setShowDeploymentModal(true)}
+              >
+                <Rocket className="h-3.5 w-3.5" />
+                Open Deploy & Validation
+              </Button>
+            </div>
+          ) : undefined}
+          versionsSlot={selectedProjectId ? (
+            <SchemaVersionDisplaySwitch
+              projectId={selectedProjectId}
+              onVersionChange={() => {}}
+              onSelectVersion={(versionId) => {}}
+              className="max-h-[400px] overflow-auto"
+            />
+          ) : undefined}
+          historySlot={selectedProjectId ? (
+            <div className="overflow-auto max-h-[400px]">
+              <EventTable compact projectId={selectedProjectId} className="m-2" />
+            </div>
+          ) : undefined}
+          errorsSlot={<RecentDeploymentErrorsSlot />}
+        />
       )}
 
       {/* Compact Source Selector - Horizontal bar */}

@@ -25,30 +25,38 @@ import {
   WorkflowDeployment,
   DeploymentStatus,
   WorkflowStep,
+  getWorkflowDeployments,
+  approveDeployment,
+  rejectDeployment,
+  activateDeployment,
 } from '@/app/services/workflow';
 
 // Local storage key for workflow deployments
 const WORKFLOW_DEPLOYMENTS_KEY = 'workflow-deployments';
 
-// Helper to extract error message from various error formats (FastAPI validation, etc.)
+// Helper to extract error message from various error formats (FastAPI, ApiResponse.error, etc.)
 const extractErrorMessage = (err: any): string => {
   if (!err) return 'Unknown error';
 
-  // Check for FastAPI validation error format: {detail: [{type, loc, msg, input}]}
+  // ApiResponse format: { success: false, error: { error_code, message } }
+  const errObj = err.response?.data?.error;
+  if (errObj && typeof errObj === 'object' && (errObj.message != null || errObj.error_code != null)) {
+    return typeof errObj.message === 'string' ? errObj.message : String(errObj.error_code ?? errObj.message ?? 'Error');
+  }
+
+  // FastAPI validation: { detail: string | array | { msg } }
   const detail = err.response?.data?.detail;
-  if (detail) {
+  if (detail !== undefined && detail !== null) {
     if (typeof detail === 'string') return detail;
     if (Array.isArray(detail)) {
-      // FastAPI validation errors
       return detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('; ');
     }
-    if (typeof detail === 'object' && detail.msg) return detail.msg;
+    if (typeof detail === 'object' && detail.message) return String(detail.message);
+    if (typeof detail === 'object' && detail.msg) return String(detail.msg);
     if (typeof detail === 'object') return JSON.stringify(detail);
   }
 
-  // Standard error message
-  if (err.message) return err.message;
-
+  if (err.message && typeof err.message === 'string') return err.message;
   return 'An error occurred';
 };
 
@@ -117,6 +125,7 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   className,
 }) => {
   const [deployments, setDeployments] = useState<LocalDeployment[]>([]);
+  const [allDeploymentsForStats, setAllDeploymentsForStats] = useState<LocalDeployment[]>([]);
   const [totalDeployments, setTotalDeployments] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,25 +134,47 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const fetchDeployments = useCallback(() => {
+  const fetchDeployments = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Get deployments from localStorage
-      let localDeployments = getLocalDeployments();
-
-      // Filter for current workflow
-      localDeployments = localDeployments.filter(
+      const apiDeployments: LocalDeployment[] = [];
+      if (workflowId) {
+        const res = await getWorkflowDeployments({
+          projectId: workflowId,
+          limit: 100,
+        });
+        apiDeployments.push(
+          ...res.deployments.map((d: WorkflowDeployment) => ({
+            event_id: d.event_id,
+            workflow_id: d.workflow_id,
+            workflow_name: d.workflow_name,
+            status: d.status,
+            deployment_type: 'scheduled' as const,
+            scheduled_date: d.scheduled_date,
+            steps: d.steps ?? [],
+            created_by: d.created_by ?? '',
+            created_at: d.created_at ?? '',
+            approved_by: d.approved_by,
+            approved_at: d.approved_at,
+          }))
+        );
+      }
+      let localDeployments = getLocalDeployments().filter(
         (d) => d.workflow_id === workflowId || d.workflow_name === workflowName
       );
-
-      // Apply status filter
-      if (statusFilter) {
-        localDeployments = localDeployments.filter(d => d.status === statusFilter);
-      }
-
-      setDeployments(localDeployments);
-      setTotalDeployments(localDeployments.length);
+      const byEventId = new Map<string, LocalDeployment>();
+      apiDeployments.forEach((d) => byEventId.set(d.event_id, d));
+      localDeployments.forEach((d) => {
+        if (!byEventId.has(d.event_id)) byEventId.set(d.event_id, d);
+      });
+      const merged = Array.from(byEventId.values()).sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      setAllDeploymentsForStats(merged);
+      const filtered = statusFilter ? merged.filter((d) => d.status === statusFilter) : merged;
+      setDeployments(filtered);
+      setTotalDeployments(filtered.length);
     } catch (err: any) {
       console.error('Failed to fetch deployments:', err);
       setError(extractErrorMessage(err) || 'Failed to load deployment history');
@@ -156,11 +187,11 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
     fetchDeployments();
   }, [fetchDeployments]);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    fetchDeployments();
-    setIsRefreshing(false);
+    await fetchDeployments();
     onRefresh?.();
+    setIsRefreshing(false);
   };
 
   const toggleDeploymentExpanded = (deploymentId: string) => {
@@ -178,11 +209,12 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleApprove = async (eventId: string) => {
     setActionLoading(eventId);
     try {
+      await approveDeployment(eventId);
       updateLocalDeploymentStatus(eventId, 'APPROVED', {
         approved_by: 'Current User',
         approved_at: new Date().toISOString(),
       });
-      fetchDeployments();
+      await fetchDeployments();
     } catch (err: any) {
       setError(extractErrorMessage(err) || 'Failed to approve deployment');
     } finally {
@@ -194,8 +226,9 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
     const reason = prompt('Please provide a reason for rejection (optional):');
     setActionLoading(eventId);
     try {
+      await rejectDeployment(eventId, reason ?? undefined);
       updateLocalDeploymentStatus(eventId, 'REJECTED');
-      fetchDeployments();
+      await fetchDeployments();
     } catch (err: any) {
       setError(extractErrorMessage(err) || 'Failed to reject deployment');
     } finally {
@@ -206,10 +239,11 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleActivate = async (eventId: string) => {
     setActionLoading(eventId);
     try {
+      await activateDeployment(eventId);
       updateLocalDeploymentStatus(eventId, 'ACTIVE', {
         executed_at: new Date().toISOString(),
       });
-      fetchDeployments();
+      await fetchDeployments();
     } catch (err: any) {
       setError(extractErrorMessage(err) || 'Failed to activate deployment');
     } finally {
@@ -263,13 +297,10 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   };
 
   const getDeploymentStats = () => {
-    const allDeployments = getLocalDeployments().filter(
-      (d) => d.workflow_id === workflowId || d.workflow_name === workflowName
-    );
-    const pending = allDeployments.filter((d) => d.status === 'PENDING_APPROVAL').length;
-    const approved = allDeployments.filter((d) => d.status === 'APPROVED').length;
-    const active = allDeployments.filter((d) => d.status === 'ACTIVE').length;
-    const rejected = allDeployments.filter((d) => d.status === 'REJECTED').length;
+    const pending = allDeploymentsForStats.filter((d) => d.status === 'PENDING_APPROVAL').length;
+    const approved = allDeploymentsForStats.filter((d) => d.status === 'APPROVED').length;
+    const active = allDeploymentsForStats.filter((d) => d.status === 'ACTIVE').length;
+    const rejected = allDeploymentsForStats.filter((d) => d.status === 'REJECTED').length;
     return { pending, approved, active, rejected };
   };
 

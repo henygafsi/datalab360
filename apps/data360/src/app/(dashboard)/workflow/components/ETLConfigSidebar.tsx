@@ -6,6 +6,10 @@ import { Node } from 'reactflow';
 import {
   X, AlertCircle, ChevronDown, Loader2, Trash2, Save, Plus, Minus
 } from 'lucide-react';
+import { getDatabases } from '@/app/services/mapping/getDatabases';
+import { getSchemas } from '@/app/services/mapping/getSchema';
+import { getTables } from '@/app/services/mapping/getTables';
+import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { getBlockByType } from './etl-blocks';
 import type {
   ComponentType,
@@ -191,11 +195,8 @@ const SourceConfigForm: React.FC<{
   useEffect(() => {
     if (!accessToken) return;
     setLoading('databases');
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setDatabases(normalizeToStringArray(result.databases || result.data || result)))
+    getDatabases()
+      .then(setDatabases)
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken]);
@@ -204,11 +205,8 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database) return;
     setLoading('schemas');
     setSchemas([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${config.database}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setSchemas(normalizeToStringArray(result.schemas || result.data || result)))
+    getSchemas(config.database)
+      .then(setSchemas)
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken, config.database]);
@@ -217,11 +215,8 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database || !config.schema) return;
     setLoading('tables');
     setTables([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${config.database}/${config.schema}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setTables(normalizeToStringArray(result.tables || result.data || result)))
+    getTables(config.database, config.schema)
+      .then(setTables)
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken, config.database, config.schema]);
@@ -230,11 +225,8 @@ const SourceConfigForm: React.FC<{
     if (!accessToken || !config.database || !config.schema || !config.table) return;
     setLoading('columns');
     setColumns([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get_table_columns/?database_name=${config.database}&schema_name=${config.schema}&table_name=${config.table}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setColumns(normalizeToStringArray(result.columns || result.data || result)))
+    getTableColumns(config.database, config.schema, config.table)
+      .then((cols) => setColumns(cols.map((c) => (c.name ?? (c as any).COLUMN_NAME) || '').filter(Boolean)))
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken, config.database, config.schema, config.table]);
@@ -1033,11 +1025,8 @@ const DestinationConfigForm: React.FC<{
   useEffect(() => {
     if (!accessToken) return;
     setLoading('databases');
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/databases`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setDatabases(normalizeToStringArray(result.databases || result.data || result)))
+    getDatabases()
+      .then(setDatabases)
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken]);
@@ -1046,11 +1035,8 @@ const DestinationConfigForm: React.FC<{
     if (!accessToken || !config.database) return;
     setLoading('schemas');
     setSchemas([]);
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/schemas/${config.database}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    })
-      .then((res) => res.json())
-      .then((result: any) => setSchemas(normalizeToStringArray(result.schemas || result.data || result)))
+    getSchemas(config.database)
+      .then(setSchemas)
       .catch(console.error)
       .finally(() => setLoading(null));
   }, [accessToken, config.database]);

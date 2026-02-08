@@ -35,6 +35,7 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 
 // ETL Service
 import * as etlService from '@/app/services/etl';
+import { getApiErrorMessage } from '@/lib/api-client';
 import type {
   Pipeline,
   PipelineComponent,
@@ -577,7 +578,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         }
       } catch (error: any) {
         console.error('Execution failed:', error);
-        toast.error(error.response?.data?.detail || 'Execution failed');
+        toast.error(getApiErrorMessage(error) || 'Execution failed');
       } finally {
         setIsExecuting(false);
       }

@@ -503,9 +503,10 @@ export async function activateDeployment(eventId: string): Promise<{
 
 /**
  * Get all workflow deployments (pending, approved, active)
- * Uses /explore-design/deployments/project/{project_id} endpoint with module_type filter
+ * Uses GET /explore-design/scheduled-deployments with module_type=workflow and optional project_id (workflow_id)
  */
 export async function getWorkflowDeployments(options?: {
+  projectId?: string;
   status?: DeploymentStatus;
   limit?: number;
 }): Promise<{
@@ -515,6 +516,7 @@ export async function getWorkflowDeployments(options?: {
   const headers = await getWorkflowAuthHeaders();
   const params = new URLSearchParams();
   params.append('module_type', 'workflow');
+  if (options?.projectId) params.append('project_id', options.projectId);
   if (options?.status) params.append('status', options.status);
   if (options?.limit) params.append('limit', String(options.limit));
 
@@ -523,7 +525,7 @@ export async function getWorkflowDeployments(options?: {
     { headers, timeout: 15000 }
   );
 
-  const raw = response.data?.scheduled_deployments ?? [];
+  const raw = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
   const list = Array.isArray(raw) ? raw : [];
   const deployments = list
     .filter((d: any) => (d.module || d.module_name || '').toString().toUpperCase() === 'WORKFLOW')

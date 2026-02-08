@@ -85,6 +85,8 @@ export interface ApplyRLSPolicyRequest {
   schema: string;
   policy_column: string;
   policy_schema?: string;
+  /** Database where the policy object lives (defaults to backend metadata DB if omitted) */
+  policy_database?: string;
 }
 
 // Masking Policy Types
@@ -346,13 +348,14 @@ export async function applyRLSPolicy(data: ApplyRLSPolicyRequest): Promise<any> 
         schema: data.schema,
         policy_column: data.policy_column,
         policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
+        ...(data.policy_database != null && { policy_database: data.policy_database }),
       },
     });
     return response.data.data;
   } catch (error: any) {
     console.error('Apply RLS policy error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
+      message: error.response?.data?.message ?? error.response?.data?.error?.message ?? error.message,
+      detail: error.response?.data?.detail ?? error.response?.data?.error,
       status: error.response?.status,
       data,
     });
@@ -376,8 +379,8 @@ export async function removeRLSPolicy(
     return response.data.data;
   } catch (error: any) {
     console.error('Remove RLS policy error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
+      message: error.response?.data?.message ?? error.response?.data?.error?.message ?? error.message,
+      detail: error.response?.data?.detail ?? error.response?.data?.error,
       status: error.response?.status,
       params: { table_name, database, schema },
     });

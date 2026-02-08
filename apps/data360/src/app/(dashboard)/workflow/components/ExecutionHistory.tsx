@@ -20,25 +20,21 @@ import {
 import { cn } from '@/lib/utils';
 import { getWorkflowRuns, WorkflowRun, formatDuration, RunStatus } from '@/app/services/workflow';
 
-// Helper to extract error message from various error formats (FastAPI validation, etc.)
+// Helper to extract error message (ApiResponse.error, FastAPI detail, etc.)
 const extractErrorMessage = (err: any): string => {
   if (!err) return 'Unknown error';
-
-  // Check for FastAPI validation error format: {detail: [{type, loc, msg, input}]}
+  const errObj = err.response?.data?.error;
+  if (errObj && typeof errObj === 'object' && (errObj.message != null || errObj.error_code != null)) {
+    return typeof errObj.message === 'string' ? errObj.message : String(errObj.error_code ?? errObj.message ?? 'Error');
+  }
   const detail = err.response?.data?.detail;
-  if (detail) {
+  if (detail !== undefined && detail !== null) {
     if (typeof detail === 'string') return detail;
-    if (Array.isArray(detail)) {
-      // FastAPI validation errors
-      return detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('; ');
-    }
-    if (typeof detail === 'object' && detail.msg) return detail.msg;
+    if (Array.isArray(detail)) return detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('; ');
+    if (typeof detail === 'object' && (detail.message ?? detail.msg)) return String(detail.message ?? detail.msg);
     if (typeof detail === 'object') return JSON.stringify(detail);
   }
-
-  // Standard error message
-  if (err.message) return err.message;
-
+  if (err.message && typeof err.message === 'string') return err.message;
   return 'An error occurred';
 };
 

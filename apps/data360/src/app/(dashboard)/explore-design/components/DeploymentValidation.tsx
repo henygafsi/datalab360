@@ -34,6 +34,7 @@ import {
   SQLStatement,
 } from '@/app/services/explore-design';
 import { getCortexRecommend } from '@/app/services/cortex';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 // Test result interface
 interface TestResult {
@@ -1655,13 +1656,14 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
         } catch (error: any) {
           console.error('Backend deployment error:', error);
-          setBackendError(error.message);
+          const msg = getApiErrorMessage(error) || error?.message || 'Deployment failed';
+          setBackendError(typeof msg === 'string' ? msg : JSON.stringify(msg));
           toast.dismiss();
-          toast.error(`Deployment failed: ${error.message}`);
+          toast.error(`Deployment failed: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
 
           // Mark events as failed
           eventsToDeploy.forEach((event) => {
-            updateEventStatus({ eventId: event.id, status: 'failed', error: error.message });
+            updateEventStatus({ eventId: event.id, status: 'failed', error: getApiErrorMessage(error) || error?.message });
           });
         }
       }
@@ -1679,8 +1681,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
     } catch (error: any) {
       console.error('Deployment error:', error);
-      setBackendError(error.message);
-      toast.error(`Deployment failed: ${error.message}`);
+      const msg = getApiErrorMessage(error) || error?.message || 'Deployment failed';
+      setBackendError(typeof msg === 'string' ? msg : JSON.stringify(msg));
+      toast.error(`Deployment failed: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
     } finally {
       setIsDeploying(false);
     }
