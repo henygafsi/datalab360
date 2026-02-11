@@ -390,11 +390,16 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
 };
 
 // Atoms with localStorage persistence for caching
-export const eventStoreAtom = atomWithStorage<EventStoreState>('explore-design-events', {
-  events: [],
-  undoStack: [],
-  redoStack: [],
-});
+export const eventStoreAtom = atomWithStorage<EventStoreState>(
+  'explore-design-events',
+  {
+    events: [],
+    undoStack: [],
+    redoStack: [],
+  },
+  undefined, // use default localStorage
+  { getOnInit: true } // sync hydration — prevents race condition where async hydration overwrites freshly loaded project events
+);
 
 // Derived atom for pending events
 export const pendingEventsAtom = atom((get) => {

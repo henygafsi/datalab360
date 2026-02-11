@@ -1,6 +1,6 @@
 'use client';
-// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + getProjectEvents (explore-design) + addEvent/listMappings (projects/exploreDesign API) → backend
-// ////dependency//// page → services.mapping, services.explore-design (getProjectEvents, fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
+// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
+// ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -21,12 +21,11 @@ import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
 import {
-  getProjectEvents,
   getRecentDeploymentErrors,
   TableRelationship
 } from '@/app/services/explore-design';
 import { listMappings, listDDLActions } from '@/app/services/api/exploreDesignApi';
-import { addEvent as addProjectEvent } from '@/app/services/api/projectsApi';
+import { addEvent as addProjectEvent, listEvents as listProjectEvents } from '@/app/services/api/projectsApi';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
@@ -866,52 +865,89 @@ export default function ExploreDesignPage() {
 
     if (selectedProjectId && !templateEventsExist) {
       // Fire SCHEMA_CREATED first — runs before all TABLE_CREATED via priority ordering
+      const schemaTarget = { database: db, schema, table: schema };
+      const schemaPayload = { schemaName: schema, database: db, isTemplate: true };
       addEvent({
         type: 'SCHEMA_CREATED',
         projectId: selectedProjectId,
-        target: { database: db, schema, table: schema },
-        payload: {
-          schemaName: schema,
-          database: db,
-          isTemplate: true,
-        },
+        target: schemaTarget,
+        payload: schemaPayload,
       });
 
+      const tableEvents: { target: any; payload: any }[] = [];
       DWH_TEMPLATE_TABLES.forEach(tmplTable => {
-        addEvent({
-          type: 'TABLE_CREATED',
-          projectId: selectedProjectId,
-          target: { database: db, schema, table: tmplTable.tableName },
-          payload: {
-            tableName: tmplTable.tableName,
-            columns: tmplTable.columns.map(col => ({
-              name: col.name,
-              dataType: col.dataType,
-              nullable: col.nullable,
-              primaryKey: col.primaryKey,
-              computedExpression: col.computedExpression,
-            })),
-            primaryKeys: tmplTable.primaryKeys,
-            isTemplate: true,
-          },
-        });
+        const target = { database: db, schema, table: tmplTable.tableName };
+        const payload = {
+          tableName: tmplTable.tableName,
+          columns: tmplTable.columns.map(col => ({
+            name: col.name,
+            dataType: col.dataType,
+            nullable: col.nullable,
+            primaryKey: col.primaryKey,
+            computedExpression: col.computedExpression,
+          })),
+          primaryKeys: tmplTable.primaryKeys,
+          isTemplate: true,
+        };
+        addEvent({ type: 'TABLE_CREATED', projectId: selectedProjectId, target, payload });
+        tableEvents.push({ target, payload });
       });
 
       // 9. Fire FOREIGN_KEY_ADDED events for each FK constraint
+      const fkEvents: { target: any; payload: any }[] = [];
       DWH_TEMPLATE_RELATIONSHIPS.forEach(fk => {
-        addEvent({
-          type: 'FOREIGN_KEY_ADDED',
-          projectId: selectedProjectId,
-          target: { database: db, schema, table: fk.childTable },
-          payload: {
-            constraintName: fk.constraintName,
-            columns: [fk.childColumn],
-            referencedTable: { database: db, schema, table: fk.parentTable },
-            referencedColumns: [fk.parentColumn],
-            isTemplate: true,
-          },
-        });
+        const target = { database: db, schema, table: fk.childTable };
+        const payload = {
+          constraintName: fk.constraintName,
+          columns: [fk.childColumn],
+          referencedTable: { database: db, schema, table: fk.parentTable },
+          referencedColumns: [fk.parentColumn],
+          isTemplate: true,
+        };
+        addEvent({ type: 'FOREIGN_KEY_ADDED', projectId: selectedProjectId, target, payload });
+        fkEvents.push({ target, payload });
       });
+
+      // 10. Persist all template events to backend so they restore on project select
+      const persistTemplateEvents = async () => {
+        try {
+          // Schema
+          await addProjectEvent(selectedProjectId, {
+            module_name: 'explore-design',
+            event_type: 'SCHEMA_CREATED',
+            status: 'pending',
+            details: { target: schemaTarget, payload: schemaPayload },
+            entity_id: `schema-${db}-${schema}`,
+            entity_type: 'design_event',
+          });
+          // Tables
+          for (const te of tableEvents) {
+            await addProjectEvent(selectedProjectId, {
+              module_name: 'explore-design',
+              event_type: 'TABLE_CREATED',
+              status: 'pending',
+              details: { target: te.target, payload: te.payload },
+              entity_id: `table-${te.target.table}`,
+              entity_type: 'design_event',
+            });
+          }
+          // Foreign keys
+          for (const fke of fkEvents) {
+            await addProjectEvent(selectedProjectId, {
+              module_name: 'explore-design',
+              event_type: 'FOREIGN_KEY_ADDED',
+              status: 'pending',
+              details: { target: fke.target, payload: fke.payload },
+              entity_id: `fk-${fke.target.table}-${fke.payload.columns[0]}`,
+              entity_type: 'design_event',
+            });
+          }
+          console.log(`[Template] Persisted ${1 + tableEvents.length + fkEvents.length} template events to backend`);
+        } catch (err) {
+          console.warn('[Template] Failed to persist template events to backend:', err);
+        }
+      };
+      persistTemplateEvents();
     }
 
     setDefaultModelingTablesLoaded(true);
@@ -1295,18 +1331,15 @@ export default function ExploreDesignPage() {
 
       // Load events for the new project from backend
       try {
-        const eventsResponse = await getProjectEvents(projectId);
+        // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write
+        const eventsResponse = await listProjectEvents(projectId, { module_name: 'EXPLORE-DESIGN' });
         console.log('📥 Backend events response:', eventsResponse);
         console.log('📥 Raw events details:', eventsResponse.events?.map((e: any) => ({
           type: e.event_type,
-          schema: e.details?.schema,
-          schemaName: e.details?.schemaName,
-          table: e.details?.table
+          details: e.details,
+          schema: e.details?.target?.schema || e.details?.schema,
+          table: e.details?.target?.table || e.details?.table,
         })));
-
-        // Log SCHEMA_SELECTED events specifically
-        const schemaEvents = eventsResponse.events?.filter((e: any) => e.event_type === 'SCHEMA_SELECTED');
-        console.log('📥 SCHEMA_SELECTED events:', schemaEvents);
 
         // Extract unique database and schemas from ALL events
         // Track schemas per database: Map<database, Set<schema>>
@@ -1401,7 +1434,17 @@ export default function ExploreDesignPage() {
 
         await loadProjectEvents({ projectId, events: backendEvents });
 
-        // Load saved column mappings from backend
+        // Load DDL actions from backend (for awareness / logging only)
+        // All events stay pending — DDL execution happens later in the deployment modal
+        try {
+          const ddlResponse = await listDDLActions(projectId);
+          const ddlActions = ddlResponse.actions || [];
+          console.log('[handleProjectSelect] Loaded DDL actions:', ddlActions.length);
+        } catch (ddlErr) {
+          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
+        }
+
+        // Load saved column mappings from backend (legacy fallback for pre-event mappings)
         try {
           const mappingsResponse = await listMappings(projectId);
           setBackendMappings(mappingsResponse.mappings || []);
@@ -1409,33 +1452,6 @@ export default function ExploreDesignPage() {
         } catch (mappingErr) {
           console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
           setBackendMappings([]);
-        }
-
-        // Load DDL actions (pending/executed) from backend
-        try {
-          const ddlResponse = await listDDLActions(projectId);
-          const ddlActions = ddlResponse.actions || [];
-          console.log('[handleProjectSelect] Loaded DDL actions:', ddlActions.length);
-
-          // Convert pending DDL actions to local events so they show in the deploy panel
-          const pendingDDLs = ddlActions.filter(a => a.status === 'PENDING');
-          if (pendingDDLs.length > 0) {
-            console.log('[handleProjectSelect] Pending DDL actions to restore:', pendingDDLs.length);
-            // These are already registered on the backend via addDDLAction,
-            // so they'll be picked up by executeDDLActions on next deploy/validate
-          }
-
-          // Log executed/failed DDL actions for audit visibility
-          const executedDDLs = ddlActions.filter(a => a.status === 'SUCCESS');
-          const failedDDLs = ddlActions.filter(a => a.status === 'FAILED');
-          if (executedDDLs.length > 0) {
-            console.log('[handleProjectSelect] Previously executed DDL actions:', executedDDLs.length);
-          }
-          if (failedDDLs.length > 0) {
-            console.log('[handleProjectSelect] Previously failed DDL actions:', failedDDLs.length);
-          }
-        } catch (ddlErr) {
-          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
         }
 
         // If we found database/schema info, restore the selections

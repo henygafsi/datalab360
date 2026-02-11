@@ -45,6 +45,8 @@ import type {
   BulkIngestionConfigResponse,
   ExecuteIngestionRequest,
   ExecuteIngestionResponse,
+  IngestionScheduleRequest,
+  IngestionScheduleResponse,
   // Masking
   MaskingConfigRequest,
   MaskingConfigResponse,
@@ -321,6 +323,17 @@ export async function executeIngestion(
 ) {
   const { data } = await apiClient.post<ExecuteIngestionResponse>(
     `${PREFIX}/${projectId}/ingestion/execute`,
+    body,
+  );
+  return data;
+}
+
+export async function scheduleIngestion(
+  projectId: string,
+  body: IngestionScheduleRequest,
+) {
+  const { data } = await apiClient.post<IngestionScheduleResponse>(
+    `${PREFIX}/${projectId}/ingestion/schedule`,
     body,
   );
   return data;

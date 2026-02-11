@@ -49,6 +49,44 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   COLUMN_MAPPING_REMOVED: { icon: Link2, label: 'Mapping Removed', color: 'bg-red-100 text-red-600' },
 };
 
+// Event display priority — same order as deployment execution
+// Lower = show first (schema before tables before FKs before policies)
+const EVENT_DISPLAY_PRIORITY: Partial<Record<EventType, number>> = {
+  SCHEMA_CREATED: 0,
+  TABLE_CREATED: 1,
+  ADD_COLUMN: 2,
+  COLUMN_RENAMED: 3,
+  COLUMN_TYPE_CHANGED: 3,
+  REMOVE_COLUMN: 3,
+  PRIMARY_KEY_SET: 4,
+  PRIMARY_KEY_REMOVED: 4,
+  FOREIGN_KEY_ADDED: 5,
+  FOREIGN_KEY_REMOVED: 5,
+  COLUMN_MAPPING_CREATED: 5,
+  COLUMN_MAPPING_REMOVED: 5,
+  MASKING_POLICY_APPLIED: 6,
+  MASKING_POLICY_REMOVED: 6,
+  RLS_POLICY_APPLIED: 6,
+  RLS_POLICY_REMOVED: 6,
+  AGGREGATION_POLICY_APPLIED: 6,
+  AGGREGATION_POLICY_REMOVED: 6,
+  TAG_APPLIED: 7,
+  TAG_REMOVED: 7,
+  INGESTION_MODE_SET: 8,
+  TABLE_RENAMED: 9,
+};
+
+const sortByPriority = (events: DesignEvent[]): DesignEvent[] =>
+  [...events].sort((a, b) => {
+    const pa = EVENT_DISPLAY_PRIORITY[a.type] ?? 99;
+    const pb = EVENT_DISPLAY_PRIORITY[b.type] ?? 99;
+    if (pa !== pb) return pa - pb;
+    // Same priority: sort by timestamp
+    const ta = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+    const tb = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+    return ta - tb;
+  });
+
 // Status config
 const statusConfig: Record<EventStatus, { icon: React.ComponentType<any>; label: string; color: string }> = {
   pending: { icon: Clock4, label: 'Pending', color: 'bg-amber-100 text-amber-600' },
@@ -201,6 +239,8 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
     'RLS_POLICY_REMOVED',
     'FOREIGN_KEY_ADDED',
     'FOREIGN_KEY_REMOVED',
+    'COLUMN_MAPPING_CREATED',
+    'COLUMN_MAPPING_REMOVED',
   ];
 
   // Filter pending events to only count displayable ones
@@ -208,9 +248,9 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
     return pendingEvents.filter(event => displayableEventTypes.includes(event.type) && !event.payload?.isTemplate);
   }, [pendingEvents]);
 
-  // Filtered events
+  // Filtered events — sorted by execution priority (schema → tables → columns → FKs → policies)
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    const filtered = events.filter((event) => {
       // Only show displayable event types (exclude SCHEMA_SELECTED, TABLE_SELECTED, etc.)
       if (!displayableEventTypes.includes(event.type)) return false;
 
@@ -232,6 +272,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
 
       return true;
     });
+    return sortByPriority(filtered);
   }, [events, searchQuery, statusFilter, typeFilter]);
 
   // Group events by table
@@ -348,6 +389,34 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
             <span className="text-purple-600 dark:text-purple-400">{payload.refTable}.{payload.refColumn}</span>
           </div>
         );
+      case 'COLUMN_MAPPING_CREATED':
+        return (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
+            <div>
+              <span className="text-green-600 dark:text-green-400">Source: </span>
+              <span className="font-mono">{(payload.sourceColumns || [payload.sourceColumn]).join(', ')}</span>
+            </div>
+            <div>
+              <span className="text-blue-600 dark:text-blue-400">Target: </span>
+              <span className="font-mono">{payload.targetTable?.table}.{payload.targetColumn}</span>
+            </div>
+            {payload.transformation && (
+              <div>
+                <span className="text-purple-600 dark:text-purple-400">Transform: </span>
+                <span className="font-mono">{payload.transformation}</span>
+              </div>
+            )}
+          </div>
+        );
+      case 'COLUMN_MAPPING_REMOVED':
+        return (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            <span className="text-red-500">Removed: </span>
+            <span className="font-mono">{payload.sourceColumn}</span>
+            <span className="mx-1">→</span>
+            <span className="font-mono">{payload.targetTable?.table}.{payload.targetColumn}</span>
+          </div>
+        );
       case 'INGESTION_MODE_SET':
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400">
@@ -416,7 +485,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
         <div className="flex-1 overflow-auto">
           {/* Template events collapsible group */}
           {(() => {
-            const templateEvents = events.filter(e => displayableEventTypes.includes(e.type) && e.payload?.isTemplate);
+            const templateEvents = sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && e.payload?.isTemplate));
             if (templateEvents.length > 0) {
               const templateSchemaCount = templateEvents.filter(e => e.type === 'SCHEMA_CREATED').length;
               const templateTableCount = templateEvents.filter(e => e.type === 'TABLE_CREATED').length;
@@ -471,7 +540,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
               No changes recorded yet
             </div>
           ) : (
-            events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate).slice(-10).reverse().map((event) => {
+            sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate)).map((event) => {
               const config = eventTypeConfig[event.type] || {
                 icon: Table2,
                 label: event.type,

@@ -332,6 +332,26 @@ export interface CreateEventResponse {
   status: string;
 }
 
+export interface UpdateEventRequest {
+  status?: string;
+  error_message?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+export interface BulkUpdateEventsRequest {
+  event_ids?: string[];
+  filter_status?: string | null;
+  filter_event_type?: string | null;
+  new_status: string;
+  new_details?: Record<string, unknown> | null;
+  error_message?: string | null;
+}
+
+export interface BulkUpdateEventsResponse {
+  updated: number;
+  project_id: string;
+}
+
 // ============================================================================
 // PART 2 — Explore & Design Module Types
 // ============================================================================
@@ -667,7 +687,7 @@ export interface ExecuteIngestionRequest {
   target_schema: string;
   target_table: string;
   ingestion_mode: IngestionMode;
-  column_mappings?: ColumnMappingInput[];
+  mappings?: ColumnMappingInput[];
   config?: Record<string, unknown>;
 }
 
@@ -677,6 +697,22 @@ export interface ExecuteIngestionResponse {
   target: string;
   ingestion_mode: IngestionMode;
   rows_affected: number;
+}
+
+export interface IngestionScheduleRequest {
+  cron_choice: CronChoice;
+  custom_cron?: string | null;
+  warehouse?: string | null;
+  mappings?: ColumnMappingInput[] | null;
+  config?: Record<string, unknown> | null;
+}
+
+export interface IngestionScheduleResponse {
+  status: string;
+  task_name: string;
+  cron_expression: string;
+  warehouse: string;
+  project_id: string;
 }
 
 // --- Masking ---

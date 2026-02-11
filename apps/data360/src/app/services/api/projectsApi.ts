@@ -37,6 +37,9 @@ import type {
   GlobalEventsParams,
   CreateEventRequest,
   CreateEventResponse,
+  UpdateEventRequest,
+  BulkUpdateEventsRequest,
+  BulkUpdateEventsResponse,
 } from './types';
 
 const PREFIX = '/api/v1/projects';
@@ -264,6 +267,29 @@ export async function listEvents(projectId: string, params?: ListEventsParams) {
 export async function addEvent(projectId: string, body: CreateEventRequest) {
   const { data } = await apiClient.post<CreateEventResponse>(
     `${PREFIX}/${projectId}/events`,
+    body,
+  );
+  return data;
+}
+
+export async function updateEvent(
+  projectId: string,
+  eventId: string,
+  body: UpdateEventRequest,
+) {
+  const { data } = await apiClient.patch<{ event_id: string; status: string }>(
+    `${PREFIX}/${projectId}/events/${eventId}`,
+    body,
+  );
+  return data;
+}
+
+export async function bulkUpdateEvents(
+  projectId: string,
+  body: BulkUpdateEventsRequest,
+) {
+  const { data } = await apiClient.patch<BulkUpdateEventsResponse>(
+    `${PREFIX}/${projectId}/events/bulk-update`,
     body,
   );
   return data;

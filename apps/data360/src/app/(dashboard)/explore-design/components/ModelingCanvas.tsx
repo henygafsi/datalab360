@@ -37,7 +37,6 @@ import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
 import TableOptionsSidebar, { TableOptionAction } from './TableOptionsSidebar';
 import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from '../stores/event-store';
-import { createMapping } from '@/app/services/api/exploreDesignApi';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
 // Custom node types
@@ -653,26 +652,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         return;
       }
 
-      // Persist mapping to backend
-      if (projectId) {
-        try {
-          await createMapping(projectId, {
-            source_database: mappingSourceTable.database,
-            source_schema: mappingSourceTable.schema,
-            source_table: mappingSourceTable.table,
-            source_columns: sourceColumns,
-            target_database: mappingTargetTable.database,
-            target_schema: mappingTargetTable.schema,
-            target_table: mappingTargetTable.table,
-            target_column: targetColumn,
-            transformation: transformation || undefined,
-          });
-        } catch (err: any) {
-          console.warn('[ModelingCanvas] Failed to persist mapping to backend:', err.message);
-        }
-      }
-
       // Create a single COLUMN_MAPPING event with all source columns and transformation
+      // (replaces createMapping API call — mappings are now event-driven and deployed via DDL actions)
       addEventRef.current(createColumnMappingEvent(
         { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
         sourceColumns, // Now supports array of columns

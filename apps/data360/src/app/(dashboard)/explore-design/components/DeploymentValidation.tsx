@@ -15,7 +15,7 @@ import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/ev
 import { useSession } from 'next-auth/react';
 // v1 API — /api/v1/explore-design/* and /api/v1/projects/*
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
-import { rollbackVersion } from '@/app/services/api/projectsApi';
+import { rollbackVersion, bulkUpdateEvents } from '@/app/services/api/projectsApi';
 // Old service — kept for reference, deploy now uses addDDLAction + executeDDLActions
 // import { deploySchema } from '@/app/services/explore-design';
 import type {
@@ -30,6 +30,7 @@ import type {
   IngestionMode,
   ColumnMappingInput,
   RollbackResponse,
+  CronChoice,
 } from '@/app/services/api/types';
 
 // Local types (previously imported from old explore-design service)
@@ -48,7 +49,7 @@ interface IngestionTableConfig {
   target_schema?: string;
   target_table: string;
   ingestion_mode: IngestionMode;
-  column_mappings?: ColumnMappingInput[];
+  mappings?: ColumnMappingInput[];
   config?: Record<string, unknown>;
 }
 
@@ -238,7 +239,7 @@ const filterExecutableEvents = (events: DesignEvent[]): DesignEvent[] => {
  * - target_column: single target column
  * - transformation: optional transformation function (CONCAT, CONCAT_WS, COALESCE, UPPER, LOWER, TRIM, SUM)
  */
-const extractIngestionConfigs = (events: DesignEvent[]): IngestionTableConfig[] => {
+const extractIngestionConfigs = (events: DesignEvent[], modeOverrides?: Record<string, IngestionMode>): IngestionTableConfig[] => {
   const ingestionConfigs: IngestionTableConfig[] = [];
 
   // Map to store column mappings per table: tableKey -> { source columns, target columns, transformation }
@@ -325,6 +326,9 @@ const extractIngestionConfigs = (events: DesignEvent[]): IngestionTableConfig[] 
       const sourceSchema = event.payload.sourceSchema || event.payload.source_schema || columnMapping?.sourceSchema || event.target.schema;
       const sourceTable = event.payload.sourceTable || event.payload.source_table || columnMapping?.sourceTable || event.target.table;
 
+      // Apply override if user changed mode in the deployment modal
+      const effectiveMode = (modeOverrides?.[targetTableKey] || mode) as IngestionMode;
+
       const config: IngestionTableConfig = {
         source_database: sourceDb,
         source_schema: sourceSchema,
@@ -332,9 +336,9 @@ const extractIngestionConfigs = (events: DesignEvent[]): IngestionTableConfig[] 
         target_database: event.target.database,
         target_schema: event.target.schema,
         target_table: event.target.table,
-        ingestion_mode: mode,
+        ingestion_mode: effectiveMode,
         // Add column mappings with new schema: source_columns (array), target_column, transformation
-        column_mappings: columnMapping?.columns.map(col => ({
+        mappings: columnMapping?.columns.map(col => ({
           source_columns: col.sourceColumns,
           target_column: col.targetColumn,
           transformation: col.transformation as any,
@@ -391,9 +395,9 @@ const extractIngestionConfigs = (events: DesignEvent[]): IngestionTableConfig[] 
         target_database: mapping.targetDb,
         target_schema: mapping.targetSchema,
         target_table: mapping.targetTable,
-        ingestion_mode: 'full_refresh', // Default mode for column mappings without explicit mode
-        // Include column mappings with new schema
-        column_mappings: mapping.columns.map(col => ({
+        ingestion_mode: modeOverrides?.[targetTableKey] || 'full_refresh', // Override or default
+        // Include column mappings
+        mappings: mapping.columns.map(col => ({
           source_columns: col.sourceColumns,
           target_column: col.targetColumn,
           transformation: col.transformation as any,
@@ -882,8 +886,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const [deploymentType, setDeploymentType] = useState<'immediate' | 'with_approval'>('immediate');
   // Ingestion scheduling type - separate from deployment type
   const [ingestionType, setIngestionType] = useState<'immediate' | 'scheduled'>('immediate');
-  const [scheduledDate, setScheduledDate] = useState('');
-  const [scheduledTime, setScheduledTime] = useState('02:00');
+  const [cronChoice, setCronChoice] = useState<CronChoice>('DAILY');
+  const [customCron, setCustomCron] = useState('');
+  const [scheduleWarehouse, setScheduleWarehouse] = useState('COMPUTE_WH');
   const [versionType, setVersionType] = useState<'patch' | 'minor' | 'major'>('patch');
   const [changelogSummary, setChangelogSummary] = useState('');
   const [selectedApprovers, setSelectedApprovers] = useState<string[]>(['DATA_MODELER']);
@@ -909,6 +914,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   // 'latest' means use the latest active version (or newly deployed version)
   // Otherwise, use the specific version_id selected by the user
   const [ingestionTargetVersion, setIngestionTargetVersion] = useState<'latest' | string>('latest');
+
+  // Per-table ingestion mode overrides: tableKey -> IngestionMode
+  const [ingestionModeOverrides, setIngestionModeOverrides] = useState<Record<string, IngestionMode>>({});
 
   // Load scheduled deployments from localStorage
   React.useEffect(() => {
@@ -1023,16 +1031,26 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     return pendingEvents.filter(e => ddlEventTypes.includes(e.type));
   }, [pendingEvents]);
 
-  // Group DDL events by table
+  // Group DDL events by table — sorted by priority (schema first, then tables, then FKs/policies)
   const eventsByTable = useMemo(() => {
-    const groups: Record<string, DesignEvent[]> = {};
+    // Sort events by priority first
+    const sorted = sortEventsForDeployment(ddlPendingEvents);
 
-    ddlPendingEvents.forEach((event) => {
+    const groups: Record<string, DesignEvent[]> = {};
+    sorted.forEach((event) => {
       const key = `${event.target.database}.${event.target.schema}.${event.target.table}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(event);
     });
-    return groups;
+
+    // Sort group keys so SCHEMA_CREATED groups come first
+    const sortedEntries = Object.entries(groups).sort(([, eventsA], [, eventsB]) => {
+      const minPriorityA = Math.min(...eventsA.map(e => EVENT_PRIORITY[e.type] ?? 99));
+      const minPriorityB = Math.min(...eventsB.map(e => EVENT_PRIORITY[e.type] ?? 99));
+      return minPriorityA - minPriorityB;
+    });
+
+    return Object.fromEntries(sortedEntries);
   }, [ddlPendingEvents]);
 
   // Extract mapped tables overview for display
@@ -1467,7 +1485,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           }
 
           // Extract ingestion configurations from ALL events (for data loading)
-          const ingestionConfigs = extractIngestionConfigs(events);
+          const ingestionConfigs = extractIngestionConfigs(events, ingestionModeOverrides);
           console.log('[Deployment] Ingestion configs:', ingestionConfigs.length);
 
           let schemaVersionId: string | null = null;
@@ -1622,79 +1640,176 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               || schemaDeployResult?.versioned_schema_name
               || 'selected schema version';
 
-            toast.loading(`Phase 2: Ingesting data for ${ingestionConfigs.length} table(s) into ${targetVersionName}...`);
-
             console.log('[Deployment] Ingestion target version:', ingestionTargetVersion, '-> resolved to:', targetVersionId);
 
-            // Execute ingestion per table via v1 API
-            const ingestionResults = await Promise.allSettled(
-              ingestionConfigs.map(config =>
-                exploreDesignApi.executeIngestion(projectId, {
-                  source_database: config.source_database,
-                  source_schema: config.source_schema,
-                  source_table: config.source_table,
-                  target_database: config.target_database || '',
-                  target_schema: config.target_schema || '',
-                  target_table: config.target_table,
-                  ingestion_mode: config.ingestion_mode,
-                  column_mappings: config.column_mappings,
-                })
-              )
-            );
+            if (ingestionType === 'scheduled') {
+              // ─── Scheduled Ingestion: create Snowflake TASK via backend ───
+              toast.loading(`Phase 2: Scheduling ingestion for ${ingestionConfigs.length} table(s)...`);
 
-            // Aggregate results
-            const fulfilled = ingestionResults.filter(
-              (r): r is PromiseFulfilledResult<ExecuteIngestionResponse> => r.status === 'fulfilled'
-            );
-            const rejected = ingestionResults.filter(
-              (r): r is PromiseRejectedResult => r.status === 'rejected'
-            );
-            const successCount = fulfilled.filter(r => r.value.status === 'success').length;
-            const failCount = rejected.length + fulfilled.filter(r => r.value.status === 'failed').length;
-            ingestionRowsAffected = fulfilled.reduce((sum, r) => sum + (r.value.rows_affected || 0), 0);
+              try {
+                // Collect all mappings from ingestion configs
+                const allMappings = ingestionConfigs.flatMap(c => c.mappings || []);
 
-            if (successCount === 0 && failCount > 0) {
-              // All failed
-              const errorMsg = rejected.length > 0
-                ? rejected[0].reason?.message || 'Ingestion failed'
-                : 'All tables failed ingestion';
-              console.error('[Deployment] Ingestion failed:', errorMsg);
-              toast.dismiss();
-              toast.error(`Phase 2 failed: ${errorMsg}`);
-              setBackendError(errorMsg);
+                const scheduleResult = await exploreDesignApi.scheduleIngestion(projectId, {
+                  cron_choice: cronChoice,
+                  custom_cron: cronChoice === 'CUSTOM' ? customCron : undefined,
+                  warehouse: scheduleWarehouse || undefined,
+                  mappings: allMappings.length > 0 ? allMappings : undefined,
+                  config: {
+                    ingestion_configs: ingestionConfigs,
+                    target_version_id: targetVersionId,
+                  },
+                });
 
+                console.log('[Deployment] Ingestion scheduled:', scheduleResult);
+
+                // Mark ingestion events as applied
+                eventsToDeploy.forEach((event) => {
+                  if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
+                    updateEventStatus({ eventId: event.id, status: 'applied' });
+                  }
+                });
+
+                toast.dismiss();
+                toast.success(
+                  `Phase 2: Ingestion scheduled — Task: ${scheduleResult.task_name}, Cron: ${scheduleResult.cron_expression}, Warehouse: ${scheduleResult.warehouse}`
+                );
+              } catch (scheduleErr: any) {
+                const errorMsg = getApiErrorMessage(scheduleErr) || scheduleErr?.message || 'Failed to schedule ingestion';
+                console.error('[Deployment] Ingestion scheduling failed:', errorMsg);
+                toast.dismiss();
+                toast.error(`Phase 2 failed: ${errorMsg}`);
+                setBackendError(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+
+                eventsToDeploy.forEach((event) => {
+                  if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
+                    updateEventStatus({ eventId: event.id, status: 'failed', error: typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg) });
+                  }
+                });
+
+                // Sync partial statuses: schema SUCCESS, ingestion FAILED
+                const schemaSuccessIds = schemaEventsToExecute.map(e => e.id).filter(Boolean);
+                const ingestionFailedIds = eventsToDeploy
+                  .filter(e => e.type === 'INGESTION_MODE_SET' || e.type === 'COLUMN_MAPPING_CREATED')
+                  .map(e => e.id)
+                  .filter(Boolean);
+                try {
+                  if (schemaSuccessIds.length > 0) {
+                    await bulkUpdateEvents(projectId, { event_ids: schemaSuccessIds, new_status: 'SUCCESS' });
+                  }
+                  if (ingestionFailedIds.length > 0) {
+                    await bulkUpdateEvents(projectId, {
+                      event_ids: ingestionFailedIds,
+                      new_status: 'FAILED',
+                      error_message: typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg),
+                    });
+                  }
+                } catch (syncErr) {
+                  console.warn('[Deployment] Failed to sync partial statuses to backend:', syncErr);
+                }
+
+                if (queriesExecuted > 0) {
+                  toast.error(`Partial deployment: Schema deployed, but ingestion scheduling failed.`);
+                }
+
+                setIsDeploying(false);
+                return;
+              }
+            } else {
+              // ─── Immediate Ingestion: execute per table via v1 API ───
+              toast.loading(`Phase 2: Ingesting data for ${ingestionConfigs.length} table(s) into ${targetVersionName}...`);
+
+              const ingestionResults = await Promise.allSettled(
+                ingestionConfigs.map(config =>
+                  exploreDesignApi.executeIngestion(projectId, {
+                    source_database: config.source_database,
+                    source_schema: config.source_schema,
+                    source_table: config.source_table,
+                    target_database: config.target_database || '',
+                    target_schema: config.target_schema || '',
+                    target_table: config.target_table,
+                    ingestion_mode: config.ingestion_mode,
+                    mappings: config.mappings,
+                  })
+                )
+              );
+
+              // Aggregate results
+              const fulfilled = ingestionResults.filter(
+                (r): r is PromiseFulfilledResult<ExecuteIngestionResponse> => r.status === 'fulfilled'
+              );
+              const rejected = ingestionResults.filter(
+                (r): r is PromiseRejectedResult => r.status === 'rejected'
+              );
+              const successCount = fulfilled.filter(r => r.value.status === 'success').length;
+              const failCount = rejected.length + fulfilled.filter(r => r.value.status === 'failed').length;
+              ingestionRowsAffected = fulfilled.reduce((sum, r) => sum + (r.value.rows_affected || 0), 0);
+
+              if (successCount === 0 && failCount > 0) {
+                // All failed
+                const errorMsg = rejected.length > 0
+                  ? rejected[0].reason?.message || 'Ingestion failed'
+                  : 'All tables failed ingestion';
+                console.error('[Deployment] Ingestion failed:', errorMsg);
+                toast.dismiss();
+                toast.error(`Phase 2 failed: ${errorMsg}`);
+                setBackendError(errorMsg);
+
+                eventsToDeploy.forEach((event) => {
+                  if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
+                    updateEventStatus({ eventId: event.id, status: 'failed', error: errorMsg });
+                  }
+                });
+
+                // Sync partial deployment statuses to backend:
+                // Schema events → SUCCESS (Phase 1 succeeded), Ingestion events → FAILED
+                const schemaSuccessIds = schemaEventsToExecute.map(e => e.id).filter(Boolean);
+                const ingestionFailedIds = eventsToDeploy
+                  .filter(e => e.type === 'INGESTION_MODE_SET' || e.type === 'COLUMN_MAPPING_CREATED')
+                  .map(e => e.id)
+                  .filter(Boolean);
+                try {
+                  if (schemaSuccessIds.length > 0) {
+                    await bulkUpdateEvents(projectId, { event_ids: schemaSuccessIds, new_status: 'SUCCESS' });
+                  }
+                  if (ingestionFailedIds.length > 0) {
+                    await bulkUpdateEvents(projectId, {
+                      event_ids: ingestionFailedIds,
+                      new_status: 'FAILED',
+                      error_message: errorMsg,
+                    });
+                  }
+                } catch (syncErr) {
+                  console.warn('[Deployment] Failed to sync partial statuses to backend:', syncErr);
+                }
+
+                if (queriesExecuted > 0) {
+                  toast.error(`Partial deployment: Schema deployed, but data ingestion failed.`);
+                }
+
+                setIsDeploying(false);
+                return;
+              }
+
+              console.log('[Deployment] Phase 2 complete:', {
+                successful: successCount,
+                failed: failCount,
+                rowsAffected: ingestionRowsAffected,
+              });
+
+              // Mark ingestion events as applied
               eventsToDeploy.forEach((event) => {
                 if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
-                  updateEventStatus({ eventId: event.id, status: 'failed', error: errorMsg });
+                  updateEventStatus({ eventId: event.id, status: 'applied' });
                 }
               });
 
-              if (queriesExecuted > 0) {
-                toast.error(`Partial deployment: Schema deployed, but data ingestion failed.`);
+              toast.dismiss();
+              toast.success(`Phase 2 complete: ${successCount}/${ingestionConfigs.length} table(s) ingested (${ingestionRowsAffected} rows)`);
+
+              if (failCount > 0) {
+                toast.error(`Partial ingestion: ${successCount}/${ingestionConfigs.length} tables succeeded`);
               }
-
-              setIsDeploying(false);
-              return;
-            }
-
-            console.log('[Deployment] Phase 2 complete:', {
-              successful: successCount,
-              failed: failCount,
-              rowsAffected: ingestionRowsAffected,
-            });
-
-            // Mark ingestion events as applied
-            eventsToDeploy.forEach((event) => {
-              if (event.type === 'INGESTION_MODE_SET' || event.type === 'COLUMN_MAPPING_CREATED') {
-                updateEventStatus({ eventId: event.id, status: 'applied' });
-              }
-            });
-
-            toast.dismiss();
-            toast.success(`Phase 2 complete: ${successCount}/${ingestionConfigs.length} table(s) ingested (${ingestionRowsAffected} rows)`);
-
-            if (failCount > 0) {
-              toast.error(`Partial ingestion: ${successCount}/${ingestionConfigs.length} tables succeeded`);
             }
           } else {
             console.log('[Deployment] No ingestion configs - skipping Phase 2');
@@ -1724,12 +1839,29 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           const recordedDeploymentId = v1Record.deployment_id;
           console.log('[Deployment] v1 immediate deployment recorded:', recordedDeploymentId);
 
-          // Mark any remaining metadata events as applied
+          // Mark any remaining metadata events as applied (local Jotai store)
           sortedEvents.forEach((event) => {
             if (event.status !== 'applied' && event.status !== 'failed') {
               updateEventStatus({ eventId: event.id, status: 'applied' });
             }
           });
+
+          // Sync event statuses to backend so they persist across sessions
+          const appliedEventIds = sortedEvents
+            .filter(e => e.status !== 'failed')
+            .map(e => e.id)
+            .filter(Boolean);
+          if (appliedEventIds.length > 0) {
+            try {
+              await bulkUpdateEvents(projectId, {
+                event_ids: appliedEventIds,
+                new_status: 'SUCCESS',
+              });
+              console.log('[Deployment] Backend event statuses synced:', appliedEventIds.length);
+            } catch (syncErr) {
+              console.warn('[Deployment] Failed to sync event statuses to backend (non-blocking):', syncErr);
+            }
+          }
 
           setDeploymentId(recordedDeploymentId || null);
           toast.dismiss();
@@ -1760,10 +1892,24 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           toast.dismiss();
           toast.error(`Deployment failed: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
 
-          // Mark events as failed
+          // Mark events as failed (local)
           eventsToDeploy.forEach((event) => {
             updateEventStatus({ eventId: event.id, status: 'failed', error: getApiErrorMessage(error) || error?.message });
           });
+
+          // Sync failed status to backend
+          const failedEventIds = eventsToDeploy.map(e => e.id).filter(Boolean);
+          if (failedEventIds.length > 0) {
+            try {
+              await bulkUpdateEvents(projectId, {
+                event_ids: failedEventIds,
+                new_status: 'FAILED',
+                error_message: getApiErrorMessage(error) || error?.message || 'Deployment failed',
+              });
+            } catch (syncErr) {
+              console.warn('[Deployment] Failed to sync failed statuses to backend:', syncErr);
+            }
+          }
         }
       }
 
@@ -1786,7 +1932,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     } finally {
       setIsDeploying(false);
     }
-  }, [events, pendingEvents, deploymentType, scheduledDate, scheduledTime, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend, ingestionTargetVersion, schemaVersions]);
+  }, [events, pendingEvents, deploymentType, ingestionType, cronChoice, customCron, scheduleWarehouse, versionType, changelogSummary, selectedApprovers, currentUser, updateEventStatus, saveScheduledDeployment, projectId, useBackend, ingestionTargetVersion, schemaVersions, ingestionModeOverrides]);
 
   // Download SQL script
   const handleDownloadSQL = useCallback(() => {
@@ -2529,12 +2675,28 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                     </div>
                   </div>
 
-                  {/* Ingestion Mode */}
-                  {mapping.ingestionMode && (
-                    <Badge className="ml-auto bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
-                      {mapping.ingestionMode.replace(/_/g, ' ')}
-                    </Badge>
-                  )}
+                  {/* Ingestion Mode Selector */}
+                  {(() => {
+                    const tableKey = `${mapping.targetDatabase}.${mapping.targetSchema}.${mapping.targetTable}`;
+                    const currentMode = ingestionModeOverrides[tableKey] || (mapping.ingestionMode as IngestionMode) || 'full_refresh';
+                    return (
+                      <select
+                        value={currentMode}
+                        onChange={(e) => setIngestionModeOverrides(prev => ({
+                          ...prev,
+                          [tableKey]: e.target.value as IngestionMode,
+                        }))}
+                        className="ml-auto text-xs px-2 py-1 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 font-medium cursor-pointer focus:ring-1 focus:ring-amber-400"
+                      >
+                        <option value="full_refresh">Full Refresh</option>
+                        <option value="incremental">Incremental</option>
+                        <option value="snapshot">Snapshot</option>
+                        <option value="scd_type1">SCD Type 1</option>
+                        <option value="scd_type2">SCD Type 2</option>
+                        <option value="scd_type3">SCD Type 3</option>
+                      </select>
+                    );
+                  })()}
                 </div>
 
                 {/* Column Mappings */}
@@ -2704,27 +2866,48 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               ))}
             </div>
 
-            {/* Schedule Date/Time */}
+            {/* Schedule Cron / Warehouse */}
             {ingestionType === 'scheduled' && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-slate-500">Date</label>
-                  <Input
-                    type="date"
-                    value={scheduledDate}
-                    onChange={(e) => setScheduledDate(e.target.value)}
-                    className="mt-1"
-                  />
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-slate-500">Frequency</label>
+                    <select
+                      value={cronChoice}
+                      onChange={(e) => setCronChoice(e.target.value as CronChoice)}
+                      className="w-full mt-1 p-2 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700"
+                    >
+                      <option value="EVERY_HOUR">Every Hour</option>
+                      <option value="EVERY_6_HOURS">Every 6 Hours</option>
+                      <option value="DAILY">Daily</option>
+                      <option value="WEEKLY">Weekly</option>
+                      <option value="MONTHLY">Monthly</option>
+                      <option value="CUSTOM">Custom Cron</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-500">Warehouse</label>
+                    <Input
+                      type="text"
+                      value={scheduleWarehouse}
+                      onChange={(e) => setScheduleWarehouse(e.target.value.toUpperCase())}
+                      placeholder="COMPUTE_WH"
+                      className="mt-1"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs text-slate-500">Time (UTC)</label>
-                  <Input
-                    type="time"
-                    value={scheduledTime}
-                    onChange={(e) => setScheduledTime(e.target.value)}
-                    className="mt-1"
-                  />
-                </div>
+                {cronChoice === 'CUSTOM' && (
+                  <div>
+                    <label className="text-xs text-slate-500">Custom Cron Expression</label>
+                    <Input
+                      type="text"
+                      value={customCron}
+                      onChange={(e) => setCustomCron(e.target.value)}
+                      placeholder="USING CRON 0 2 * * * UTC"
+                      className="mt-1"
+                    />
+                  </div>
+                )}
               </div>
             )}
 
