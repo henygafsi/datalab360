@@ -5,7 +5,7 @@ import { Modal, Button, Select, Badge, Input } from 'rizzui';
 import { Link2, X, Save, Trash2, GitBranch, AlertCircle, ArrowRight } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
-import { addDesignEvent } from '@/app/services/explore-design';
+import { addDDLAction } from '@/app/services/api/exploreDesignApi';
 
 interface TableColumn {
   name: string;
@@ -159,9 +159,6 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
       const fkName = constraintName || `FK_${sourceTable}_${sourceColumn}`;
       const sql = `ALTER TABLE ${database}.${schema}.${sourceTable} ADD CONSTRAINT ${fkName} FOREIGN KEY (${sourceColumn}) REFERENCES ${targetDb}.${targetSch}.${targetTbl}(${targetColumn});`;
 
-      // Generate unique event ID
-      const eventId = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
       const eventPayload = {
         sourceColumn,
         targetTable: targetTableRef,
@@ -174,20 +171,13 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
         referencedColumns: [targetColumn],
       };
 
-      // Call backend API to persist event
-      await addDesignEvent(
-        projectId,
-        eventId,
-        'FOREIGN_KEY_ADDED',
-        {
-          database,
-          schema,
-          table: sourceTable,
-          column: sourceColumn,
-        },
-        eventPayload,
-        'explore-design'
-      );
+      // Call backend API to persist DDL action
+      await addDDLAction(projectId, {
+        ddl_sql: sql,
+        ddl_type: 'ALTER_ADD_COLUMN',
+        target_table: `${database}.${schema}.${sourceTable}`,
+        description: `Add foreign key ${fkName} on ${sourceColumn} → ${targetTbl}(${targetColumn})`,
+      });
 
       // Add to local store for immediate UI update
       addEvent({
@@ -228,29 +218,19 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
       const fkName = constraintName || `FK_${sourceTable}_${sourceColumn}`;
       const sql = `ALTER TABLE ${database}.${schema}.${sourceTable} DROP CONSTRAINT ${fkName};`;
 
-      // Generate unique event ID
-      const eventId = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
       const eventPayload = {
         sourceColumn,
         constraintName: fkName,
         sql,
       };
 
-      // Call backend API to persist event
-      await addDesignEvent(
-        projectId,
-        eventId,
-        'FOREIGN_KEY_REMOVED',
-        {
-          database,
-          schema,
-          table: sourceTable,
-          column: sourceColumn,
-        },
-        eventPayload,
-        'explore-design'
-      );
+      // Call backend API to persist DDL action
+      await addDDLAction(projectId, {
+        ddl_sql: sql,
+        ddl_type: 'ALTER_DROP_COLUMN',
+        target_table: `${database}.${schema}.${sourceTable}`,
+        description: `Drop foreign key ${fkName}`,
+      });
 
       // Add to local store for immediate UI update
       addEvent({

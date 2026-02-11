@@ -112,10 +112,12 @@ apiClient.interceptors.response.use(
 
     // Handle 403 Forbidden - Insufficient permissions
     if (status === 403) {
+      const data = error.response?.data as { detail?: string | { detail?: string } } | undefined;
+      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'You do not have permission to access this resource.';
       if (process.env.NODE_ENV === 'development') {
-        console.warn('[API Client] 403 Forbidden - Access denied');
+        console.warn('[API Client] 403 Forbidden -', message);
       }
-      return Promise.reject(new AuthorizationError('You do not have permission to access this resource.'));
+      return Promise.reject(new AuthorizationError(message));
     }
 
     // Handle 404 Not Found - pass through so components can show "not found" message

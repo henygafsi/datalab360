@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
+import { useEventStore } from '../stores/event-store';
 
 // Import existing policy services
 import {
@@ -55,6 +56,8 @@ interface PolicyAssignmentPanelProps {
   onPolicyApplied?: (policy: AppliedPolicy) => void;
   onClose?: () => void;
   className?: string;
+  isTemplateTable?: boolean;
+  projectId?: string | null;
 }
 
 // Policy Category Tab
@@ -89,7 +92,10 @@ const MaskingPolicySection: React.FC<{
   columns: ColumnInfo[];
   selectedColumn?: string | null;
   onApply: (policy: AppliedPolicy) => void;
-}> = ({ table, columns, selectedColumn, onApply }) => {
+  isTemplateTable?: boolean;
+  projectId?: string | null;
+}> = ({ table, columns, selectedColumn, onApply, isTemplateTable, projectId }) => {
+  const { addEvent } = useEventStore(projectId);
   const [policies, setPolicies] = useState<MaskingPolicy[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<string>('');
@@ -102,7 +108,9 @@ const MaskingPolicySection: React.FC<{
 
   useEffect(() => {
     loadPolicies();
-    loadTablePolicies();
+    if (!isTemplateTable) {
+      loadTablePolicies();
+    }
   }, []);
 
   useEffect(() => {
@@ -111,9 +119,9 @@ const MaskingPolicySection: React.FC<{
     }
   }, [selectedColumn]);
 
-  // Reload table policies when table changes
+  // Reload table policies when table changes (skip for template tables)
   useEffect(() => {
-    if (table) {
+    if (table && !isTemplateTable) {
       loadTablePolicies();
     }
   }, [table.database, table.schema, table.table]);
@@ -131,12 +139,11 @@ const MaskingPolicySection: React.FC<{
   };
 
   const loadTablePolicies = async () => {
-    if (!table) return;
+    if (!table || isTemplateTable) return;
     setLoadingTablePolicies(true);
     try {
       const data = await getTablePolicies(table.database, table.schema, table.table);
       setTablePolicies(data);
-      console.log('[MaskingPolicySection] Table policies loaded:', data);
     } catch (error) {
       console.error('Failed to load table policies:', error);
       setTablePolicies(null);
@@ -166,6 +173,34 @@ const MaskingPolicySection: React.FC<{
 
     setFormError(null);
     setApplying(true);
+
+    // Template tables: fire local event instead of calling backend
+    if (isTemplateTable) {
+      addEvent({
+        type: 'MASKING_POLICY_APPLIED',
+        projectId: projectId || undefined,
+        target: {
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+          column: targetColumn,
+        },
+        payload: {
+          policyName: selectedPolicy,
+          columns: [targetColumn],
+        },
+      });
+      toast.success(`Masking policy "${selectedPolicy}" queued for ${targetColumn} (will apply on deploy)`);
+      onApply({
+        type: 'masking',
+        name: selectedPolicy,
+        target: targetColumn,
+      });
+      setSelectedPolicy('');
+      setApplying(false);
+      return;
+    }
+
     try {
       // Check if column already has a masking policy
       if (existingPolicy) {
@@ -497,7 +532,10 @@ const RLSPolicySection: React.FC<{
   table: TableItem;
   columns: ColumnInfo[];
   onApply: (policy: AppliedPolicy) => void;
-}> = ({ table, columns, onApply }) => {
+  isTemplateTable?: boolean;
+  projectId?: string | null;
+}> = ({ table, columns, onApply, isTemplateTable, projectId }) => {
+  const { addEvent } = useEventStore(projectId);
   const [policies, setPolicies] = useState<RLSPolicy[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<string>('');
@@ -510,12 +548,14 @@ const RLSPolicySection: React.FC<{
 
   useEffect(() => {
     loadPolicies();
-    loadTablePolicies();
+    if (!isTemplateTable) {
+      loadTablePolicies();
+    }
   }, []);
 
-  // Reload when table changes
+  // Reload when table changes (skip for template tables)
   useEffect(() => {
-    if (table) {
+    if (table && !isTemplateTable) {
       loadTablePolicies();
     }
   }, [table.database, table.schema, table.table]);
@@ -533,7 +573,7 @@ const RLSPolicySection: React.FC<{
   };
 
   const loadTablePolicies = async () => {
-    if (!table) return;
+    if (!table || isTemplateTable) return;
     setLoadingTablePolicies(true);
     try {
       const data = await getTablePolicies(table.database, table.schema, table.table);
@@ -562,6 +602,35 @@ const RLSPolicySection: React.FC<{
 
     setFormError(null);
     setApplying(true);
+
+    // Template tables: fire local event instead of calling backend
+    if (isTemplateTable) {
+      addEvent({
+        type: 'RLS_POLICY_APPLIED',
+        projectId: projectId || undefined,
+        target: {
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+        },
+        payload: {
+          policyName: selectedPolicy,
+          policyColumn: filterColumn,
+        },
+      });
+      toast.success(`RLS policy "${selectedPolicy}" queued for ${table.table} (will apply on deploy)`);
+      onApply({
+        type: 'rls',
+        name: selectedPolicy,
+        target: table.table,
+        details: `Filter column: ${filterColumn}`,
+      });
+      setSelectedPolicy('');
+      setFilterColumn('');
+      setApplying(false);
+      return;
+    }
+
     try {
       // Check if table already has an RLS policy (from getTablePolicies)
       if (existingRLSPolicy) {
@@ -848,7 +917,10 @@ const TagsSection: React.FC<{
   columns: ColumnInfo[];
   selectedColumn?: string | null;
   onApply: (policy: AppliedPolicy) => void;
-}> = ({ table, columns, selectedColumn, onApply }) => {
+  isTemplateTable?: boolean;
+  projectId?: string | null;
+}> = ({ table, columns, selectedColumn, onApply, isTemplateTable, projectId }) => {
+  const { addEvent } = useEventStore(projectId);
   const [tags, setTags] = useState<TagType[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedTag, setSelectedTag] = useState<string>('');
@@ -892,6 +964,37 @@ const TagsSection: React.FC<{
     }
 
     setApplying(true);
+
+    // Template tables: fire local event instead of calling backend
+    if (isTemplateTable) {
+      addEvent({
+        type: 'TAG_APPLIED',
+        projectId: projectId || undefined,
+        target: {
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+          column: objectType === 'column' ? targetColumn : undefined,
+        },
+        payload: {
+          tagName: selectedTag,
+          tagValue: tagValue,
+          objectType: objectType.toUpperCase(),
+        },
+      });
+      toast.success(`Tag "${selectedTag}" queued (will apply on deploy)`);
+      onApply({
+        type: 'tags',
+        name: selectedTag,
+        target: objectType === 'column' ? targetColumn : table.table,
+        details: `Value: ${tagValue}`,
+      });
+      setSelectedTag('');
+      setTagValue('');
+      setApplying(false);
+      return;
+    }
+
     try {
       await applyTag({
         tag_name: selectedTag,
@@ -1052,7 +1155,10 @@ const TagsSection: React.FC<{
 const AggregationPolicySection: React.FC<{
   table: TableItem;
   onApply: (policy: AppliedPolicy) => void;
-}> = ({ table, onApply }) => {
+  isTemplateTable?: boolean;
+  projectId?: string | null;
+}> = ({ table, onApply, isTemplateTable, projectId }) => {
+  const { addEvent } = useEventStore(projectId);
   const [policies, setPolicies] = useState<AggregationPolicy[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<string>('');
@@ -1081,6 +1187,32 @@ const AggregationPolicySection: React.FC<{
     }
 
     setApplying(true);
+
+    // Template tables: fire local event instead of calling backend
+    if (isTemplateTable) {
+      addEvent({
+        type: 'AGGREGATION_POLICY_APPLIED',
+        projectId: projectId || undefined,
+        target: {
+          database: table.database,
+          schema: table.schema,
+          table: table.table,
+        },
+        payload: {
+          policyName: selectedPolicy,
+        },
+      });
+      toast.success(`Aggregation policy "${selectedPolicy}" queued for ${table.table} (will apply on deploy)`);
+      onApply({
+        type: 'aggregation',
+        name: selectedPolicy,
+        target: table.table,
+      });
+      setSelectedPolicy('');
+      setApplying(false);
+      return;
+    }
+
     try {
       await applyAggregationPolicy({
         policy_name: selectedPolicy,
@@ -1172,6 +1304,8 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
   onPolicyApplied,
   onClose,
   className,
+  isTemplateTable,
+  projectId,
 }) => {
   const [activeTab, setActiveTab] = useState<PolicyCategory>('masking');
   const [appliedPolicies, setAppliedPolicies] = useState<AppliedPolicy[]>([]);
@@ -1251,6 +1385,8 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
             columns={columns}
             selectedColumn={selectedColumn}
             onApply={handlePolicyApplied}
+            isTemplateTable={isTemplateTable}
+            projectId={projectId}
           />
         )}
         {activeTab === 'rls' && (
@@ -1258,6 +1394,8 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
             table={table}
             columns={columns}
             onApply={handlePolicyApplied}
+            isTemplateTable={isTemplateTable}
+            projectId={projectId}
           />
         )}
         {activeTab === 'tags' && (
@@ -1266,12 +1404,16 @@ const PolicyAssignmentPanel: React.FC<PolicyAssignmentPanelProps> = ({
             columns={columns}
             selectedColumn={selectedColumn}
             onApply={handlePolicyApplied}
+            isTemplateTable={isTemplateTable}
+            projectId={projectId}
           />
         )}
         {activeTab === 'aggregation' && (
           <AggregationPolicySection
             table={table}
             onApply={handlePolicyApplied}
+            isTemplateTable={isTemplateTable}
+            projectId={projectId}
           />
         )}
       </div>

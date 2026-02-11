@@ -5,7 +5,7 @@ import { Modal, Button, Input, Select, Badge, Checkbox } from 'rizzui';
 import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
-import { addDesignEvent } from '@/app/services/explore-design';
+import { addDDLAction } from '@/app/services/api/exploreDesignApi';
 
 interface Column {
   id: string;
@@ -166,37 +166,13 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
       sql += ';';
 
-      // Generate unique event ID
-      const eventId = `evt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      const eventPayload = {
-        tableName,
-        columns: columns.map((col) => ({
-          name: col.name,
-          dataType: col.dataType,
-          nullable: col.nullable,
-          primaryKey: col.primaryKey,
-          defaultValue: col.defaultValue,
-          comment: col.comment,
-        })),
-        primaryKeys: primaryKeyColumns,
-        comment: tableComment,
-        sql,
-      };
-
-      // Call backend API to persist event
-      await addDesignEvent(
-        projectId,
-        eventId,
-        'TABLE_CREATED',
-        {
-          database,
-          schema,
-          table: tableName,
-        },
-        eventPayload,
-        'explore-design'
-      );
+      // Call backend API to persist DDL action
+      await addDDLAction(projectId, {
+        ddl_sql: sql,
+        ddl_type: 'CREATE_TABLE',
+        target_table: `${database}.${schema}.${tableName}`,
+        description: tableComment || `Create table ${tableName}`,
+      });
 
       // Add to local store for immediate UI update
       addEvent({
@@ -207,7 +183,20 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
           schema,
           table: tableName,
         },
-        payload: eventPayload,
+        payload: {
+          tableName,
+          columns: columns.map((col) => ({
+            name: col.name,
+            dataType: col.dataType,
+            nullable: col.nullable,
+            primaryKey: col.primaryKey,
+            defaultValue: col.defaultValue,
+            comment: col.comment,
+          })),
+          primaryKeys: primaryKeyColumns,
+          comment: tableComment,
+          sql,
+        },
       });
 
       toast.success(`Table "${tableName}" creation event added to deployment queue`);

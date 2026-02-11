@@ -4,11 +4,14 @@ import axios from 'axios';
 import { getAuthHeaders } from '@/lib/auth';
 import { API_CONTRACTS } from '@/lib/api-contracts';
 import { API_CONFIG } from '@/config/database.config';
+import apiClient from '@/lib/api-client';
 
 const API_URL = API_CONFIG.BASE_URL;
 const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
 /** Explore & Design guided data flow: /explore-design/guided/* */
 const GUIDED_BASE = `${API_URL}/explore-design/guided`;
+/** New v1 explore-design prefix (uses apiClient with built-in auth) */
+const V1_EXPLORE = '/api/v1/explore-design';
 
 // Types
 export type IngestionMode =
@@ -158,30 +161,6 @@ export interface RelationDetection {
 // METADATA APIS
 // ============================================
 
-/**
- * Fetch metadata for multiple tables in a single request
- */
-export async function batchGetTableMetadata(
-  tables: TableReference[],
-  options?: {
-    include_columns?: boolean;
-    include_statistics?: boolean;
-    include_constraints?: boolean;
-  }
-): Promise<{ tables: TableMetadata[]; metadata: { fetched_at: string; total_tables: number } }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${GUIDED_BASE}/metadata/batch`,
-    {
-      tables,
-      include_columns: options?.include_columns ?? true,
-      include_statistics: options?.include_statistics ?? false,
-      include_constraints: options?.include_constraints ?? true,
-    },
-    { headers }
-  );
-  return response.data;
-}
 
 // ============================================
 // INGESTION CONFIGURATION APIS
@@ -190,48 +169,12 @@ export async function batchGetTableMetadata(
 /**
  * Set ingestion mode for a table
  */
-export async function setIngestionConfig(
-  projectId: string,
-  table: TableReference,
-  ingestionMode: IngestionMode,
-  config?: IngestionConfig['config']
-): Promise<{ success: boolean; table_id: string; config_id: string; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/config`,
-    {
-      project_id: projectId,
-      table,
-      ingestion_mode: ingestionMode,
-      config,
-    },
-    { headers }
-  );
-  return response.data;
-}
+
 
 /**
  * Bulk set ingestion mode for multiple tables
  */
-export async function bulkSetIngestionConfig(
-  projectId: string,
-  tables: TableReference[],
-  ingestionMode: IngestionMode,
-  config?: { incremental_column_pattern?: string }
-): Promise<{ success: boolean; updated: number; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/config/bulk`,
-    {
-      project_id: projectId,
-      tables,
-      ingestion_mode: ingestionMode,
-      config,
-    },
-    { headers }
-  );
-  return response.data;
-}
+
 
 // ============================================
 // DETECTION APIS
@@ -240,30 +183,6 @@ export async function bulkSetIngestionConfig(
 /**
  * Detect sensitive columns in tables
  */
-export async function detectSensitiveColumns(
-  tables: TableReference[],
-  options?: {
-    patterns?: string[];
-    sample_data?: boolean;
-    sample_size?: number;
-  }
-): Promise<{
-  detections: SensitiveColumnDetection[];
-  summary: { tables_scanned: number; columns_scanned: number; sensitive_found: number };
-}> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/detect/sensitive`,
-    {
-      tables,
-      patterns: options?.patterns ?? ['email', 'ssn', 'phone', 'address', 'credit_card', 'dob'],
-      sample_data: options?.sample_data ?? true,
-      sample_size: options?.sample_size ?? 100,
-    },
-    { headers }
-  );
-  return response.data;
-}
 
 /**
  * Auto-detect foreign key relationships
@@ -359,6 +278,7 @@ export async function recordEvent(
 
 /**
  * Get all events for a project
+ * Tries v1 API first (GET /api/v1/explore-design/{projectId}/events), falls back to legacy
  */
 export async function getProjectEvents(
   projectId: string,
@@ -371,16 +291,37 @@ export async function getProjectEvents(
   events: DesignEvent[];
   summary: { total: number; pending: number; validated: number; failed: number };
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (filters?.status) params.append('status', filters.status);
-  if (filters?.event_type) params.append('event_type', filters.event_type);
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/events`, {
+      params: {
+        ...(filters?.event_type ? { event_type: filters.event_type } : {}),
+      },
+    });
+    const events = data.events || [];
+    return {
+      project_id: data.project_id || projectId,
+      events,
+      summary: {
+        total: events.length,
+        pending: events.filter((e: any) => e.status === 'pending').length,
+        validated: events.filter((e: any) => e.status === 'validated').length,
+        failed: events.filter((e: any) => e.status === 'failed').length,
+      },
+    };
+  } catch {
+    // Fallback to legacy endpoint
+    const headers = await getAuthHeaders();
+    const params = new URLSearchParams();
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.event_type) params.append('event_type', filters.event_type);
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
-    { headers }
-  );
-  return response.data;
+    const response = await axios.get(
+      `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
+      { headers }
+    );
+    return response.data;
+  }
 }
 
 /**
@@ -511,35 +452,69 @@ export interface ExploreProjectsResponse {
 
 /**
  * Get all explore projects for the current user
- * Backend endpoint: GET /explore-design/projects
+ * Tries v1 API first (GET /api/v1/projects?project_type=explore_design), falls back to legacy
  */
 export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects`,
-    { headers }
-  );
-  return response.data;
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.get('/api/v1/projects', {
+      params: { project_type: 'explore_design' },
+    });
+    // Map v1 response shape to legacy shape
+    const projects = (data.projects || []).map((p: any) => ({
+      project_id: p.project_id,
+      project_name: p.project_name,
+      created_by: p.created_by,
+      created_at: p.created_at,
+      status: p.status,
+      metadata: p.metadata,
+    }));
+    return { projects, total: data.total ?? projects.length };
+  } catch {
+    // Fallback to legacy endpoint
+    const headers = await getAuthHeaders();
+    const response = await axios.get(
+      `${EXPLORE_DESIGN_BASE}/projects`,
+      { headers }
+    );
+    return response.data;
+  }
 }
 
 /**
  * Create a new explore project
- * Backend endpoint: POST /explore-design/projects or POST /explore-design/create_project
+ * Tries v1 API first (POST /api/v1/explore-design), falls back to legacy
  */
 export async function createExploreProject(
   projectName: string,
   metadata?: Record<string, any>
 ): Promise<{ success: boolean; project_id: string; project_name: string; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/projects`,
-    {
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.post(V1_EXPLORE, {
       project_name: projectName,
+      project_type: 'explore_design',
       metadata: metadata || {},
-    },
-    { headers }
-  );
-  return response.data;
+    });
+    return {
+      success: true,
+      project_id: data.project_id,
+      project_name: data.project_name || projectName,
+      message: 'Project created successfully',
+    };
+  } catch {
+    // Fallback to legacy endpoint
+    const headers = await getAuthHeaders();
+    const response = await axios.post(
+      `${EXPLORE_DESIGN_BASE}/projects`,
+      {
+        project_name: projectName,
+        metadata: metadata || {},
+      },
+      { headers }
+    );
+    return response.data;
+  }
 }
 
 /**
@@ -1516,44 +1491,58 @@ export interface IngestionHistoryResponse {
 export async function executeIngestion(
   request: IngestionExecutionRequest
 ): Promise<IngestionExecutionResponse> {
-  const headers = await getAuthHeaders();
-
+  // Try v1 ingestion endpoint first
   try {
-    const response = await axios.post<IngestionExecutionResponse>(
-      `${EXPLORE_DESIGN_BASE}/execute_ingestion`,
+    const { data } = await apiClient.post<IngestionExecutionResponse>(
+      `${V1_EXPLORE}/${request.project_id}/ingestion/execute`,
       {
-        project_id: request.project_id,
-        schema_version_id: request.schema_version_id, // Link to schema version
         tables: request.tables,
         warehouse: request.warehouse || 'COMPUTE_WH',
+        schema_version_id: request.schema_version_id,
         triggered_by: request.triggered_by,
       },
-      { headers }
     );
+    return { ...data, project_id: request.project_id };
+  } catch {
+    // Fallback to legacy endpoint
+    const headers = await getAuthHeaders();
+    try {
+      const response = await axios.post<IngestionExecutionResponse>(
+        `${EXPLORE_DESIGN_BASE}/execute_ingestion`,
+        {
+          project_id: request.project_id,
+          schema_version_id: request.schema_version_id,
+          tables: request.tables,
+          warehouse: request.warehouse || 'COMPUTE_WH',
+          triggered_by: request.triggered_by,
+        },
+        { headers }
+      );
 
-    return response.data;
-  } catch (error: any) {
-    console.error('[executeIngestion] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
+      return response.data;
+    } catch (error: any) {
+      console.error('[executeIngestion] Error:', error);
+      const errorDetail = error.response?.data?.detail || error.message;
 
-    return {
-      status: 'failed',
-      message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      project_id: request.project_id,
-      total_tables: request.tables.length,
-      successful: 0,
-      failed: request.tables.length,
-      total_rows_affected: 0,
-      results: request.tables.map((table) => ({
-        source: `${table.source_database}.${table.source_schema}.${table.source_table}`,
-        target: table.target_table, // Only table name - schema is determined by version
-        ingestion_mode: table.ingestion_mode,
-        success: false,
-        rows_affected: 0,
-        message: 'Failed to execute ingestion',
-        error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      })),
-    };
+      return {
+        status: 'failed',
+        message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
+        project_id: request.project_id,
+        total_tables: request.tables.length,
+        successful: 0,
+        failed: request.tables.length,
+        total_rows_affected: 0,
+        results: request.tables.map((table) => ({
+          source: `${table.source_database}.${table.source_schema}.${table.source_table}`,
+          target: table.target_table,
+          ingestion_mode: table.ingestion_mode,
+          success: false,
+          rows_affected: 0,
+          message: 'Failed to execute ingestion',
+          error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
+        })),
+      };
+    }
   }
 }
 
@@ -1642,28 +1631,52 @@ export async function getSchemaVersions(
     include_rolled_back?: boolean;
   }
 ): Promise<SchemaVersionsResponse> {
-  const headers = await getAuthHeaders();
-
+  // Try v1 versions endpoint first
   try {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
-
-    const response = await axios.get<SchemaVersionsResponse>(
-      `${EXPLORE_DESIGN_BASE}/schema_versions/${projectId}?${params.toString()}`,
-      { headers }
-    );
-
-    return response.data;
-  } catch (error: any) {
-    console.error('[getSchemaVersions] Error:', error);
-
-    // Return empty response on error
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/versions`, {
+      params: options?.limit ? { limit: options.limit } : undefined,
+    });
+    // Map v1 response to legacy shape
+    const versions = (data.versions || []).map((v: any) => ({
+      version_id: v.version_id,
+      version_name: v.version_name || `v${v.version_number}`,
+      version_number: v.version_number,
+      versioned_schema_name: v.versioned_schema_name,
+      created_at: v.created_at,
+      created_by: v.created_by,
+      status: v.status,
+      description: v.description,
+      changes_summary: v.changes_summary || {},
+      can_rollback: v.can_rollback ?? false,
+    }));
     return {
       project_id: projectId,
-      versions: [],
-      total_versions: 0,
+      current_version: versions.find((v: any) => v.status === 'active') || versions[0],
+      versions,
+      total_versions: versions.length,
     };
+  } catch {
+    // Fallback to legacy endpoint
+    const headers = await getAuthHeaders();
+    try {
+      const params = new URLSearchParams();
+      if (options?.limit) params.append('limit', options.limit.toString());
+      if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
+
+      const response = await axios.get<SchemaVersionsResponse>(
+        `${EXPLORE_DESIGN_BASE}/schema_versions/${projectId}?${params.toString()}`,
+        { headers }
+      );
+
+      return response.data;
+    } catch (error: any) {
+      console.error('[getSchemaVersions] Error:', error);
+      return {
+        project_id: projectId,
+        versions: [],
+        total_versions: 0,
+      };
+    }
   }
 }
 
@@ -1735,6 +1748,129 @@ export async function rollbackSchema(
       message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
       errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
     };
+  }
+}
+
+/**
+ * List deployments for a project via v1 API
+ * GET /api/v1/explore-design/{projectId}/deployments
+ */
+export async function listProjectDeploymentsV1(
+  projectId: string,
+  params?: { status?: string }
+): Promise<{ deployments: any[]; total: number }> {
+  try {
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/deployments`, { params });
+    return { deployments: data.deployments || [], total: data.total ?? 0 };
+  } catch {
+    return { deployments: [], total: 0 };
+  }
+}
+
+/**
+ * Approve a deployment via v1 API
+ * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/approve
+ */
+export async function approveDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/approve`,
+  );
+  return data;
+}
+
+/**
+ * Reject a deployment via v1 API
+ * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/reject
+ */
+export async function rejectDeploymentV1(
+  projectId: string,
+  deploymentId: string,
+  reason?: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/reject`,
+    reason ? { reason } : undefined,
+  );
+  return data;
+}
+
+/**
+ * Execute a deployment via v1 API
+ * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/execute
+ */
+export async function executeDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/execute`,
+  );
+  return data;
+}
+
+/**
+ * Cancel a deployment via v1 API
+ * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/cancel
+ */
+export async function cancelDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/cancel`,
+  );
+  return data;
+}
+
+/**
+ * Quick deploy via v1 API
+ * POST /api/v1/explore-design/{projectId}/deploy?version_id=...
+ */
+export async function quickDeployV1(
+  projectId: string,
+  versionId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deploy`,
+    undefined,
+    { params: { version_id: versionId } },
+  );
+  return data;
+}
+
+/**
+ * Create a schedule via v1 API
+ * POST /api/v1/explore-design/{projectId}/schedule
+ */
+export async function createScheduleV1(
+  projectId: string,
+  body: {
+    cron_expression: string;
+    warehouse?: string;
+    version_id?: string;
+    description?: string;
+  }
+): Promise<any> {
+  const { data } = await apiClient.post(`${V1_EXPLORE}/${projectId}/schedule`, body);
+  return data;
+}
+
+/**
+ * List schedules via v1 API
+ * GET /api/v1/explore-design/{projectId}/schedules
+ */
+export async function listSchedulesV1(
+  projectId: string,
+  params?: { status?: string }
+): Promise<{ schedules: any[] }> {
+  try {
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/schedules`, { params });
+    return data;
+  } catch {
+    return { schedules: [] };
   }
 }
 
@@ -2356,13 +2492,11 @@ export interface ScheduledDeployment {
 // ============================================
 
 /**
- * Schedule a deployment using the /explore-design/deployments endpoint
- * This creates a deployment with type='scheduled' for explore-design events
+ * Schedule a deployment
+ * Tries v1 API first (POST /api/v1/explore-design/{projectId}/deployments), falls back to legacy
  *
- * For 'with_approval' deployments, we set requires_approval=true
- *
- * Backend endpoint: POST /explore-design/deployments
- * Request body: { project_id, version, type, event_ids, config, scheduled_at }
+ * Backend endpoint (v1): POST /api/v1/explore-design/{project_id}/deployments
+ * Backend endpoint (legacy): POST /explore-design/deployments
  */
 export async function scheduleDeploymentUnified(
   config: {
@@ -2386,10 +2520,51 @@ export async function scheduleDeploymentUnified(
   event_id?: string;
   deployment_id?: string;
 }> {
+  // Try v1 endpoint first: POST /api/v1/explore-design/{projectId}/deployments
+  try {
+    const v1Body = {
+      deployment_type: config.requires_approval ? 'with_approval' : 'scheduled',
+      version_id: null,
+      description: config.description || `${config.workflow_name} deployment`,
+      scheduled_at: config.scheduled_date,
+      config: {
+        sql_queries: config.sql_queries || [],
+        events: config.events.map(e => ({
+          event_id: e.event_id,
+          event_type: e.event_type,
+          sql: generateEventSQL(e),
+          target: e.target,
+          payload: e.payload,
+        })),
+        deployment_method: config.deployment_method,
+        created_by: config.created_by,
+        approvers: config.requires_approval ? ['DATA_MODELER', 'DATA_ADMIN'] : [],
+      },
+    };
+
+    const { data } = await apiClient.post(
+      `${V1_EXPLORE}/${config.project_id}/deployments`,
+      v1Body,
+    );
+
+    const deploymentId = data.deployment_id || data.id;
+    return {
+      schedule_id: deploymentId,
+      status: config.requires_approval ? 'PENDING_APPROVAL' : 'SCHEDULED',
+      scheduled_date: config.scheduled_date,
+      message: data.message || 'Deployment created successfully',
+      workflow_name: config.workflow_name,
+      event_id: deploymentId,
+      deployment_id: deploymentId,
+    };
+  } catch (v1Error: any) {
+    console.warn('[scheduleDeploymentUnified] v1 API failed, falling back to legacy:', v1Error.message);
+  }
+
+  // Fallback to legacy endpoint
   const headers = await getAuthHeaders();
 
   // First, record all events to the backend using POST /explore-design/add-event
-  // Backend expects: { project_id, event_type, event_details, module_type }
   const eventIds: string[] = [];
   for (const event of config.events) {
     try {
@@ -2397,20 +2572,15 @@ export async function scheduleDeploymentUnified(
         project_id: config.project_id,
         event_type: event.event_type,
         event_details: {
-          // Target information
           database: event.target?.database,
           schema: event.target?.schema,
           table: event.target?.table,
           column: event.target?.column,
-          // Event payload (contains oldName, newName, policyName, etc.)
           ...event.payload,
-          // Generated SQL for reference
           sql: generateEventSQL(event),
         },
         module_type: config.module_type || 'explore-design',
       };
-
-      console.log('[scheduleDeploymentUnified] Recording event:', JSON.stringify(eventPayload, null, 2));
 
       const response = await axios.post(
         `${EXPLORE_DESIGN_BASE}/add-event`,
@@ -2421,7 +2591,7 @@ export async function scheduleDeploymentUnified(
     } catch (e: any) {
       const errorDetail = e.response?.data?.detail || e.message;
       console.warn(`Failed to record event ${event.event_id}:`, errorDetail);
-      eventIds.push(event.event_id); // Use local ID as fallback
+      eventIds.push(event.event_id);
     }
   }
 
@@ -2609,8 +2779,8 @@ export async function executeQueries(
 }
 
 /**
- * Deploy events immediately by executing SQL through the backend
- * Uses /explore-design/deployments + /explore-design/deployments/{id}/execute endpoints
+ * Deploy events immediately
+ * Tries v1 API first (POST /api/v1/explore-design/{projectId}/deployments), falls back to legacy
  */
 export async function deployEventsImmediate(
   projectId: string,
@@ -2636,9 +2806,57 @@ export async function deployEventsImmediate(
     skipped: number;
   };
 }> {
+  // Try v1 endpoint first: create + execute deployment
+  try {
+    const { data: createData } = await apiClient.post(
+      `${V1_EXPLORE}/${projectId}/deployments`,
+      {
+        deployment_type: 'immediate',
+        version_id: null,
+        description: `Immediate deployment with ${events.length} events`,
+        config: {
+          rollback_on_error: options?.rollback_on_error ?? true,
+          created_by: options?.created_by || 'system',
+          events: events.map(event => ({
+            event_id: event.event_id,
+            event_type: event.event_type,
+            sql: generateEventSQL(event),
+            target: event.target,
+            payload: event.payload,
+          })),
+        },
+      },
+    );
+
+    const deploymentId = createData.deployment_id || createData.id;
+
+    // Execute the deployment via v1
+    const { data: execData } = await apiClient.post(
+      `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/execute`,
+    );
+
+    return {
+      deployment_id: deploymentId,
+      status: execData.status || 'success',
+      results: execData.results || events.map(e => ({
+        event_id: e.event_id,
+        status: 'applied' as const,
+        sql_executed: generateEventSQL(e),
+      })),
+      summary: execData.summary || {
+        total: events.length,
+        applied: events.length,
+        failed: 0,
+        skipped: 0,
+      },
+    };
+  } catch (v1Error: any) {
+    console.warn('[deployEventsImmediate] v1 API failed, falling back to legacy:', v1Error.message);
+  }
+
+  // Fallback to legacy endpoint
   const headers = await getAuthHeaders();
 
-  // Step 1: Create a deployment
   const createPayload = {
     project_id: projectId,
     version: `v${Date.now()}`,
@@ -2657,28 +2875,17 @@ export async function deployEventsImmediate(
     },
   };
 
-  console.log('[deployEventsImmediate] Creating deployment:', JSON.stringify(createPayload, null, 2));
-
   try {
-    // Create the deployment
     const createUrl = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
-    const createResponse = await axios.post(
-      createUrl,
-      createPayload,
-      { headers }
-    );
+    const createResponse = await axios.post(createUrl, createPayload, { headers });
 
     const deploymentId = createResponse.data.deployment_id || createResponse.data.id;
-    console.log('[deployEventsImmediate] Deployment created:', deploymentId);
 
-    // Step 2: Execute the deployment
     const executeResponse = await axios.post(
-      `${API_URL}/explore-design/deployments/${deploymentId}/execute`,
+      `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/execute`,
       { rollback_on_error: options?.rollback_on_error ?? true },
       { headers }
     );
-
-    console.log('[deployEventsImmediate] Deployment executed:', executeResponse.data);
 
     return {
       deployment_id: deploymentId,
@@ -2696,7 +2903,6 @@ export async function deployEventsImmediate(
       },
     };
   } catch (error: any) {
-    // Handle deployment errors gracefully
     console.error('Deployment error:', error);
     const errorDetail = error.response?.data?.detail || error.response?.data || error.message;
     throw new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail));
@@ -5135,3 +5341,54 @@ export async function rollbackVersionDeployment(
   );
   return response.data;
 }
+
+// ============================================================================
+// NEW API v1 — Re-export from services/api/
+// These use /api/v1/projects/* and /api/v1/explore-design/* endpoints
+// ============================================================================
+
+export * as projectsApi from '@/app/services/api/projectsApi';
+export * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
+export type {
+  // Unified Project types
+  ProjectType as V1ProjectType,
+  ProjectStatus as V1ProjectStatus,
+  Project as V1Project,
+  ProjectListResponse as V1ProjectListResponse,
+  CreateProjectRequest as V1CreateProjectRequest,
+  CreateProjectResponse as V1CreateProjectResponse,
+  UpdateProjectRequest as V1UpdateProjectRequest,
+  ListProjectsParams as V1ListProjectsParams,
+  ProjectVersion as V1ProjectVersion,
+  CreateVersionRequest as V1CreateVersionRequest,
+  VersionListResponse as V1VersionListResponse,
+  ProjectDeployment as V1ProjectDeployment,
+  CreateDeploymentRequest as V1CreateDeploymentRequest,
+  ListDeploymentsParams as V1ListDeploymentsParams,
+  RejectDeploymentRequest as V1RejectDeploymentRequest,
+  ExecuteDeploymentRequest as V1ExecuteDeploymentRequest,
+  ProjectRun as V1ProjectRun,
+  StartRunRequest as V1StartRunRequest,
+  Contributor as V1Contributor,
+  AddContributorRequest as V1AddContributorRequest,
+  // Explore Design v1 types
+  UnifiedDeploymentType as V1DeploymentType,
+  ExploreDeployment as V1ExploreDeployment,
+  CreateExploreDeploymentRequest as V1CreateExploreDeploymentRequest,
+  ExploreDeploymentListResponse as V1ExploreDeploymentListResponse,
+  QuickDeployResponse as V1QuickDeployResponse,
+  CreateScheduleRequest as V1CreateScheduleRequest,
+  Schedule as V1Schedule,
+  ScheduleListResponse as V1ScheduleListResponse,
+  SaveModelRequest as V1SaveModelRequest,
+  SaveModelResponse as V1SaveModelResponse,
+  ModelVersionListResponse as V1ModelVersionListResponse,
+  DDLAction as V1DDLAction,
+  CreateDDLActionRequest as V1CreateDDLActionRequest,
+  DDLActionListResponse as V1DDLActionListResponse,
+  SchemaClone as V1SchemaClone,
+  SchemaCloneRequest as V1SchemaCloneRequest,
+  WizardState as V1WizardState,
+  SaveStateRequest as V1SaveStateRequest,
+  ConfigTemplate as V1ConfigTemplate,
+} from '@/app/services/api/types';

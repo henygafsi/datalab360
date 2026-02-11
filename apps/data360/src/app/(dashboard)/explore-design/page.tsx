@@ -1,7 +1,7 @@
 'use client';
-// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + getProjectEvents/recordDesignEvents (explore-design) → API → backend
-// ////dependency//// page → services.mapping (getDatabases, getSchemas, getTables, getTableColumns), services.explore-design, services.gouvernance (policies)
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + getProjectEvents (explore-design) + addEvent/listMappings (projects/exploreDesign API) → backend
+// ////dependency//// page → services.mapping, services.explore-design (getProjectEvents, fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -22,11 +22,12 @@ import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
 import {
   getProjectEvents,
-  recordDesignEvents,
-  fetchRelationships,
   getRecentDeploymentErrors,
   TableRelationship
 } from '@/app/services/explore-design';
+import { listMappings, listDDLActions } from '@/app/services/api/exploreDesignApi';
+import { addEvent as addProjectEvent } from '@/app/services/api/projectsApi';
+import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
 import ModelingCanvas from './components/ModelingCanvas';
@@ -51,6 +52,17 @@ import TablePreviewModal from './components/TablePreviewModal';
 import TableProfileModal from './components/TableProfileModal';
 import CreateTableModal from './components/CreateTableModal';
 import RelationshipModal from './components/RelationshipModal';
+import AccessManagementSlot from './components/AccessManagementSlot';
+import ModelingTemplateModal from './components/ModelingTemplateModal';
+import type { ModelingChoice } from './components/ModelingTemplateModal';
+import DwhLocationPickerModal from './components/DwhLocationPickerModal';
+import {
+  DWH_TEMPLATE_TABLES,
+  DWH_TEMPLATE_RELATIONSHIPS,
+  buildTemplateTableItems,
+  buildTemplateColumnsMap,
+  buildTemplateRelationships,
+} from './data/dwh-template-data';
 
 // Types
 interface SourceConfig {
@@ -551,6 +563,9 @@ export default function ExploreDesignPage() {
   // Masking policies from API
   const [maskingPolicies, setMaskingPolicies] = useState<MaskingPolicyDisplay[]>([]);
 
+  // Backend-persisted column mappings (loaded via listMappings on project select)
+  const [backendMappings, setBackendMappings] = useState<BackendColumnMapping[]>([]);
+
   // Check if offline and redirect to sign-in
   const isOffline = !isConnected && !!connectionError;
 
@@ -586,6 +601,14 @@ export default function ExploreDesignPage() {
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
+  // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
+  const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
+  // DWH template deployment target (chosen by user in location picker)
+  const [dwhTargetDatabase, setDwhTargetDatabase] = useState<string | null>(null);
+  const [dwhTargetSchema, setDwhTargetSchema] = useState<string | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [showEventPanel, setShowEventPanel] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showDetailPanel, setShowDetailPanel] = useState(true);
@@ -673,22 +696,11 @@ export default function ExploreDesignPage() {
     return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
   }, [pendingEvents]);
 
-  // Extract column mappings from COLUMN_MAPPING_CREATED events for ModelingCanvas
+  // Extract column mappings from COLUMN_MAPPING_CREATED events + backend-persisted mappings
   const initialColumnMappings = useMemo(() => {
+    // 1. Mappings from local event store
     const mappingEvents = events.filter(e => e.type === 'COLUMN_MAPPING_CREATED');
-    console.log('[initialColumnMappings] Found mapping events:', mappingEvents.length);
-    mappingEvents.forEach((e, i) => {
-      console.log(`[initialColumnMappings] Event ${i}:`, {
-        id: e.id,
-        type: e.type,
-        target: e.target,
-        payload: e.payload,
-        sourceColumn: e.payload?.sourceColumn,
-        targetTable: e.payload?.targetTable,
-        targetColumn: e.payload?.targetColumn,
-      });
-    });
-    return mappingEvents.map(e => ({
+    const eventMappings = mappingEvents.map(e => ({
       id: e.id,
       sourceTable: e.target?.table || '',
       sourceSchema: e.target?.schema || '',
@@ -698,7 +710,33 @@ export default function ExploreDesignPage() {
       targetColumn: e.payload?.targetColumn || '',
       transformation: e.payload?.transformation,
     }));
-  }, [events]);
+
+    // 2. Mappings from backend (listMappings) — one entry per source column
+    const backendFlat = backendMappings.flatMap(m =>
+      m.source_columns.map((col, idx) => ({
+        id: `${m.mapping_id}_${idx}`,
+        sourceTable: m.source.table,
+        sourceSchema: m.source.schema,
+        sourceColumn: col,
+        targetTable: m.target.table,
+        targetSchema: m.target.schema,
+        targetColumn: m.target_column,
+        transformation: m.transformation ?? undefined,
+      }))
+    );
+
+    // 3. Deduplicate: event-derived mappings take precedence over backend ones
+    const seen = new Set(
+      eventMappings.map(m => `${m.sourceSchema}.${m.sourceTable}.${m.sourceColumn}→${m.targetSchema}.${m.targetTable}.${m.targetColumn}`)
+    );
+    const uniqueBackend = backendFlat.filter(
+      m => !seen.has(`${m.sourceSchema}.${m.sourceTable}.${m.sourceColumn}→${m.targetSchema}.${m.targetTable}.${m.targetColumn}`)
+    );
+
+    const merged = [...eventMappings, ...uniqueBackend];
+    console.log('[initialColumnMappings] event:', eventMappings.length, 'backend:', backendFlat.length, 'merged:', merged.length);
+    return merged;
+  }, [events, backendMappings]);
 
   // Redirect to sign-in when offline
   useEffect(() => {
@@ -763,142 +801,122 @@ export default function ExploreDesignPage() {
     loadMaskingPolicies();
   }, []);
 
-  // Load default tables for Modeling view (CP_DATA360.RETAIL_DW) - ALWAYS loaded
+  // Load DWH template tables from hardcoded DDL — only when DWH template chosen
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
 
   useEffect(() => {
-    // Load default tables when switching to modeling view
-    // This ensures DWH tables are always present in modeling view
-    if (viewMode !== 'modeling') {
-      return;
+    // Only load when in modeling view AND DWH template was chosen
+    if (viewMode !== 'modeling' || modelingChoice !== 'dwh_template') return;
+    // Skip if already loaded and tables exist
+    if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) return;
+    // Need a target location
+    if (!dwhTargetDatabase || !dwhTargetSchema) return;
+
+    const db = dwhTargetDatabase;
+    const schema = dwhTargetSchema;
+
+    console.log(`[Modeling] Loading hardcoded DWH template into ${db}.${schema}`);
+
+    // 1. Build data from hardcoded template
+    const templateTables = buildTemplateTableItems(db, schema);
+    const templateColumnsMap = buildTemplateColumnsMap(db, schema);
+    const templateRelationships = buildTemplateRelationships(schema);
+    const newTableIds = new Set(templateTables.map(t => t.id));
+
+    // 2. Add tables to state
+    setTables(prev => {
+      const existingIds = new Set(prev.map(t => t.id));
+      const tablesToAdd = templateTables.filter(t => !existingIds.has(t.id));
+      return [...prev, ...tablesToAdd];
+    });
+
+    // 3. Add to modeling view
+    setModelingTableIds(prev => {
+      const merged = new Set(prev);
+      newTableIds.forEach(id => merged.add(id));
+      return merged;
+    });
+
+    // 4. Mark as target tables
+    setTargetTableIds(prev => {
+      const merged = new Set(prev);
+      newTableIds.forEach(id => merged.add(id));
+      return merged;
+    });
+
+    // 5. Set columns map
+    setTableColumnsMap(prev => {
+      const next = new Map(prev);
+      templateColumnsMap.forEach((cols, tableId) => next.set(tableId, cols));
+      return next;
+    });
+
+    // 6. Set FK relationships for canvas edges
+    setDefaultRelationships(templateRelationships);
+
+    // 7. Set database for UI
+    if (!selectedDatabase) {
+      setSelectedDatabase(db);
     }
 
-    // If already loaded and tables exist, skip
-    if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) {
-      return;
+    // 8. Fire SCHEMA_CREATED + TABLE_CREATED events for each template table (skip if already restored from backend)
+    const templateEventsExist = events.some(
+      e => (e.type === 'TABLE_CREATED' || e.type === 'SCHEMA_CREATED') && e.payload?.isTemplate && e.target.database === db && e.target.schema === schema
+    );
+
+    if (selectedProjectId && !templateEventsExist) {
+      // Fire SCHEMA_CREATED first — runs before all TABLE_CREATED via priority ordering
+      addEvent({
+        type: 'SCHEMA_CREATED',
+        projectId: selectedProjectId,
+        target: { database: db, schema, table: schema },
+        payload: {
+          schemaName: schema,
+          database: db,
+          isTemplate: true,
+        },
+      });
+
+      DWH_TEMPLATE_TABLES.forEach(tmplTable => {
+        addEvent({
+          type: 'TABLE_CREATED',
+          projectId: selectedProjectId,
+          target: { database: db, schema, table: tmplTable.tableName },
+          payload: {
+            tableName: tmplTable.tableName,
+            columns: tmplTable.columns.map(col => ({
+              name: col.name,
+              dataType: col.dataType,
+              nullable: col.nullable,
+              primaryKey: col.primaryKey,
+              computedExpression: col.computedExpression,
+            })),
+            primaryKeys: tmplTable.primaryKeys,
+            isTemplate: true,
+          },
+        });
+      });
+
+      // 9. Fire FOREIGN_KEY_ADDED events for each FK constraint
+      DWH_TEMPLATE_RELATIONSHIPS.forEach(fk => {
+        addEvent({
+          type: 'FOREIGN_KEY_ADDED',
+          projectId: selectedProjectId,
+          target: { database: db, schema, table: fk.childTable },
+          payload: {
+            constraintName: fk.constraintName,
+            columns: [fk.childColumn],
+            referencedTable: { database: db, schema, table: fk.parentTable },
+            referencedColumns: [fk.parentColumn],
+            isTemplate: true,
+          },
+        });
+      });
     }
 
-    const loadDefaultModelingTables = async () => {
-      const DEFAULT_DB = 'CP_DATA360';
-      const DEFAULT_SCHEMA = 'RETAIL_DWH';
-
-      console.log(`[Modeling] Loading default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
-
-      try {
-        // Load tables from default schema
-        const tableList = await getTables(DEFAULT_DB, DEFAULT_SCHEMA);
-
-        if (tableList && tableList.length > 0) {
-          const newTables: TableItem[] = [];
-          const newTableIds = new Set<string>();
-
-          tableList.forEach((tableName: string) => {
-            const tableId = `${DEFAULT_DB}.${DEFAULT_SCHEMA}.${tableName}`;
-            newTableIds.add(tableId);
-
-            newTables.push({
-              id: tableId,
-              database: DEFAULT_DB,
-              schema: DEFAULT_SCHEMA,
-              table: tableName,
-              columnCount: 0,
-              hasPrimaryKey: false,
-              status: 'pending',
-              sensitiveColumns: 0,
-            });
-          });
-
-          // Add tables to the main tables state
-          setTables(prev => {
-            const existingIds = new Set(prev.map(t => t.id));
-            const tablesToAdd = newTables.filter(t => !existingIds.has(t.id));
-            return [...prev, ...tablesToAdd];
-          });
-
-          // Add default tables to modeling view (merge with any existing)
-          setModelingTableIds(prev => {
-            const merged = new Set(prev);
-            newTableIds.forEach(id => merged.add(id));
-            return merged;
-          });
-
-          // Mark these default tables as TARGET tables (DWH)
-          // User-added source tables must map TO these target tables
-          setTargetTableIds(prev => {
-            const merged = new Set(prev);
-            newTableIds.forEach(id => merged.add(id));
-            return merged;
-          });
-
-          // Set database/schema for UI but DON'T add to selectedSchemas (no badge)
-          if (!selectedDatabase) {
-            setSelectedDatabase(DEFAULT_DB);
-            // Don't set selectedSchemas - we don't want the badge to show
-
-            // Load schemas for the database
-            const schemaList = await getSchemas(DEFAULT_DB);
-            setSchemas(schemaList || []);
-          }
-
-          console.log(`[Modeling] Loaded ${newTableIds.size} default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
-
-          // Load columns for each default table (for modeling view)
-          console.log(`[Modeling] Loading columns for ${newTables.length} default tables...`);
-          const columnsPromises = newTables.map(async (table) => {
-            try {
-              const cols = await getTableColumns(table.database, table.schema, table.table);
-              if (cols && cols.length > 0) {
-                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
-                  name: col.COLUMN_NAME || col.name,
-                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
-                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
-                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
-                  isSensitive: false,
-                }));
-                return { tableId: table.id, columns: formattedColumns };
-              }
-              return null;
-            } catch (err) {
-              console.error(`[Modeling] Failed to load columns for ${table.id}:`, err);
-              return null;
-            }
-          });
-
-          const columnsResults = await Promise.all(columnsPromises);
-
-          // Update tableColumnsMap with loaded columns
-          setTableColumnsMap(prev => {
-            const next = new Map(prev);
-            columnsResults.forEach(result => {
-              if (result) {
-                next.set(result.tableId, result.columns);
-              }
-            });
-            return next;
-          });
-
-          console.log(`[Modeling] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
-
-          // Load relationships for the default schema
-          try {
-            const relationshipsData = await fetchRelationships(DEFAULT_DB, DEFAULT_SCHEMA);
-            if (relationshipsData.relationships && relationshipsData.relationships.length > 0) {
-              setDefaultRelationships(relationshipsData.relationships);
-              console.log(`[Modeling] Loaded ${relationshipsData.relationships.length} relationships`);
-            }
-          } catch (relError) {
-            console.error('[Modeling] Failed to load relationships:', relError);
-          }
-        }
-      } catch (error) {
-        console.error('[Modeling] Failed to load default tables:', error);
-      }
-
-      setDefaultModelingTablesLoaded(true);
-    };
-
-    loadDefaultModelingTables();
-  }, [viewMode, defaultModelingTablesLoaded, selectedDatabase, tables.length, targetTableIds.size]);
+    setDefaultModelingTablesLoaded(true);
+    console.log(`[Modeling] Loaded ${templateTables.length} template tables, ${templateRelationships.length} relationships`);
+  }, [viewMode, modelingChoice, defaultModelingTablesLoaded, dwhTargetDatabase, dwhTargetSchema, selectedProjectId, selectedDatabase, tables.length, targetTableIds.size, addEvent]);
 
   // Load schemas when database changes
   useEffect(() => {
@@ -963,6 +981,7 @@ export default function ExploreDesignPage() {
         }
 
         // Merge with existing tables: keep target/DWH tables, add new schema tables
+        console.log('🔄 [Tables] Loaded table IDs:', newTables.map(t => t.id));
         setTables(prev => {
           // Keep existing target/DWH tables (default tables)
           const existingTargetTables = prev.filter(t => targetTableIds.has(t.id));
@@ -1243,16 +1262,19 @@ export default function ExploreDesignPage() {
       if (selectedProjectId && pendingEvents.length > 0) {
         const unsyncedEvents = await saveProjectEvents(selectedProjectId);
         if (unsyncedEvents.length > 0) {
-          // Transform events to API format
-          const apiEvents = unsyncedEvents.map(e => ({
-            event_id: e.id,
-            event_type: e.type,
-            target: e.target,
-            payload: e.payload,
-            status: e.status,
-            created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
-          }));
-          await recordDesignEvents(selectedProjectId, apiEvents as any);
+          // Persist each unsynced event via the new projects API
+          await Promise.all(
+            unsyncedEvents.map(e =>
+              addProjectEvent(selectedProjectId, {
+                module_name: 'explore-design',
+                event_type: e.type,
+                status: e.status || 'pending',
+                details: { target: e.target, payload: e.payload },
+                entity_id: e.id,
+                entity_type: 'design_event',
+              })
+            )
+          );
           toast.success(`Saved ${unsyncedEvents.length} events for previous project`);
         }
       }
@@ -1260,6 +1282,13 @@ export default function ExploreDesignPage() {
       // Update selected project
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
+      setBackendMappings([]);
+      // Restore modeling choice from cache (persisted per project)
+      const cached = modelingChoicesByProject.current.get(projectId);
+      setModelingChoice(cached?.choice || null);
+      setDwhTargetDatabase(cached?.database || null);
+      setDwhTargetSchema(cached?.schema || null);
+      setDefaultModelingTablesLoaded(!!cached?.choice);
 
       // Show loading toast while restoring project context
       const loadingToast = toast.loading(`Restoring project context...`);
@@ -1372,6 +1401,43 @@ export default function ExploreDesignPage() {
 
         await loadProjectEvents({ projectId, events: backendEvents });
 
+        // Load saved column mappings from backend
+        try {
+          const mappingsResponse = await listMappings(projectId);
+          setBackendMappings(mappingsResponse.mappings || []);
+          console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
+        } catch (mappingErr) {
+          console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
+          setBackendMappings([]);
+        }
+
+        // Load DDL actions (pending/executed) from backend
+        try {
+          const ddlResponse = await listDDLActions(projectId);
+          const ddlActions = ddlResponse.actions || [];
+          console.log('[handleProjectSelect] Loaded DDL actions:', ddlActions.length);
+
+          // Convert pending DDL actions to local events so they show in the deploy panel
+          const pendingDDLs = ddlActions.filter(a => a.status === 'PENDING');
+          if (pendingDDLs.length > 0) {
+            console.log('[handleProjectSelect] Pending DDL actions to restore:', pendingDDLs.length);
+            // These are already registered on the backend via addDDLAction,
+            // so they'll be picked up by executeDDLActions on next deploy/validate
+          }
+
+          // Log executed/failed DDL actions for audit visibility
+          const executedDDLs = ddlActions.filter(a => a.status === 'SUCCESS');
+          const failedDDLs = ddlActions.filter(a => a.status === 'FAILED');
+          if (executedDDLs.length > 0) {
+            console.log('[handleProjectSelect] Previously executed DDL actions:', executedDDLs.length);
+          }
+          if (failedDDLs.length > 0) {
+            console.log('[handleProjectSelect] Previously failed DDL actions:', failedDDLs.length);
+          }
+        } catch (ddlErr) {
+          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
+        }
+
         // If we found database/schema info, restore the selections
         if (schemasByDatabase.size > 0) {
           // Use the first database as the selected one (user can switch later)
@@ -1414,7 +1480,18 @@ export default function ExploreDesignPage() {
             // These tables need to be in the modeling view for edges to render
             const mappingTableIds = new Set<string>();
 
+            // Restore modeling template choice from backend events
+            let restoredChoice: ModelingChoice | null = null;
+            let restoredTargetDb: string | null = null;
+            let restoredTargetSchema: string | null = null;
             backendEvents.forEach((event: any) => {
+              if (event.type === 'MODELING_TEMPLATE_CHOSEN' && event.payload?.choice) {
+                restoredChoice = event.payload.choice as ModelingChoice;
+                if (event.payload?.targetDatabase) {
+                  restoredTargetDb = event.payload.targetDatabase;
+                  restoredTargetSchema = event.payload.targetSchema;
+                }
+              }
               if (event.type === 'TABLE_ADDED_TO_MODELING' && event.payload?.tableId) {
                 addedTableIds.add(event.payload.tableId);
               }
@@ -1446,6 +1523,11 @@ export default function ExploreDesignPage() {
               ...Array.from(mappingTableIds)
             ]);
 
+            console.log('🔄 [Restore] TABLE_ADDED_TO_MODELING ids:', Array.from(addedTableIds));
+            console.log('🔄 [Restore] TABLE_REMOVED_FROM_MODELING ids:', Array.from(removedTableIds));
+            console.log('🔄 [Restore] COLUMN_MAPPING table ids:', Array.from(mappingTableIds));
+            console.log('🔄 [Restore] Final modelingTables:', Array.from(modelingTables));
+
             if (modelingTables.size > 0) {
               console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
               // Merge with existing modeling tables (including default DWH tables)
@@ -1454,6 +1536,23 @@ export default function ExploreDesignPage() {
                 modelingTables.forEach(id => merged.add(id));
                 return merged;
               });
+            }
+
+            // Restore modeling template choice if found in events
+            if (restoredChoice) {
+              modelingChoicesByProject.current.set(projectId, {
+                choice: restoredChoice,
+                database: restoredTargetDb || undefined,
+                schema: restoredTargetSchema || undefined,
+              });
+              setModelingChoice(restoredChoice);
+              if (restoredChoice === 'dwh_template') {
+                if (restoredTargetDb) setDwhTargetDatabase(restoredTargetDb);
+                if (restoredTargetSchema) setDwhTargetSchema(restoredTargetSchema);
+                if (modelingTables.size > 0) {
+                  setDefaultModelingTablesLoaded(true);
+                }
+              }
             }
 
             // Count total schemas across all databases
@@ -1867,7 +1966,13 @@ export default function ExploreDesignPage() {
                     ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
                     : 'text-slate-500 hover:text-slate-700'
                 )}
-                onClick={() => setViewMode('modeling')}
+                onClick={() => {
+                  if (!modelingChoice) {
+                    setShowTemplateModal(true);
+                  } else {
+                    setViewMode('modeling');
+                  }
+                }}
               >
                 <Workflow className="h-3.5 w-3.5" />
                 Modeling
@@ -2057,6 +2162,9 @@ export default function ExploreDesignPage() {
               <EventTable compact projectId={selectedProjectId} className="m-2" />
             </div>
           ) : undefined}
+          grantsSlot={selectedProjectId ? (
+            <AccessManagementSlot projectId={selectedProjectId} />
+          ) : undefined}
           errorsSlot={<RecentDeploymentErrorsSlot />}
         />
       )}
@@ -2080,59 +2188,90 @@ export default function ExploreDesignPage() {
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* LEFT Panel - Tables List (collapsible) */}
-        {showSidebar && viewMode === 'catalog' && (
+        {showSidebar && viewMode === 'catalog' && (() => {
+          const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
+          const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
+          return (
           <div className="w-64 lg:w-72 xl:w-80 border-r dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden flex-shrink-0">
             {/* Table List Header */}
-            <div className="px-3 py-2 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-              <div className="flex items-center justify-between mb-2">
+            <div className="px-3 py-2.5 border-b dark:border-slate-800 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/60 dark:to-slate-900 space-y-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Table2 className="h-4 w-4 text-slate-500" />
-                  <span className="font-medium text-sm">{tables.filter(t => !targetTableIds.has(t.id)).length} Tables</span>
+                  <div className="p-1 bg-blue-100 dark:bg-blue-900/30 rounded">
+                    <Table2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="font-semibold text-sm text-slate-800 dark:text-slate-200">
+                    Source Tables
+                  </span>
+                  <Badge className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 py-0 font-medium">
+                    {catalogTables.length}
+                  </Badge>
                   {selectedTables.size > 0 && (
-                    <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5">
-                      {selectedTables.size}
+                    <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0 font-medium">
+                      {selectedTables.size} selected
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
-                  <Tooltip content={selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? 'Deselect All' : 'Select All'}>
+                <div className="flex items-center gap-0.5">
+                  <Tooltip content={allSelected ? 'Deselect All' : 'Select All'}>
                     <button
-                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => {
-                        const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
-                        if (selectedTables.size === catalogTables.length) {
+                        if (allSelected) {
                           setSelectedTables(new Set());
                         } else {
                           setSelectedTables(new Set(catalogTables.map(t => t.id)));
                         }
                       }}
                     >
-                      {selectedTables.size > 0 && selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? (
-                        <CheckSquare className="h-4 w-4 text-blue-500" />
+                      {allSelected ? (
+                        <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
                       ) : (
-                        <Square className="h-4 w-4 text-slate-400" />
+                        <Square className="h-3.5 w-3.5 text-slate-400" />
                       )}
                     </button>
                   </Tooltip>
-                  <Tooltip content="Hide Tables Panel">
+                  <Tooltip content="Hide Panel">
                     <button
-                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => setShowSidebar(false)}
                     >
-                      <PanelLeft className="h-4 w-4 text-slate-400" />
+                      <PanelLeft className="h-3.5 w-3.5 text-slate-400" />
                     </button>
                   </Tooltip>
                 </div>
               </div>
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Input
+                  size="sm"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search tables..."
+                  className="pl-7 text-xs"
+                />
+                {searchQuery && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    <X className="h-3 w-3 text-slate-400" />
+                  </button>
+                )}
+              </div>
+
               {/* Add to Modeling Button */}
               {selectedTables.size > 0 && (
                 <Button
                   size="sm"
                   onClick={handleAddToModeling}
-                  className="w-full gap-2"
+                  className="w-full gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Add to Modeling ({selectedTables.size})
+                  Add {selectedTables.size} to Modeling
+                  <ArrowRight className="h-3 w-3 ml-auto" />
                 </Button>
               )}
             </div>
@@ -2140,12 +2279,16 @@ export default function ExploreDesignPage() {
             {/* Virtualized Table List */}
             <div className="flex-1 overflow-hidden">
               {isLoadingTables ? (
-                <div className="flex items-center justify-center h-full">
-                  <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="relative">
+                    <div className="h-10 w-10 rounded-full border-2 border-blue-200 dark:border-blue-800" />
+                    <RefreshCw className="h-5 w-5 animate-spin text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                  <span className="text-xs text-slate-400">Loading tables...</span>
                 </div>
-              ) : tables.filter(t => !targetTableIds.has(t.id)).length > 0 ? (
+              ) : catalogTables.length > 0 ? (
                 <VirtualizedTableList
-                  tables={tables.filter(t => !targetTableIds.has(t.id))}
+                  tables={catalogTables}
                   selectedTables={selectedTables}
                   onSelectionChange={handleTableSelection}
                   onSelectAll={handleSelectAllTables}
@@ -2156,15 +2299,20 @@ export default function ExploreDesignPage() {
                   className="h-full"
                 />
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500 p-4">
-                  <Database className="h-10 w-10 mb-3 text-slate-300" />
-                  <p className="font-medium text-sm">No tables</p>
-                  <p className="text-xs mt-1 text-center">Select a database and schema above</p>
+                <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl mb-3">
+                    <Database className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+                  </div>
+                  <p className="font-medium text-sm text-slate-600 dark:text-slate-400">No tables loaded</p>
+                  <p className="text-xs mt-1 text-slate-400 dark:text-slate-500 max-w-[200px]">
+                    Select a database and schema from the toolbar above to browse tables
+                  </p>
                 </div>
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* CENTER Panel - Catalog or Modeling View */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
@@ -2732,45 +2880,29 @@ export default function ExploreDesignPage() {
                     });
                   }
 
-                  // Save mapping event(s) to backend
+                  // Save mapping event to backend
                   if (selectedProjectId) {
                     try {
-                      const eventToSave = {
-                        event_id: `mapping-${eventTimestamp}-${sourceColumns.join('-')}`,
-                        event_type: 'COLUMN_MAPPING_CREATED' as const,
-                        target: {
-                          database: sourceDb,
-                          schema: sourceSchema,
-                          table: sourceTable,
-                          column: sourceColumns[0],
-                        },
-                        payload: {
-                          sourceColumn: sourceColumns[0],
-                          sourceColumns: sourceColumns,
-                          targetTable: {
-                            database: targetDb,
-                            schema: targetSchema,
-                            table: targetTable,
+                      await addProjectEvent(selectedProjectId, {
+                        module_name: 'explore-design',
+                        event_type: 'COLUMN_MAPPING_CREATED',
+                        status: 'pending',
+                        details: {
+                          target: { database: sourceDb, schema: sourceSchema, table: sourceTable, column: sourceColumns[0] },
+                          payload: {
+                            sourceColumn: sourceColumns[0],
+                            sourceColumns,
+                            targetTable: { database: targetDb, schema: targetSchema, table: targetTable },
+                            targetColumn: targetCol,
+                            transformation: hasTransformation ? transformation : null,
                           },
-                          targetColumn: targetCol,
-                          transformation: hasTransformation ? transformation : null,
                         },
-                        status: 'pending' as const,
-                        created_at: new Date().toISOString(),
-                      };
+                        entity_id: `mapping-${eventTimestamp}-${sourceColumns.join('-')}`,
+                        entity_type: 'column_mapping',
+                      });
 
-                      console.log('[onRelationCreate] Saving mapping event to backend:', eventToSave);
-
-                      const result = await recordDesignEvents(selectedProjectId, [eventToSave]);
-
-                      if (result.success) {
-                        console.log('[onRelationCreate] Event saved to backend:', result);
-                        const transformLabel = hasTransformation ? ` (${transformation})` : '';
-                        toast.success(`Mapping saved: ${sourceColumns.join(', ')}${transformLabel} → ${targetCol}`);
-                      } else {
-                        console.warn('[onRelationCreate] No events were saved to backend');
-                        toast.success('Mapping created locally');
-                      }
+                      const transformLabel = hasTransformation ? ` (${transformation})` : '';
+                      toast.success(`Mapping saved: ${sourceColumns.join(', ')}${transformLabel} → ${targetCol}`);
                     } catch (error) {
                       console.error('[onRelationCreate] Failed to save mapping to backend:', error);
                       toast.success('Mapping created locally (backend sync failed)');
@@ -2939,6 +3071,7 @@ export default function ExploreDesignPage() {
         <ColumnPreviewModal
           isOpen={columnPreviewModal.isOpen}
           onClose={() => setColumnPreviewModal({ isOpen: false, column: null })}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
@@ -3084,6 +3217,7 @@ export default function ExploreDesignPage() {
         <TablePreviewModal
           isOpen={tablePreviewModal}
           onClose={() => setTablePreviewModal(false)}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
@@ -3095,6 +3229,7 @@ export default function ExploreDesignPage() {
         <TableProfileModal
           isOpen={tableProfileModal}
           onClose={() => setTableProfileModal(false)}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
@@ -3189,6 +3324,62 @@ export default function ExploreDesignPage() {
           }}
         />
       )}
+
+      {/* Modeling Template Choice Modal */}
+      <ModelingTemplateModal
+        isOpen={showTemplateModal}
+        projectName={selectedProjectName || undefined}
+        onSelect={(choice) => {
+          setShowTemplateModal(false);
+          if (choice === 'dwh_template') {
+            // Show location picker as a second step
+            setShowLocationPicker(true);
+          } else {
+            setModelingChoice(choice);
+            setViewMode('modeling');
+            if (selectedProjectId) {
+              modelingChoicesByProject.current.set(selectedProjectId, { choice });
+              addProjectEvent(selectedProjectId, {
+                module_name: 'explore-design',
+                event_type: 'MODELING_TEMPLATE_CHOSEN',
+                status: 'completed',
+                details: { choice },
+                entity_id: `template-${choice}`,
+                entity_type: 'modeling_config',
+              }).catch(() => {});
+            }
+          }
+        }}
+      />
+
+      {/* DWH Location Picker Modal */}
+      <DwhLocationPickerModal
+        isOpen={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        projectName={selectedProjectName || undefined}
+        onConfirm={(database, schema) => {
+          setDwhTargetDatabase(database);
+          setDwhTargetSchema(schema);
+          setShowLocationPicker(false);
+          setModelingChoice('dwh_template');
+          setViewMode('modeling');
+          if (selectedProjectId) {
+            modelingChoicesByProject.current.set(selectedProjectId, {
+              choice: 'dwh_template',
+              database,
+              schema,
+            });
+            addProjectEvent(selectedProjectId, {
+              module_name: 'explore-design',
+              event_type: 'MODELING_TEMPLATE_CHOSEN',
+              status: 'completed',
+              details: { choice: 'dwh_template', targetDatabase: database, targetSchema: schema },
+              entity_id: `template-dwh_template`,
+              entity_type: 'modeling_config',
+            }).catch(() => {});
+          }
+        }}
+      />
     </div>
   );
 }

@@ -145,6 +145,57 @@ export const API_CONTRACTS = {
       getUrl: (deploymentId: string) => `${API_CONFIG.BASE_URL}/explore-design/deployments/${encodeURIComponent(deploymentId)}/execute`,
     },
   },
+  /** New API v1 endpoints for unified project management + explore deploy */
+  exploreDesignV1: {
+    /** POST /api/v1/explore-design — Create explore project */
+    createExploreProject: {
+      method: 'POST' as const,
+      path: '/api/v1/explore-design',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/explore-design`,
+    },
+    /** POST /api/v1/explore-design/{projectId}/deploy — Quick deploy */
+    quickDeploy: {
+      method: 'POST' as const,
+      path: '/api/v1/explore-design/{projectId}/deploy',
+      getUrl: (projectId: string, versionId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deploy?version_id=${encodeURIComponent(versionId)}`,
+    },
+    /** POST /api/v1/explore-design/{projectId}/deployments — Request deployment */
+    requestDeployment: {
+      method: 'POST' as const,
+      path: '/api/v1/explore-design/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deployments`,
+    },
+    /** GET /api/v1/explore-design/{projectId}/deployments — List deployments */
+    listDeployments: {
+      method: 'GET' as const,
+      path: '/api/v1/explore-design/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deployments`,
+    },
+  },
+  projectsV1: {
+    /** POST /api/v1/projects — Create project */
+    createProject: {
+      method: 'POST' as const,
+      path: '/api/v1/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/projects`,
+    },
+    /** GET /api/v1/projects — List projects */
+    listProjects: {
+      method: 'GET' as const,
+      path: '/api/v1/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/projects`,
+    },
+    /** POST /api/v1/projects/{projectId}/deployments — Request unified deployment */
+    requestDeployment: {
+      method: 'POST' as const,
+      path: '/api/v1/projects/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/deployments`,
+    },
+  },
   mapping: {
     /** List projects: same as exploreDesign.getProjects (GET /explore-design/projects) for cross-module consistency. */
     getProjects: {

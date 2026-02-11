@@ -37,6 +37,7 @@ import ColumnMappingModal from './ColumnMappingModal';
 import MappingSummaryPanel from './MappingSummaryPanel';
 import TableOptionsSidebar, { TableOptionAction } from './TableOptionsSidebar';
 import { useEventStore, createColumnMappingEvent, createTableRenameEvent } from '../stores/event-store';
+import { createMapping } from '@/app/services/api/exploreDesignApi';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
 // Custom node types
@@ -633,7 +634,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Handle column mapping from modal (ETL mapping, not FK relationship)
   const handleColumnMapping = useCallback(
-    (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
+    async (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
       console.log('[ModelingCanvas] handleColumnMapping called:', {
         sourceColumns,
         targetColumn,
@@ -650,6 +651,25 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           hasPendingConnectionParams: !!pendingConnectionParams,
         });
         return;
+      }
+
+      // Persist mapping to backend
+      if (projectId) {
+        try {
+          await createMapping(projectId, {
+            source_database: mappingSourceTable.database,
+            source_schema: mappingSourceTable.schema,
+            source_table: mappingSourceTable.table,
+            source_columns: sourceColumns,
+            target_database: mappingTargetTable.database,
+            target_schema: mappingTargetTable.schema,
+            target_table: mappingTargetTable.table,
+            target_column: targetColumn,
+            transformation: transformation || undefined,
+          });
+        } catch (err: any) {
+          console.warn('[ModelingCanvas] Failed to persist mapping to backend:', err.message);
+        }
       }
 
       // Create a single COLUMN_MAPPING event with all source columns and transformation
@@ -781,7 +801,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       setMappingTargetTable(null);
       setPendingConnectionParams(null);
     },
-    [mappingSourceTable, mappingTargetTable, pendingConnectionParams, setEdges, onRelationCreate]
+    [mappingSourceTable, mappingTargetTable, pendingConnectionParams, setEdges, onRelationCreate, projectId]
   );
 
   // Helper to open policy panel for a table
@@ -1168,6 +1188,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               setShowPolicyPanel(false);
               setSelectedTableForPanel(null);
             }}
+            isTemplateTable={events.some(
+              e => e.type === 'TABLE_CREATED' &&
+                   e.payload?.isTemplate &&
+                   e.target.table === selectedTableForPanel.table &&
+                   e.target.schema === selectedTableForPanel.schema &&
+                   e.target.database === selectedTableForPanel.database
+            )}
+            projectId={projectId}
           />
         </div>
       )}

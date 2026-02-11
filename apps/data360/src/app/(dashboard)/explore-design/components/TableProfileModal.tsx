@@ -25,11 +25,33 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
-import { getTableProfile, ColumnProfile } from '@/app/services/explore-design';
+import { tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+
+// Adapted column profile shape for rendering (mapped from new API)
+interface ColumnProfile {
+  column: string;
+  data_type: string;
+  total_rows: number;
+  null_count: number;
+  null_percentage: number;
+  distinct_count: number;
+  distinct_percentage: number;
+  min_value?: any;
+  max_value?: any;
+  avg_value?: number;
+  min_length?: number;
+  max_length?: number;
+  avg_length?: number;
+  most_frequent?: Array<{ value: any; count: number; percentage: number }>;
+  data_quality_score: number;
+  is_unique: boolean;
+  has_nulls: boolean;
+}
 
 interface TableProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
+  projectId: string;
   database: string;
   schema: string;
   table: string;
@@ -38,6 +60,7 @@ interface TableProfileModalProps {
 const TableProfileModal: React.FC<TableProfileModalProps> = ({
   isOpen,
   onClose,
+  projectId,
   database,
   schema,
   table,
@@ -62,15 +85,43 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     setError(null);
 
     try {
-      const data = await getTableProfile(database, schema, table);
-      setProfileData(data);
+      const data = await fetchTableProfile(projectId, database, schema, table);
+      // Map new API response to rendering shape
+      const mappedColumns: ColumnProfile[] = (data.columns ?? []).map((col) => {
+        const totalRows = data.row_count;
+        const nullCount = col.null_count ?? 0;
+        const distinctCount = col.distinct_count ?? 0;
+        const nullPct = totalRows > 0 ? (nullCount / totalRows) * 100 : 0;
+        const distinctPct = totalRows > 0 ? (distinctCount / totalRows) * 100 : 0;
+        return {
+          column: col.column_name,
+          data_type: col.data_type,
+          total_rows: totalRows,
+          null_count: nullCount,
+          null_percentage: nullPct,
+          distinct_count: distinctCount,
+          distinct_percentage: distinctPct,
+          min_value: col.min_value,
+          max_value: col.max_value,
+          data_quality_score: col.quality_score ?? 100,
+          is_unique: distinctCount === totalRows && totalRows > 0,
+          has_nulls: nullCount > 0,
+        };
+      });
+      setProfileData({
+        table: data.table,
+        row_count: data.row_count,
+        column_count: data.column_count,
+        columns: mappedColumns,
+        overall_quality_score: data.aggregate_quality_score ?? 100,
+      });
     } catch (err: any) {
       console.error('Failed to load table profile:', err);
       setError(err.message || 'Failed to load table profile. The backend endpoint may not be available.');
     } finally {
       setIsLoading(false);
     }
-  }, [database, schema, table]);
+  }, [projectId, database, schema, table]);
 
   useEffect(() => {
     if (isOpen) {

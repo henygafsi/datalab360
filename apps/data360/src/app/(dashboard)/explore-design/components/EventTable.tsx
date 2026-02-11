@@ -7,12 +7,13 @@ import {
   Table2, RefreshCw, Clock, History, Shield, Key, Link2, Edit2,
   Trash2, Check, X, AlertTriangle, ChevronDown, ChevronRight,
   Filter, Search, Undo2, CheckCircle2, XCircle, Clock4,
-  Plus, Minus, Eye, Tag, Layers
+  Plus, Minus, Eye, Tag, Layers, Database
 } from 'lucide-react';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
 
 // Event type icons and labels
 const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label: string; color: string }> = {
+  SCHEMA_CREATED: { icon: Database, label: 'Schema Created', color: 'bg-indigo-100 text-indigo-600' },
   SCHEMA_SELECTED: { icon: Table2, label: 'Schema Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_SELECTED: { icon: Table2, label: 'Table Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_CREATED: { icon: Plus, label: 'Table Created', color: 'bg-green-100 text-green-600' },
@@ -178,10 +179,12 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<EventType | 'all'>('all');
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  const [showTemplateEvents, setShowTemplateEvents] = useState(false);
 
   // Event types that should be displayed in the Changes panel
   // Only show actual schema changes, not UI state events like SCHEMA_SELECTED
   const displayableEventTypes: EventType[] = [
+    'SCHEMA_CREATED',
     'TABLE_CREATED',
     'TABLE_RENAMED',
     'COLUMN_RENAMED',
@@ -202,7 +205,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
 
   // Filter pending events to only count displayable ones
   const displayablePendingEvents = useMemo(() => {
-    return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
+    return pendingEvents.filter(event => displayableEventTypes.includes(event.type) && !event.payload?.isTemplate);
   }, [pendingEvents]);
 
   // Filtered events
@@ -411,12 +414,64 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
           </div>
         </div>
         <div className="flex-1 overflow-auto">
-          {events.length === 0 ? (
+          {/* Template events collapsible group */}
+          {(() => {
+            const templateEvents = events.filter(e => displayableEventTypes.includes(e.type) && e.payload?.isTemplate);
+            if (templateEvents.length > 0) {
+              const templateSchemaCount = templateEvents.filter(e => e.type === 'SCHEMA_CREATED').length;
+              const templateTableCount = templateEvents.filter(e => e.type === 'TABLE_CREATED').length;
+              const templateFkCount = templateEvents.filter(e => e.type === 'FOREIGN_KEY_ADDED').length;
+              return (
+                <div className="border-b border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => setShowTemplateEvents(!showTemplateEvents)}
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-indigo-50/80 dark:bg-indigo-900/15 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/25 transition-colors"
+                  >
+                    {showTemplateEvents ? (
+                      <ChevronDown className="h-3 w-3 text-indigo-400" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 text-indigo-400" />
+                    )}
+                    <Database className="h-3.5 w-3.5 text-indigo-500" />
+                    <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300 flex-1 text-left">
+                      DWH Template: {templateSchemaCount > 0 ? `${templateSchemaCount} schema, ` : ''}{templateTableCount} tables, {templateFkCount} FKs
+                    </span>
+                    <Badge className="bg-indigo-500 text-white text-[10px] px-1.5 py-0 font-medium">
+                      Template
+                    </Badge>
+                  </button>
+                  {showTemplateEvents && (
+                    <div className="bg-indigo-50/30 dark:bg-indigo-900/5">
+                      {templateEvents.map((event) => {
+                        const config = eventTypeConfig[event.type] || { icon: Table2, label: event.type, color: 'bg-slate-100 text-slate-600' };
+                        const Icon = config.icon;
+                        return (
+                          <div key={event.id} className="flex items-center gap-2 px-3 py-1.5 border-t border-indigo-100 dark:border-indigo-900/30">
+                            <div className={cn('p-0.5 rounded', config.color)}>
+                              <Icon className="h-2.5 w-2.5" />
+                            </div>
+                            <span className="text-[11px] text-slate-600 dark:text-slate-400 truncate flex-1">
+                              {event.target.table}
+                            </span>
+                            <span className="text-[10px] text-indigo-400">
+                              {config.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })()}
+          {events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate).length === 0 && events.filter(e => e.payload?.isTemplate).length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">
               No changes recorded yet
             </div>
           ) : (
-            events.slice(-10).reverse().map((event) => {
+            events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate).slice(-10).reverse().map((event) => {
               const config = eventTypeConfig[event.type] || {
                 icon: Table2,
                 label: event.type,

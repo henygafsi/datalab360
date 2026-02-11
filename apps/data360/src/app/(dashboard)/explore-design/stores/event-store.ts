@@ -9,6 +9,7 @@ import { IngestionMode } from '../../mapping/components/TableDetailPanel';
 
 // Event Types
 export type EventType =
+  | 'SCHEMA_CREATED'
   | 'TABLE_CREATED'
   | 'TABLE_SELECTED'
   | 'TABLE_RENAMED'
