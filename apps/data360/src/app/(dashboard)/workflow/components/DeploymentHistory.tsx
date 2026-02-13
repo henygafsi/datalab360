@@ -22,14 +22,14 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  WorkflowDeployment,
-  DeploymentStatus,
-  WorkflowStep,
-  getWorkflowDeployments,
+  listDeployments,
   approveDeployment,
   rejectDeployment,
-  activateDeployment,
-} from '@/app/services/workflow';
+  executeDeployment,
+} from '@/app/services/api/workflowApi';
+import type { WorkflowDeployment, WorkflowStep } from '@/app/services/api/types';
+
+type DeploymentStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'ACTIVE' | 'SCHEDULED';
 
 // Local storage key for workflow deployments
 const WORKFLOW_DEPLOYMENTS_KEY = 'workflow-deployments';
@@ -140,23 +140,19 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
     try {
       const apiDeployments: LocalDeployment[] = [];
       if (workflowId) {
-        const res = await getWorkflowDeployments({
-          projectId: workflowId,
-          limit: 100,
-        });
+        const res = await listDeployments(workflowId, { limit: 100 });
         apiDeployments.push(
           ...res.deployments.map((d: WorkflowDeployment) => ({
-            event_id: d.event_id,
-            workflow_id: d.workflow_id,
-            workflow_name: d.workflow_name,
-            status: d.status,
-            deployment_type: 'scheduled' as const,
-            scheduled_date: d.scheduled_date,
-            steps: d.steps ?? [],
-            created_by: d.created_by ?? '',
+            event_id: d.deployment_id,
+            workflow_id: d.project_id,
+            workflow_name: workflowName,
+            status: (d.status?.toUpperCase() ?? 'PENDING_APPROVAL') as DeploymentStatus,
+            deployment_type: (d.deployment_type === 'with_approval' ? 'approval' : d.deployment_type ?? 'scheduled') as 'immediate' | 'scheduled' | 'approval',
+            steps: [] as WorkflowStep[],
+            created_by: d.requested_by ?? '',
             created_at: d.created_at ?? '',
-            approved_by: d.approved_by,
-            approved_at: d.approved_at,
+            approved_by: d.approved_by ?? undefined,
+            approved_at: d.deployed_at ?? undefined,
           }))
         );
       }
@@ -209,7 +205,7 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleApprove = async (eventId: string) => {
     setActionLoading(eventId);
     try {
-      await approveDeployment(eventId);
+      await approveDeployment(workflowId, eventId);
       updateLocalDeploymentStatus(eventId, 'APPROVED', {
         approved_by: 'Current User',
         approved_at: new Date().toISOString(),
@@ -226,7 +222,7 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
     const reason = prompt('Please provide a reason for rejection (optional):');
     setActionLoading(eventId);
     try {
-      await rejectDeployment(eventId, reason ?? undefined);
+      await rejectDeployment(workflowId, eventId, { reason: reason ?? undefined });
       updateLocalDeploymentStatus(eventId, 'REJECTED');
       await fetchDeployments();
     } catch (err: any) {
@@ -239,7 +235,7 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleActivate = async (eventId: string) => {
     setActionLoading(eventId);
     try {
-      await activateDeployment(eventId);
+      await executeDeployment(workflowId, eventId);
       updateLocalDeploymentStatus(eventId, 'ACTIVE', {
         executed_at: new Date().toISOString(),
       });

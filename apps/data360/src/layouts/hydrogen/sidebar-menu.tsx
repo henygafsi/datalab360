@@ -44,11 +44,6 @@ const modernMenuItems = [
     icon: <HiOutlineCog8Tooth className="w-5 h-5" />,
     dropdownItems: [
       {
-        name: 'Mapping',
-        href: '/explore-design',
-        icon: <HiOutlineMap className="w-4 h-4" />,
-      },
-      {
         name: 'Explore & Design',
         href: '/explore-design',
         icon: <HiOutlineSparkles className="w-4 h-4" />,

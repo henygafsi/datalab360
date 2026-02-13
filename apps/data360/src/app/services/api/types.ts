@@ -931,3 +931,365 @@ export interface ScheduleListResponse {
 export interface RejectScheduleRequest {
   reason?: string | null;
 }
+
+// ============================================================================
+// PART 3 — Workflow Module Types (/api/v1/workflows)
+// ============================================================================
+
+// --- Enums ---
+
+export type WorkflowCronChoice = 'hourly' | 'daily' | 'weekly' | 'monthly';
+
+export type WorkflowDeploymentType = 'immediate' | 'with_approval' | 'scheduled';
+
+export type StepStatus = 'waiting' | 'running' | 'completed' | 'failed' | 'skipped';
+
+export type WorkflowActionType =
+  | 'src'
+  | 'destination'
+  | 'join_tables'
+  | 'filter_rows'
+  | 'sort'
+  | 'distinct'
+  | 'deduplicate'
+  | 'rename_col'
+  | 'set_col_value'
+  | 'normalize_col'
+  | 'cast'
+  | 'formula'
+  | 'aggregate_kpi'
+  | 'clustering'
+  | 'segmentation'
+  | 'recommendation'
+  | string; // allow custom action types
+
+// --- Workflow CRUD ---
+
+export interface CreateWorkflowRequest {
+  project_name: string;
+  description?: string | null;
+  tags?: string[];
+  steps?: CreateWorkflowStepInput[];
+}
+
+export interface CreateWorkflowStepInput {
+  action_type: WorkflowActionType;
+  step_name: string;
+  description?: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface CreateWorkflowResponse {
+  project_id: string;
+  project_name: string;
+  project_type: 'workflow';
+  status: string;
+  metadata: {
+    steps: WorkflowStep[];
+  };
+  version_id: string;
+  version_number: number;
+}
+
+export interface Workflow {
+  project_id: string;
+  project_name: string;
+  project_type: 'workflow';
+  status: string;
+  description: string | null;
+  created_by: string;
+  created_at: string;
+  metadata: Record<string, unknown> | null;
+  tags: string[] | null;
+}
+
+// --- Steps ---
+
+export interface WorkflowStep {
+  step_id: string;
+  step_order: number;
+  action_type: WorkflowActionType;
+  step_name: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface WorkflowStepsResponse {
+  workflow_id: string;
+  steps: WorkflowStep[];
+  count: number;
+}
+
+export interface AddStepRequest {
+  action_type: WorkflowActionType;
+  step_name: string;
+  description?: string | null;
+  payload: Record<string, unknown>;
+  position?: number;
+}
+
+export interface AddStepResponse {
+  step_id: string;
+  step_order: number;
+  action_type: WorkflowActionType;
+  step_name: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface UpdateStepRequest {
+  step_name?: string;
+  description?: string | null;
+  payload?: Record<string, unknown>;
+}
+
+export interface UpdateStepResponse {
+  step_id: string;
+  step_order: number;
+  action_type: WorkflowActionType;
+  step_name: string;
+  description: string | null;
+  payload: Record<string, unknown>;
+}
+
+export interface DeleteStepResponse {
+  status: 'deleted';
+  step_id: string;
+  deleted_order: number;
+}
+
+export interface ReorderStepsRequest {
+  step_ids: string[];
+}
+
+export interface ReorderStepsResponse {
+  workflow_id: string;
+  steps: WorkflowStep[];
+}
+
+// --- Action Templates ---
+
+export interface ActionTemplate {
+  action_type: string;
+  action_name: string;
+  description: string | null;
+  query_template: string;
+  parameters: Record<string, unknown>;
+  is_system: boolean;
+  created_at: string;
+}
+
+export interface ActionTemplatesResponse {
+  templates: ActionTemplate[];
+  count: number;
+}
+
+export interface CreateActionTemplateRequest {
+  action_type: string;
+  query_template: string;
+  action_name: string;
+  description?: string | null;
+  parameters?: Record<string, unknown>;
+}
+
+export interface CreateActionTemplateResponse {
+  action_type: string;
+  status: 'created';
+}
+
+// --- Execution ---
+
+export interface ExecuteWorkflowRequest {
+  trigger_type?: TriggerType;
+}
+
+export interface StepResult {
+  step_id: string;
+  cte_alias?: string;
+  status: string;
+  rows_affected?: number;
+}
+
+export interface WorkflowExecutionResponse {
+  run_id: string;
+  project_id: string;
+  status: string;
+  mode: 'cte' | 'legacy';
+  steps_total: number;
+  steps_executed: number;
+  steps_failed: number;
+  compiled_sql?: string | null;
+  rows_affected?: number | null;
+  execution_details: {
+    mode: 'cte' | 'legacy';
+    compiled_sql?: string;
+    rows_affected?: number;
+    steps_results: StepResult[];
+  };
+  error: string | null;
+}
+
+export interface CompileWorkflowResponse {
+  mode: 'cte' | 'legacy';
+  compiled_sql: string;
+  steps_count: number;
+  topological_order: string[];
+  cte_aliases: Record<string, string>;
+}
+
+export interface ValidateWorkflowResponse {
+  valid: boolean;
+  mode: 'cte' | 'legacy';
+  steps_count?: number;
+  topological_order?: string[];
+  destination?: string;
+  cte_aliases?: Record<string, string>;
+  error?: string;
+}
+
+// --- Workflow Runs ---
+
+export interface WorkflowRun {
+  run_id: string;
+  status: string;
+  trigger_type: TriggerType;
+  triggered_by: string;
+  started_at: string;
+  completed_at: string | null;
+  duration_seconds: number | null;
+  steps_total: number;
+  steps_executed: number;
+  steps_failed: number;
+  version_id?: string | null;
+  error_log?: Record<string, unknown> | null;
+  execution_details?: Record<string, unknown> | null;
+}
+
+export interface WorkflowRunsResponse {
+  runs: WorkflowRun[];
+  count: number;
+}
+
+export interface ListWorkflowRunsParams {
+  status?: string;
+  limit?: number;
+}
+
+export interface WorkflowRunSummary {
+  total_runs: number;
+  completed: number;
+  failed: number;
+  avg_duration_seconds: number;
+  last_run_at: string | null;
+}
+
+// --- Workflow Scheduling ---
+
+export interface CreateWorkflowScheduleRequest {
+  cron_choice?: WorkflowCronChoice;
+  custom_cron?: string;
+  warehouse?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface WorkflowSchedule {
+  schedule_id: string;
+  project_id: string;
+  task_name: string;
+  status: string;
+  state: string;
+  cron_expression: string;
+  schedule: string;
+  warehouse?: string;
+  requires_approval?: boolean;
+  requested_by?: string;
+  approved_by?: string | null;
+  created_at?: string;
+  created_on?: string;
+
+}
+
+export interface WorkflowScheduleListResponse {
+  workflow_id: string;
+  schedules: WorkflowSchedule[];
+  count: number;
+}
+
+export interface ListScheduledWorkflowsParams {
+  mine_only?: boolean;
+}
+
+export interface RejectWorkflowScheduleRequest {
+  reason?: string;
+}
+
+// --- Workflow Versions ---
+
+export interface WorkflowVersion {
+  version_id: string;
+  version_number: number;
+  version_name?: string | null;
+  description: string | null;
+  status?: string;
+  created_by: string;
+  created_at: string;
+  definition?: { steps: unknown[] };
+  changes_summary?: {
+    steps_count?: number;
+    steps_added?: number;
+    steps_removed?: number;
+    steps_modified?: number;
+  } | null;
+  can_rollback?: boolean;
+}
+
+export interface WorkflowVersionsResponse {
+  versions: WorkflowVersion[];
+  count: number;
+}
+
+export interface ListWorkflowVersionsParams {
+  limit?: number;
+  include_superseded?: boolean;
+}
+
+export interface WorkflowRollbackParams {
+  target_version_id: string;
+  reason?: string;
+}
+
+// --- Workflow Deployments ---
+
+export interface CreateWorkflowDeploymentRequest {
+  version_id: string;
+  deployment_type: WorkflowDeploymentType;
+  scheduled_time?: string | null;
+  warehouse?: string;
+  config?: Record<string, unknown>;
+}
+
+export interface WorkflowDeployment {
+  deployment_id: string;
+  project_id: string;
+  status: DeploymentStatus;
+  deployment_type: WorkflowDeploymentType;
+  version_id?: string;
+  requested_by?: string;
+  approved_by?: string | null;
+  deployed_at?: string | null;
+  created_at?: string;
+}
+
+export interface WorkflowDeploymentListResponse {
+  deployments: WorkflowDeployment[];
+  count: number;
+}
+
+export interface ListWorkflowDeploymentsParams {
+  status?: DeploymentStatus;
+  limit?: number;
+}
+
+export interface RejectWorkflowDeploymentRequest {
+  reason?: string;
+}

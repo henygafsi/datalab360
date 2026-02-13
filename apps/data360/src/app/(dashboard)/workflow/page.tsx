@@ -13,8 +13,12 @@ import DeploymentHistory from './components/DeploymentHistory';
 import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight } from 'lucide-react';
 import ETLPipelineBuilder from './ETLPipelineBuilder';
 import { ProjectContextPanel } from '@/app/shared/project-context';
+import * as workflowApi from '@/app/services/api/workflowApi';
+import { listProjects, updateProject } from '@/app/services/api/projectsApi';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 interface BackendWorkflow {
+  workflow_id?: string;
   workflow_name: string;
   steps: BackendStep[];
   schedule_interval_str?: string;
@@ -56,16 +60,16 @@ const WorkflowHomePage: React.FC = () => {
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
-  const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
+  const fetchWorkflowsRef = useRef<((_token?: string) => Promise<void>) | null>(null);
 
   // Right panel state for Version History, Execution History, Deployment History, and Deploy
   const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
   const [showDeployModal, setShowDeployModal] = useState(false);
 
-  // Get workflow ID for the active workflow (using name as ID for now until backend provides IDs)
+  // Get workflow ID for the active workflow
   const activeWorkflowId = useMemo(() => {
     const workflow = workflows.find(w => w.workflow_name === activeWorkflowName);
-    return workflow ? activeWorkflowName : null; // Using name as ID since backend doesn't expose ID
+    return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
   }, [workflows, activeWorkflowName]);
 
   const cronScheduleOptions = useMemo(() => ([
@@ -90,56 +94,55 @@ const WorkflowHomePage: React.FC = () => {
     fetchSessionAndWorkflows();
   }, []);
 
-  const fetchWorkflows = useCallback(async (token: string) => {
+  const fetchWorkflows = useCallback(async (_token?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to fetch workflows: ${response.status} - ${errorText}`);
-      }
-      const data = await response.json() as any;
-      if (Array.isArray(data.workflows)) {
-        setWorkflows(data.workflows);
-        if (data.workflows.length > 0 && !activeWorkflowName) {
-          // Load first workflow directly without calling loadWorkflow to avoid circular dependency
-          const firstWorkflow = data.workflows[0];
-          setActiveWorkflowName(firstWorkflow.workflow_name);
-          const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
-          setActiveNodes(nodes);
-          setActiveEdges(edges);
-          setActiveSchedule(firstWorkflow.schedule_interval_str || '');
-          setIsWorkflowSaved(true);
-          toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
-        }
-      } else {
-        setWorkflows([]);
+      // Fetch workflow projects via unified project API
+      const projectsData = await listProjects({ project_type: 'workflow' });
+      const projectList = projectsData.projects || [];
+
+      // For each project, fetch its steps to build BackendWorkflow objects
+      const backendWorkflows: BackendWorkflow[] = await Promise.all(
+        projectList.map(async (proj) => {
+          try {
+            const stepsData = await workflowApi.listSteps(proj.project_id);
+            const steps: BackendStep[] = (stepsData.steps || []).map((s) => ({
+              step_order: s.step_order,
+              action_type: s.action_type,
+              payload: s.payload as { [key: string]: any },
+            }));
+            return {
+              workflow_id: proj.project_id,
+              workflow_name: proj.project_name,
+              steps,
+              schedule_interval_str: undefined,
+            };
+          } catch {
+            return {
+              workflow_id: proj.project_id,
+              workflow_name: proj.project_name,
+              steps: [],
+            };
+          }
+        })
+      );
+
+      setWorkflows(backendWorkflows);
+      if (backendWorkflows.length > 0 && !activeWorkflowName) {
+        const firstWorkflow = backendWorkflows[0];
+        setActiveWorkflowName(firstWorkflow.workflow_name);
+        const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
+        setActiveNodes(nodes);
+        setActiveEdges(edges);
+        setActiveSchedule(firstWorkflow.schedule_interval_str || '');
+        setIsWorkflowSaved(true);
+        toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
       }
     } catch (err: any) {
-      // Detect CORS errors
-      const isCorsError =
-        err.message?.includes('CORS') ||
-        err.message?.includes('NetworkError') ||
-        err.message?.includes('Failed to fetch') ||
-        err.name === 'TypeError';
-
-      if (isCorsError) {
-        toast.error('Unable to connect to the server. Please check your network connection.');
-        setError('Unable to connect to the server. Please check your network connection or contact your administrator.');
-      } else if (err.message?.includes('401')) {
-        toast.error('Your session has expired. Please log in again.');
-        setError('Your session has expired. Please log in again.');
-      } else {
-        toast.error(`Error: ${err.message || "Failed to load workflows"}`);
-        setError(err.message || "An unknown error occurred while fetching workflows.");
-      }
-
+      const msg = getApiErrorMessage(err);
+      toast.error(`Error: ${msg || 'Failed to load workflows'}`);
+      setError(msg || 'An unknown error occurred while fetching workflows.');
       setWorkflows([]);
     } finally {
       setLoading(false);
@@ -257,36 +260,25 @@ const WorkflowHomePage: React.FC = () => {
   }, []);
 
   const handleUpdateWorkflowName = useCallback(async (oldName: string, newName: string) => {
-    if (!accessToken) {
-      toast.error("Authentication token missing.");
-      return;
-    }
-    if (oldName === newName) {
+    if (oldName === newName) return;
+    const workflow = workflows.find(w => w.workflow_name === oldName);
+    const wfId = workflow?.workflow_id;
+    if (!wfId) {
+      toast.error('Workflow ID not found.');
       return;
     }
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/rename_workflow/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ old_workflow_name: oldName, new_workflow_name: newName }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Failed to rename workflow: ${JSON.stringify(errorData)}`);
-      }
+      await updateProject(wfId, { project_name: newName });
       toast.success(`Workflow '${oldName}' renamed to '${newName}' successfully!`);
-      await fetchWorkflows(accessToken);
+      await fetchWorkflows();
       if (activeWorkflowName === oldName) {
         setActiveWorkflowName(newName);
       }
     } catch (error: any) {
       console.error("Error renaming workflow:", error);
-      toast.error(`Error renaming workflow: ${error.message}`);
+      toast.error(`Error renaming workflow: ${getApiErrorMessage(error)}`);
     }
-  }, [accessToken, fetchWorkflows, activeWorkflowName]);
+  }, [workflows, fetchWorkflows, activeWorkflowName]);
 
   const onSetIdCounterFromBuilder = useCallback((count: number) => {
     globalNodeIdCounter = count;
@@ -306,10 +298,6 @@ const WorkflowHomePage: React.FC = () => {
   const saveWorkflow = async () => {
     if (!activeWorkflowName) {
       toast.error("Please enter a workflow name before saving.");
-      return;
-    }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
       return;
     }
     const orderedSteps: any[] = [];
@@ -405,22 +393,44 @@ const WorkflowHomePage: React.FC = () => {
       }
     };
 
+    // Build a map from nodeId → a temp alias for CTE inputs referencing
+    // After steps are created by the backend, real step_ids will be assigned.
+    // We use nodeId as a placeholder so the backend can resolve CTE dependencies.
+    const nodeIdToAliasMap = new Map<string, string>();
+    topologicallySortedNodes.forEach((node, idx) => {
+      const alias = (node.data?.name || node.type || `step_${idx + 1}`)
+        .toString().toLowerCase().replace(/\s+/g, '_');
+      nodeIdToAliasMap.set(node.id, alias);
+    });
+
     const finalSteps = topologicallySortedNodes.map(node => {
       const step: any = {
         step_order: nodeIdToStepOrderMap.get(node.id),
         payload: { ...node.data },
       };
       const incomingEdgesForStep = activeEdges.filter(edge => edge.target === node.id);
+
+      // Build inputs array (nodeIds of upstream steps) for CTE mode
+      const inputNodeIds = incomingEdgesForStep.map(edge => edge.source);
+
+      // Also keep legacy input_step for backward compatibility
       let inputStep: string | undefined;
       if (incomingEdgesForStep.length > 0 && node.type !== 'join') {
         inputStep = nodeIdToStepOrderMap.get(incomingEdgesForStep[0].source)?.toString();
       }
+
+      // Set CTE-mode reserved keys
+      step.payload.inputs = inputNodeIds;
+      step.payload.cte_alias = nodeIdToAliasMap.get(node.id) || `step_${step.step_order}`;
+      step.payload.nodeId = node.id;
+
       switch (node.type) {
         case 'src':
           step.action_type = 'src';
           if (Array.isArray(step.payload.columns)) {
             step.payload.columns = step.payload.columns.join(', ');
           }
+          step.payload.inputs = []; // src has no inputs
           break;
         case 'drop_nulls':
           step.action_type = 'drop_nulls';
@@ -541,34 +551,47 @@ const WorkflowHomePage: React.FC = () => {
     console.log("Generated Workflow JSON:", JSON.stringify(workflowJson, null, 2));
 
     // Check if workflow already exists (update) or is new (create)
-    const workflowExists = workflows.some(w => w.workflow_name === activeWorkflowName);
-    const endpoint = workflowExists
-      ? `${process.env.NEXT_PUBLIC_API_URL}/workflow/update_workflow/`
-      : `${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`;
+    const existingWorkflow = workflows.find(w => w.workflow_name === activeWorkflowName);
 
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(workflowJson),
-      });
-      if (response.ok) {
-        toast.success(workflowExists ? 'Workflow updated successfully!' : 'Workflow created successfully!');
-        setIsWorkflowSaved(true);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
+      if (existingWorkflow?.workflow_id) {
+        // Update existing workflow: clear old steps, then add new ones
+        const wfId = existingWorkflow.workflow_id;
+        // Get current steps to delete them
+        try {
+          const currentSteps = await workflowApi.listSteps(wfId);
+          for (const step of currentSteps.steps || []) {
+            await workflowApi.deleteStep(wfId, step.step_id);
+          }
+        } catch { /* ignore if no steps exist */ }
+        // Add new steps
+        for (const step of finalSteps) {
+          await workflowApi.addStep(wfId, {
+            action_type: step.action_type,
+            step_name: `step_${step.step_order}`,
+            payload: step.payload,
+            position: step.step_order,
+          });
         }
+        toast.success('Workflow updated successfully!');
       } else {
-        const errorData = await response.json();
-        toast.error(`Failed to save workflow: ${JSON.stringify(errorData)}`);
-        setIsWorkflowSaved(false);
+        // Create new workflow with steps
+        await workflowApi.createWorkflow({
+          project_name: activeWorkflowName,
+          steps: finalSteps.map((step) => ({
+            action_type: step.action_type,
+            step_name: `step_${step.step_order}`,
+            payload: step.payload,
+          })),
+        });
+        toast.success('Workflow created successfully!');
       }
-    } catch (error) {
-      console.error('Error saving workflow:', error);
-      toast.error('An error occurred while saving the workflow.');
+      setIsWorkflowSaved(true);
+      await fetchWorkflows();
+    } catch (err: any) {
+      console.error('Error saving workflow:', err);
+      toast.error(`Failed to save workflow: ${getApiErrorMessage(err)}`);
+      setIsWorkflowSaved(false);
     }
   };
 
@@ -577,27 +600,16 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Workflow name is missing. Please save the workflow first.");
       return;
     }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
+    if (!activeWorkflowId) {
+      toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/execute_workflow/?workflow_name=${encodeURIComponent(activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow execution initiated: ${result}`);
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to execute workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error executing workflow:', error);
-      toast.error('An error occurred while executing the workflow.');
+      const result = await workflowApi.executeWorkflow(activeWorkflowId, { trigger_type: 'manual' });
+      toast.success(`Workflow execution initiated: ${result.run_id}`);
+    } catch (err: any) {
+      console.error('Error executing workflow:', err);
+      toast.error(`Failed to execute workflow: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -610,38 +622,28 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Please select a scheduling frequency.");
       return;
     }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
+    if (!activeWorkflowId) {
+      toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
-    console.log(`Attempting to schedule workflow: '${activeWorkflowName}' with cron_schedule: '${cron_schedule_value}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/schedule_workflow/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          workflow_name: activeWorkflowName,
-          cron_schedule: cron_schedule_value,
-        }),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' scheduled successfully: ${result}`);
-        setActiveSchedule(cron_schedule_value);
-        setShowScheduleDropdown(false);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to schedule workflow: ${JSON.stringify(errorData)}`);
+      // API expects lowercase cron_choice: 'hourly' | 'daily' | 'weekly' | 'monthly'
+      const validChoices = ['hourly', 'daily', 'weekly', 'monthly'] as const;
+      if (!validChoices.includes(cron_schedule_value as any)) {
+        toast.error("Invalid scheduling frequency.");
+        return;
       }
-    } catch (error) {
-      console.error('Error scheduling workflow:', error);
-      toast.error('An error occurred while scheduling the workflow.');
+      await workflowApi.scheduleWorkflow(activeWorkflowId, {
+        cron_choice: cron_schedule_value as typeof validChoices[number],
+        warehouse: 'COMPUTE_WH',
+      });
+      toast.success(`Workflow '${activeWorkflowName}' scheduled successfully!`);
+      setActiveSchedule(cron_schedule_value);
+      setShowScheduleDropdown(false);
+      await fetchWorkflows();
+    } catch (err: any) {
+      console.error('Error scheduling workflow:', err);
+      toast.error(`Failed to schedule workflow: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -650,32 +652,18 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Workflow name is missing. Please save the workflow first.");
       return;
     }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
+    if (!activeWorkflowId) {
+      toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
-    console.log(`Attempting to suspend workflow: '${activeWorkflowName}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/suspend_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' suspended successfully: ${result}`);
-        setActiveSchedule('');
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to suspend workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error suspending workflow:', error);
-      toast.error('An error occurred while suspending the workflow.');
+      await workflowApi.suspendTask(activeWorkflowId);
+      toast.success(`Workflow '${activeWorkflowName}' suspended successfully!`);
+      setActiveSchedule('');
+      await fetchWorkflows();
+    } catch (err: any) {
+      console.error('Error suspending workflow:', err);
+      toast.error(`Failed to suspend workflow: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -684,31 +672,17 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Workflow name is missing. Please save the workflow first.");
       return;
     }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
+    if (!activeWorkflowId) {
+      toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
-    console.log(`Attempting to resume workflow: '${activeWorkflowName}'`);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/resume_task/?task_name=${encodeURIComponent('execute_workflow_'+ activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' resumed successfully: ${result}`);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to resume workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error resuming workflow:', error);
-      toast.error('An error occurred while resuming the workflow.');
+      await workflowApi.resumeTask(activeWorkflowId);
+      toast.success(`Workflow '${activeWorkflowName}' resumed successfully!`);
+      await fetchWorkflows();
+    } catch (err: any) {
+      console.error('Error resuming workflow:', err);
+      toast.error(`Failed to resume workflow: ${getApiErrorMessage(err)}`);
     }
   };
 
@@ -1008,7 +982,7 @@ const WorkflowHomePage: React.FC = () => {
             <VersionHistory
               workflowId={activeWorkflowId}
               workflowName={activeWorkflowName}
-              onVersionChange={() => accessToken && fetchWorkflowsRef.current?.(accessToken)}
+              onVersionChange={() => fetchWorkflowsRef.current?.()}
               className="border-0 rounded-none"
             />
           ) : undefined}
@@ -1086,9 +1060,7 @@ const WorkflowHomePage: React.FC = () => {
                     workflowName={activeWorkflowName}
                     onVersionChange={() => {
                       // Refresh workflows after version change
-                      if (accessToken) {
-                        fetchWorkflowsRef.current?.(accessToken);
-                      }
+                      fetchWorkflowsRef.current?.();
                     }}
                     className="border-0 rounded-none"
                   />
@@ -1116,7 +1088,7 @@ const WorkflowHomePage: React.FC = () => {
         <DeploymentScheduler
           workflowId={activeWorkflowId}
           workflowName={activeWorkflowName}
-          steps={workflows.find(w => w.workflow_name === activeWorkflowName)?.steps || []}
+          steps={(workflows.find(w => w.workflow_name === activeWorkflowName)?.steps || []) as any}
           isOpen={showDeployModal}
           onClose={() => setShowDeployModal(false)}
           onDeploymentCreated={(eventId, status) => {
@@ -1137,41 +1109,12 @@ const WorkflowHomePage: React.FC = () => {
 const WorkflowPageWithToggle: React.FC = () => {
   const [useNewETL, setUseNewETL] = useState(true); // Default to new ETL builder
 
-  // Show toggle banner at the top
-  const ToggleBanner = () => (
-    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium">
-          {useNewETL ? 'New ETL Pipeline Builder (Beta)' : 'Legacy Workflow Builder'}
-        </span>
-        <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
-          {useNewETL ? '/etl/* API' : '/workflow/* API'}
-        </span>
-      </div>
-      <button
-        onClick={() => setUseNewETL(!useNewETL)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition text-sm font-medium"
-      >
-        {useNewETL ? (
-          <>
-            <ToggleRight className="h-4 w-4" />
-            <span>Switch to Legacy</span>
-          </>
-        ) : (
-          <>
-            <ToggleLeft className="h-4 w-4" />
-            <span>Switch to New ETL</span>
-          </>
-        )}
-      </button>
-    </div>
-  );
+  
 
   return (
     <div className="flex flex-col h-screen">
-      <ToggleBanner />
       <div className="flex-1 overflow-hidden">
-        {useNewETL ? <ETLPipelineBuilder /> : <WorkflowHomePage />}
+        <ETLPipelineBuilder />
       </div>
     </div>
   );

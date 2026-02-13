@@ -17,19 +17,6 @@ export const pageLinks = [
     ],
   },
   {
-    id: "2",
-    name: "Mapping",
-    title: "Mapping",
-    icon: PiMapPinLineDuotone, // Adjust the icon as per your preference
-    menuItems: [
-      {
-        name: "View Mapping",
-        href: routes.mapping.viewMap,
-        icon: PiMapPinLineDuotone,
-      },
-    ],
-  },
-  {
     id: "3",
     name: "BI Reporting",
     title: "BI Reporting",

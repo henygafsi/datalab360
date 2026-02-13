@@ -11,13 +11,10 @@
  * Base URL: /etl/...
  */
 
-import axios from 'axios';
-import { getSession } from 'next-auth/react';
 import apiClient from '@/lib/api-client';
 import type {
   ComponentTemplatesResponse,
   Pipeline,
-  PipelineComponent,
   CreatePipelineRequest,
   CreatePipelineResponse,
   ListPipelinesResponse,
@@ -36,28 +33,6 @@ import type {
   ValidateSuggestionsResponse,
 } from './types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
-// ============================================
-// AUTH HELPER
-// ============================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const session = await getSession();
-  const user = (session as any)?.user;
-  const token = user?.access_token || (session as any)?.accessToken;
-  if (!token) {
-    throw new Error('Authentication required');
-  }
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
-  if (user?.account_name) headers['X-Account-Name'] = user.account_name;
-  if (user?.username) headers['X-Username'] = user.username;
-  return headers;
-}
-
 // ============================================
 // COMPONENT TEMPLATES
 // ============================================
@@ -67,9 +42,8 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
  * GET /etl/components/templates
  */
 export async function getComponentTemplates(): Promise<ComponentTemplatesResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/components/templates`, { headers });
-  return response.data;
+  const { data } = await apiClient.get<ComponentTemplatesResponse>('/etl/components/templates');
+  return data;
 }
 
 // ============================================
@@ -81,9 +55,8 @@ export async function getComponentTemplates(): Promise<ComponentTemplatesRespons
  * POST /etl/pipelines
  */
 export async function createPipeline(pipeline: CreatePipelineRequest): Promise<CreatePipelineResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/pipelines`, pipeline, { headers });
-  return response.data;
+  const { data } = await apiClient.post<CreatePipelineResponse>('/etl/pipelines', pipeline);
+  return data;
 }
 
 /**
@@ -91,10 +64,9 @@ export async function createPipeline(pipeline: CreatePipelineRequest): Promise<C
  * GET /etl/pipelines
  */
 export async function listPipelines(status?: string): Promise<ListPipelinesResponse> {
-  const headers = await getAuthHeaders();
   const params = status ? { status } : {};
-  const response = await axios.get(`${API_BASE_URL}/etl/pipelines`, { headers, params });
-  return response.data;
+  const { data } = await apiClient.get<ListPipelinesResponse>('/etl/pipelines', { params });
+  return data;
 }
 
 /**
@@ -102,9 +74,8 @@ export async function listPipelines(status?: string): Promise<ListPipelinesRespo
  * GET /etl/pipelines/{pipeline_id}
  */
 export async function getPipeline(pipelineId: string): Promise<Pipeline> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/pipelines/${pipelineId}`, { headers });
-  return response.data;
+  const { data } = await apiClient.get<Pipeline>(`/etl/pipelines/${pipelineId}`);
+  return data;
 }
 
 /**
@@ -115,9 +86,8 @@ export async function updatePipeline(
   pipelineId: string,
   pipeline: Partial<CreatePipelineRequest>
 ): Promise<Pipeline> {
-  const headers = await getAuthHeaders();
-  const response = await axios.put(`${API_BASE_URL}/etl/pipelines/${pipelineId}`, pipeline, { headers });
-  return response.data;
+  const { data } = await apiClient.put<Pipeline>(`/etl/pipelines/${pipelineId}`, pipeline);
+  return data;
 }
 
 /**
@@ -125,9 +95,8 @@ export async function updatePipeline(
  * DELETE /etl/pipelines/{pipeline_id}
  */
 export async function deletePipeline(pipelineId: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.delete(`${API_BASE_URL}/etl/pipelines/${pipelineId}`, { headers });
-  return response.data;
+  const { data } = await apiClient.delete<{ message: string }>(`/etl/pipelines/${pipelineId}`);
+  return data;
 }
 
 // ============================================
@@ -157,9 +126,8 @@ export async function executePipeline(
  * POST /etl/execute/inline
  */
 export async function executeInline(request: InlineExecuteRequest): Promise<ExecutePipelineResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/execute-inline`, request, { headers });
-  return response.data;
+  const { data } = await apiClient.post<ExecutePipelineResponse>('/etl/execute-inline', request);
+  return data;
 }
 
 /**
@@ -170,12 +138,10 @@ export async function getPipelineRuns(
   pipelineId: string,
   limit: number = 20
 ): Promise<PipelineRunsResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/pipelines/${pipelineId}/runs`, {
-    headers,
+  const { data } = await apiClient.get<PipelineRunsResponse>(`/etl/pipelines/${pipelineId}/runs`, {
     params: { limit },
   });
-  return response.data;
+  return data;
 }
 
 // ============================================
@@ -189,9 +155,8 @@ export async function getPipelineRuns(
 export async function validatePipeline(
   request: ValidatePipelineRequest
 ): Promise<ValidatePipelineResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/pipelines/validate`, request, { headers });
-  return response.data;
+  const { data } = await apiClient.post<ValidatePipelineResponse>('/etl/pipelines/validate', request);
+  return data;
 }
 
 /**
@@ -218,9 +183,8 @@ export async function getValidateSuggestions(
  * POST /etl/schedules
  */
 export async function createSchedule(request: CreateScheduleRequest): Promise<CreateScheduleResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/schedules`, request, { headers });
-  return response.data;
+  const { data } = await apiClient.post<CreateScheduleResponse>('/etl/schedules', request);
+  return data;
 }
 
 /**
@@ -228,9 +192,8 @@ export async function createSchedule(request: CreateScheduleRequest): Promise<Cr
  * GET /etl/schedules
  */
 export async function listSchedules(): Promise<ListSchedulesResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/schedules`, { headers });
-  return response.data;
+  const { data } = await apiClient.get<ListSchedulesResponse>('/etl/schedules');
+  return data;
 }
 
 /**
@@ -238,9 +201,8 @@ export async function listSchedules(): Promise<ListSchedulesResponse> {
  * GET /etl/schedules/{schedule_id}
  */
 export async function getSchedule(scheduleId: string): Promise<Schedule> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/schedules/${scheduleId}`, { headers });
-  return response.data;
+  const { data } = await apiClient.get<Schedule>(`/etl/schedules/${scheduleId}`);
+  return data;
 }
 
 /**
@@ -251,9 +213,8 @@ export async function updateSchedule(
   scheduleId: string,
   request: UpdateScheduleRequest
 ): Promise<Schedule> {
-  const headers = await getAuthHeaders();
-  const response = await axios.put(`${API_BASE_URL}/etl/schedules/${scheduleId}`, request, { headers });
-  return response.data;
+  const { data } = await apiClient.put<Schedule>(`/etl/schedules/${scheduleId}`, request);
+  return data;
 }
 
 /**
@@ -261,9 +222,8 @@ export async function updateSchedule(
  * DELETE /etl/schedules/{schedule_id}
  */
 export async function deleteSchedule(scheduleId: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.delete(`${API_BASE_URL}/etl/schedules/${scheduleId}`, { headers });
-  return response.data;
+  const { data } = await apiClient.delete<{ message: string }>(`/etl/schedules/${scheduleId}`);
+  return data;
 }
 
 /**
@@ -271,9 +231,8 @@ export async function deleteSchedule(scheduleId: string): Promise<{ message: str
  * POST /etl/schedules/{schedule_id}/suspend
  */
 export async function suspendSchedule(scheduleId: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/schedules/${scheduleId}/suspend`, {}, { headers });
-  return response.data;
+  const { data } = await apiClient.post<{ message: string }>(`/etl/schedules/${scheduleId}/suspend`);
+  return data;
 }
 
 /**
@@ -281,9 +240,8 @@ export async function suspendSchedule(scheduleId: string): Promise<{ message: st
  * POST /etl/schedules/{schedule_id}/resume
  */
 export async function resumeSchedule(scheduleId: string): Promise<{ message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(`${API_BASE_URL}/etl/schedules/${scheduleId}/resume`, {}, { headers });
-  return response.data;
+  const { data } = await apiClient.post<{ message: string }>(`/etl/schedules/${scheduleId}/resume`);
+  return data;
 }
 
 /**
@@ -294,12 +252,10 @@ export async function getScheduleHistory(
   scheduleId: string,
   limit: number = 20
 ): Promise<ScheduleHistoryResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(`${API_BASE_URL}/etl/schedules/${scheduleId}/history`, {
-    headers,
+  const { data } = await apiClient.get<ScheduleHistoryResponse>(`/etl/schedules/${scheduleId}/history`, {
     params: { limit },
   });
-  return response.data;
+  return data;
 }
 
 // ============================================

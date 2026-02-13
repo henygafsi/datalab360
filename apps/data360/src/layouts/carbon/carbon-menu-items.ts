@@ -45,8 +45,8 @@ export interface MenuItemsType {
   name: string;
   title: string;
   icon: IconType;
+  color: string;
   menuItems: ItemType[];
-
 }
 
 export const carbonMenuItems: MenuItemsType[] = [
@@ -56,6 +56,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Connect Data',
     title: 'Connect Data',
     icon: PiUserCircleDuotone,
+    color: 'blue',
     menuItems: [
       {
         name: 'Data Source Connection',
@@ -69,26 +70,14 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ]
   },
-  // 2. Mapping
-  {
-    id: 2,
-    name: 'Mapping',
-    title: 'Mapping',
-    icon: PiMapPinLineDuotone,
-    menuItems: [
-      {
-        name: 'View Mapping',
-        href: routes.exploreDesign.view,
-        icon: PiMapPinLineDuotone,
-      },
-    ],
-  },
+
   // 3. Explore & Design
   {
     id: 12,
     name: 'Explore & Design',
     title: 'Explore & Design',
     icon: PiGlobeDuotone,
+    color: 'violet',
     menuItems: [
       {
         name: 'Explore Design',
@@ -103,6 +92,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Workflow',
     title: 'Workflow',
     icon: PiShootingStarDuotone,
+    color: 'amber',
     menuItems: [
       {
         name: 'View Workflow',
@@ -117,6 +107,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Governance',
     title: 'Governance',
     icon: PiUserGearDuotone,
+    color: 'rose',
     menuItems: [
       {
         name: 'Users',
@@ -152,6 +143,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Business Reporting',
     title: 'Business Reporting',
     icon: PiChartBarDuotone,
+    color: 'cyan',
     menuItems: [
       {
         name: 'BI Reporting',
@@ -166,6 +158,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'AI Intelligence',
     title: 'AI Intelligence',
     icon: PiBrainDuotone,
+    color: 'purple',
     menuItems: [
       {
         name: 'Semantic Models',
@@ -187,6 +180,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Data Health',
     title: 'Data Health',
     icon: PiCheckCircleDuotone,
+    color: 'green',
     menuItems: [
       {
         name: 'Quality Reports',
@@ -201,6 +195,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Observability',
     title: 'Observability',
     icon: PiChartLineDuotone,
+    color: 'orange',
     menuItems: [
       {
         name: 'Dashboard',

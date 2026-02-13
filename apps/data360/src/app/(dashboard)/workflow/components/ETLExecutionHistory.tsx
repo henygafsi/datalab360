@@ -18,8 +18,17 @@ import {
   Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import * as etlService from '@/app/services/etl';
-import type { PipelineRun, GeneratedSQL } from '@/app/services/etl/types';
+import * as workflowApi from '@/app/services/api/workflowApi';
+import type { WorkflowRun } from '@/app/services/api/types';
+
+// Format duration in seconds to human-readable string
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
+}
 
 // ============================================
 // TYPES
@@ -46,7 +55,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   className,
   compact = false,
 }) => {
-  const [runs, setRuns] = useState<PipelineRun[]>([]);
+  const [runs, setRuns] = useState<WorkflowRun[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
@@ -64,15 +73,11 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     setIsLoading(true);
     setError(null);
     try {
-      const response = await etlService.getPipelineRuns(pipelineId, 50);
-      let filteredRuns = response.runs || [];
-
-      // Apply status filter client-side
-      if (statusFilter) {
-        filteredRuns = filteredRuns.filter((r) => r.status === statusFilter);
-      }
-
-      setRuns(filteredRuns);
+      const response = await workflowApi.listRuns(pipelineId, {
+        limit: 50,
+        status: statusFilter || undefined,
+      });
+      setRuns(response.runs || []);
     } catch (err: any) {
       console.error('Failed to fetch runs:', err);
       const errObj = err.response?.data?.error;
@@ -82,14 +87,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       } else if (typeof err.response?.data?.detail === 'string') {
         errMsg = err.response.data.detail;
       } else {
-        const d = err.response?.data?.detail;
-        if (d != null && typeof d === 'object' && ((d as any).message != null || (d as any).msg != null)) {
-          errMsg = String((d as any).message ?? (d as any).msg);
-        } else if (d != null) {
-          errMsg = typeof d === 'string' ? d : JSON.stringify(d);
-        } else {
-          errMsg = 'Failed to load execution history';
-        }
+        errMsg = 'Failed to load execution history';
       }
       setError(typeof errMsg === 'string' ? errMsg : 'Failed to load execution history');
     } finally {
@@ -177,7 +175,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   };
 
   const getRunStats = () => {
-    const completed = runs.filter((r) => r.status === 'completed').length;
+    const completed = runs.filter((r) => r.status === 'completed' || r.status === 'success').length;
     const failed = runs.filter((r) => r.status === 'failed').length;
     const running = runs.filter((r) => r.status === 'running').length;
     const validDurations = runs.filter((r) => r.duration_seconds);
@@ -253,7 +251,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-slate-600 dark:text-slate-400">
-              {etlService.formatDuration(Math.round(stats.avgDuration))}
+              {formatDuration(Math.round(stats.avgDuration))}
             </div>
             <div className="text-xs text-slate-500">Avg Time</div>
           </div>
@@ -322,7 +320,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           <ChevronDown className="h-4 w-4 text-slate-400" />
                         )}
                       </button>
-                      {getStatusBadge(run.status)}
+                      {getStatusBadge(run.status as RunStatus)}
                       <span className="text-xs font-mono text-slate-500">
                         #{run.run_id.slice(-8)}
                       </span>
@@ -336,20 +334,16 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       {run.duration_seconds !== undefined && run.duration_seconds !== null && (
                         <span className="flex items-center gap-1">
                           <Timer className="h-3 w-3" />
-                          {etlService.formatDuration(run.duration_seconds)}
+                          {formatDuration(run.duration_seconds)}
                         </span>
                       )}
-                      {run.components_executed !== undefined && (
-                        <span className="flex items-center gap-1">
-                          <Layers className="h-3 w-3" />
-                          {run.components_executed} components
-                        </span>
-                      )}
-                      {run.rows_processed !== undefined && run.rows_processed !== null && (
-                        <span className="text-green-600 dark:text-green-400">
-                          {run.rows_processed.toLocaleString()} rows
-                        </span>
-                      )}
+                      <span className="flex items-center gap-1">
+                        <Layers className="h-3 w-3" />
+                        {run.steps_executed}/{run.steps_total} steps
+                        {run.steps_failed > 0 && (
+                          <span className="text-red-500">({run.steps_failed} failed)</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -366,14 +360,12 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                             {run.run_id}
                           </code>
                         </div>
-                        {run.pipeline_id && (
-                          <div>
-                            <span className="text-slate-500">Pipeline:</span>
-                            <span className="ml-1 text-slate-700 dark:text-slate-300">
-                              {run.pipeline_id.slice(-8)}
-                            </span>
-                          </div>
-                        )}
+                        <div>
+                          <span className="text-slate-500">Trigger:</span>
+                          <span className="ml-1 text-slate-700 dark:text-slate-300">
+                            {run.trigger_type}
+                          </span>
+                        </div>
                         <div>
                           <span className="text-slate-500">Started:</span>
                           <span className="ml-1 text-slate-700 dark:text-slate-300">
@@ -391,56 +383,44 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       </div>
                     </div>
 
-                    {/* Error Message */}
-                    {run.error_message && (
+                    {/* Error Log */}
+                    {run.error_log && (
                       <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                         <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 mb-1">
                           <AlertTriangle className="h-3 w-3" />
                           Error
                         </div>
                         <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap">
-                          {typeof run.error_message === 'string'
-                            ? run.error_message
-                            : run.error_message != null
-                              ? JSON.stringify(run.error_message, null, 2)
-                              : 'Unknown error'}
+                          {typeof run.error_log === 'string'
+                            ? run.error_log
+                            : JSON.stringify(run.error_log, null, 2)}
                         </pre>
                       </div>
                     )}
 
-                    {/* Generated SQL */}
-                    {run.generated_sql && run.generated_sql.length > 0 && (
+                    {/* Execution Details */}
+                    {run.execution_details && (
                       <div className="space-y-2">
                         <div className="flex items-center gap-1 text-xs text-slate-500">
                           <Code className="h-3 w-3" />
-                          Generated SQL
+                          Execution Details
                         </div>
-                        {run.generated_sql.map((sql, idx) => (
-                          <div
-                            key={`${sql.component_id}-${idx}`}
-                            className="p-3 bg-slate-900 rounded-lg relative group"
+                        <div className="p-3 bg-slate-900 rounded-lg relative group">
+                          <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
+                            {JSON.stringify(run.execution_details, null, 2)}
+                          </pre>
+                          <button
+                            onClick={() => copyToClipboard(JSON.stringify(run.execution_details, null, 2), run.run_id)}
+                            className="absolute top-2 right-2 p-1 hover:bg-slate-700 rounded opacity-0 group-hover:opacity-100 transition"
+                            title="Copy"
                           >
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="text-xs text-slate-400 font-mono">
-                                {sql.component_id}
-                              </span>
-                              <button
-                                onClick={() => copyToClipboard(sql.sql, `${run.run_id}-${idx}`)}
-                                className="p-1 hover:bg-slate-700 rounded opacity-0 group-hover:opacity-100 transition"
-                                title="Copy SQL"
-                              >
-                                {copiedSql === `${run.run_id}-${idx}` ? (
-                                  <Check className="h-3 w-3 text-green-400" />
-                                ) : (
-                                  <Copy className="h-3 w-3 text-slate-400" />
-                                )}
-                              </button>
-                            </div>
-                            <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
-                              {sql.sql}
-                            </pre>
-                          </div>
-                        ))}
+                            {copiedSql === run.run_id ? (
+                              <Check className="h-3 w-3 text-green-400" />
+                            ) : (
+                              <Copy className="h-3 w-3 text-slate-400" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

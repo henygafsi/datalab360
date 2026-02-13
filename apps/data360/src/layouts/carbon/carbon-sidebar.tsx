@@ -8,14 +8,13 @@ import {
   PiDotsThreeVerticalBold,
   PiHeadsetBold,
   PiArrowRightBold,
-  PiQuestionBold,
 } from 'react-icons/pi';
 import dynamic from 'next/dynamic';
 import SimpleBar from 'simplebar-react';
 import { CarbonSidebarMenu } from './carbon-sidebar-menu';
 import { useSession } from 'next-auth/react';
 import { useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { normalizeToIds, getAllModuleIds } from '@/config/modules';
 import { useSidebarCollapsed } from '@/store/sidebar-store';
 
@@ -88,7 +87,7 @@ export function CarbonSidebar({ className }: { className?: string }) {
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-blue-50/30 via-transparent to-purple-50/30 dark:from-blue-950/20 dark:via-transparent dark:to-purple-950/20" />
 
       {/* Animated side accent */}
-      <div className="absolute bottom-0 left-0 top-0 w-1 bg-gradient-to-b from-blue-500 via-purple-500 to-pink-500 opacity-60" />
+      <div className="absolute bottom-0 left-0 top-0 w-0.5 bg-gradient-to-b from-blue-500 via-purple-500 to-pink-500 opacity-40" />
 
       {/* Enhanced Logo section */}
       <div className="relative sticky top-0 z-40 border-b border-slate-200/40 bg-white/90 px-6 pb-6 pt-8 backdrop-blur-xl dark:border-slate-700/40 dark:bg-slate-950/90 2xl:px-8 2xl:pt-10">
@@ -150,23 +149,12 @@ export function CarbonSidebar({ className }: { className?: string }) {
           </motion.button>
         </div>
 
-        {/* Decorative elements */}
-        <motion.div
-          className="absolute right-4 top-4 h-2 w-2 rounded-full bg-blue-400/30"
-          animate={{ opacity: [0.3, 0.8, 0.3] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        />
-        <motion.div
-          className="absolute bottom-4 left-4 h-1.5 w-1.5 rounded-full bg-purple-400/30"
-          animate={{ opacity: [0.2, 0.6, 0.2] }}
-          transition={{ duration: 3, repeat: Infinity, delay: 0.7 }}
-        />
       </div>
 
       {/* Navigation section */}
       <SimpleBar
         className={cn(
-          'h-[calc(100%-340px)] [&_.simplebar-content]:flex [&_.simplebar-content]:h-full [&_.simplebar-content]:flex-col [&_.simplebar-content]:justify-between'
+          'h-[calc(100%-300px)] [&_.simplebar-content]:flex [&_.simplebar-content]:h-full [&_.simplebar-content]:flex-col [&_.simplebar-content]:justify-between'
         )}
       >
         <motion.div
@@ -186,15 +174,8 @@ export function CarbonSidebar({ className }: { className?: string }) {
               title="Need Support?"
               text="Get help from our expert team"
               prefixIcon={<PiHeadsetBold className="h-5 w-5 text-blue-500" />}
-              className="group relative transform rounded-2xl border border-blue-200/60 bg-gradient-to-br from-blue-50/90 via-indigo-50/90 to-purple-50/90 p-6 transition-all duration-300 hover:scale-[1.02] hover:border-blue-300/70 hover:from-blue-100/90 hover:via-indigo-100/90 hover:to-purple-100/90 hover:shadow-lg hover:shadow-blue-500/20 dark:border-blue-800/40 dark:from-blue-950/40 dark:via-indigo-950/40 dark:to-purple-950/40 dark:hover:border-blue-700/50 dark:hover:from-blue-900/50 dark:hover:via-indigo-900/50 dark:hover:to-purple-900/50"
-            >
-              {/* Animated background pattern */}
-              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-transparent via-blue-100/20 to-purple-100/20 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-transparent dark:via-blue-900/10 dark:to-purple-900/10" />
-
-              {/* Floating particles */}
-              <div className="absolute right-2 top-2 h-1 w-1 animate-ping rounded-full bg-blue-400/40" />
-              <div className="absolute bottom-3 left-3 h-1.5 w-1.5 animate-pulse rounded-full bg-purple-400/40 delay-1000" />
-            </NeedSupport>
+              className="group relative rounded-xl border border-slate-200/60 bg-gradient-to-br from-slate-50/90 to-blue-50/50 p-5 transition-all duration-200 hover:border-blue-200/60 hover:shadow-md hover:shadow-blue-500/10 dark:border-slate-700/40 dark:from-slate-800/40 dark:to-blue-950/30 dark:hover:border-blue-800/50"
+            />
           </div>
         )}
       </SimpleBar>
@@ -222,46 +203,24 @@ export function CarbonSidebar({ className }: { className?: string }) {
             designation={userRole || 'User'}
             placement="top"
             initial={username.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)}
-            avatarClassName="!w-14 !h-14 ring-4 ring-blue-500/30 dark:ring-blue-400/30 shadow-xl shadow-blue-500/20"
+            avatarClassName="!w-11 !h-11 ring-2 ring-slate-200/60 dark:ring-slate-700/60 shadow-sm"
             icon={
               <PiDotsThreeVerticalBold
                 className={cn(
-                  'h-6 w-6 text-slate-400 transition-all duration-300 group-hover:scale-110 group-hover:text-blue-500'
+                  'h-5 w-5 text-slate-400 transition-colors duration-200 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                 )}
               />
             }
             className={cn(
-              'group relative mt-4 rounded-2xl px-3 py-3 transition-all duration-300 hover:scale-[1.02] hover:bg-slate-100/90 hover:shadow-lg hover:shadow-slate-500/10 dark:hover:bg-slate-800/90'
+              'group relative mt-2 rounded-xl px-2 py-2 transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
             )}
-            buttonClassName="border-0 !border-t !border-slate-200/60 dark:!border-slate-700/60 pt-5 px-3 rounded-xl"
-          >
-            {/* Profile hover effect */}
-            <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-blue-50/50 to-purple-50/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-blue-950/30 dark:to-purple-950/30" />
-
-            {/* Status indicator */}
-            <div className="absolute right-2 top-2">
-              <div className="h-2 w-2 animate-pulse rounded-full bg-green-400" />
-            </div>
-          </ProfileCardMenu>
+            buttonClassName="border-0 !border-t !border-slate-200/60 dark:!border-slate-700/60 pt-4 px-3 rounded-xl"
+          />
         )}
       </div>
 
       {/* Bottom accent line */}
       <div className="absolute bottom-0 left-4 right-4 h-px bg-gradient-to-r from-transparent via-blue-500/40 to-transparent" />
-      {/* Collapse/Expand Indicator for collapsed state */}
-      <AnimatePresence>
-        {sidebarCollapsed && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute bottom-4 left-1/2 flex -translate-x-1/2 transform flex-col items-center space-y-2"
-          >
-            <div className="h-4 w-1 rounded-full bg-gradient-to-t from-blue-500/30 to-transparent" />
-            <div className="h-2 w-0.5 rounded-full bg-purple-500/20" />
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Accessibility helper */}
       <div className="sr-only" aria-live="polite">

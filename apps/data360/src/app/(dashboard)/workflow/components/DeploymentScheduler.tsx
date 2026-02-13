@@ -16,7 +16,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSession } from 'next-auth/react';
-import { scheduleDeployment, DeploymentStatus, WorkflowStep } from '@/app/services/workflow';
+import { requestDeployment, executeDeployment } from '@/app/services/api/workflowApi';
+import type { WorkflowStep, WorkflowDeploymentType } from '@/app/services/api/types';
+
+type DeploymentStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'ACTIVE' | 'SCHEDULED';
 import { addLocalDeployment } from './DeploymentHistory';
 
 // Helper to extract error message (ApiResponse.error, FastAPI detail, etc.)
@@ -79,16 +82,33 @@ const DeploymentScheduler: React.FC<DeploymentSchedulerProps> = ({
 
       const isImmediate = deploymentType === 'immediate';
 
-      const result = await scheduleDeployment({
-        workflow_id: workflowId,
-        workflow_name: workflowName,
-        steps: steps,
-        scheduled_date: scheduledDateTime,
-        requires_approval: deploymentType === 'approval' || deploymentType === 'scheduled',
-        immediate: isImmediate,
-        created_by: currentUser,
-        description: `Workflow deployment: ${workflowName} (${deploymentType})`,
+      // Map local deployment type to API deployment type
+      const apiDeploymentType: WorkflowDeploymentType = isImmediate
+        ? 'immediate'
+        : deploymentType === 'approval'
+          ? 'with_approval'
+          : 'scheduled';
+
+      // Step 1: Request deployment via new API
+      const result = await requestDeployment(workflowId, {
+        version_id: '', // latest version
+        deployment_type: apiDeploymentType,
+        scheduled_time: scheduledDateTime || undefined,
+        warehouse: 'COMPUTE_WH',
       });
+
+      const deploymentId = result.deployment_id;
+
+      // Step 2: For immediate deployments, execute right away
+      if (isImmediate && deploymentId) {
+        await executeDeployment(workflowId, deploymentId);
+      }
+
+      const resultStatus: DeploymentStatus = isImmediate
+        ? 'ACTIVE'
+        : deploymentType === 'approval'
+          ? 'PENDING_APPROVAL'
+          : 'SCHEDULED';
 
       // Save deployment to localStorage for history tracking
       const deploymentTypeMap = {
@@ -98,10 +118,10 @@ const DeploymentScheduler: React.FC<DeploymentSchedulerProps> = ({
       };
 
       addLocalDeployment({
-        event_id: result.event_id,
+        event_id: deploymentId,
         workflow_id: workflowId,
         workflow_name: workflowName,
-        status: result.status,
+        status: resultStatus,
         deployment_type: deploymentTypeMap[deploymentType],
         scheduled_date: scheduledDateTime,
         steps: steps,
@@ -119,7 +139,7 @@ const DeploymentScheduler: React.FC<DeploymentSchedulerProps> = ({
         setSuccess('Deployment scheduled successfully!');
       }
 
-      onDeploymentCreated?.(result.event_id, result.status);
+      onDeploymentCreated?.(deploymentId, resultStatus);
 
       // Close after short delay
       setTimeout(() => {

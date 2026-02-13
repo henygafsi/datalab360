@@ -22,15 +22,13 @@ import {
   CircleDot,
   type LucideIcon,
 } from 'lucide-react';
-import type { ComponentType, ComponentCategory } from '@/app/services/etl/types';
-
-// Re-export types for backward compatibility
-export type ETLCategory = ComponentCategory;
+// Category type for palette grouping
+export type ETLCategory = 'source' | 'transform' | 'destination';
 
 // ETL Block definition
 export interface ETLBlockDefinition {
   id: string;
-  type: ComponentType;
+  type: string;
   label: string;
   description: string;
   icon: LucideIcon;
@@ -365,7 +363,7 @@ export const CATEGORY_ICONS: Record<ETLCategory, LucideIcon> = {
 // ============================================
 
 // Map old node types to new types
-export const LEGACY_TYPE_MAP: Record<string, ComponentType> = {
+export const LEGACY_TYPE_MAP: Record<string, string> = {
   src: 'source',
   join_tables: 'join',
   aggregate_kpi: 'aggregate',
@@ -376,6 +374,6 @@ export const LEGACY_TYPE_MAP: Record<string, ComponentType> = {
 };
 
 // Convert legacy node type to new type
-export function convertLegacyType(legacyType: string): ComponentType {
-  return LEGACY_TYPE_MAP[legacyType] || (legacyType as ComponentType);
+export function convertLegacyType(legacyType: string): string {
+  return LEGACY_TYPE_MAP[legacyType] || legacyType;
 }

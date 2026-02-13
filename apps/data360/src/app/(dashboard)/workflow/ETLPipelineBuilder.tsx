@@ -33,17 +33,18 @@ import ETLExecutionHistory from './components/ETLExecutionHistory';
 import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 
-// ETL Service
-import * as etlService from '@/app/services/etl';
+// Workflow API services
+import * as workflowApi from '@/app/services/api/workflowApi';
+import { listProjects } from '@/app/services/api/projectsApi';
 import { getApiErrorMessage } from '@/lib/api-client';
 import type {
-  Pipeline,
-  PipelineComponent,
-  ComponentType,
-  CreatePipelineRequest,
-  ExecutePipelineResponse,
-  PipelineValidation,
-} from '@/app/services/etl/types';
+  Workflow,
+  WorkflowStep,
+  WorkflowActionType,
+  WorkflowExecutionResponse,
+  CompileWorkflowResponse,
+  ValidateWorkflowResponse,
+} from '@/app/services/api/types';
 
 // ============================================
 // TYPES
@@ -61,45 +62,66 @@ function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
-// Convert ReactFlow nodes/edges to Pipeline components
-function nodesToComponents(nodes: Node[], edges: Edge[]): PipelineComponent[] {
+// Build CreateWorkflowStepInput array from ReactFlow nodes/edges
+// Payload uses flat keys matching the API (database_name, schema_name, etc.)
+// plus reserved keys: inputs (step_ids this step reads from), cte_alias, position, nodeId
+function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
   return nodes.map((node) => {
     const inputs = edges
       .filter((edge) => edge.target === node.id)
       .map((edge) => edge.source);
 
+    const config = node.data?.config || node.data || {};
+    const stepName = node.data?.name || node.type || 'step';
+
     return {
-      id: node.id,
-      type: convertLegacyType(node.type || 'source') as ComponentType,
-      name: node.data?.name,
-      config: node.data?.config || node.data || {},
-      inputs,
-      position: node.position,
+      action_type: convertLegacyType(node.type || 'source') as WorkflowActionType,
+      step_name: stepName,
+      payload: {
+        ...config,
+        inputs,
+        cte_alias: stepName.toLowerCase().replace(/\s+/g, '_'),
+        position: node.position,
+        nodeId: node.id,
+      },
     };
   });
 }
 
-// Convert Pipeline to ReactFlow nodes/edges
-function pipelineToReactFlow(pipeline: Pipeline): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = pipeline.components.map((comp) => ({
-    id: comp.id,
-    type: comp.type,
-    position: comp.position || { x: 0, y: 0 },
-    data: {
-      ...comp.config,
-      name: comp.name,
-      config: comp.config,
-    },
-  }));
+// Convert workflow steps to ReactFlow nodes/edges
+// Payload stores flat keys (database_name, schema_name, etc.) + reserved keys (inputs, cte_alias, position, nodeId)
+function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = steps.map((step) => {
+    const payload = step.payload || {};
+    const position = (payload.position as { x: number; y: number }) || { x: 0, y: 0 };
+    const stepName = step.step_name;
+
+    // Extract config (everything except reserved keys)
+    const { inputs: _inputs, cte_alias: _cte, position: _pos, nodeId: _nid, ...config } = payload;
+
+    return {
+      id: (payload.nodeId as string) || step.step_id,
+      type: step.action_type,
+      position,
+      data: {
+        ...config,
+        name: stepName,
+        config,
+      },
+    };
+  });
 
   const edges: Edge[] = [];
-  pipeline.components.forEach((comp) => {
-    comp.inputs.forEach((inputId, index) => {
-      const blockDef = getBlockByType(comp.type);
+  steps.forEach((step) => {
+    const payload = step.payload || {};
+    const inputs = (payload.inputs as string[]) || [];
+    const nodeId = (payload.nodeId as string) || step.step_id;
+    inputs.forEach((inputId, index) => {
+      const blockDef = getBlockByType(step.action_type);
       edges.push({
-        id: `${inputId}-${comp.id}`,
+        id: `${inputId}-${nodeId}`,
         source: inputId,
-        target: comp.id,
+        target: nodeId,
         targetHandle: blockDef?.maxInputs === 2 ? `input${index + 1}` : undefined,
         markerEnd: { type: MarkerType.ArrowClosed },
         style: { strokeWidth: 2 },
@@ -124,9 +146,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
 
-  // Pipeline state
-  const [activePipeline, setActivePipeline] = useState<Pipeline | null>(null);
-  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
+  // Pipeline/Workflow state
+  const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
+  const [activeWorkflowName, setActiveWorkflowName] = useState<string>('New Pipeline');
+  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
   const [pipelineName, setPipelineName] = useState('New Pipeline');
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -139,8 +162,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai'>('runs');
 
   // Execution state
-  const [lastExecution, setLastExecution] = useState<ExecutePipelineResponse | null>(null);
-  const [validation, setValidation] = useState<PipelineValidation | null>(null);
+  const [lastExecution, setLastExecution] = useState<WorkflowExecutionResponse | null>(null);
+  const [compiledSql, setCompiledSql] = useState<CompileWorkflowResponse | null>(null);
+  const [validation, setValidation] = useState<ValidateWorkflowResponse | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
 
@@ -148,23 +172,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // LOAD DATA
   // ============================================
 
-  // Load pipelines on mount
+  // Load workflows on mount
   useEffect(() => {
     if (!accessToken) return;
 
-    const loadPipelines = async () => {
+    const loadWorkflows = async () => {
       setIsLoading(true);
       try {
-        const response = await etlService.listPipelines();
-        setPipelines(response.pipelines);
+        const response = await listProjects({ project_type: 'workflow' });
+        setWorkflows(
+          (response.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
+        );
       } catch (error) {
-        console.error('Failed to load pipelines:', error);
+        console.error('Failed to load workflows:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    loadPipelines();
+    loadWorkflows();
   }, [accessToken]);
 
   // ============================================
@@ -317,7 +343,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       }
 
       // JOIN: Combine columns from both inputs (minus excluded columns)
-      case 'join': {
+      case 'join_tables': {
         const sortedEdges = inputEdges.sort((a, b) =>
           (a.targetHandle || '').localeCompare(b.targetHandle || '')
         );
@@ -428,7 +454,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Get columns for join node inputs (uses column propagation)
   const getJoinInputColumns = useCallback((): { left: string[]; right: string[] } => {
-    if (!selectedNode || selectedNode.type !== 'join') return { left: [], right: [] };
+    if (!selectedNode || selectedNode.type !== 'join_tables') return { left: [], right: [] };
 
     const inputEdges = edges
       .filter((e) => e.target === selectedNode.id)
@@ -456,23 +482,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const handleNewPipeline = useCallback(() => {
     setNodes([]);
     setEdges([]);
-    setActivePipeline(null);
+    setActiveWorkflowId(null);
+    setActiveWorkflowName('New Pipeline');
     setPipelineName('New Pipeline');
     setLastExecution(null);
+    setCompiledSql(null);
     setValidation(null);
   }, [setNodes, setEdges]);
 
   const handleLoadPipeline = useCallback(
-    async (pipeline: Pipeline) => {
+    async (wf: { id: string; name: string }) => {
       try {
         setIsLoading(true);
-        const fullPipeline = await etlService.getPipeline(pipeline.pipeline_id);
-        const { nodes: newNodes, edges: newEdges } = pipelineToReactFlow(fullPipeline);
+        const stepsResponse = await workflowApi.listSteps(wf.id);
+        const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
         setEdges(newEdges);
-        setActivePipeline(fullPipeline);
-        setPipelineName(fullPipeline.name);
-        toast.success(`Loaded pipeline: ${fullPipeline.name}`);
+        setActiveWorkflowId(wf.id);
+        setActiveWorkflowName(wf.name);
+        setPipelineName(wf.name);
+        toast.success(`Loaded pipeline: ${wf.name}`);
       } catch (error) {
         console.error('Failed to load pipeline:', error);
         toast.error('Failed to load pipeline');
@@ -491,53 +520,61 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     setIsSaving(true);
     try {
-      const components = nodesToComponents(nodes, edges);
-      const request: CreatePipelineRequest = {
-        name: pipelineName,
-        components,
-      };
+      const stepInputs = nodesToStepInputs(nodes, edges);
 
-      if (activePipeline) {
-        // Update existing
-        const updated = await etlService.updatePipeline(activePipeline.pipeline_id, request);
-        setActivePipeline(updated);
+      if (activeWorkflowId) {
+        // Update existing: delete all steps then re-add
+        const existing = await workflowApi.listSteps(activeWorkflowId);
+        for (const step of existing.steps || []) {
+          await workflowApi.deleteStep(activeWorkflowId, step.step_id);
+        }
+        for (const input of stepInputs) {
+          await workflowApi.addStep(activeWorkflowId, input);
+        }
         toast.success('Pipeline updated');
       } else {
         // Create new
-        const response = await etlService.createPipeline(request);
-        const newPipeline = await etlService.getPipeline(response.pipeline_id);
-        setActivePipeline(newPipeline);
-        setPipelines((prev) => [...prev, newPipeline]);
-        setValidation(response.validation);
+        const response = await workflowApi.createWorkflow({
+          project_name: pipelineName,
+          steps: stepInputs,
+        });
+        setActiveWorkflowId(response.project_id);
+        setActiveWorkflowName(response.project_name);
         toast.success('Pipeline created');
       }
 
-      // Refresh pipeline list
-      const listResponse = await etlService.listPipelines();
-      setPipelines(listResponse.pipelines);
+      // Refresh workflow list
+      const listResponse = await listProjects({ project_type: 'workflow' });
+      setWorkflows(
+        (listResponse.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
+      );
     } catch (error: any) {
       console.error('Failed to save pipeline:', error);
-      toast.error(error.response?.data?.detail || 'Failed to save pipeline');
+      toast.error(getApiErrorMessage(error) || 'Failed to save pipeline');
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, pipelineName, activePipeline]);
+  }, [nodes, edges, pipelineName, activeWorkflowId]);
 
   const handleDeletePipeline = useCallback(async () => {
-    if (!activePipeline) return;
+    if (!activeWorkflowId) return;
 
-    if (!confirm(`Delete pipeline "${activePipeline.name}"?`)) return;
+    if (!confirm(`Delete pipeline "${activeWorkflowName}"?`)) return;
 
     try {
-      await etlService.deletePipeline(activePipeline.pipeline_id);
-      setPipelines((prev) => prev.filter((p) => p.pipeline_id !== activePipeline.pipeline_id));
+      // Delete all steps to effectively clear the workflow
+      const existing = await workflowApi.listSteps(activeWorkflowId);
+      for (const step of existing.steps || []) {
+        await workflowApi.deleteStep(activeWorkflowId, step.step_id);
+      }
+      setWorkflows((prev) => prev.filter((w) => w.id !== activeWorkflowId));
       handleNewPipeline();
       toast.success('Pipeline deleted');
     } catch (error) {
       console.error('Failed to delete pipeline:', error);
       toast.error('Failed to delete pipeline');
     }
-  }, [activePipeline, handleNewPipeline]);
+  }, [activeWorkflowId, activeWorkflowName, handleNewPipeline]);
 
   // ============================================
   // EXECUTION
@@ -545,36 +582,36 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   const handleExecute = useCallback(
     async (dryRun: boolean = false) => {
-      if (!activePipeline && nodes.length === 0) {
+      if (!activeWorkflowId && nodes.length === 0) {
         toast.error('No pipeline to execute');
+        return;
+      }
+
+      if (!activeWorkflowId) {
+        toast.error('Save the pipeline first before executing');
         return;
       }
 
       setIsExecuting(true);
       try {
-        let response: ExecutePipelineResponse;
-
-        if (activePipeline) {
-          // Execute saved pipeline
-          response = await etlService.executePipeline(activePipeline.pipeline_id, dryRun);
-        } else {
-          // Execute inline
-          const components = nodesToComponents(nodes, edges);
-          response = await etlService.executeInline({ components, dry_run: dryRun });
-        }
-
-        setLastExecution(response);
-
         if (dryRun) {
+          // Compile (dry-run): generates SQL without executing
+          const compileResult = await workflowApi.compileWorkflow(activeWorkflowId);
+          setCompiledSql(compileResult);
           setActiveTab('sql');
           toast.success('SQL generated (dry run)');
         } else {
-          if (response.status === 'completed') {
-            toast.success(`Executed successfully! ${response.rows_processed || 0} rows processed`);
+          // Execute
+          const response = await workflowApi.executeWorkflow(activeWorkflowId, {
+            trigger_type: 'manual',
+          });
+          setLastExecution(response);
+
+          if (response.status === 'completed' || response.status === 'success') {
+            toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
           } else if (response.status === 'failed') {
             toast.error('Execution failed');
           }
-          // Note: ETLExecutionHistory component will auto-refresh runs
         }
       } catch (error: any) {
         console.error('Execution failed:', error);
@@ -583,53 +620,50 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         setIsExecuting(false);
       }
     },
-    [activePipeline, nodes, edges]
+    [activeWorkflowId, nodes]
   );
 
   const handleValidate = useCallback(async () => {
-    if (nodes.length === 0) {
-      toast.error('No components to validate');
+    if (!activeWorkflowId) {
+      toast.error('Save the pipeline first before validating');
       return;
     }
 
     try {
       setAiSuggestions(null);
-      const components = nodesToComponents(nodes, edges);
-      const result = await etlService.validatePipeline({ components });
+      const result = await workflowApi.validateWorkflow(activeWorkflowId);
       setValidation(result);
 
-      if (result.is_valid) {
+      if (result.valid) {
         toast.success('Pipeline is valid');
       } else {
-        toast.error(`Validation failed: ${result.errors.join(', ')}`);
+        toast.error(`Validation failed: ${result.error || 'Unknown error'}`);
       }
     } catch (error: any) {
       console.error('Validation failed:', error);
-      toast.error(error.response?.data?.detail || 'Validation failed');
+      toast.error(getApiErrorMessage(error) || 'Validation failed');
     }
-  }, [nodes, edges]);
+  }, [activeWorkflowId]);
 
   const handleGetAiSuggestions = useCallback(async () => {
     if (!validation) return;
     setAiSuggestionsLoading(true);
     setAiSuggestions(null);
     try {
-      const components = nodesToComponents(nodes, edges);
-      const res = await etlService.getValidateSuggestions({
-        errors: validation.errors,
-        warnings: validation.warnings,
-        components,
-        execution_order: validation.execution_order,
-        estimated_complexity: validation.estimated_complexity,
-      });
-      setAiSuggestions(res.response || 'No suggestion.');
+      // AI suggestions not available via workflow API — show validation info
+      const info: string[] = [];
+      if (validation.error) info.push(`Error: ${validation.error}`);
+      if (validation.mode) info.push(`Mode: ${validation.mode}`);
+      if (validation.steps_count) info.push(`Steps: ${validation.steps_count}`);
+      if (validation.destination) info.push(`Destination: ${validation.destination}`);
+      setAiSuggestions(info.length > 0 ? info.join('\n') : 'No suggestions available.');
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'AI suggestions unavailable');
+      toast.error('AI suggestions unavailable');
       setAiSuggestions(null);
     } finally {
       setAiSuggestionsLoading(false);
     }
-  }, [validation, nodes, edges]);
+  }, [validation]);
 
   // ============================================
   // RENDER
@@ -644,18 +678,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         <div className="flex items-center gap-4">
           {/* Pipeline selector */}
           <select
-            value={activePipeline?.pipeline_id || ''}
+            value={activeWorkflowId || ''}
             onChange={(e) => {
-              const pipeline = pipelines.find((p) => p.pipeline_id === e.target.value);
-              if (pipeline) handleLoadPipeline(pipeline);
+              const wf = workflows.find((w) => w.id === e.target.value);
+              if (wf) handleLoadPipeline(wf);
               else handleNewPipeline();
             }}
             className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm"
           >
             <option value="">New Pipeline</option>
-            {pipelines.map((p) => (
-              <option key={p.pipeline_id} value={p.pipeline_id}>
-                {p.name}
+            {workflows.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.name}
               </option>
             ))}
           </select>
@@ -674,17 +708,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <div
               className={cn(
                 'px-2 py-1 rounded text-xs font-medium flex items-center gap-1',
-                validation.is_valid
+                validation.valid
                   ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                   : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
               )}
             >
-              {validation.is_valid ? (
+              {validation.valid ? (
                 <CheckCircle className="h-3 w-3" />
               ) : (
                 <AlertCircle className="h-3 w-3" />
               )}
-              {validation.is_valid ? 'Valid' : `${validation.errors.length} errors`}
+              {validation.valid ? 'Valid' : 'Errors'}
             </div>
           )}
         </div>
@@ -723,7 +757,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           <button
             onClick={() => handleExecute(false)}
-            disabled={isExecuting || !activePipeline}
+            disabled={isExecuting || !activeWorkflowId}
             className="px-3 py-2 text-sm font-medium rounded-lg bg-green-600 text-white hover:bg-green-700 flex items-center gap-2 disabled:opacity-50"
           >
             {isExecuting ? (
@@ -734,7 +768,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             Execute
           </button>
 
-          {activePipeline && (
+          {activeWorkflowId && (
             <button
               onClick={handleDeletePipeline}
               className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg"
@@ -823,8 +857,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex-1 overflow-auto p-4">
             {activeTab === 'runs' && (
               <ETLExecutionHistory
-                pipelineId={activePipeline?.pipeline_id || null}
-                pipelineName={activePipeline?.name}
+                pipelineId={activeWorkflowId}
+                pipelineName={activeWorkflowName}
                 compact
                 className="-mx-4 -mt-4"
               />
@@ -832,8 +866,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             {activeTab === 'schedules' && (
               <ScheduleManager
-                pipelineId={activePipeline?.pipeline_id || null}
-                pipelineName={activePipeline?.name}
+                pipelineId={activeWorkflowId}
+                pipelineName={activeWorkflowName}
                 compact
                 className="-mx-4 -mt-4"
               />
@@ -841,18 +875,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             {activeTab === 'sql' && (
               <div className="space-y-3">
-                {lastExecution?.generated_sql?.length ? (
-                  lastExecution.generated_sql.map((sql, i) => (
-                    <div key={i} className="p-3 bg-slate-900 rounded-lg">
-                      <div className="text-xs text-slate-400 mb-1">{sql.component_id}</div>
-                      <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
-                        {sql.sql}
-                      </pre>
+                {compiledSql?.compiled_sql ? (
+                  <div className="p-3 bg-slate-900 rounded-lg">
+                    <div className="text-xs text-slate-400 mb-1">
+                      Mode: {compiledSql.mode} | Steps: {compiledSql.steps_count}
                     </div>
-                  ))
+                    <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
+                      {compiledSql.compiled_sql}
+                    </pre>
+                  </div>
+                ) : lastExecution?.compiled_sql ? (
+                  <div className="p-3 bg-slate-900 rounded-lg">
+                    <div className="text-xs text-slate-400 mb-1">Compiled SQL</div>
+                    <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
+                      {lastExecution.compiled_sql}
+                    </pre>
+                  </div>
                 ) : (
                   <p className="text-sm text-slate-500 text-center py-4">
-                    Run "Preview SQL" to see generated queries
+                    Run &quot;Preview SQL&quot; to see generated queries
                   </p>
                 )}
               </div>
@@ -865,24 +906,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 </p>
                 {validation ? (
                   <>
-                    {validation.errors.length > 0 && (
+                    {validation.error && (
                       <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
                         <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Erreurs</div>
-                        <ul className="text-xs text-red-600 dark:text-red-300 list-disc list-inside space-y-0.5">
-                          {validation.errors.map((e, i) => (
-                            <li key={i}>{e}</li>
-                          ))}
-                        </ul>
+                        <p className="text-xs text-red-600 dark:text-red-300">{validation.error}</p>
                       </div>
                     )}
-                    {validation.warnings.length > 0 && (
+                    {!validation.valid && !validation.error && (
                       <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
                         <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Avertissements</div>
-                        <ul className="text-xs text-amber-600 dark:text-amber-300 list-disc list-inside space-y-0.5">
-                          {validation.warnings.map((w, i) => (
-                            <li key={i}>{w}</li>
-                          ))}
-                        </ul>
+                        <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
                       </div>
                     )}
                     <button
