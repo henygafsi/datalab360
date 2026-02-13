@@ -890,10 +890,20 @@ export interface ExploreDeployment {
   deployment_type: ExploreDeploymentType;
   task_name?: string;
   version_id?: string;
+  environment?: string;
+  deployment_method?: string;
   requested_by?: string;
+  requested_at?: string;
   approved_by?: string | null;
+  approved_at?: string | null;
+  rejected_by?: string | null;
+  rejected_at?: string | null;
+  rejection_reason?: string | null;
   deployed_at?: string | null;
+  deployed_by?: string | null;
   created_at?: string;
+  config?: Record<string, unknown> | null;
+  error_message?: string | null;
 }
 
 export interface ExploreDeploymentListResponse {

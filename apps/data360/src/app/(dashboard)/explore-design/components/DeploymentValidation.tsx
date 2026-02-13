@@ -258,29 +258,23 @@ const extractIngestionConfigs = (events: DesignEvent[], modeOverrides?: Record<s
   }> = new Map();
 
   // First pass: collect column mappings
-  // Note: In COLUMN_MAPPING_CREATED events:
-  //   - event.target = SOURCE table (where data comes from)
-  //   - event.payload.targetTable = TARGET table (where data goes to)
+  // payload.source = where data comes from, payload.target = where data goes to
   events.forEach(event => {
     if (event.type === 'COLUMN_MAPPING_CREATED') {
-      // Source is in event.target
-      const sourceDb = event.target.database;
-      const sourceSchema = event.target.schema;
-      const sourceTable = event.target.table;
+      const src = event.payload.source;
+      const tgt = event.payload.target;
 
-      // Support both single sourceColumn and array sourceColumns
-      const sourceColumn = event.payload.sourceColumn || '';
-      const sourceColumns = event.payload.sourceColumns || (sourceColumn ? [sourceColumn] : []);
+      const sourceDb = src?.database || '';
+      const sourceSchema = src?.schema || '';
+      const sourceTable = src?.table || '';
+      const sourceColumns = src?.columns || [];
 
-      // Get transformation if specified
       const transformation = event.payload.transformation || null;
 
-      // Target is in event.payload.targetTable
-      const targetInfo = event.payload.targetTable;
-      const targetDb = targetInfo?.database || '';
-      const targetSchema = targetInfo?.schema || '';
-      const targetTable = targetInfo?.table || '';
-      const targetColumn = event.payload.targetColumn || '';
+      const targetDb = tgt?.database || '';
+      const targetSchema = tgt?.schema || '';
+      const targetTable = tgt?.table || '';
+      const targetColumn = tgt?.column || '';
 
       // Create key based on target table (where we're loading data TO)
       const targetTableKey = `${targetDb}.${targetSchema}.${targetTable}`;
@@ -436,29 +430,23 @@ const extractMappedTablesOverview = (events: DesignEvent[]): MappedTableOverview
   const mappedTables: Map<string, MappedTableOverview> = new Map();
 
   // Process COLUMN_MAPPING_CREATED events
-  // Note: In COLUMN_MAPPING_CREATED events:
-  //   - event.target = SOURCE table (where data comes from)
-  //   - event.payload.targetTable = TARGET table (where data goes to)
+  // payload.source = where data comes from, payload.target = where data goes to
   events.forEach(event => {
     if (event.type === 'COLUMN_MAPPING_CREATED') {
-      // Source is in event.target
-      const sourceDb = event.target.database;
-      const sourceSchema = event.target.schema;
-      const sourceTable = event.target.table;
+      const src = event.payload.source;
+      const tgt = event.payload.target;
 
-      // Support both single sourceColumn and array sourceColumns
-      const sourceColumn = event.payload.sourceColumn || '';
-      const sourceColumns = event.payload.sourceColumns || (sourceColumn ? [sourceColumn] : []);
+      const sourceDb = src?.database || '';
+      const sourceSchema = src?.schema || '';
+      const sourceTable = src?.table || '';
+      const sourceColumns = src?.columns || [];
 
-      // Get transformation if specified
       const transformation = event.payload.transformation || null;
 
-      // Target is in event.payload.targetTable
-      const targetInfo = event.payload.targetTable;
-      const targetDb = targetInfo?.database || '';
-      const targetSchema = targetInfo?.schema || '';
-      const targetTable = targetInfo?.table || '';
-      const targetColumn = event.payload.targetColumn || '';
+      const targetDb = tgt?.database || '';
+      const targetSchema = tgt?.schema || '';
+      const targetTable = tgt?.table || '';
+      const targetColumn = tgt?.column || '';
 
       // Create key based on target table
       const targetTableKey = `${targetDb}.${targetSchema}.${targetTable}`;

@@ -35,6 +35,8 @@ interface ProjectSelectorProps {
   selectedProjectId: string | null;
   onProjectSelect: (projectId: string, projectName: string) => void;
   className?: string;
+  /** If provided, auto-select this project once projects are loaded */
+  autoSelectProjectId?: string | null;
 }
 
 function getInitials(username: string): string {
@@ -56,6 +58,7 @@ export default function ProjectSelector({
   selectedProjectId,
   onProjectSelect,
   className,
+  autoSelectProjectId,
 }: ProjectSelectorProps) {
   const { data: session } = useSession();
   const currentUsername = (session?.user as any)?.username || '';
@@ -269,12 +272,23 @@ export default function ProjectSelector({
   };
 
   const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
+  const autoSelectedRef = useRef(false);
+
+  // Auto-select project from URL query param (e.g., ?project_id=xxx)
+  useEffect(() => {
+    if (autoSelectedRef.current || loading || !autoSelectProjectId) return;
+    const match = projects.find((p) => p.project_id === autoSelectProjectId);
+    if (match) {
+      autoSelectedRef.current = true;
+      onProjectSelect(match.project_id, match.name);
+    }
+  }, [loading, projects, autoSelectProjectId, onProjectSelect]);
 
   useEffect(() => {
-    if (!loading && !selectedProjectId && projects.length >= 0) {
+    if (!loading && !selectedProjectId && !autoSelectProjectId && projects.length >= 0) {
       setShowModal(true);
     }
-  }, [loading, selectedProjectId, projects.length]);
+  }, [loading, selectedProjectId, autoSelectProjectId, projects.length]);
 
   return (
     <>

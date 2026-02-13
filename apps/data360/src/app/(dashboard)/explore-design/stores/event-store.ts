@@ -162,14 +162,18 @@ export interface ForeignKeyEvent extends DesignEvent {
 export interface ColumnMappingEvent extends DesignEvent {
   type: 'COLUMN_MAPPING_CREATED' | 'COLUMN_MAPPING_REMOVED';
   payload: {
-    sourceColumn: string; // Backward compatibility - first column for single mappings
-    sourceColumns?: string[]; // Array of source columns for multi-column transformations
-    targetTable: {
+    source: {
       database: string;
       schema: string;
       table: string;
+      columns: string[];
     };
-    targetColumn: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column: string;
+    };
     transformation?: string | null; // Optional transformation: CONCAT, UPPER, TRIM, etc.
   };
 }
@@ -299,12 +303,12 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
 
     case 'COLUMN_MAPPING_CREATED':
     case 'COLUMN_MAPPING_REMOVED':
-      // ETL mapping: source column → target column
-      if (!payload.sourceColumn) {
-        console.debug(`[EventStore] Rejecting ${type}: no source column`);
+      // ETL mapping: source → target
+      if (!payload.source?.columns?.length) {
+        console.debug(`[EventStore] Rejecting ${type}: no source columns`);
         return false;
       }
-      if (!payload.targetTable || !payload.targetColumn) {
+      if (!payload.target?.table || !payload.target?.column) {
         console.debug(`[EventStore] Rejecting ${type}: missing target info`);
         return false;
       }
@@ -892,26 +896,20 @@ export const createPrimaryKeyEvent = (
 
 // Create column mapping event (ETL: Source → Target)
 export const createColumnMappingEvent = (
-  sourceTarget: DesignEvent['target'], // Source table info
-  sourceColumns: string | string[], // Single column or array of columns
-  targetTable: ColumnMappingEvent['payload']['targetTable'],
-  targetColumn: string,
+  sourceTarget: DesignEvent['target'], // Event target (source table)
+  source: ColumnMappingEvent['payload']['source'],
+  target: ColumnMappingEvent['payload']['target'],
   created: boolean,
   transformation?: string | null
-): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => {
-  const columnsArray = Array.isArray(sourceColumns) ? sourceColumns : [sourceColumns];
-  return {
-    type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
-    target: sourceTarget,
-    payload: {
-      sourceColumn: columnsArray[0], // Backward compatibility
-      sourceColumns: columnsArray, // New array format
-      targetTable,
-      targetColumn,
-      transformation: transformation || undefined,
-    },
-  };
-};
+): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => ({
+  type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
+  target: sourceTarget,
+  payload: {
+    source,
+    target,
+    transformation: transformation || undefined,
+  },
+});
 
 // Create column exclusion event
 export const createColumnExclusionEvent = (

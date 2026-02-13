@@ -2362,19 +2362,26 @@ export function generateEventSQL(event: DesignEvent): string {
     case 'RELATION_CREATED':
       return `-- Relation: ${tableRef}.${payload.source_column} -> ${payload.target_table}.${payload.target_column} (${payload.relation_type})`;
     case 'COLUMN_MAPPING_CREATED':
-      // ETL column mapping: source column → target column
-      const targetTableRef = payload.targetTable
-        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+      // ETL column mapping: source → target
+      const srcRef = payload.source
+        ? `${payload.source.database}.${payload.source.schema}.${payload.source.table}`
+        : tableRef;
+      const tgtRef = payload.target
+        ? `${payload.target.database}.${payload.target.schema}.${payload.target.table}`
         : 'UNKNOWN_TARGET';
+      const srcCols = payload.source?.columns?.join(', ') || '';
       const transformExpr = payload.transformation
-        ? `${payload.transformation}(${target.table}.${payload.sourceColumn})`
-        : `${target.table}.${payload.sourceColumn}`;
-      return `-- ETL Mapping: ${tableRef}.${payload.sourceColumn} -> ${targetTableRef}.${payload.targetColumn}\n-- Transform: ${transformExpr}`;
+        ? `${payload.transformation}(${srcCols})`
+        : srcCols;
+      return `-- ETL Mapping: ${srcRef}.(${srcCols}) -> ${tgtRef}.${payload.target?.column}\n-- Transform: ${transformExpr}`;
     case 'COLUMN_MAPPING_REMOVED':
-      const removedTargetRef = payload.targetTable
-        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+      const removedSrcRef = payload.source
+        ? `${payload.source.database}.${payload.source.schema}.${payload.source.table}`
+        : tableRef;
+      const removedTgtRef = payload.target
+        ? `${payload.target.database}.${payload.target.schema}.${payload.target.table}`
         : 'UNKNOWN_TARGET';
-      return `-- ETL Mapping Removed: ${tableRef}.${payload.sourceColumn} -> ${removedTargetRef}.${payload.targetColumn}`;
+      return `-- ETL Mapping Removed: ${removedSrcRef}.(${payload.source?.columns?.[0]}) -> ${removedTgtRef}.${payload.target?.column}`;
     case 'TAG_APPLIED':
       return `ALTER TABLE ${tableRef} SET TAG ${payload.tag_name} = '${payload.tag_value}';`;
     default:

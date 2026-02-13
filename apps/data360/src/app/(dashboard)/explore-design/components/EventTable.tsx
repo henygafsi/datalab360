@@ -394,11 +394,11 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
           <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
             <div>
               <span className="text-green-600 dark:text-green-400">Source: </span>
-              <span className="font-mono">{(payload.sourceColumns || [payload.sourceColumn]).join(', ')}</span>
+              <span className="font-mono">{payload.source?.table}.{payload.source?.columns?.join(', ')}</span>
             </div>
             <div>
               <span className="text-blue-600 dark:text-blue-400">Target: </span>
-              <span className="font-mono">{payload.targetTable?.table}.{payload.targetColumn}</span>
+              <span className="font-mono">{payload.target?.table}.{payload.target?.column}</span>
             </div>
             {payload.transformation && (
               <div>
@@ -412,9 +412,9 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400">
             <span className="text-red-500">Removed: </span>
-            <span className="font-mono">{payload.sourceColumn}</span>
+            <span className="font-mono">{payload.source?.table}.{payload.source?.columns?.[0]}</span>
             <span className="mx-1">→</span>
-            <span className="font-mono">{payload.targetTable?.table}.{payload.targetColumn}</span>
+            <span className="font-mono">{payload.target?.table}.{payload.target?.column}</span>
           </div>
         );
       case 'INGESTION_MODE_SET':

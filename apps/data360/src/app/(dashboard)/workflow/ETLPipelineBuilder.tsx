@@ -376,7 +376,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             agg.alias || `${agg.function}_${agg.column}`)
           .filter(Boolean);
         return [...groupBy, ...aggAliases];
-      }
+      }   
 
       // SELECT: Returns only the selected columns
       case 'select': {

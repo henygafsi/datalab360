@@ -14,7 +14,7 @@ import {
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
@@ -24,7 +24,7 @@ import {
   getRecentDeploymentErrors,
   TableRelationship
 } from '@/app/services/explore-design';
-import { listMappings, listDDLActions } from '@/app/services/api/exploreDesignApi';
+import { listDDLActions } from '@/app/services/api/exploreDesignApi';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents } from '@/app/services/api/projectsApi';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
@@ -527,11 +527,13 @@ function RecentDeploymentErrorsSlot() {
 // Main Page Component
 export default function ExploreDesignPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
 
-  // Project State
+  // Project State — pre-fill from ?project_id= query param if present
+  const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
 
@@ -701,12 +703,12 @@ export default function ExploreDesignPage() {
     const mappingEvents = events.filter(e => e.type === 'COLUMN_MAPPING_CREATED');
     const eventMappings = mappingEvents.map(e => ({
       id: e.id,
-      sourceTable: e.target?.table || '',
-      sourceSchema: e.target?.schema || '',
-      sourceColumn: e.payload?.sourceColumn || '',
-      targetTable: e.payload?.targetTable?.table || '',
-      targetSchema: e.payload?.targetTable?.schema || '',
-      targetColumn: e.payload?.targetColumn || '',
+      sourceTable: e.payload?.source?.table || '',
+      sourceSchema: e.payload?.source?.schema || '',
+      sourceColumn: (e.payload?.source?.columns?.[0]) || '',
+      targetTable: e.payload?.target?.table || '',
+      targetSchema: e.payload?.target?.schema || '',
+      targetColumn: e.payload?.target?.column || '',
       transformation: e.payload?.transformation,
     }));
 
@@ -1380,9 +1382,8 @@ export default function ExploreDesignPage() {
               payload: {
                 columns: payloadFromDetails.columns,
                 sql: payloadFromDetails.sql,
-                sourceColumn: payloadFromDetails.sourceColumn,
-                targetTable: payloadFromDetails.targetTable,
-                targetColumn: payloadFromDetails.targetColumn,
+                source: payloadFromDetails.source,
+                target: payloadFromDetails.target,
                 transformation: payloadFromDetails.transformation,
                 ...payloadFromDetails,
               },
@@ -1445,14 +1446,14 @@ export default function ExploreDesignPage() {
         }
 
         // Load saved column mappings from backend (legacy fallback for pre-event mappings)
-        try {
+        /**try {
           const mappingsResponse = await listMappings(projectId);
           setBackendMappings(mappingsResponse.mappings || []);
           console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
         } catch (mappingErr) {
           console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
           setBackendMappings([]);
-        }
+        }**/
 
         // If we found database/schema info, restore the selections
         if (schemasByDatabase.size > 0) {
@@ -1514,19 +1515,15 @@ export default function ExploreDesignPage() {
               if (event.type === 'TABLE_REMOVED_FROM_MODELING' && event.payload?.tableId) {
                 removedTableIds.add(event.payload.tableId);
               }
-              // Extract source table from COLUMN_MAPPING events
+              // Extract source and target tables from COLUMN_MAPPING events
               if (event.type === 'COLUMN_MAPPING_CREATED') {
-                // Source table ID: database.schema.table from event.target
-                const srcDb = event.target?.database;
-                const srcSchema = event.target?.schema;
-                const srcTable = event.target?.table;
-                if (srcDb && srcSchema && srcTable) {
-                  mappingTableIds.add(`${srcDb}.${srcSchema}.${srcTable}`);
+                const src = event.payload?.source;
+                if (src?.database && src?.schema && src?.table) {
+                  mappingTableIds.add(`${src.database}.${src.schema}.${src.table}`);
                 }
-                // Target table ID: database.schema.table from event.payload.targetTable
-                const tgtTable = event.payload?.targetTable;
-                if (tgtTable?.database && tgtTable?.schema && tgtTable?.table) {
-                  mappingTableIds.add(`${tgtTable.database}.${tgtTable.schema}.${tgtTable.table}`);
+                const tgt = event.payload?.target;
+                if (tgt?.database && tgt?.schema && tgt?.table) {
+                  mappingTableIds.add(`${tgt.database}.${tgt.schema}.${tgt.table}`);
                 }
               }
             });
@@ -1958,6 +1955,7 @@ export default function ExploreDesignPage() {
             <ProjectSelector
               selectedProjectId={selectedProjectId}
               onProjectSelect={handleProjectSelect}
+              autoSelectProjectId={urlProjectId}
             />
           </div>
           <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
@@ -2844,57 +2842,34 @@ export default function ExploreDesignPage() {
                   // Create events for column mapping
                   const eventTimestamp = Date.now();
 
-                  // Determine if this is a multi-column transformation or individual mappings
                   const hasTransformation = transformation && transformation !== 'none';
-                  const isMultiColumn = sourceColumns.length > 1;
 
-                  if (hasTransformation || isMultiColumn) {
-                    // Multi-column mapping with transformation - create single event with all source columns
-                    addEvent({
-                      type: 'COLUMN_MAPPING_CREATED',
-                      projectId: selectedProjectId || undefined,
-                      target: {
+                  // Create column mapping event with explicit source/target
+                  addEvent({
+                    type: 'COLUMN_MAPPING_CREATED',
+                    projectId: selectedProjectId || undefined,
+                    target: {
+                      database: sourceDb,
+                      schema: sourceSchema,
+                      table: sourceTable,
+                      column: sourceColumns[0],
+                    },
+                    payload: {
+                      source: {
                         database: sourceDb,
                         schema: sourceSchema,
                         table: sourceTable,
-                        column: sourceColumns[0], // Primary column for event target
+                        columns: sourceColumns,
                       },
-                      payload: {
-                        sourceColumn: sourceColumns[0], // Keep for backward compatibility
-                        sourceColumns: sourceColumns, // NEW: Array of all source columns
-                        targetTable: {
-                          database: targetDb,
-                          schema: targetSchema,
-                          table: targetTable,
-                        },
-                        targetColumn: targetCol,
-                        transformation: hasTransformation ? transformation : null, // NEW: transformation function
-                      },
-                    });
-                  } else {
-                    // Single column mapping without transformation - create one event
-                    addEvent({
-                      type: 'COLUMN_MAPPING_CREATED',
-                      projectId: selectedProjectId || undefined,
                       target: {
-                        database: sourceDb,
-                        schema: sourceSchema,
-                        table: sourceTable,
-                        column: sourceColumns[0],
+                        database: targetDb,
+                        schema: targetSchema,
+                        table: targetTable,
+                        column: targetCol,
                       },
-                      payload: {
-                        sourceColumn: sourceColumns[0],
-                        sourceColumns: sourceColumns,
-                        targetTable: {
-                          database: targetDb,
-                          schema: targetSchema,
-                          table: targetTable,
-                        },
-                        targetColumn: targetCol,
-                        transformation: null,
-                      },
-                    });
-                  }
+                      transformation: hasTransformation ? transformation : null,
+                    },
+                  });
 
                   // Save mapping event to backend
                   if (selectedProjectId) {
@@ -2906,10 +2881,18 @@ export default function ExploreDesignPage() {
                         details: {
                           target: { database: sourceDb, schema: sourceSchema, table: sourceTable, column: sourceColumns[0] },
                           payload: {
-                            sourceColumn: sourceColumns[0],
-                            sourceColumns,
-                            targetTable: { database: targetDb, schema: targetSchema, table: targetTable },
-                            targetColumn: targetCol,
+                            source: {
+                              database: sourceDb,
+                              schema: sourceSchema,
+                              table: sourceTable,
+                              columns: sourceColumns,
+                            },
+                            target: {
+                              database: targetDb,
+                              schema: targetSchema,
+                              table: targetTable,
+                              column: targetCol,
+                            },
                             transformation: hasTransformation ? transformation : null,
                           },
                         },
