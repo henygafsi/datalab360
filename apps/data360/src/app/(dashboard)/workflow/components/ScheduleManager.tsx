@@ -108,6 +108,7 @@ interface ScheduleManagerProps {
   onScheduleChange?: () => void;
   className?: string;
   compact?: boolean;
+  isReadOnly?: boolean;
 }
 
 // Form uses either a preset cron_choice OR a custom_cron string (mutually exclusive)
@@ -431,6 +432,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
   onScheduleChange,
   className,
   compact = false,
+  isReadOnly = false,
 }) => {
   const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -576,13 +578,15 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
             </span>
           )}
         </div>
-        <button
-          onClick={() => setShowForm(true)}
-          className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"
-        >
-          <Plus className="h-4 w-4" />
-          {compact ? '' : 'Add'}
-        </button>
+        {!isReadOnly && (
+          <button
+            onClick={() => setShowForm(true)}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1"
+          >
+            <Plus className="h-4 w-4" />
+            {compact ? '' : 'Add'}
+          </button>
+        )}
       </div>
 
       {/* Schedule list */}
@@ -626,30 +630,34 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                   </div>
                   <div className="flex items-center gap-1">
                     {/* Toggle active/paused */}
-                    <button
-                      onClick={() =>
-                        isActive ? handleSuspend(schedule) : handleResume(schedule)
-                      }
-                      className={cn(
-                        'p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600',
-                        isActive ? 'text-orange-500' : 'text-green-500'
-                      )}
-                      title={isActive ? 'Pause' : 'Resume'}
-                    >
-                      {isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-                    </button>
+                    {!isReadOnly && (
+                      <button
+                        onClick={() =>
+                          isActive ? handleSuspend(schedule) : handleResume(schedule)
+                        }
+                        className={cn(
+                          'p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600',
+                          isActive ? 'text-orange-500' : 'text-green-500'
+                        )}
+                        title={isActive ? 'Pause' : 'Resume'}
+                      >
+                        {isActive ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                      </button>
+                    )}
 
                     {/* Edit */}
-                    <button
-                      onClick={() => {
-                        setEditingSchedule(schedule);
-                        setShowForm(true);
-                      }}
-                      className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-blue-500"
-                      title="Edit"
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </button>
+                    {!isReadOnly && (
+                      <button
+                        onClick={() => {
+                          setEditingSchedule(schedule);
+                          setShowForm(true);
+                        }}
+                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-blue-500"
+                        title="Edit"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                      </button>
+                    )}
 
                     {/* History */}
                     <button
@@ -661,13 +669,15 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                     </button>
 
                     {/* Delete */}
-                    <button
-                      onClick={() => handleDelete(schedule)}
-                      className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-red-500"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                    {!isReadOnly && (
+                      <button
+                        onClick={() => handleDelete(schedule)}
+                        className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-red-500"
+                        title="Delete"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
 

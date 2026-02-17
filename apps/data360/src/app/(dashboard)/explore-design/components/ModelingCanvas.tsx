@@ -92,6 +92,7 @@ interface ModelingCanvasProps {
   defaultRelationships?: TableRelationship[];
   targetTableIds?: Set<string>; // IDs of target/DWH tables (default tables)
   initialMappings?: InitialColumnMapping[]; // Mappings loaded from events
+  isReadOnly?: boolean;
 }
 
 // Auto-layout helper
@@ -122,6 +123,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   defaultRelationships = [],
   targetTableIds = new Set(),
   initialMappings = [],
+  isReadOnly = false,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
@@ -951,9 +953,9 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={isLocked ? undefined : onNodesChange}
-        onEdgesChange={isLocked ? undefined : onEdgesChange}
-        onConnect={onConnect}
+        onNodesChange={(isLocked || isReadOnly) ? undefined : onNodesChange}
+        onEdgesChange={(isLocked || isReadOnly) ? undefined : onEdgesChange}
+        onConnect={isReadOnly ? undefined : onConnect}
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         connectionMode={ConnectionMode.Loose}

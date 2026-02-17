@@ -99,7 +99,7 @@ const WorkflowHomePage: React.FC = () => {
     setError(null);
     try {
       // Fetch workflow projects via unified project API
-      const projectsData = await listProjects({ project_type: 'workflow' });
+      const projectsData = await listProjects({ project_type: 'workflow', mine_only: true });
       const projectList = projectsData.projects || [];
 
       // For each project, fetch its steps to build BackendWorkflow objects

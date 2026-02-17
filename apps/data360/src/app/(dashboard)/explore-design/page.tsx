@@ -25,7 +25,9 @@ import {
   TableRelationship
 } from '@/app/services/explore-design';
 import { listDDLActions } from '@/app/services/api/exploreDesignApi';
-import { addEvent as addProjectEvent, listEvents as listProjectEvents } from '@/app/services/api/projectsApi';
+import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors } from '@/app/services/api/projectsApi';
+import { useSession } from 'next-auth/react';
+import type { ContributorRole } from '@/app/services/api/types';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
@@ -528,6 +530,8 @@ function RecentDeploymentErrorsSlot() {
 export default function ExploreDesignPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  const currentUsername = (session?.user as any)?.username || '';
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
@@ -536,6 +540,10 @@ export default function ExploreDesignPage() {
   const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
+
+  // Role-based access: viewer = read-only, editor/owner = full access
+  const [userRole, setUserRole] = useState<ContributorRole | null>(null);
+  const isReadOnly = userRole === 'viewer';
 
   // State
   const [databases, setDatabases] = useState<string[]>([]);
@@ -644,6 +652,15 @@ export default function ExploreDesignPage() {
     getEventsByProject,
     updateEventStatus
   } = useEventStore(selectedProjectId);
+
+  // Read-only guard: returns true (blocked) if user is a viewer
+  const readOnlyGuard = useCallback(() => {
+    if (isReadOnly) {
+      toast.error('You have view-only access to this project');
+      return true;
+    }
+    return false;
+  }, [isReadOnly]);
 
   // Clean up empty events on mount (one-time cleanup of any legacy empty events)
   useEffect(() => {
@@ -1210,6 +1227,7 @@ export default function ExploreDesignPage() {
   // Handlers
   // handleSchemaToggle now stores schema with its database (selectedDatabase is the current DB in dropdown)
   const handleSchemaToggle = useCallback((schema: string) => {
+    if (readOnlyGuard()) return;
     // When user selects a schema, selectedDatabase is the database that schema belongs to
     // (because schemas dropdown only shows schemas for the currently selected database)
     const databaseForSchema = selectedDatabase;
@@ -1321,6 +1339,17 @@ export default function ExploreDesignPage() {
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
       setBackendMappings([]);
+
+      // Determine user's role for this project
+      try {
+        const contributors = await listContributors(projectId);
+        const me = contributors.find(
+          (c) => c.username.toLowerCase() === currentUsername.toLowerCase()
+        );
+        setUserRole(me?.role ?? 'owner'); // creator is always owner even if not in contributors table
+      } catch {
+        setUserRole('owner'); // fallback: assume owner if contributors fetch fails
+      }
       // Restore modeling choice from cache (persisted per project)
       const cached = modelingChoicesByProject.current.get(projectId);
       setModelingChoice(cached?.choice || null);
@@ -1674,6 +1703,7 @@ export default function ExploreDesignPage() {
 
   // Add selected tables to modeling view
   const handleAddToModeling = useCallback(() => {
+    if (readOnlyGuard()) return;
     if (selectedTables.size === 0) {
       toast.error('No tables selected');
       return;
@@ -1719,6 +1749,7 @@ export default function ExploreDesignPage() {
 
   // Remove table from modeling view
   const handleRemoveFromModeling = useCallback((tableId: string) => {
+    if (readOnlyGuard()) return;
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
 
@@ -1753,6 +1784,7 @@ export default function ExploreDesignPage() {
     tableName: string,
     columns: string[]
   ) => {
+    if (readOnlyGuard()) return;
     if (columns.length === 0) {
       toast.error('Please select at least one column for the primary key');
       return;
@@ -1788,6 +1820,7 @@ export default function ExploreDesignPage() {
     tableName: string,
     newName: string
   ) => {
+    if (readOnlyGuard()) return;
     if (!newName || newName === tableName) {
       toast.error('Please provide a different name');
       return;
@@ -1819,6 +1852,7 @@ export default function ExploreDesignPage() {
     columnName: string,
     newName: string
   ) => {
+    if (readOnlyGuard()) return;
     if (!newName || newName === columnName) {
       toast.error('Please provide a different name');
       return;
@@ -1845,6 +1879,7 @@ export default function ExploreDesignPage() {
 
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
+    if (readOnlyGuard()) return;
     switch (action) {
       case 'transfer_ownership':
         toast.loading(`Transferring ownership for schema ${schema}...`);
@@ -1957,6 +1992,12 @@ export default function ExploreDesignPage() {
               onProjectSelect={handleProjectSelect}
               autoSelectProjectId={urlProjectId}
             />
+            {isReadOnly && (
+              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-2 py-0.5 flex items-center gap-1">
+                <Eye className="h-3 w-3" />
+                View Only
+              </Badge>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
             {/* View Mode Toggle */}
@@ -1981,6 +2022,7 @@ export default function ExploreDesignPage() {
                     : 'text-slate-500 hover:text-slate-700'
                 )}
                 onClick={() => {
+                  if (!modelingChoice && readOnlyGuard()) return;
                   if (!modelingChoice) {
                     setShowTemplateModal(true);
                   } else {
@@ -1996,23 +2038,23 @@ export default function ExploreDesignPage() {
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
 
             {/* Undo/Redo */}
-            <Tooltip content="Undo">
+            <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => undoEvent()}
-                disabled={!canUndo}
+                disabled={!canUndo || isReadOnly}
                 className="p-1.5"
               >
                 <Undo2 className="h-3.5 w-3.5" />
               </Button>
             </Tooltip>
-            <Tooltip content="Redo">
+            <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => redoEvent()}
-                disabled={!canRedo}
+                disabled={!canRedo || isReadOnly}
                 className="p-1.5"
               >
                 <Redo2 className="h-3.5 w-3.5" />
@@ -2050,7 +2092,7 @@ export default function ExploreDesignPage() {
               </Button>
             </Tooltip>
 
-            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1">
+            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1" disabled={isReadOnly}>
               <Upload className="h-3.5 w-3.5" />
               <span className="hidden xl:inline text-xs">Import</span>
             </Button>
@@ -2064,13 +2106,14 @@ export default function ExploreDesignPage() {
               size="sm"
               className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-2.5 py-1"
               onClick={() => {
+                if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
                 setShowDeploymentModal(true);
               }}
-              disabled={!selectedProjectId}
+              disabled={!selectedProjectId || isReadOnly}
             >
               <Rocket className="h-3.5 w-3.5" />
               <span className="text-xs">Deploy</span>
@@ -2156,7 +2199,8 @@ export default function ExploreDesignPage() {
               <Button
                 size="sm"
                 className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                onClick={() => setShowDeploymentModal(true)}
+                onClick={() => { if (readOnlyGuard()) return; setShowDeploymentModal(true); }}
+                disabled={isReadOnly}
               >
                 <Rocket className="h-3.5 w-3.5" />
                 Open Deploy & Validation
@@ -2402,6 +2446,7 @@ export default function ExploreDesignPage() {
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                             onClick={() => {
+                              if (readOnlyGuard()) return;
                               const newName = prompt('Enter new table name:', selectedTable.table);
                               if (newName && newName !== selectedTable.table) {
                                 handleRenameTable(
@@ -2440,6 +2485,7 @@ export default function ExploreDesignPage() {
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
                             onClick={() => {
+                              if (readOnlyGuard()) return;
                               if (!selectedTable) return;
 
                               // Allow user to select multiple columns for composite PK
@@ -2487,7 +2533,9 @@ export default function ExploreDesignPage() {
                             variant="outline"
                             size="sm"
                             className="gap-1 text-xs"
+                            disabled={isReadOnly}
                             onClick={() => {
+                              if (readOnlyGuard()) return;
                               if (!selectedTable) return;
                               if (!selectedProjectId) {
                                 toast.error('Please select a project first');
@@ -2590,6 +2638,7 @@ export default function ExploreDesignPage() {
                                       col.isPrimaryKey && "bg-amber-100 dark:bg-amber-900/30"
                                     )}
                                     onClick={() => {
+                                      if (readOnlyGuard()) return;
                                       if (!selectedTable) return;
 
                                       if (!col.isPrimaryKey) {
@@ -2620,7 +2669,7 @@ export default function ExploreDesignPage() {
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       col.isSensitive && "bg-red-100 dark:bg-red-900/30"
                                     )}
-                                    onClick={() => setSensitiveColumnModal({ isOpen: true, column: col })}
+                                    onClick={() => { if (readOnlyGuard()) return; setSensitiveColumnModal({ isOpen: true, column: col }); }}
                                   >
                                     <Shield className={cn("h-4 w-4", col.isSensitive ? "text-red-500" : "text-slate-400 hover:text-red-500")} />
                                   </button>
@@ -2632,7 +2681,7 @@ export default function ExploreDesignPage() {
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       excludedColumns.get(selectedTable?.id || '')?.has(col.name) && "bg-slate-200 dark:bg-slate-700"
                                     )}
-                                    onClick={() => setColumnExclusionModal({ isOpen: true, column: col })}
+                                    onClick={() => { if (readOnlyGuard()) return; setColumnExclusionModal({ isOpen: true, column: col }); }}
                                   >
                                     <MinusCircle className={cn(
                                       "h-4 w-4",
@@ -2647,6 +2696,7 @@ export default function ExploreDesignPage() {
                                   <button
                                     className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                                     onClick={() => {
+                                      if (readOnlyGuard()) return;
                                       if (!selectedTable) return;
                                       const newName = prompt(`Rename column "${col.name}" to:`, col.name);
                                       if (newName && newName !== col.name) {
@@ -2751,11 +2801,13 @@ export default function ExploreDesignPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Tooltip content={selectedProjectId ? "Create Table" : "Select a project first"}>
+                    <Tooltip content={isReadOnly ? 'View-only access' : selectedProjectId ? "Create Table" : "Select a project first"}>
                       <Button
                         variant="outline"
                         size="sm"
+                        disabled={isReadOnly}
                         onClick={() => {
+                          if (readOnlyGuard()) return;
                           if (!selectedProjectId) {
                             toast.error('Please select a project first');
                             return;
@@ -2768,31 +2820,32 @@ export default function ExploreDesignPage() {
                         <TableIcon className="h-4 w-4" />
                       </Button>
                     </Tooltip>
-                    <Tooltip content="Manage Relationships">
+                    <Tooltip content={isReadOnly ? 'View-only access' : "Manage Relationships"}>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
+                          if (readOnlyGuard()) return;
                           if (!selectedTable) {
                             toast.error('Please select a table first');
                             return;
                           }
                           setShowRelationshipModal(true);
                         }}
-                        disabled={!selectedTable}
+                        disabled={!selectedTable || isReadOnly}
                         className="gap-2"
                       >
                         <Link2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
                     <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-                    <Tooltip content="Undo">
-                      <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo}>
+                    <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
+                      <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo || isReadOnly}>
                         <Undo2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
-                    <Tooltip content="Redo">
-                      <Button variant="outline" size="sm" onClick={() => redoEvent()} disabled={!canRedo}>
+                    <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
+                      <Button variant="outline" size="sm" onClick={() => redoEvent()} disabled={!canRedo || isReadOnly}>
                         <Redo2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
@@ -2801,13 +2854,14 @@ export default function ExploreDesignPage() {
                       size="sm"
                       className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600"
                       onClick={() => {
+                        if (readOnlyGuard()) return;
                         if (!selectedProjectId) {
                           toast.error('Please select a project first');
                           return;
                         }
                         setShowDeploymentModal(true);
                       }}
-                      disabled={!selectedProjectId}
+                      disabled={!selectedProjectId || isReadOnly}
                     >
                       <Rocket className="h-4 w-4" />
                       Deploy
@@ -2824,7 +2878,9 @@ export default function ExploreDesignPage() {
                 tableColumns={tableColumnsMap}
                 onTableSelect={handleTableClick}
                 onTableExclude={handleRemoveFromModeling}
+                isReadOnly={isReadOnly}
                 onRelationCreate={async (source, target, sourceCol, targetCol, transformation) => {
+                  if (readOnlyGuard()) return;
                   // Parse table IDs to get database.schema.table components
                   const sourceParts = source.split('.');
                   const targetParts = target.split('.');
@@ -2935,11 +2991,11 @@ export default function ExploreDesignPage() {
       {/* Bulk Actions Bar */}
       <BulkActionsBar
         selectedCount={selectedTables.size}
-        onSetPrimaryKey={() => setShowBulkPKModal(true)}
-        onSetIngestionMode={handleBulkIngestionMode}
-        onApplyMasking={() => setShowBulkMaskingModal(true)}
+        onSetPrimaryKey={() => { if (readOnlyGuard()) return; setShowBulkPKModal(true); }}
+        onSetIngestionMode={(mode) => { if (readOnlyGuard()) return; handleBulkIngestionMode(mode); }}
+        onApplyMasking={() => { if (readOnlyGuard()) return; setShowBulkMaskingModal(true); }}
         onClearSelection={() => setSelectedTables(new Set())}
-        onConfigureRelations={() => setShowRelationsModal(true)}
+        onConfigureRelations={() => { if (readOnlyGuard()) return; setShowRelationsModal(true); }}
       />
 
       {/* Bulk PK Modal */}

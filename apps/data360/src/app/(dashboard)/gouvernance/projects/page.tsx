@@ -1,0 +1,569 @@
+'use client';
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { Badge, Button, Input, Tooltip } from 'rizzui';
+import { toast } from 'react-hot-toast';
+import {
+  FolderOpen, Users, Crown, Pencil, Eye, Trash2,
+  ChevronDown, ChevronRight, Loader2, RefreshCw,
+  UserPlus, Check, X, Search,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useSession } from 'next-auth/react';
+import { formatDistanceToNow } from 'date-fns';
+import PageHeader from '@/components/layout/PageHeader';
+import {
+  listProjects,
+  listContributors,
+  addContributor,
+  removeContributor,
+} from '@/app/services/api/projectsApi';
+import type { Project, Contributor, ContributorRole } from '@/app/services/api/types';
+import { getApiErrorMessage } from '@/lib/api-client';
+
+// ---------------------------------------------------------------------------
+// Role Config
+// ---------------------------------------------------------------------------
+
+const ROLE_CONFIG: Record<ContributorRole, { icon: React.ElementType; label: string; cls: string }> = {
+  owner: { icon: Crown, label: 'Owner', cls: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+  editor: { icon: Pencil, label: 'Editor', cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  viewer: { icon: Eye, label: 'Viewer', cls: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400' },
+};
+
+function getInitials(username: string): string {
+  return username.split(/[._\-@]/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2);
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type FilterTab = 'all' | 'explore_design' | 'workflow';
+
+interface ProjectWithMembers extends Project {
+  contributors: Contributor[];
+  loadingMembers: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Project Row
+// ---------------------------------------------------------------------------
+
+function ProjectRow({
+  project,
+  expanded,
+  onToggle,
+  onRefreshMembers,
+  onAddMember,
+  onRemoveMember,
+  currentUsername,
+}: {
+  project: ProjectWithMembers;
+  expanded: boolean;
+  onToggle: () => void;
+  onRefreshMembers: () => void;
+  onAddMember: (username: string, role: 'editor' | 'viewer') => void;
+  onRemoveMember: (username: string) => void;
+  currentUsername: string;
+}) {
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [newRole, setNewRole] = useState<'editor' | 'viewer'>('viewer');
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+
+  const owner = project.contributors.find((c) => c.role === 'owner');
+  const memberCount = project.contributors.length;
+  const isTypeExplore = project.project_type === 'explore_design';
+
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800">
+      {/* Header row */}
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors text-left"
+      >
+        {expanded ? (
+          <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
+        )}
+
+        {/* Project info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">
+              {project.project_name}
+            </span>
+            <span
+              className={cn(
+                'px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                isTypeExplore
+                  ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
+                  : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+              )}
+            >
+              {isTypeExplore ? 'Explore & Design' : 'Workflow'}
+            </span>
+            <span
+              className={cn(
+                'px-2 py-0.5 rounded-full text-[10px] font-medium',
+                project.status === 'active'
+                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  : 'bg-slate-100 text-slate-500 dark:bg-slate-700 dark:text-slate-400',
+              )}
+            >
+              {project.status}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+            {owner && <span>Owner: {owner.username}</span>}
+            <span>{memberCount} member{memberCount !== 1 ? 's' : ''}</span>
+            {project.created_at && (
+              <span>Created {formatDistanceToNow(new Date(project.created_at), { addSuffix: true })}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Member avatars */}
+        <div className="flex -space-x-2">
+          {project.contributors.slice(0, 4).map((c) => {
+            const cfg = ROLE_CONFIG[c.role];
+            return (
+              <div
+                key={c.contributor_id}
+                className={cn(
+                  'h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-white dark:border-slate-800',
+                  c.role === 'owner'
+                    ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
+                    : c.role === 'editor'
+                    ? 'bg-gradient-to-br from-blue-400 to-indigo-500 text-white'
+                    : 'bg-gradient-to-br from-slate-400 to-gray-500 text-white',
+                )}
+                title={`${c.username} (${cfg.label})`}
+              >
+                {getInitials(c.username)}
+              </div>
+            );
+          })}
+          {memberCount > 4 && (
+            <div className="h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border-2 border-white dark:border-slate-800 bg-slate-200 dark:bg-slate-600 text-slate-600 dark:text-slate-300">
+              +{memberCount - 4}
+            </div>
+          )}
+        </div>
+      </button>
+
+      {/* Expanded members */}
+      {expanded && (
+        <div className="border-t border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700/50">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {memberCount} member{memberCount !== 1 ? 's' : ''}
+            </span>
+            <div className="flex items-center gap-1">
+              <Tooltip content="Add member">
+                <Button
+                  size="sm"
+                  variant={showAddForm ? 'solid' : 'outline'}
+                  className={cn('h-6 w-6 p-0', showAddForm && 'bg-blue-600 text-white hover:bg-blue-700')}
+                  onClick={() => { setShowAddForm(!showAddForm); setNewUsername(''); }}
+                >
+                  {showAddForm ? <X className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
+                </Button>
+              </Tooltip>
+              <Tooltip content="Refresh">
+                <Button size="sm" variant="outline" className="h-6 w-6 p-0" onClick={onRefreshMembers}>
+                  <RefreshCw className="h-3 w-3" />
+                </Button>
+              </Tooltip>
+            </div>
+          </div>
+
+          {/* Add form */}
+          {showAddForm && (
+            <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700/50">
+              <div className="flex items-center gap-2">
+                <Input
+                  size="sm"
+                  placeholder="Enter username..."
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  className="flex-1"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && newUsername.trim()) {
+                      onAddMember(newUsername.trim(), newRole);
+                      setNewUsername('');
+                    }
+                  }}
+                />
+                <div className="flex items-center gap-0.5 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-0.5">
+                  <button
+                    onClick={() => setNewRole('viewer')}
+                    className={cn(
+                      'px-2 py-0.5 rounded text-[11px] font-medium transition-all',
+                      newRole === 'viewer' ? 'bg-slate-600 text-white' : 'text-slate-500 hover:text-slate-700',
+                    )}
+                  >
+                    Viewer
+                  </button>
+                  <button
+                    onClick={() => setNewRole('editor')}
+                    className={cn(
+                      'px-2 py-0.5 rounded text-[11px] font-medium transition-all',
+                      newRole === 'editor' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-700',
+                    )}
+                  >
+                    Editor
+                  </button>
+                </div>
+                <Button
+                  size="sm"
+                  className="h-7 px-2 bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                  disabled={!newUsername.trim()}
+                  onClick={() => {
+                    onAddMember(newUsername.trim(), newRole);
+                    setNewUsername('');
+                  }}
+                >
+                  <Check className="h-3 w-3" />
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Loading */}
+          {project.loadingMembers ? (
+            <div className="flex items-center justify-center py-4 gap-2 text-xs text-slate-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading members...
+            </div>
+          ) : (
+            <div className="divide-y divide-slate-100 dark:divide-slate-700/50">
+              {project.contributors.map((c) => {
+                const cfg = ROLE_CONFIG[c.role];
+                const RoleIcon = cfg.icon;
+                const isOwner = c.role === 'owner';
+                const isMe = c.username.toLowerCase() === currentUsername.toLowerCase();
+
+                if (confirmRemove === c.username) {
+                  return (
+                    <div key={c.contributor_id} className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/10">
+                      <Trash2 className="h-3 w-3 text-red-500 shrink-0" />
+                      <span className="text-xs text-red-700 dark:text-red-300 flex-1">
+                        Remove <strong>{c.username}</strong>?
+                      </span>
+                      <Button
+                        size="sm"
+                        className="h-5 px-1.5 text-[10px] bg-red-600 hover:bg-red-700 text-white"
+                        onClick={() => { onRemoveMember(c.username); setConfirmRemove(null); }}
+                      >
+                        Yes
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-5 px-1.5 text-[10px]"
+                        onClick={() => setConfirmRemove(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={c.contributor_id} className="group flex items-center gap-2.5 px-4 py-2 hover:bg-white dark:hover:bg-slate-700/30 transition-colors">
+                    <div
+                      className={cn(
+                        'h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0',
+                        c.role === 'owner'
+                          ? 'bg-gradient-to-br from-amber-400 to-orange-500 text-white'
+                          : c.role === 'editor'
+                          ? 'bg-gradient-to-br from-blue-400 to-indigo-500 text-white'
+                          : 'bg-gradient-to-br from-slate-400 to-gray-500 text-white',
+                      )}
+                    >
+                      {getInitials(c.username)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate">
+                          {c.username}
+                        </span>
+                        {isMe && (
+                          <span className="text-[9px] px-1 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-medium">
+                            you
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className={cn('inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full', cfg.cls)}>
+                          <RoleIcon className="h-2.5 w-2.5" />
+                          {cfg.label}
+                        </span>
+                        {c.added_at && !isNaN(new Date(c.added_at).getTime()) && (
+                          <span className="text-[10px] text-slate-400">
+                            {formatDistanceToNow(new Date(c.added_at), { addSuffix: true })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {!isOwner && !isMe && (
+                      <button
+                        onClick={() => setConfirmRemove(c.username)}
+                        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main Page
+// ---------------------------------------------------------------------------
+
+export default function ProjectsGovernancePage() {
+  const { data: session } = useSession();
+  const currentUsername = (session?.user as any)?.username || '';
+
+  const [projects, setProjects] = useState<ProjectWithMembers[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<FilterTab>('all');
+  const [search, setSearch] = useState('');
+
+  // Fetch all projects + their contributors
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await listProjects();
+      const projectList: ProjectWithMembers[] = (res.projects || []).map((p) => ({
+        ...p,
+        contributors: [],
+        loadingMembers: true,
+      }));
+      setProjects(projectList);
+
+      // Fetch contributors for each project in parallel
+      const updated = await Promise.all(
+        projectList.map(async (p) => {
+          try {
+            const contribs = await listContributors(p.project_id);
+            return { ...p, contributors: contribs, loadingMembers: false };
+          } catch {
+            return { ...p, contributors: [], loadingMembers: false };
+          }
+        }),
+      );
+      setProjects(updated);
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAll();
+  }, [fetchAll]);
+
+  // Refresh a single project's members
+  const refreshMembers = useCallback(async (projectId: string) => {
+    setProjects((prev) =>
+      prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: true } : p)),
+    );
+    try {
+      const contribs = await listContributors(projectId);
+      setProjects((prev) =>
+        prev.map((p) => (p.project_id === projectId ? { ...p, contributors: contribs, loadingMembers: false } : p)),
+      );
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+      setProjects((prev) =>
+        prev.map((p) => (p.project_id === projectId ? { ...p, loadingMembers: false } : p)),
+      );
+    }
+  }, []);
+
+  // Add member
+  const handleAddMember = useCallback(
+    async (projectId: string, username: string, role: 'editor' | 'viewer') => {
+      try {
+        const added = await addContributor(projectId, { username, role });
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.project_id === projectId
+              ? { ...p, contributors: [...p.contributors, added] }
+              : p,
+          ),
+        );
+        toast.success(`Added ${added.username} as ${added.role}`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [],
+  );
+
+  // Remove member
+  const handleRemoveMember = useCallback(
+    async (projectId: string, username: string) => {
+      try {
+        await removeContributor(projectId, username);
+        setProjects((prev) =>
+          prev.map((p) =>
+            p.project_id === projectId
+              ? { ...p, contributors: p.contributors.filter((c) => c.username !== username) }
+              : p,
+          ),
+        );
+        toast.success(`Removed ${username}`);
+      } catch (err) {
+        toast.error(getApiErrorMessage(err));
+      }
+    },
+    [],
+  );
+
+  // Filtered + searched projects
+  const filtered = useMemo(() => {
+    let list = projects;
+    if (activeTab !== 'all') {
+      list = list.filter((p) => p.project_type === activeTab);
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (p) =>
+          p.project_name.toLowerCase().includes(q) ||
+          p.created_by.toLowerCase().includes(q) ||
+          p.contributors.some((c) => c.username.toLowerCase().includes(q)),
+      );
+    }
+    return list;
+  }, [projects, activeTab, search]);
+
+  // Stats
+  const stats = useMemo(() => {
+    const total = projects.length;
+    const explore = projects.filter((p) => p.project_type === 'explore_design').length;
+    const workflow = projects.filter((p) => p.project_type === 'workflow').length;
+    const totalMembers = new Set(projects.flatMap((p) => p.contributors.map((c) => c.username))).size;
+    return { total, explore, workflow, totalMembers };
+  }, [projects]);
+
+  const tabs: { id: FilterTab; label: string; count: number }[] = [
+    { id: 'all', label: 'All', count: stats.total },
+    { id: 'explore_design', label: 'Explore & Design', count: stats.explore },
+    { id: 'workflow', label: 'Workflow', count: stats.workflow },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        icon={<FolderOpen className="h-6 w-6" />}
+        title="Projects"
+        subtitle="Manage project members and access across Explore & Design and Workflow modules"
+        color="violet"
+        badges={
+          <div className="flex items-center gap-2">
+            <Badge className="bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400 px-3 py-1 text-sm font-medium">
+              {stats.total} Projects
+            </Badge>
+            <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 px-3 py-1 text-sm font-medium">
+              {stats.totalMembers} Members
+            </Badge>
+          </div>
+        }
+        actions={
+          <Button
+            variant="outline"
+            className="gap-2"
+            onClick={fetchAll}
+            disabled={loading}
+          >
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            Refresh
+          </Button>
+        }
+      />
+
+      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6 space-y-4">
+        {/* Tabs + Search */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  'px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px',
+                  activeTab === tab.id
+                    ? 'text-violet-600 border-violet-600'
+                    : 'text-slate-500 border-transparent hover:text-slate-700',
+                )}
+              >
+                {tab.label}
+                <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700 text-[11px] font-medium">
+                  {tab.count}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+            <Input
+              size="sm"
+              placeholder="Search projects or members..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+
+        {/* Content */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12 gap-2 text-sm text-slate-500">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Loading projects...
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-12">
+            <FolderOpen className="h-10 w-10 text-slate-300 dark:text-slate-600 mx-auto mb-3" />
+            <p className="text-sm text-slate-500">
+              {search ? 'No projects match your search' : 'No projects found'}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((project) => (
+              <ProjectRow
+                key={project.project_id}
+                project={project}
+                expanded={expandedId === project.project_id}
+                onToggle={() => setExpandedId(expandedId === project.project_id ? null : project.project_id)}
+                onRefreshMembers={() => refreshMembers(project.project_id)}
+                onAddMember={(username, role) => handleAddMember(project.project_id, username, role)}
+                onRemoveMember={(username) => handleRemoveMember(project.project_id, username)}
+                currentUsername={currentUsername}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

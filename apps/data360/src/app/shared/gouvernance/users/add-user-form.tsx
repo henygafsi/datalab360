@@ -1,11 +1,9 @@
-// C:\Users\banno\OneDrive\Bureau\datalab360Front\apps\data360\src\app\shared\gouvernance\users\add-user-form.tsx
-
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button, Input, Select, SelectOption } from 'rizzui'; // Added Select, SelectOption
-import { addUser, assignRoleToUser } from '@/app/services/gouvernance/fetch_users';
-import { getRoles } from '@/app/services/gouvernance/fetch_roles'; // Import getRoles
+import { useState } from 'react';
+import { Button, Input, Password } from 'rizzui';
+import { addUser } from '@/app/services/gouvernance/fetch_users';
+import { UserPlus, User, Mail, Lock, X } from 'lucide-react';
 
 type AddUserFormProps = {
   onAddUserSuccess?: () => void;
@@ -16,60 +14,19 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedRole, setSelectedRole] = useState<string>(''); // State for selected role
-  const [availableRoles, setAvailableRoles] = useState<SelectOption[]>([]); // State for available roles
   const [loading, setLoading] = useState(false);
-  const [rolesLoading, setRolesLoading] = useState(true); // Loading state for roles
   const [error, setError] = useState<string | null>(null);
-
-  // Fetch available roles on component mount
-  useEffect(() => {
-    const fetchRoles = async () => {
-      setRolesLoading(true);
-      try {
-        const roles = await getRoles(); // Fetch roles from backend
-        const roleOptions = roles.map(r => ({ label: r.role, value: r.role }));
-        setAvailableRoles(roleOptions);
-        if (roleOptions.length > 0) {
-          setSelectedRole(roleOptions[0].value as string); // Select first role by default
-        }
-      } catch (err: any) {
-        console.error('Failed to load roles for dropdown:', err);
-        setError(err.message || 'Failed to load available roles.');
-      } finally {
-        setRolesLoading(false);
-      }
-    };
-    fetchRoles();
-  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    if (!selectedRole) {
-      setError("Please select a role for the user.");
-      setLoading(false);
-      return;
-    }
-
     try {
-      const userData = {
-        username: username,
-        password: password,
-        email: email,
-      };
-      await addUser(userData); // No accessToken parameter needed
-      console.log('User added successfully:', username);
-
-      await assignRoleToUser(username, selectedRole); // Use selected role
-      console.log(`Role '${selectedRole}' assigned to user '${username}'`);
-
+      await addUser({ username, password, email });
       onAddUserSuccess?.();
       onClose();
     } catch (err: any) {
-      console.error('Failed to add user or assign role:', err);
       setError(err.message || 'An unexpected error occurred.');
     } finally {
       setLoading(false);
@@ -77,66 +34,84 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
   }
 
   return (
-    <div className="m-auto px-5 pb-8 pt-5 @lg:pt-6 @2xl:px-7">
-      <div className="mb-6 flex items-center justify-between">
-        <form onSubmit={handleSubmit} className="space-y-4 w-full">
-          <div>
-            <label htmlFor="username" className="block text-gray-700">Username</label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full rounded-md border p-2"
-              required
-            />
+    <div className="p-1">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+            <UserPlus className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <label htmlFor="password" className="block text-gray-700">Password</label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-md border p-2"
-              required
-            />
+            <h3 className="text-lg font-semibold text-gray-900">Add New User</h3>
+            <p className="text-xs text-gray-500">Create a new account for your team</p>
           </div>
-          <div>
-            <label htmlFor="email" className="block text-gray-700">Email</label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 block w-full rounded-md border p-2"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="roleSelect" className="block text-gray-700">Assign Role</label>
-            {rolesLoading ? (
-              <div className="mt-1 text-gray-500">Loading roles...</div>
-            ) : (
-              <Select
-                id="roleSelect"
-                options={availableRoles}
-                value={selectedRole}
-                onChange={(option) => {
-                  const opt = option as SelectOption | null;
-                  setSelectedRole(opt?.value as string || '');
-                }}
-                placeholder="Select a role"
-                className="mt-1"
-              />
-            )}
-          </div>
-          {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-          <Button type="submit" className="mt-4 bg-blue-600 text-white" disabled={loading || rolesLoading || !selectedRole}>
-            {loading ? 'Adding User...' : 'Add User'}
-          </Button>
-        </form>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
+
+      <div className="h-px bg-gray-100" />
+
+      {/* Form */}
+      <form onSubmit={handleSubmit} className="space-y-5 px-5 pt-5 pb-6">
+        <Input
+          label="Username"
+          placeholder="Enter username"
+          prefix={<User className="h-4 w-4 text-gray-400" />}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+        />
+
+        <Input
+          label="Email"
+          type="email"
+          placeholder="user@company.com"
+          prefix={<Mail className="h-4 w-4 text-gray-400" />}
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+
+        <Password
+          label="Password"
+          placeholder="Create a strong password"
+          prefix={<Lock className="h-4 w-4 text-gray-400" />}
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="flex-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            className="flex-1"
+            isLoading={loading}
+          >
+            <UserPlus className="me-1.5 h-4 w-4" />
+            Add User
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

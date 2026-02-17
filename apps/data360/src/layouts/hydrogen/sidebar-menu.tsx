@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold, PiDatabase, PiChartBar, PiBrain } from 'react-icons/pi';
+import { PiCaretDownBold, PiDatabase, PiChartBar, PiBrain, PiFolderDuotone } from 'react-icons/pi';
 import {
   HiOutlineMap,
   HiOutlineCog8Tooth,
@@ -110,6 +110,11 @@ const modernMenuItems = [
         name: 'Masking Policy',
         href: '/gouvernance/masking',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
+      },
+      {
+        name: 'Projects',
+        href: '/gouvernance/projects',
+        icon: <PiFolderDuotone className="w-4 h-4" />,
       }
     ]
   },

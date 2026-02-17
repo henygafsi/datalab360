@@ -1,10 +1,9 @@
-// C:\Users\banno\OneDrive\Bureau\datalab360Front\apps\data360\src\app\shared\gouvernance\roles\add-role-form.tsx
-
 'use client';
 
-import { Button, Input } from 'rizzui';
 import { useState } from 'react';
+import { Button, Input } from 'rizzui';
 import { addRole } from '@/app/services/gouvernance/fetch_roles';
+import { ShieldPlus, Shield, X } from 'lucide-react';
 
 type AddRoleFormProps = {
   onAddRoleSuccess: () => void;
@@ -22,12 +21,10 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
     setError(null);
 
     try {
-      await addRole(roleName); // addRole now handles token internally
-      console.log('Role added successfully:', roleName);
+      await addRole(roleName);
       onAddRoleSuccess();
       onClose();
     } catch (err: any) {
-      console.error('Failed to add role:', err);
       setError(err.message || 'Failed to add role.');
     } finally {
       setLoading(false);
@@ -35,26 +32,65 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
   };
 
   return (
-    <form onSubmit={handleFormSubmit} className="space-y-4 p-4">
-      <div>
-        <label htmlFor="roleName" className="block text-sm font-medium text-gray-700">
-          Role Name
-        </label>
+    <div className="p-1">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 pt-5 pb-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+            <ShieldPlus className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Add New Role</h3>
+            <p className="text-xs text-gray-500">Define a new role for access control</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="h-px bg-gray-100" />
+
+      {/* Form */}
+      <form onSubmit={handleFormSubmit} className="space-y-5 px-5 pt-5 pb-6">
         <Input
-          id="roleName"
+          label="Role Name"
+          placeholder="e.g. DATA_ENGINEER"
+          prefix={<Shield className="h-4 w-4 text-gray-400" />}
           value={roleName}
           onChange={(e) => setRoleName(e.target.value)}
-          placeholder="Enter role name"
           required
-          className="mt-1 block w-full"
         />
-      </div>
-      {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
-      <div className="mt-4">
-        <Button type="submit" variant="solid" color="primary" disabled={loading}>
-          {loading ? 'Adding Role...' : 'Add Role'}
-        </Button>
-      </div>
-    </form>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 pt-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            className="flex-1"
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            className="flex-1"
+            isLoading={loading}
+          >
+            <ShieldPlus className="me-1.5 h-4 w-4" />
+            Add Role
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Button, Badge, Input, Tooltip } from 'rizzui';
+import { Button, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
-  Shield, UserPlus, Users, Crown, Pencil, Eye, Trash2,
+  UserPlus, Users, Crown, Pencil, Eye, Trash2,
   X, Check, Loader2, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -15,7 +15,6 @@ import {
   addContributor,
   removeContributor,
 } from '@/app/services/api/projectsApi';
-import { getUsers } from '@/app/services/gouvernance/fetch_users';
 import type { Contributor, ContributorRole } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 
@@ -190,10 +189,6 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
   const [newUsername, setNewUsername] = useState('');
   const [newRole, setNewRole] = useState<'editor' | 'viewer'>('viewer');
   const [isAdding, setIsAdding] = useState(false);
-  const [userSearch, setUserSearch] = useState('');
-  const [allUsers, setAllUsers] = useState<{ id: string; name: string }[]>([]);
-  const [loadingUsers, setLoadingUsers] = useState(false);
-  const [usersFetchFailed, setUsersFetchFailed] = useState(false);
 
   // Remove confirmation
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -220,46 +215,6 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
   }, [contributors, currentUsername]);
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'editor';
-
-  // Users already added (for filtering the dropdown)
-  const existingUsernames = useMemo(
-    () => new Set(contributors.map((c) => c.username.toLowerCase())),
-    [contributors],
-  );
-
-  // Filtered user list for the dropdown
-  const filteredUsers = useMemo(() => {
-    return allUsers.filter((u) => {
-      const id = u.id.toLowerCase();
-      if (id === currentUsername.toLowerCase()) return false;
-      if (existingUsernames.has(id)) return false;
-      if (!userSearch) return true;
-      const q = userSearch.toLowerCase();
-      return id.includes(q) || u.name.toLowerCase().includes(q);
-    });
-  }, [allUsers, currentUsername, existingUsernames, userSearch]);
-
-  // Fetch users when add form opens
-  const fetchUsers = useCallback(async () => {
-    setLoadingUsers(true);
-    setUsersFetchFailed(false);
-    try {
-      const users = await getUsers();
-      console.log('[AccessManagement] Fetched users:', users);
-      setAllUsers(users.map((u) => ({ id: u.id, name: u.name })));
-    } catch (err) {
-      console.error('[AccessManagement] Failed to fetch users:', err);
-      setUsersFetchFailed(true);
-    } finally {
-      setLoadingUsers(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (showAddForm && allUsers.length === 0 && !usersFetchFailed) {
-      fetchUsers();
-    }
-  }, [showAddForm, allUsers.length, usersFetchFailed, fetchUsers]);
 
   // Fetch
   const fetchContributors = useCallback(async () => {
@@ -292,7 +247,6 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
       setContributors((prev) => [...prev, added]);
       toast.success(`Added ${added.username} as ${added.role}`);
       setNewUsername('');
-      setUserSearch('');
       setShowAddForm(false);
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -381,7 +335,6 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
                 onClick={() => {
                   setShowAddForm(!showAddForm);
                   setNewUsername('');
-                  setUserSearch('');
                 }}
               >
                 {showAddForm ? <X className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
@@ -404,84 +357,16 @@ const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }
       {/* ── Section B: Inline Add Form ── */}
       {showAddForm && (
         <div className="rounded-lg border border-blue-200 dark:border-blue-800/50 bg-blue-50/50 dark:bg-blue-900/10 p-3 space-y-2 animate-in slide-in-from-top-2 duration-200">
-          <div className="relative">
-            <Input
-              size="sm"
-              placeholder="Search users..."
-              value={userSearch}
-              onChange={(e) => {
-                setUserSearch(e.target.value);
-                setNewUsername('');
-              }}
-              className="flex-1"
-              disabled={isAdding}
-            />
-            {newUsername && (
-              <div className="mt-1.5 flex items-center gap-2 rounded-md bg-blue-100 dark:bg-blue-900/30 px-2.5 py-1.5">
-                <div className="h-5 w-5 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-[9px] font-bold text-white">
-                  {getInitials(newUsername)}
-                </div>
-                <span className="text-xs font-medium text-blue-800 dark:text-blue-200 flex-1 truncate">
-                  {newUsername}
-                </span>
-                <button
-                  onClick={() => { setNewUsername(''); setUserSearch(''); }}
-                  className="text-blue-400 hover:text-blue-600 dark:hover:text-blue-200"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            )}
-            {!newUsername && userSearch !== undefined && (
-              <div className="mt-1 max-h-36 overflow-y-auto rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg">
-                {loadingUsers ? (
-                  <div className="flex items-center justify-center gap-2 py-3 text-xs text-slate-400">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Loading users...
-                  </div>
-                ) : usersFetchFailed ? (
-                  <div className="flex flex-col items-center gap-1.5 py-3">
-                    <span className="text-xs text-red-500">Failed to load users</span>
-                    <button
-                      onClick={fetchUsers}
-                      className="text-[11px] text-blue-600 hover:text-blue-700 underline"
-                    >
-                      Retry
-                    </button>
-                  </div>
-                ) : filteredUsers.length === 0 ? (
-                  <div className="py-3 text-center text-xs text-slate-400">
-                    {userSearch ? 'No matching users found' : 'No available users'}
-                  </div>
-                ) : (
-                  filteredUsers.map((user) => (
-                    <button
-                      key={user.id}
-                      onClick={() => {
-                        setNewUsername(user.id);
-                        setUserSearch('');
-                      }}
-                      className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
-                    >
-                      <div className="h-5 w-5 rounded-full bg-gradient-to-br from-slate-400 to-gray-500 flex items-center justify-center text-[9px] font-bold text-white shrink-0">
-                        {getInitials(user.id)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-xs font-medium text-slate-700 dark:text-slate-200 truncate block">
-                          {user.id}
-                        </span>
-                        {user.name && user.name !== user.id && (
-                          <span className="text-[10px] text-slate-400 truncate block">
-                            {user.name}
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
+          <Input
+            size="sm"
+            placeholder="Enter username..."
+            value={newUsername}
+            onChange={(e) => setNewUsername(e.target.value)}
+            disabled={isAdding}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && newUsername.trim()) handleAdd();
+            }}
+          />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-0.5">
               <button

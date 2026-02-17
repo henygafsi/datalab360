@@ -50,6 +50,10 @@ export const pageLinks = [
     name: 'Policies',
     href: routes.gouvernance.policies,
   },
+   {
+    name: 'Projects',
+    href: routes.gouvernance.projects,
+  },
   {
     name: "KPI's Store",
     label: true,

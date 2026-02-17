@@ -20,6 +20,7 @@ import {
   PiCubeDuotone,
   PiChatCircleDuotone,
   PiChartLineDuotone,
+  PiFolderDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -134,6 +135,11 @@ export const carbonMenuItems: MenuItemsType[] = [
         name: 'Security Matrix',
         href: routes.gouvernance.securityMatrix,
         icon: PiShieldCheckDuotone,
+      },
+      {
+        name: 'Projects',
+        href: routes.gouvernance.projects,
+        icon: PiFolderDuotone,
       },
     ],
   },

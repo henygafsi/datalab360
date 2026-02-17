@@ -20,6 +20,7 @@ export const routes = {
     grants: '/gouvernance/grants',
     policies: '/gouvernance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
     securityMatrix: '/gouvernance/security-matrix',
+    projects: '/gouvernance/projects',
   },
   biReporting: {
     viewReporting: '/bi-reporting'

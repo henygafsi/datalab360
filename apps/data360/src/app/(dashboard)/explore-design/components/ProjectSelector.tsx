@@ -141,7 +141,7 @@ export default function ProjectSelector({
     }
 
     try {
-      const response = await listProjects({ project_type: 'explore_design' });
+      const response = await listProjects({ project_type: 'explore_design', mine_only: true });
 
       if (!response.projects || response.projects.length === 0) {
         if (mountedRef.current) setProjects([]);
@@ -714,6 +714,16 @@ export default function ProjectSelector({
                                   {project.status.toLowerCase()}
                                 </span>
                               )}
+                              <span
+                                className={cn(
+                                  'px-1.5 py-0.5 rounded text-[10px] font-medium',
+                                  project.created_by.toLowerCase() === currentUsername.toLowerCase()
+                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                                )}
+                              >
+                                {project.created_by.toLowerCase() === currentUsername.toLowerCase() ? 'owner' : 'contributor'}
+                              </span>
                             </div>
                           </div>
                           {isSelected && (
