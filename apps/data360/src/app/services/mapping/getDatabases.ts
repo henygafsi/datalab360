@@ -22,7 +22,7 @@ function isDatabaseObject(obj: unknown): obj is DatabaseObject {
  */
 export const getDatabases = async (): Promise<string[]> => {
   try {
-    const response = await apiClient.get('/explore-design/guided/databases');
+    const response = await apiClient.get('/common/databases');
     const data = response.data;
 
     // If response is an array directly

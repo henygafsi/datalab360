@@ -427,6 +427,27 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         return getUpstreamColumns();
       }
 
+      // RECOMMENDATION: Passes through + adds score column
+      case 'recommendation': {
+        const upstreamCols = getUpstreamColumns();
+        const scoreCol = config.score_column;
+        return scoreCol ? [...upstreamCols, scoreCol] : upstreamCols;
+      }
+
+      // SEGMENTATION: Passes through + adds segment column
+      case 'segmentation': {
+        const upstreamCols = getUpstreamColumns();
+        const segCol = config.segment_column;
+        return segCol ? [...upstreamCols, segCol] : upstreamCols;
+      }
+
+      // CLUSTERING: Passes through + adds cluster column
+      case 'clustering': {
+        const upstreamCols = getUpstreamColumns();
+        const clusterCol = config.cluster_column;
+        return clusterCol ? [...upstreamCols, clusterCol] : upstreamCols;
+      }
+
       // FILTER, SORT, DISTINCT, LIMIT: Pass through all upstream columns unchanged
       case 'filter':
       case 'drop_nulls':

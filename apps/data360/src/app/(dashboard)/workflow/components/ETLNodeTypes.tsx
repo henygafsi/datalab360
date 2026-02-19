@@ -461,6 +461,91 @@ export const LimitNode = memo(({ data, selected }: NodeProps) => {
 LimitNode.displayName = 'LimitNode';
 
 // ============================================
+// RECOMMENDATION NODE
+// ============================================
+export const RecommendationNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="recommendation">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Score:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.score_column || data.score_column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Model:</span>
+        <span className="font-medium">{displayValue(data.config?.model_type || data.model_type, 'cortex')}</span>
+      </div>
+      {(data.config?.input_id_column || data.input_id_column) && (
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">ID Col:</span>
+          <span className="font-medium truncate">{data.config?.input_id_column || data.input_id_column}</span>
+        </div>
+      )}
+    </div>
+  </ETLNodeWrapper>
+));
+RecommendationNode.displayName = 'RecommendationNode';
+
+// ============================================
+// SEGMENTATION NODE
+// ============================================
+export const SegmentationNode = memo(({ data, selected }: NodeProps) => {
+  const rules = data.config?.rules || data.rules || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="segmentation">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Column:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.segment_column || data.segment_column)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Method:</span>
+          <span className="font-medium">{displayValue(data.config?.method || data.method, 'rules')}</span>
+        </div>
+        {rules.length > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-slate-400">Rules:</span>
+            <span className="font-medium">{rules.length}</span>
+          </div>
+        )}
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+SegmentationNode.displayName = 'SegmentationNode';
+
+// ============================================
+// CLUSTERING NODE
+// ============================================
+export const ClusteringNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="clustering">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.cluster_column || data.cluster_column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Method:</span>
+        <span className="font-medium">{displayValue(data.config?.method || data.method, 'kmeans_sql')}</span>
+      </div>
+      {(data.config?.n_clusters || data.n_clusters) && (
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">K:</span>
+          <span className="font-medium">{data.config?.n_clusters || data.n_clusters}</span>
+        </div>
+      )}
+      {(data.config?.feature_columns || data.feature_columns) && (
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Features:</span>
+          <span className="font-medium">{(data.config?.feature_columns || data.feature_columns || []).length}</span>
+        </div>
+      )}
+    </div>
+  </ETLNodeWrapper>
+));
+ClusteringNode.displayName = 'ClusteringNode';
+
+// ============================================
 // DESTINATION NODE
 // ============================================
 export const DestinationNode = memo(({ data, selected }: NodeProps) => (
@@ -559,6 +644,9 @@ export const etlNodeTypes = {
   union: UnionNode,
   distinct: DistinctNode,
   limit: LimitNode,
+  recommendation: RecommendationNode,
+  segmentation: SegmentationNode,
+  clustering: ClusteringNode,
   destination: DestinationNode,
   export_file: ExportFileNode,
 

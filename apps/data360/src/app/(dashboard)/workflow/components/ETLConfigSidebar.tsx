@@ -29,6 +29,9 @@ import type {
   UnionConfig,
   DistinctConfig,
   LimitConfig,
+  RecommendationConfig,
+  SegmentationConfig,
+  ClusteringConfig,
   DestinationConfig,
   ExportFileConfig,
 } from '@/app/services/etl/types';
@@ -1008,6 +1011,216 @@ const LimitConfigForm: React.FC<{
   );
 };
 
+// Recommendation Config
+const RecommendationConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Partial<RecommendationConfig>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Score Column" required error={errors.score_column} hint="Name of the output score/rank column">
+        <Input
+          value={config.score_column || ''}
+          onChange={(v) => updateConfig({ score_column: v })}
+          placeholder="e.g., recommendation_score"
+          error={!!errors.score_column}
+        />
+      </FormField>
+
+      <FormField label="Model Type">
+        <Select
+          value={config.model_type || 'cortex'}
+          onChange={(v) => updateConfig({ model_type: v as RecommendationConfig['model_type'] })}
+          options={[
+            { value: 'cortex', label: 'Cortex LLM' },
+            { value: 'custom', label: 'Custom Model' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Input ID Column" hint="Column identifying items to score">
+        <Select
+          value={config.input_id_column || ''}
+          onChange={(v) => updateConfig({ input_id_column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+        />
+      </FormField>
+
+      <FormField label="Output Table" hint="Optional table to store results">
+        <Input
+          value={config.output_table || ''}
+          onChange={(v) => updateConfig({ output_table: v })}
+          placeholder="e.g., RECOMMENDATIONS_OUTPUT"
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Segmentation Config
+const SegmentationConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const rules: Array<{ name: string; condition: string }> = config.rules || [];
+
+  const updateConfig = (updates: Partial<SegmentationConfig>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addRule = () => {
+    updateConfig({ rules: [...rules, { name: '', condition: '' }] });
+  };
+
+  const removeRule = (index: number) => {
+    updateConfig({ rules: rules.filter((_, i) => i !== index) });
+  };
+
+  const updateRule = (index: number, updates: Partial<{ name: string; condition: string }>) => {
+    const newRules = [...rules];
+    newRules[index] = { ...newRules[index], ...updates };
+    updateConfig({ rules: newRules });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Segment Column" required error={errors.segment_column} hint="Name of the output segment column">
+        <Input
+          value={config.segment_column || ''}
+          onChange={(v) => updateConfig({ segment_column: v })}
+          placeholder="e.g., customer_segment"
+          error={!!errors.segment_column}
+        />
+      </FormField>
+
+      <FormField label="Method" required>
+        <Select
+          value={config.method || 'rules'}
+          onChange={(v) => updateConfig({ method: v as SegmentationConfig['method'] })}
+          options={[
+            { value: 'rules', label: 'Rule-based (CASE WHEN)' },
+            { value: 'rfm', label: 'RFM Analysis' },
+            { value: 'model', label: 'ML Model' },
+          ]}
+        />
+      </FormField>
+
+      {config.method === 'rules' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Rules</label>
+            <button
+              onClick={addRule}
+              className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+            >
+              <Plus className="h-3 w-3" /> Add
+            </button>
+          </div>
+
+          {rules.map((rule, i) => (
+            <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={rule.name}
+                  onChange={(v) => updateRule(i, { name: v })}
+                  placeholder="Segment name (e.g., VIP)"
+                />
+                <button
+                  onClick={() => removeRule(i)}
+                  className="p-1 text-red-500 hover:bg-red-100 rounded"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+              </div>
+              <Input
+                value={rule.condition}
+                onChange={(v) => updateRule(i, { condition: v })}
+                placeholder="Condition (e.g., total_spend > 1000)"
+              />
+            </div>
+          ))}
+
+          {rules.length === 0 && (
+            <p className="text-xs text-slate-500 text-center py-2">No rules added</p>
+          )}
+        </div>
+      )}
+
+      <div className="text-xs text-slate-500 p-2 bg-slate-100 dark:bg-slate-800 rounded">
+        Available columns: {availableColumns.join(', ') || 'Connect an input first'}
+      </div>
+    </div>
+  );
+};
+
+// Clustering Config
+const ClusteringConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Partial<ClusteringConfig>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Cluster Column" required error={errors.cluster_column} hint="Name of the output cluster column">
+        <Input
+          value={config.cluster_column || ''}
+          onChange={(v) => updateConfig({ cluster_column: v })}
+          placeholder="e.g., cluster_id"
+          error={!!errors.cluster_column}
+        />
+      </FormField>
+
+      <FormField label="Method" required>
+        <Select
+          value={config.method || 'kmeans_sql'}
+          onChange={(v) => updateConfig({ method: v as ClusteringConfig['method'] })}
+          options={[
+            { value: 'kmeans_sql', label: 'K-Means (SQL)' },
+            { value: 'cortex_ml', label: 'Cortex ML' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Number of Clusters" error={errors.n_clusters}>
+        <Input
+          type="number"
+          value={config.n_clusters || ''}
+          onChange={(v) => updateConfig({ n_clusters: parseInt(v) || undefined })}
+          placeholder="e.g., 5"
+          error={!!errors.n_clusters}
+        />
+      </FormField>
+
+      <FormField label="Feature Columns" hint="Columns used as features for clustering">
+        <MultiSelect
+          values={config.feature_columns || []}
+          onChange={(v) => updateConfig({ feature_columns: v })}
+          options={availableColumns}
+        />
+      </FormField>
+    </div>
+  );
+};
+
 // Destination Config
 const DestinationConfigForm: React.FC<{
   data: any;
@@ -1233,6 +1446,15 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'limit':
         if (!config.limit || config.limit <= 0) newErrors.limit = 'Limit must be greater than 0';
         break;
+      case 'recommendation':
+        if (!config.score_column) newErrors.score_column = 'Score column name is required';
+        break;
+      case 'segmentation':
+        if (!config.segment_column) newErrors.segment_column = 'Segment column name is required';
+        break;
+      case 'clustering':
+        if (!config.cluster_column) newErrors.cluster_column = 'Cluster column name is required';
+        break;
       case 'destination':
         if (!config.database) newErrors.database = 'Database is required';
         if (!config.schema) newErrors.schema = 'Schema is required';
@@ -1303,6 +1525,12 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <DistinctConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       case 'limit':
         return <LimitConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'recommendation':
+        return <RecommendationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'segmentation':
+        return <SegmentationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'clustering':
+        return <ClusteringConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       case 'destination':
         return <DestinationConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} availableColumns={availableColumns} />;
       case 'export_file':
