@@ -23,7 +23,7 @@ export const config = {
     '/explore-design/guided/:path*',
     '/workflow/:path*',
     '/gouvernance/:path*',
-    '/bi-reporting/:path*',
+    '/bi-dashboard/:path*',
     '/data-quality/:path*',
     '/executive',
     '/financial',

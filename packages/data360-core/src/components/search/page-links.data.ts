@@ -18,8 +18,8 @@ export const pageLinks = [
   },
   {
     id: "3",
-    name: "BI Reporting",
-    title: "BI Reporting",
+    name: "BI Dasboard",
+    title: "BI Dasboard",
     icon: PiChartBarDuotone, // Adjust the icon as per your preference
     menuItems: [
       {

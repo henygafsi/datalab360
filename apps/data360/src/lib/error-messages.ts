@@ -17,7 +17,7 @@ export type FeatureKey =
   | 'data-quality'
   | 'observability'
   | 'intelligent'
-  | 'bi-reporting'
+  | 'bi-dashboard'
   | 'client-accounts'
   | 'auth';
 
@@ -164,7 +164,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'bi-reporting': {
+  'bi-dashboard': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Tableau BI introuvable.',

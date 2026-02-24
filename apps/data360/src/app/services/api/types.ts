@@ -9,7 +9,7 @@
 
 // --- Enums / Union Types ---
 
-export type ProjectType = 'explore_design' | 'workflow';
+export type ProjectType = 'explore_design' | 'workflow' | 'bi_dashboard';
 
 export type ProjectStatus = 'draft' | 'active' | 'archived' | 'deleted';
 
@@ -1302,4 +1302,234 @@ export interface ListWorkflowDeploymentsParams {
 
 export interface RejectWorkflowDeploymentRequest {
   reason?: string;
+}
+
+// ============================================================================
+// PART 4 — BI Dashboard Types (/api/v1/bi-dashboard)
+// ============================================================================
+
+// --- Enums ---
+
+export type FilterScope = 'global' | 'page';
+
+export type PageLayout = 'grid' | 'freeform';
+
+export type WidgetType = 'chart' | 'kpi_card' | 'table' | 'text';
+
+export type DashboardChartType =
+  | 'bar' | 'line' | 'pie' | 'donut' | 'area'
+  | 'scatter' | 'heatmap' | 'funnel' | 'gauge' | 'treemap';
+
+// --- Dashboard CRUD ---
+
+export interface CreateDashboardRequest {
+  project_name: string;
+  description?: string | null;
+  default_database?: string | null;
+  default_schema?: string | null;
+  tags?: string[];
+}
+
+export interface CreateDashboardResponse {
+  project_id: string;
+  default_page_id: string;
+}
+
+export interface UpdateDashboardRequest {
+  project_name?: string;
+  description?: string | null;
+  tags?: string[];
+}
+
+// --- Pages ---
+
+export interface DashboardPage {
+  page_id: string;
+  title: string;
+  layout: PageLayout;
+  page_order: number;
+  created_at?: string;
+  widgets?: DashboardWidget[];
+  filters?: DashboardFilter[];
+}
+
+export interface CreatePageRequest {
+  title: string;
+  layout?: PageLayout;
+  page_order?: number;
+}
+
+export interface UpdatePageRequest {
+  title?: string;
+  layout?: PageLayout;
+  page_order?: number;
+}
+
+// --- Chart Config (used in chart/kpi_card/table widgets) ---
+
+export interface TopNConfig {
+  column: string;
+  order: 'ASC' | 'DESC';
+  limit: number;
+}
+
+export interface BIDashboardChartConfig {
+  database: string;
+  schema: string;
+  table: string;
+  mode?: 'raw' | 'aggregate';
+  x?: string | null;
+  measures?: Array<{
+    column: string;
+    aggregator: string;
+    seuils?: Array<{
+      operator: string;
+      value: number | [number, number];
+      label: string;
+      color?: string;
+    }>;
+  }>;
+  columns?: string[];
+  filters?: Array<{
+    column: string;
+    operator: string;
+    value: string | number | boolean | Array<string | number>;
+  }>;
+  groupBy?: string[];
+  limit?: number | null;
+  topN?: TopNConfig | null;
+}
+
+// --- Widget Style ---
+
+export interface WidgetStyle {
+  color_scheme?: string;
+  show_legend?: boolean;
+  [key: string]: unknown;
+}
+
+// --- Widgets ---
+
+export interface DashboardWidget {
+  widget_id: string;
+  page_id: string;
+  widget_type: WidgetType;
+  chart_type?: DashboardChartType | null;
+  title: string | null;
+  chart_config?: BIDashboardChartConfig | null;
+  text_content?: string | null;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  style?: WidgetStyle | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface CreateWidgetRequest {
+  page_id: string;
+  widget_type: WidgetType;
+  chart_type?: DashboardChartType | null;
+  title?: string;
+  chart_config?: BIDashboardChartConfig | null;
+  text_content?: string | null;
+  position_x: number;
+  position_y: number;
+  width: number;
+  height: number;
+  style?: WidgetStyle | null;
+}
+
+export interface CreateWidgetResponse {
+  widget_id: string;
+}
+
+export interface UpdateWidgetRequest {
+  title?: string;
+  widget_type?: WidgetType;
+  chart_type?: DashboardChartType | null;
+  chart_config?: BIDashboardChartConfig | null;
+  text_content?: string | null;
+  position_x?: number;
+  position_y?: number;
+  width?: number;
+  height?: number;
+  style?: WidgetStyle | null;
+}
+
+// --- Filters ---
+
+export interface DashboardFilter {
+  filter_id: string;
+  column: string;
+  operator: string;
+  default_value?: string | number | null;
+  page_id: string | null;
+  scope: FilterScope;
+}
+
+export interface CreateFilterRequest {
+  column: string;
+  operator: string;
+  default_value?: string | number | null;
+  page_id?: string | null;
+  scope: FilterScope;
+}
+
+export interface ListWidgetsParams {
+  page_id?: string;
+}
+
+export interface ListFiltersParams {
+  page_id?: string;
+}
+
+// --- Full Dashboard (GET response) ---
+
+export interface FullDashboardPage {
+  page_id: string;
+  title: string;
+  layout: PageLayout;
+  page_order: number;
+  widgets: DashboardWidget[];
+  filters: DashboardFilter[];
+}
+
+export interface FullDashboard {
+  project_id: string;
+  project_name: string;
+  description: string | null;
+  default_database: string | null;
+  default_schema: string | null;
+  tags: string[] | null;
+  pages: FullDashboardPage[];
+  global_filters: DashboardFilter[];
+  created_by: string;
+  created_at: string;
+  updated_at: string | null;
+}
+
+// --- Chart Data (POST /charts/data) ---
+
+export interface ChartDataRequest extends Partial<BIDashboardChartConfig> {}
+
+export interface ChartDataResponse {
+  config: BIDashboardChartConfig;
+  query: string;
+  data: Record<string, unknown>[];
+}
+
+// --- Retail KPIs ---
+
+export interface RetailKpisParams {
+  database?: string;
+  schema?: string;
+  days?: number;
+}
+
+// --- Snapshot ---
+
+export interface SnapshotResponse {
+  version_id: string;
 }

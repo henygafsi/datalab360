@@ -23,7 +23,10 @@ export const routes = {
     projects: '/gouvernance/projects',
   },
   biReporting: {
-    viewReporting: '/bi-reporting'
+    viewReporting: '/bi-dashboard'
+  },
+  biDashboard: {
+    view: '/bi-dashboard',
   },
   dataQuality: {
     viewReports: '/data-quality'

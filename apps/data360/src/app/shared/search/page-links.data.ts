@@ -23,12 +23,8 @@ export const pageLinks = [
     href: routes.mapping.viewMap,
   },
   {
-    name: 'BI Reporting',
-    label: true,
-  },
-  {
     name: 'View Reporting',
-    href: routes.biReporting.viewReporting,
+    href: routes.biDashboard.view,
   },
   {
     name: 'Gouvernance',

@@ -51,6 +51,20 @@ export interface MenuItemsType {
 }
 
 export const carbonMenuItems: MenuItemsType[] = [
+  {
+    id: 1,
+    name: 'Account Overview',
+    title: 'Account Overview',
+    icon: PiHouseLineDuotone,
+    color: 'orange',
+    menuItems: [
+      {
+        name: 'Account Overview',
+        href: routes.accountOverview,
+        icon: PiHouseLineDuotone,
+      }
+    ]
+  },
   // 1. Connect Data
   {
     id: 1,
@@ -152,9 +166,10 @@ export const carbonMenuItems: MenuItemsType[] = [
     color: 'cyan',
     menuItems: [
       {
-        name: 'BI Reporting',
-        href: routes.biReporting.viewReporting,
-        icon: PiCurrencyDollarDuotone,
+        name: 'BI Dashboard',
+        description: 'Project-based BI dashboards',
+        href: routes.biDashboard.view,
+        icon: PiChartBarDuotone,
       },
     ],
   },

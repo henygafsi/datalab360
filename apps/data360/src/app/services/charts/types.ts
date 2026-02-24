@@ -29,8 +29,10 @@ export interface ChartRequest {
     database: string;
     schema: string;
     table: string;
+    mode?: 'raw' | 'aggregate';
     x?: string | null;
-    measures: Measure[];
+    measures?: Measure[];
+    columns?: string[];
     filters?: ChartFilter[];
     groupBy?: string[];
     limit?: number | null;

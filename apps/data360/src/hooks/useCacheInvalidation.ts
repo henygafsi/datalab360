@@ -32,6 +32,9 @@ export const CACHE_KEYS = {
 
   // Charts
   CHARTS: 'charts',
+
+  // BI Dashboard
+  BI_DASHBOARDS: 'bi_dashboards',
 } as const;
 
 export type CacheKey = typeof CACHE_KEYS[keyof typeof CACHE_KEYS];

@@ -30,7 +30,7 @@ import { IoCloseCircle } from 'react-icons/io5';
 // Search suggestions
 const searchSuggestions = {
   pages: [
-    { label: 'BI Reporting', href: '/bi-reporting', icon: HiOutlineChartBarSquare, description: 'View analytics and reports' },
+    { label: 'BI Dashboard', href: '/bi-dashboard', icon: HiOutlineChartBarSquare, description: 'View analytics and reports' },
     { label: 'Data Sources', href: '/data-source-connection', icon: HiOutlineGlobeAlt, description: 'Manage data connections' },
     { label: 'Governance', href: '/gouvernance', icon: HiOutlineUsers, description: 'User and role management' },
     { label: 'Explore & Design', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Data modeling & wrangling' },

@@ -6,7 +6,7 @@ export const routes = {
     viewMap: "/mapping",
   },
   biReporting: {
-    viewReporting: "/bi-reporting",
+    viewReporting: "/bi-dashboard",
   },
   kpiStore: {
     view: "/kpi-store",

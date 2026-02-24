@@ -34,7 +34,7 @@ export const getTableColumns = async (
 ): Promise<TableColumn[]> => {
   try {
     const response = await apiClient.get<{ columns?: TableColumn[] } | TableColumn[]>(
-      '/explore-design/guided/get_table_columns/',
+      '/common/get_table_columns/',
       { params: { database_name: databaseName, schema_name: schemaName, table_name: tableName } }
     );
     const data = response.data;

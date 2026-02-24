@@ -61,8 +61,8 @@ const modernMenuItems = [
     icon: <PiChartBar className="w-5 h-5" />,
     dropdownItems: [
       {
-        name: 'BI Reporting',
-        href: '/bi-reporting',
+        name: 'BI Dashboard',
+        href: '/bi-dashboard',
         icon: <PiChartBar className="w-4 h-4" />,
       },
       {

@@ -15,9 +15,9 @@ import {
   HiOutlinePlay,
 } from 'react-icons/hi2';
 import toast from 'react-hot-toast';
-import PageBuilder from '../bi-reporting/components/page-builder';
+import PageBuilder from './PageBuilder';
 import { SaveAllIcon } from 'lucide-react';
-import { ComponentConfig } from '../bi-reporting/components/configuration-modal';
+import { ComponentConfig } from '../bi-dashboard/components/widget-config/ChartConfigModal';
 import {
   createQualityReport,
   updateQualityReport,
