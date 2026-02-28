@@ -83,12 +83,12 @@ export async function autoMapKeys(payload: AutoMapRequestPayload): Promise<AutoM
     }
 
     // Update the suggested mappings with PK/FK information
-    data.suggested_mappings = data.suggested_mappings.map((mapping: any) => ({
+    data.suggested_mappings = data.suggested_mappings.map((mapping: SuggestedMapping) => ({
       ...mapping,
       is_primary_key: data.primary_keys?.source.includes(mapping.source_column) ||
                      data.primary_keys?.target.includes(mapping.target_column),
-      is_foreign_key: data.foreign_keys?.source.some((fk: any) => fk.column === mapping.source_column) ||
-                     data.foreign_keys?.target.some((fk: any) => fk.column === mapping.target_column),
+      is_foreign_key: data.foreign_keys?.source.some((fk: ForeignKey) => fk.column === mapping.source_column) ||
+                     data.foreign_keys?.target.some((fk: ForeignKey) => fk.column === mapping.target_column),
     }));
 
     return data;

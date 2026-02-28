@@ -73,7 +73,7 @@ export const getDatabases = async (): Promise<string[]> => {
       console.warn('[getDatabases] Unexpected response format:', data);
     }
     return [];
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[getDatabases] Error:', error);
     throw error;
   }

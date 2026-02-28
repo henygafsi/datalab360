@@ -48,7 +48,7 @@ export default function TopTrafficSource({
                 className="me-2 h-2 w-2 flex-shrink-0 rounded-full"
                 style={{ backgroundColor: COLORS[index] }}
               />
-              <Text as="span" className="whitespace-nowrap">
+              <Text as="span" className="whitespace-nowrap text-gray-600 dark:text-gray-400">
                 {item.name}
               </Text>
             </div>

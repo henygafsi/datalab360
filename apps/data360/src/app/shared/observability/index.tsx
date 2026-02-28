@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Text, Title, Tab } from 'rizzui';
+import { Loader, Text, Title, Tab } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
 import {
@@ -12,6 +12,7 @@ import {
   PiGearDuotone,
   PiTreeStructureDuotone,
   PiShieldStarDuotone,
+  PiWarningCircleBold,
 } from 'react-icons/pi';
 
 // Services
@@ -80,6 +81,7 @@ const tabs: TabItem[] = [
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Data states
   const [kpis, setKpis] = useState<IntelligentKpis | null>(null);
@@ -124,10 +126,13 @@ export default function ObservabilityDashboard() {
   async function fetchKpis() {
     try {
       setLoadingStates((prev) => ({ ...prev, kpis: true }));
+      setError(null);
       const data = await getIntelligentKpis();
       setKpis(data);
-    } catch (error) {
-      console.error('Failed to fetch KPIs:', error);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load KPIs';
+      console.error('Failed to fetch KPIs:', err);
+      setError(msg);
       toast.error('Failed to load KPIs');
     } finally {
       setLoadingStates((prev) => ({ ...prev, kpis: false }));
@@ -144,8 +149,10 @@ export default function ObservabilityDashboard() {
       ]);
       setGdprReport(gdpr);
       setSoc2Report(soc2);
-    } catch (error) {
-      console.error('Failed to fetch compliance data:', error);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load compliance data';
+      console.error('Failed to fetch compliance data:', err);
+      setError(msg);
       toast.error('Failed to load compliance data');
     } finally {
       setLoadingStates((prev) => ({ ...prev, compliance: false }));
@@ -161,8 +168,10 @@ export default function ObservabilityDashboard() {
       ]);
       setActivitySummary(activity);
       setSecurityPosture(security);
-    } catch (error) {
-      console.error('Failed to fetch activity data:', error);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load activity data';
+      console.error('Failed to fetch activity data:', err);
+      setError(msg);
       toast.error('Failed to load activity data');
     } finally {
       setLoadingStates((prev) => ({ ...prev, activity: false }));
@@ -184,12 +193,22 @@ export default function ObservabilityDashboard() {
       setDailyCredits(credits.daily_usage);
       setPerformanceMetrics(performance);
       setSlowQueries(slow.slow_queries);
-    } catch (error) {
-      console.error('Failed to fetch cost data:', error);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to load cost data';
+      console.error('Failed to fetch cost data:', err);
+      setError(msg);
       toast.error('Failed to load cost data');
     } finally {
       setLoadingStates((prev) => ({ ...prev, cost: false }));
     }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader size="lg" />
+      </div>
+    );
   }
 
   return (
@@ -203,6 +222,14 @@ export default function ObservabilityDashboard() {
           Real-time monitoring, compliance, and intelligent KPIs for your data platform
         </Text>
       </div>
+
+      {/* Error Banner */}
+      {error && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl bg-red-50 dark:bg-red-950/50 border border-red-100 dark:border-red-900/50 p-4">
+          <PiWarningCircleBold className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="mb-6 border-b border-gray-200 dark:border-gray-700">

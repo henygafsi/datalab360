@@ -19,6 +19,16 @@ async function getAuthHeaders() {
 
 export interface TableSelection { database: string; schema: string; table: string; }
 
+export interface ColumnAttributes {
+  data_type?: string;
+  is_nullable?: boolean;
+  is_primary_key?: boolean;
+  is_foreign_key?: boolean;
+  default_value?: string;
+  comment?: string;
+  [key: string]: string | boolean | undefined;
+}
+
 export interface MappingState {
   project_id: string | null;
   source_database: string;
@@ -37,7 +47,7 @@ export interface MappingState {
   new_target_columns?: Array<{ name: string; type: string; nullable: boolean }>;
   new_target_columns_by_table?: { [tableKey: string]: Array<{ name: string; type: string; nullable: boolean }> };
   primary_keys?: { source: { [tableKey: string]: string[] }; target: string[] };
-  column_attributes?: { [tableKey: string]: { [columnName: string]: any } };
+  column_attributes?: { [tableKey: string]: { [columnName: string]: ColumnAttributes } };
   groups?: Array<{ sources: TableSelection[]; target: TableSelection | null }>;
 }
 
@@ -57,7 +67,7 @@ export async function getProjectState(projectId: string): Promise<MappingState> 
     `${API_BASE_URL}/explore-design/guided/project/${encodeURIComponent(projectId)}`,
   ];
 
-  let lastErr: any;
+  let lastErr: unknown;
   for (const url of endpoints) {
     try {
       const res = await axios.get(url, {
@@ -65,11 +75,15 @@ export async function getProjectState(projectId: string): Promise<MappingState> 
         params: { project_id: projectId },
       });
       return res.data as MappingState;
-    } catch (err: any) {
+    } catch (err: unknown) {
       lastErr = err;
     }
   }
 
-  throw new Error(lastErr?.response?.data?.detail || lastErr?.message || 'Failed to load project state');
+  if (axios.isAxiosError(lastErr)) {
+    const detail = lastErr.response?.data?.detail;
+    throw new Error(typeof detail === 'string' ? detail : lastErr.message || 'Failed to load project state');
+  }
+  throw new Error(lastErr instanceof Error ? lastErr.message : 'Failed to load project state');
 }
 

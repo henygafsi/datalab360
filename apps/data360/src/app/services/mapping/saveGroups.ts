@@ -49,10 +49,15 @@ async function ensureProjectExists(projectId: string): Promise<void> {
             { headers }
         );
         console.log(`[saveGroups] Created/verified project: ${projectId}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
         // Ignore 409 (already exists) or similar - project might already exist
-        if (error.response?.status !== 409 && !error.response?.data?.detail?.includes('already exists')) {
-            console.warn('[saveGroups] Warning ensuring project:', error.response?.data?.detail || error.message);
+        if (axios.isAxiosError(error)) {
+            const detail = error.response?.data?.detail;
+            if (error.response?.status !== 409 && !(typeof detail === 'string' && detail.includes('already exists'))) {
+                console.warn('[saveGroups] Warning ensuring project:', detail || error.message);
+            }
+        } else if (error instanceof Error) {
+            console.warn('[saveGroups] Warning ensuring project:', error.message);
         }
     }
 }

@@ -10,6 +10,7 @@
  */
 
 import axios from 'axios';
+import apiClient from '@/lib/api-client';
 import { getAuthHeaders } from '@/lib/auth';
 import { API_CONTRACTS } from '@/lib/api-contracts';
 import { API_CONFIG } from '@/config/database.config';
@@ -63,6 +64,27 @@ export interface WorkflowVersion {
   can_rollback: boolean;
 }
 
+export interface WorkflowRunErrorLog {
+  step_order?: number;
+  action_type?: string;
+  error_message?: string;
+  error_code?: string;
+  timestamp?: string;
+}
+
+export interface WorkflowRunExecutionDetails {
+  steps: Array<{
+    step_order: number;
+    action_type: string;
+    status: 'completed' | 'failed' | 'skipped';
+    started_at?: string;
+    completed_at?: string;
+    output?: Record<string, unknown>;
+    error?: string;
+  }>;
+  environment?: Record<string, string>;
+}
+
 export interface WorkflowRun {
   run_id: string;
   version_id: string;
@@ -74,8 +96,8 @@ export interface WorkflowRun {
   trigger_type: TriggerType;
   steps_executed: number;
   steps_failed: number;
-  error_log?: any;
-  execution_details?: any;
+  error_log?: WorkflowRunErrorLog[];
+  execution_details?: WorkflowRunExecutionDetails;
 }
 
 export interface WorkflowContributor {
@@ -400,15 +422,16 @@ export async function scheduleDeployment(options: {
         status: 'ACTIVE',
         message: 'Workflow deployed and executed successfully',
       };
-    } catch (execError: any) {
+    } catch (execError: unknown) {
       console.error('[scheduleDeployment] Immediate execution failed:', execError);
+      const errorMessage = execError instanceof Error ? execError.message : String(execError);
       // Return the deployment ID even if execution failed
       return {
         event_id: deploymentId,
         workflow_id: options.workflow_id,
         workflow_name: options.workflow_name,
         status: 'APPROVED', // Created but execution failed
-        message: `Deployment created but execution failed: ${execError.message}`,
+        message: `Deployment created but execution failed: ${errorMessage}`,
       };
     }
   }
@@ -525,16 +548,16 @@ export async function getWorkflowDeployments(options?: {
     { headers, timeout: 15000 }
   );
 
-  const raw = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
-  const list = Array.isArray(raw) ? raw : [];
+  const raw: unknown = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
+  const list = (Array.isArray(raw) ? raw : []) as RawDeploymentRecord[];
   const deployments = list
-    .filter((d: any) => (d.module || d.module_name || '').toString().toUpperCase() === 'WORKFLOW')
-    .map((d: any) => ({
-      event_id: d.deployment_id || d.event_id || d.id || d.schedule_id,
-      workflow_id: d.project_id || d.config?.workflow_id,
+    .filter((d) => (d.module || d.module_name || '').toString().toUpperCase() === 'WORKFLOW')
+    .map((d) => ({
+      event_id: d.deployment_id || d.event_id || d.id || d.schedule_id || '',
+      workflow_id: d.project_id || d.config?.workflow_id || '',
       workflow_name: d.workflow_name || d.config?.workflow_name || d.version || '',
       module: 'WORKFLOW' as const,
-      status: d.status,
+      status: d.status as DeploymentStatus,
       scheduled_date: d.scheduled_date || d.scheduled_at,
       steps: d.steps || d.config?.steps || [],
       created_by: d.created_by || d.config?.created_by,
@@ -547,6 +570,34 @@ export async function getWorkflowDeployments(options?: {
   return {
     deployments,
     total: deployments.length,
+  };
+}
+
+/** Raw deployment record as returned by the backend before normalization */
+interface RawDeploymentRecord {
+  deployment_id?: string;
+  event_id?: string;
+  id?: string;
+  schedule_id?: string;
+  project_id?: string;
+  module?: string;
+  module_name?: string;
+  version?: string;
+  workflow_name?: string;
+  status: string;
+  scheduled_date?: string;
+  scheduled_at?: string;
+  steps?: WorkflowStep[];
+  created_by?: string;
+  created_at?: string;
+  approved_by?: string;
+  approved_at?: string;
+  config?: {
+    workflow_id?: string;
+    workflow_name?: string;
+    steps?: WorkflowStep[];
+    created_by?: string;
+    [key: string]: unknown;
   };
 }
 
@@ -706,6 +757,14 @@ export interface GitRepository {
   created_on?: string;
 }
 
+export interface GitRepositoryDetail extends GitRepository {
+  owner?: string;
+  default_branch?: string;
+  api_integration?: string;
+  branches?: string[];
+  tags?: string[];
+}
+
 export async function listGitRepositories(): Promise<GitRepository[]> {
   const res = await apiClient.get('/workflow/git/repos');
   return res.data?.data || res.data || [];
@@ -721,7 +780,7 @@ export async function createGitRepository(params: {
   return res.data;
 }
 
-export async function describeGitRepository(name: string): Promise<any> {
+export async function describeGitRepository(name: string): Promise<GitRepositoryDetail> {
   const res = await apiClient.get(`/workflow/git/repos/${encodeURIComponent(name)}`);
   return res.data?.data || res.data;
 }
@@ -801,6 +860,26 @@ export interface ContainerService {
   created_on?: string;
 }
 
+export interface ContainerServiceDetail extends ContainerService {
+  spec?: string;
+  min_instances?: number;
+  max_instances?: number;
+  owner?: string;
+  dns_name?: string;
+  endpoints?: Record<string, string>;
+}
+
+export interface ContainerServiceStatus {
+  name: string;
+  status: string;
+  message?: string;
+  instances?: Array<{
+    instance_id: string;
+    status: string;
+    started_at?: string;
+  }>;
+}
+
 export async function listContainerServices(): Promise<ContainerService[]> {
   const res = await apiClient.get('/workflow/services');
   return res.data?.data || res.data || [];
@@ -817,12 +896,12 @@ export async function createContainerService(params: {
   return res.data;
 }
 
-export async function describeContainerService(name: string): Promise<any> {
+export async function describeContainerService(name: string): Promise<ContainerServiceDetail> {
   const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}`);
   return res.data?.data || res.data;
 }
 
-export async function getContainerServiceStatus(name: string): Promise<any> {
+export async function getContainerServiceStatus(name: string): Promise<ContainerServiceStatus> {
   const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}/status`);
   return res.data?.data || res.data;
 }
@@ -849,6 +928,13 @@ export interface Notebook {
   created_on?: string;
 }
 
+export interface NotebookExecutionResult {
+  rows_affected?: number;
+  output?: string;
+  cells_executed?: number;
+  errors?: string[];
+}
+
 export async function listNotebooks(): Promise<Notebook[]> {
   const res = await apiClient.get('/workflow/notebooks');
   return res.data?.data || res.data || [];
@@ -864,7 +950,7 @@ export async function createNotebook(params: {
   return res.data;
 }
 
-export async function executeNotebook(name: string): Promise<{ message: string; result?: any }> {
+export async function executeNotebook(name: string): Promise<{ message: string; result?: NotebookExecutionResult }> {
   const res = await apiClient.post(`/workflow/notebooks/${encodeURIComponent(name)}/execute`);
   return res.data;
 }
@@ -886,12 +972,27 @@ export async function dropNotebook(name: string): Promise<{ message: string }> {
 // Developer Tools — Ad-hoc Execution
 // =============================================================================
 
+export interface SqlQueryResultRow {
+  [column: string]: string | number | boolean | null;
+}
+
+export interface SqlQueryResult {
+  data: SqlQueryResultRow[];
+  columns: string[];
+}
+
+export interface PythonExecutionResult {
+  output: string;
+  result?: Record<string, unknown>;
+  error?: string;
+}
+
 export async function runAdHocSQL(params: {
   sql: string;
   warehouse?: string;
   database?: string;
   schema?: string;
-}): Promise<{ data: any[]; columns: string[] }> {
+}): Promise<SqlQueryResult> {
   const res = await apiClient.post('/workflow/execute/sql', params);
   return res.data?.data || res.data;
 }
@@ -900,7 +1001,7 @@ export async function runAdHocPython(params: {
   code: string;
   warehouse?: string;
   packages?: string[];
-}): Promise<{ output: string; result?: any }> {
+}): Promise<PythonExecutionResult> {
   const res = await apiClient.post('/workflow/execute/python', params);
   return res.data?.data || res.data;
 }

@@ -8,11 +8,21 @@ interface TableObject {
     name: string;
 }
 
+interface SessionUser {
+  access_token?: string;
+  account_name?: string;
+  username?: string;
+}
+
+interface AppSession {
+  user?: SessionUser;
+}
+
 /**
  * Helper to get authentication headers with Snowflake account context
  */
 async function getAuthHeaders() {
-  const session = await getSession() as any;
+  const session = await getSession() as AppSession | null;
   if (!session?.user?.access_token) {
     throw new Error('No access token available');
   }

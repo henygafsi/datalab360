@@ -17,6 +17,15 @@ async function getAuthHeaders() {
   };
 }
 
+export interface TableConstraint {
+  constraint_name: string;
+  constraint_type: 'PRIMARY KEY' | 'FOREIGN KEY' | 'UNIQUE' | 'CHECK' | string;
+  table_name: string;
+  column_name: string;
+  referenced_table?: string;
+  referenced_column?: string;
+}
+
 /**
  * Fetches constraints for a specific database, schema and optional table from the API.
  * Backend returns { constraints: [...] }; empty when params missing or not found.
@@ -25,7 +34,7 @@ export const fetchConst = async (
   databaseName: string,
   schemaName: string,
   tableName?: string
-): Promise<any[]> => {
+): Promise<TableConstraint[]> => {
   const headers = await getAuthHeaders();
   const params = new URLSearchParams({
     database_name: databaseName,

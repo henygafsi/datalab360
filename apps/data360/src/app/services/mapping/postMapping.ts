@@ -37,15 +37,27 @@ export interface TestMappingPayload {
     }>;
 }
 
+export interface TestMappingResponse {
+  message: string;
+  project_id: string;
+  validation_results?: Array<{
+    source_table: string;
+    target_table: string;
+    status: 'valid' | 'invalid' | 'warning';
+    errors?: string[];
+    warnings?: string[];
+  }>;
+}
+
 /**
  * Sends mapping data to your FastAPI endpoint: POST /mapping/test_mapping
  * The endpoint expects a TestMappingPayload with project_id and mappings array.
  */
-export async function postMapping(payload: TestMappingPayload) {
+export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
     const headers = await getAuthHeaders();
     const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/test_mapping/`;
     try {
-        const response = await axios.post<TestMappingPayload>(url, payload, { headers });
+        const response = await axios.post<TestMappingResponse>(url, payload, { headers });
         return response.data;
     } catch (error) {
         console.error('Error saving mapping:', error);
