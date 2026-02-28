@@ -1694,18 +1694,17 @@ export interface RecentDeploymentError {
 
 /**
  * Fetch recent deployment errors for Deployment Plans UI and Cortex recommendations.
- * Backend: GET /explore-design/recent-deployment-errors
+ * Backend: GET /api/v1/explore-design/recent-deployment-errors
  */
 export async function getRecentDeploymentErrors(
   limit: number = 20
 ): Promise<{ errors: RecentDeploymentError[]; total: number }> {
-  const headers = await getAuthHeaders();
   try {
-    const response = await axios.get<{ errors: RecentDeploymentError[]; total: number }>(
-      `${EXPLORE_DESIGN_BASE}/recent-deployment-errors?limit=${limit}`,
-      { headers }
+    const { data } = await apiClient.get<{ errors: RecentDeploymentError[]; total: number }>(
+      `${V1_EXPLORE}/recent-deployment-errors`,
+      { params: { limit } }
     );
-    return response.data;
+    return data;
   } catch (error: any) {
     console.error('[getRecentDeploymentErrors] Error:', error);
     return { errors: [], total: 0 };

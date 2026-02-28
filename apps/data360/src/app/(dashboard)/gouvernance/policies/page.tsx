@@ -8,6 +8,8 @@ import {
   PiGlobe,
   PiEyeSlash,
   PiChartBar,
+  PiChartLineUp,
+  PiTag,
 } from 'react-icons/pi';
 
 // Import existing policy components (we'll use their content)
@@ -18,8 +20,10 @@ import AggregationPoliciesContent from './aggregation-policies-content';
 import TagPoliciesContent from './tag-policies-content';
 import PasswordPoliciesContent from './password-policies-content';
 import SessionPoliciesContent from './session-policies-content';
+import DMFContent from './dmf-content';
+import ClassificationContent from './classification-content';
 
-type TabType = 'rls' | 'network' | 'masking' | 'aggregation' | 'tag' | 'password' | 'session';
+type TabType = 'rls' | 'network' | 'masking' | 'aggregation' | 'tag' | 'password' | 'session' | 'dmf' | 'classification';
 
 const TABS = [
   {
@@ -71,6 +75,20 @@ const TABS = [
     description: 'Session management',
     color: 'indigo',
   },
+  {
+    id: 'dmf' as TabType,
+    name: 'Data Metrics',
+    icon: PiChartLineUp,
+    description: 'Data Metric Functions',
+    color: 'teal',
+  },
+  {
+    id: 'classification' as TabType,
+    name: 'Classification',
+    icon: PiTag,
+    description: 'Data classification & PII',
+    color: 'violet',
+  },
 ];
 
 const TAB_COLORS = {
@@ -100,6 +118,14 @@ const TAB_COLORS = {
   },
   cyan: {
     active: 'border-cyan-600 text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-900/20',
+    inactive: 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+  },
+  teal: {
+    active: 'border-teal-600 text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20',
+    inactive: 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
+  },
+  violet: {
+    active: 'border-violet-600 text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20',
     inactive: 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200',
   },
 };
@@ -177,6 +203,8 @@ export default function PoliciesPage() {
           {activeTab === 'tag' && <TagPoliciesContent />}
           {activeTab === 'password' && <PasswordPoliciesContent />}
           {activeTab === 'session' && <SessionPoliciesContent />}
+          {activeTab === 'dmf' && <DMFContent />}
+          {activeTab === 'classification' && <ClassificationContent />}
         </div>
       </div>
     </div>

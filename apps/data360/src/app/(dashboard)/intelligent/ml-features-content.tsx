@@ -14,6 +14,7 @@ import {
   PiArrowsLeftRightBold,
   PiSparkle,
   PiLightningDuotone,
+  PiShieldCheckDuotone,
 } from 'react-icons/pi';
 import {
   generateCompletion,
@@ -100,6 +101,7 @@ function AIAssistantTab() {
   const [response, setResponse] = useState('');
   const [model, setModel] = useState<LLMModel>('mistral-7b');
   const [loading, setLoading] = useState(false);
+  const [guardrails, setGuardrails] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -107,7 +109,7 @@ function AIAssistantTab() {
 
     setLoading(true);
     try {
-      const result = await generateCompletion({ prompt, model });
+      const result = await generateCompletion({ prompt, model, guardrails });
       setResponse(result.response);
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate response');
@@ -157,6 +159,28 @@ function AIAssistantTab() {
                 <div className="text-xs text-slate-500">{m.description}</div>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Cortex Guard Toggle */}
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+          <button
+            type="button"
+            onClick={() => setGuardrails(!guardrails)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              guardrails ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              guardrails ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <div className="flex items-center gap-2">
+            <PiShieldCheckDuotone className={`h-5 w-5 ${guardrails ? 'text-green-600' : 'text-slate-400'}`} />
+            <div>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Cortex Guard</span>
+              <p className="text-xs text-slate-500">{guardrails ? 'Content safety filtering enabled' : 'No content filtering'}</p>
+            </div>
           </div>
         </div>
 

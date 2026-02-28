@@ -1318,7 +1318,9 @@ export type WidgetType = 'chart' | 'kpi_card' | 'table' | 'text';
 
 export type DashboardChartType =
   | 'bar' | 'line' | 'pie' | 'donut' | 'area'
-  | 'scatter' | 'heatmap' | 'funnel' | 'gauge' | 'treemap';
+  | 'scatter' | 'heatmap' | 'funnel' | 'gauge' | 'treemap'
+  | 'radar' | 'waterfall' | 'stacked_bar' | 'stacked_area'
+  | 'histogram' | 'combo' | 'candlestick' | 'bubble';
 
 // --- Dashboard CRUD ---
 

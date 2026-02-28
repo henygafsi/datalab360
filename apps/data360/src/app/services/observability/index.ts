@@ -292,5 +292,63 @@ export async function getHealthStatus(): Promise<HealthStatus> {
   return apiCall<HealthStatus>('/observability/health');
 }
 
+// =============================================================================
+// OBJECT DEPENDENCIES
+// =============================================================================
+
+/**
+ * Get object dependencies (upstream/downstream lineage)
+ * GET /observability/dependencies
+ */
+export async function getObjectDependencies(params?: {
+  object_name?: string;
+  object_domain?: string;
+  direction?: 'upstream' | 'downstream';
+  days?: number;
+}): Promise<any> {
+  const searchParams = new URLSearchParams();
+  if (params?.object_name) searchParams.append('object_name', params.object_name);
+  if (params?.object_domain) searchParams.append('object_domain', params.object_domain);
+  if (params?.direction) searchParams.append('direction', params.direction);
+  if (params?.days) searchParams.append('days', params.days.toString());
+  const qs = searchParams.toString();
+  return apiCall<any>(qs ? `/observability/dependencies?${qs}` : '/observability/dependencies');
+}
+
+/**
+ * Get full dependency graph for a database/schema
+ * GET /observability/dependencies/graph
+ */
+export async function getDependencyGraph(params?: {
+  database?: string;
+  schema?: string;
+}): Promise<any> {
+  const searchParams = new URLSearchParams();
+  if (params?.database) searchParams.append('database', params.database);
+  if (params?.schema) searchParams.append('schema', params.schema);
+  const qs = searchParams.toString();
+  return apiCall<any>(qs ? `/observability/dependencies/graph?${qs}` : '/observability/dependencies/graph');
+}
+
+// =============================================================================
+// TRUST CENTER
+// =============================================================================
+
+/**
+ * Get Trust Center security findings
+ * GET /observability/trust-center/findings
+ */
+export async function getTrustCenterFindings(): Promise<any> {
+  return apiCall<any>('/observability/trust-center/findings');
+}
+
+/**
+ * Get Trust Center summary overview
+ * GET /observability/trust-center/summary
+ */
+export async function getTrustCenterSummary(): Promise<any> {
+  return apiCall<any>('/observability/trust-center/summary');
+}
+
 // Re-export types for convenience
 export * from './types';

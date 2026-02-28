@@ -210,7 +210,8 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 9. Observability
+  // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
+  // 11. Observability
   {
     id: 8,
     name: 'Observability',

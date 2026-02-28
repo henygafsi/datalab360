@@ -42,7 +42,13 @@ export type EventType =
   | 'BATCH_OPERATION'
   | 'SCHEMA_SELECTED'
   | 'TABLE_ADDED_TO_MODELING'
-  | 'TABLE_REMOVED_FROM_MODELING';
+  | 'TABLE_REMOVED_FROM_MODELING'
+  // Data Engineering events
+  | 'DYNAMIC_TABLE_CREATED'
+  | 'STREAM_CREATED'
+  | 'EVENT_TABLE_CREATED'
+  | 'HYBRID_TABLE_CREATED'
+  | 'ALERT_CREATED';
 
 // Event Status
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';

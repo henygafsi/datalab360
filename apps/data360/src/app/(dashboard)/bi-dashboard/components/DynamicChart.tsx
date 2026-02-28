@@ -8,13 +8,25 @@ import {
   AreaChart, Area,
   PieChart, Pie, Cell,
   ScatterChart, Scatter,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  Treemap,
+  ComposedChart,
+  RadialBarChart, RadialBar,
+  FunnelChart, Funnel, LabelList,
+  XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
 
 const COLORS = [
   '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
   '#ec4899', '#06b6d4', '#f97316', '#14b8a6', '#6366f1',
 ];
+
+/** Interpolate color from green → yellow → red based on 0..1 ratio */
+function heatColor(ratio: number): string {
+  const r = ratio < 0.5 ? Math.round(255 * ratio * 2) : 255;
+  const g = ratio < 0.5 ? 255 : Math.round(255 * (1 - ratio) * 2);
+  return `rgb(${r},${g},80)`;
+}
 
 interface DynamicChartConfig {
   chartType?: string;
@@ -37,8 +49,9 @@ interface DynamicChartProps {
 /**
  * DynamicChart — renders a recharts chart from the widget's config + data.
  *
- * Supports: bar, line, area, pie, donut, scatter.
- * Data comes from `config.prefetched.data`.
+ * Supports: bar, line, area, pie, donut, scatter, stacked_bar, stacked_area,
+ * combo, radar, treemap, funnel, heatmap, waterfall, histogram, gauge,
+ * bubble, candlestick.
  */
 export function DynamicChart({ config }: DynamicChartProps) {
   const data = config.prefetched?.data;
@@ -50,17 +63,15 @@ export function DynamicChart({ config }: DynamicChartProps) {
   const dataKeys = useMemo(() => {
     if (!data || data.length === 0) return [];
     const allKeys = Object.keys(data[0]);
-    // If measures defined, use those columns; otherwise guess non-x columns
     if (measures.length > 0) {
       return measures
         .map((m) => m.column)
         .filter((col) => allKeys.includes(col));
     }
-    // Fallback: use all numeric-looking columns except x
     return allKeys.filter((k) => k !== xKey && typeof data[0][k] === 'number');
   }, [data, measures, xKey]);
 
-  // Clean data: convert null/undefined measure values to null (so connectNulls skips them)
+  // Clean data: convert null/undefined measure values to null
   const cleanData = useMemo(() => {
     if (!data || data.length === 0) return [];
     return data.map((row) => {
@@ -83,15 +94,36 @@ export function DynamicChart({ config }: DynamicChartProps) {
     );
   }
 
-  // For aggregated results, the x value may be the key name
-  // Detect: if xKey is set use it, else try first string-typed column
   const effectiveXKey = useMemo(() => {
     if (xKey) return xKey;
     const allKeys = Object.keys(data[0]);
     return allKeys.find((k) => !dataKeys.includes(k) && typeof data[0][k] === 'string') || allKeys[0];
   }, [data, xKey, dataKeys]);
 
-  // Pie/donut
+  const commonMargin = { top: 10, right: 10, bottom: 30, left: 10 };
+  const commonXAxis = {
+    dataKey: effectiveXKey,
+    tick: { fontSize: 10 },
+    tickLine: false,
+    axisLine: { stroke: '#e2e8f0' },
+    angle: -35,
+    textAnchor: 'end' as const,
+    interval: 'preserveStartEnd' as const,
+    height: 50,
+  };
+  const commonYAxis = {
+    tick: { fontSize: 11 },
+    tickLine: false,
+    axisLine: { stroke: '#e2e8f0' },
+  };
+  const commonTooltipStyle = {
+    backgroundColor: 'white',
+    border: '1px solid #e2e8f0',
+    borderRadius: '8px',
+    fontSize: '12px',
+  };
+
+  // ── Pie / Donut ──
   if (chartType === 'pie' || chartType === 'donut') {
     const valueKey = dataKeys[0] || Object.keys(data[0]).find((k) => typeof data[0][k] === 'number') || '';
     const nameKey = effectiveXKey;
@@ -125,12 +157,12 @@ export function DynamicChart({ config }: DynamicChartProps) {
     );
   }
 
-  // Scatter
+  // ── Scatter ──
   if (chartType === 'scatter') {
     const yKey = dataKeys[0] || '';
     return (
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: 10, right: 10, bottom: 20, left: 10 }}>
+        <ScatterChart margin={commonMargin}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11 }} />
           <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11 }} />
@@ -141,36 +173,356 @@ export function DynamicChart({ config }: DynamicChartProps) {
     );
   }
 
-  // Bar / Line / Area
+  // ── Bubble (scatter with variable size) ──
+  if (chartType === 'bubble') {
+    const yKey = dataKeys[0] || '';
+    const zKey = dataKeys[1] || dataKeys[0] || '';
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <ScatterChart margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11 }} />
+          <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11 }} />
+          <ZAxis dataKey={zKey} range={[40, 400]} name={zKey} />
+          <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+          <Legend />
+          <Scatter data={cleanData as any[]} fill={COLORS[0]} fillOpacity={0.6} />
+        </ScatterChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Radar ──
+  if (chartType === 'radar') {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart data={cleanData as any[]} cx="50%" cy="50%" outerRadius="75%">
+          <PolarGrid stroke="#e2e8f0" />
+          <PolarAngleAxis dataKey={effectiveXKey} tick={{ fontSize: 10 }} />
+          <PolarRadiusAxis tick={{ fontSize: 9 }} />
+          {dataKeys.map((key, i) => (
+            <Radar
+              key={key}
+              name={key}
+              dataKey={key}
+              stroke={COLORS[i % COLORS.length]}
+              fill={COLORS[i % COLORS.length]}
+              fillOpacity={0.15}
+              strokeWidth={2}
+            />
+          ))}
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend />
+        </RadarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Treemap ──
+  if (chartType === 'treemap') {
+    const valueKey = dataKeys[0] || '';
+    const treemapData = cleanData.map((row, i) => ({
+      name: String(row[effectiveXKey] || `Item ${i + 1}`),
+      size: Number(row[valueKey]) || 0,
+      fill: COLORS[i % COLORS.length],
+    }));
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <Treemap
+          data={treemapData}
+          dataKey="size"
+          nameKey="name"
+          aspectRatio={4 / 3}
+          stroke="#fff"
+        >
+          {treemapData.map((entry, i) => (
+            <Cell key={i} fill={entry.fill} />
+          ))}
+          <Tooltip contentStyle={commonTooltipStyle} />
+        </Treemap>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Funnel ──
+  if (chartType === 'funnel') {
+    const valueKey = dataKeys[0] || '';
+    const funnelData = cleanData
+      .map((row, i) => ({
+        name: String(row[effectiveXKey] || `Step ${i + 1}`),
+        value: Number(row[valueKey]) || 0,
+        fill: COLORS[i % COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <FunnelChart>
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Funnel dataKey="value" data={funnelData} isAnimationActive>
+            <LabelList position="right" fill="#374151" stroke="none" dataKey="name" fontSize={11} />
+            {funnelData.map((entry, i) => (
+              <Cell key={i} fill={entry.fill} />
+            ))}
+          </Funnel>
+        </FunnelChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Gauge (radial bar) ──
+  if (chartType === 'gauge') {
+    const valueKey = dataKeys[0] || '';
+    const gaugeData = cleanData.slice(0, 5).map((row, i) => ({
+      name: String(row[effectiveXKey] || `Metric ${i + 1}`),
+      value: Number(row[valueKey]) || 0,
+      fill: COLORS[i % COLORS.length],
+    }));
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          innerRadius="25%"
+          outerRadius="90%"
+          data={gaugeData}
+          startAngle={180}
+          endAngle={0}
+          cx="50%"
+          cy="70%"
+        >
+          <RadialBar
+            background
+            dataKey="value"
+            cornerRadius={6}
+            label={{ fill: '#374151', fontSize: 11, position: 'insideStart' }}
+          />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Heatmap (custom grid) ──
+  if (chartType === 'heatmap') {
+    const valueKey = dataKeys[0] || '';
+    const allValues = cleanData.map((r) => Number(r[valueKey]) || 0);
+    const minVal = Math.min(...allValues);
+    const maxVal = Math.max(...allValues);
+    const range = maxVal - minVal || 1;
+    const cols = Math.ceil(Math.sqrt(cleanData.length));
+
+    return (
+      <div className="w-full h-full overflow-auto p-2">
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${cols}, 1fr)` }}>
+          {cleanData.map((row, i) => {
+            const val = Number(row[valueKey]) || 0;
+            const ratio = (val - minVal) / range;
+            return (
+              <div
+                key={i}
+                className="rounded p-2 text-center text-xs font-medium text-white truncate"
+                style={{ backgroundColor: heatColor(ratio), minHeight: 36 }}
+                title={`${row[effectiveXKey]}: ${val}`}
+              >
+                <div className="truncate">{String(row[effectiveXKey] || '')}</div>
+                <div className="font-bold">{val.toLocaleString()}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Waterfall ──
+  if (chartType === 'waterfall') {
+    const valueKey = dataKeys[0] || '';
+    let cumulative = 0;
+    const waterfallData = cleanData.map((row, i) => {
+      const val = Number(row[valueKey]) || 0;
+      const start = cumulative;
+      cumulative += val;
+      return {
+        name: String(row[effectiveXKey] || `Step ${i + 1}`),
+        value: val,
+        base: Math.min(start, cumulative),
+        top: Math.abs(val),
+        fill: val >= 0 ? '#10b981' : '#ef4444',
+      };
+    });
+    // Add total bar
+    waterfallData.push({
+      name: 'Total',
+      value: cumulative,
+      base: 0,
+      top: cumulative,
+      fill: '#3b82f6',
+    });
+
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={waterfallData} margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} />
+          <Tooltip contentStyle={commonTooltipStyle} formatter={(v: any, name: string) => name === 'base' ? null : v} />
+          <Bar dataKey="base" stackId="waterfall" fill="transparent" />
+          <Bar dataKey="top" stackId="waterfall" radius={[4, 4, 0, 0]}>
+            {waterfallData.map((entry, i) => (
+              <Cell key={i} fill={entry.fill} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Histogram (bar chart with no gaps) ──
+  if (chartType === 'histogram') {
+    const valueKey = dataKeys[0] || '';
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={cleanData as any[]} margin={commonMargin} barCategoryGap={0} barGap={0}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Bar dataKey={valueKey} fill={COLORS[0]} fillOpacity={0.85} />
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Candlestick ──
+  if (chartType === 'candlestick') {
+    // Expects data with open, high, low, close columns (use first 4 dataKeys)
+    const [openKey, highKey, lowKey, closeKey] = dataKeys.length >= 4
+      ? dataKeys
+      : [dataKeys[0] || 'open', dataKeys[1] || 'high', dataKeys[2] || 'low', dataKeys[3] || 'close'];
+
+    const candleData = cleanData.map((row) => {
+      const open = Number(row[openKey]) || 0;
+      const close = Number(row[closeKey]) || 0;
+      const high = Number(row[highKey]) || Math.max(open, close);
+      const low = Number(row[lowKey]) || Math.min(open, close);
+      const isUp = close >= open;
+      return {
+        ...row,
+        _body: [Math.min(open, close), Math.max(open, close)],
+        _wick: [low, high],
+        _fill: isUp ? '#10b981' : '#ef4444',
+      };
+    });
+
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={candleData as any[]} margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} domain={['auto', 'auto']} />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Bar dataKey="_body" radius={[2, 2, 2, 2]}>
+            {candleData.map((entry, i) => (
+              <Cell key={i} fill={entry._fill} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Combo (bar + line overlay) ──
+  if (chartType === 'combo') {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <ComposedChart data={cleanData as any[]} margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend />
+          {dataKeys.map((key, i) => {
+            // First measure as bars, rest as lines
+            if (i === 0) {
+              return <Bar key={key} dataKey={key} fill={COLORS[i]} radius={[4, 4, 0, 0]} barSize={30} />;
+            }
+            return (
+              <Line
+                key={key}
+                type="natural"
+                dataKey={key}
+                stroke={COLORS[i % COLORS.length]}
+                strokeWidth={2}
+                dot={{ r: 3 }}
+              />
+            );
+          })}
+        </ComposedChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Stacked Bar ──
+  if (chartType === 'stacked_bar') {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={cleanData as any[]} margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend />
+          {dataKeys.map((key, i) => (
+            <Bar
+              key={key}
+              dataKey={key}
+              stackId="stack"
+              fill={COLORS[i % COLORS.length]}
+              radius={i === dataKeys.length - 1 ? [4, 4, 0, 0] : undefined}
+            />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Stacked Area ──
+  if (chartType === 'stacked_area') {
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={cleanData as any[]} margin={commonMargin}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis {...commonXAxis} />
+          <YAxis {...commonYAxis} />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend />
+          {dataKeys.map((key, i) => (
+            <Area
+              key={key}
+              type="natural"
+              dataKey={key}
+              stackId="stack"
+              stroke={COLORS[i % COLORS.length]}
+              fill={COLORS[i % COLORS.length]}
+              fillOpacity={0.4}
+              strokeWidth={2}
+            />
+          ))}
+        </AreaChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Default: Bar / Line / Area ──
   const ChartContainer = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <ChartContainer data={cleanData as any[]} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
+      <ChartContainer data={cleanData as any[]} margin={commonMargin}>
         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-        <XAxis
-          dataKey={effectiveXKey}
-          tick={{ fontSize: 10 }}
-          tickLine={false}
-          axisLine={{ stroke: '#e2e8f0' }}
-          angle={-35}
-          textAnchor="end"
-          interval="preserveStartEnd"
-          height={50}
-        />
-        <YAxis
-          tick={{ fontSize: 11 }}
-          tickLine={false}
-          axisLine={{ stroke: '#e2e8f0' }}
-        />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: 'white',
-            border: '1px solid #e2e8f0',
-            borderRadius: '8px',
-            fontSize: '12px',
-          }}
-        />
+        <XAxis {...commonXAxis} />
+        <YAxis {...commonYAxis} />
+        <Tooltip contentStyle={commonTooltipStyle} />
         {dataKeys.length > 1 && <Legend />}
         {dataKeys.map((key, i) => {
           const color = COLORS[i % COLORS.length];
@@ -202,7 +554,6 @@ export function DynamicChart({ config }: DynamicChartProps) {
               />
             );
           }
-          // Default: bar
           return (
             <Bar
               key={key}

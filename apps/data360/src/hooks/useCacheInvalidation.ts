@@ -35,6 +35,24 @@ export const CACHE_KEYS = {
 
   // BI Dashboard
   BI_DASHBOARDS: 'bi_dashboards',
+
+  // Data Engineering objects (via Explore & Design)
+  DYNAMIC_TABLES: 'dynamic_tables',
+  STREAMS: 'streams',
+  EVENT_TABLES: 'event_tables',
+  HYBRID_TABLES: 'hybrid_tables',
+  ALERTS: 'alerts',
+
+  // Developer tools (via Workflow)
+  GIT_REPOSITORIES: 'git_repositories',
+  COMPUTE_POOLS: 'compute_pools',
+  CONTAINER_SERVICES: 'container_services',
+  NOTEBOOKS: 'notebooks',
+
+  // Quality & Observability
+  QUALITY_METRICS: 'quality_metrics',
+  DATA_PROFILES: 'data_profiles',
+  OBSERVABILITY_DASHBOARD: 'observability_dashboard',
 } as const;
 
 export type CacheKey = typeof CACHE_KEYS[keyof typeof CACHE_KEYS];

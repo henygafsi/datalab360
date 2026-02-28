@@ -628,6 +628,150 @@ export const LegacyAggregateKPINode = memo(({ data, selected }: NodeProps) => {
 LegacyAggregateKPINode.displayName = 'LegacyAggregateKPINode';
 
 // ============================================
+// STREAM CONSUME NODE (merged from data-engineering)
+// ============================================
+export const StreamConsumeNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="stream_consume">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Stream:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.stream_name || data.stream_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Mode:</span>
+        <span className="font-medium">{displayValue(data.config?.consume_mode || data.consume_mode, 'DEFAULT')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+StreamConsumeNode.displayName = 'StreamConsumeNode';
+
+// ============================================
+// GIT FILE NODE (merged from developer)
+// ============================================
+export const GitFileNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="git_file">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Repo:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.repo_name || data.repo_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Branch:</span>
+        <span className="font-medium">{displayValue(data.config?.branch || data.branch, 'main')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">File:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.file_path || data.file_path)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+GitFileNode.displayName = 'GitFileNode';
+
+// ============================================
+// SQL SCRIPT NODE (code runner)
+// ============================================
+export const SQLScriptNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="sql_script">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">SQL:</span>
+        <span className="font-medium truncate">{truncate(data.config?.sql_code || data.sql_code || 'Not configured', 40)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+SQLScriptNode.displayName = 'SQLScriptNode';
+
+// ============================================
+// PYTHON SCRIPT NODE (code runner)
+// ============================================
+export const PythonScriptNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="python_script">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Python:</span>
+        <span className="font-medium truncate">{truncate(data.config?.python_code || data.python_code || 'Not configured', 40)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+PythonScriptNode.displayName = 'PythonScriptNode';
+
+// ============================================
+// NOTEBOOK RUN NODE (merged from developer)
+// ============================================
+export const NotebookRunNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="notebook_run">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Notebook:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.notebook_name || data.notebook_name)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+NotebookRunNode.displayName = 'NotebookRunNode';
+
+// ============================================
+// DYNAMIC TABLE NODE (merged from data-engineering)
+// ============================================
+export const DynamicTableNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="dynamic_table">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Name:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table_name || data.table_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Lag:</span>
+        <span className="font-medium">{displayValue(data.config?.target_lag || data.target_lag, '20 min')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+DynamicTableNode.displayName = 'DynamicTableNode';
+
+// ============================================
+// COMPUTE POOL NODE (merged from developer)
+// ============================================
+export const ComputePoolNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="compute_pool">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Pool:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.pool_name || data.pool_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Family:</span>
+        <span className="font-medium">{displayValue(data.config?.instance_family || data.instance_family, 'CPU_X64_XS')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+ComputePoolNode.displayName = 'ComputePoolNode';
+
+// ============================================
+// CONTAINER SERVICE NODE (merged from developer)
+// ============================================
+export const ContainerServiceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="container_service">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Service:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.service_name || data.service_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Pool:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.compute_pool || data.compute_pool)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+ContainerServiceNode.displayName = 'ContainerServiceNode';
+
+// ============================================
 // EXPORT NODE TYPES MAP
 // ============================================
 export const etlNodeTypes = {
@@ -649,6 +793,16 @@ export const etlNodeTypes = {
   clustering: ClusteringNode,
   destination: DestinationNode,
   export_file: ExportFileNode,
+
+  // Merged blocks (from data-engineering & developer modules)
+  stream_consume: StreamConsumeNode,
+  git_file: GitFileNode,
+  sql_script: SQLScriptNode,
+  python_script: PythonScriptNode,
+  notebook_run: NotebookRunNode,
+  dynamic_table: DynamicTableNode,
+  compute_pool: ComputePoolNode,
+  container_service: ContainerServiceNode,
 
   // Legacy mappings for backward compatibility
   src: SourceNode, // Legacy source

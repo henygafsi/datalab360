@@ -5,6 +5,8 @@ import { Modal, Input } from 'rizzui';
 import {
   BarChart3, LineChart, PieChart, ScatterChart as ScatterIcon,
   Table2, Type, X, TrendingUp, CircleDot, Gauge,
+  Radar, TreePine, GitMerge, Layers, BarChart2, Activity,
+  CandlestickChart, Circle, Grid3X3, ArrowDownUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ChartConfigModal, { ComponentConfig } from './widget-config/ChartConfigModal';
@@ -20,7 +22,7 @@ import { getApiErrorMessage } from '@/lib/api-client';
 // Widget type options for the picker
 const WIDGET_TYPES = [
   {
-    category: 'Charts',
+    category: 'Basic Charts',
     items: [
       { widgetType: 'chart' as WidgetType, chartType: 'bar' as DashboardChartType, title: 'Bar', icon: BarChart3, color: 'from-green-400 to-emerald-500' },
       { widgetType: 'chart' as WidgetType, chartType: 'line' as DashboardChartType, title: 'Line', icon: LineChart, color: 'from-purple-400 to-violet-500' },
@@ -28,6 +30,28 @@ const WIDGET_TYPES = [
       { widgetType: 'chart' as WidgetType, chartType: 'pie' as DashboardChartType, title: 'Pie', icon: PieChart, color: 'from-amber-400 to-orange-500' },
       { widgetType: 'chart' as WidgetType, chartType: 'donut' as DashboardChartType, title: 'Donut', icon: CircleDot, color: 'from-rose-400 to-pink-500' },
       { widgetType: 'chart' as WidgetType, chartType: 'scatter' as DashboardChartType, title: 'Scatter', icon: ScatterIcon, color: 'from-blue-400 to-cyan-500' },
+    ],
+  },
+  {
+    category: 'Advanced Charts',
+    items: [
+      { widgetType: 'chart' as WidgetType, chartType: 'stacked_bar' as DashboardChartType, title: 'Stacked Bar', icon: Layers, color: 'from-green-500 to-teal-600' },
+      { widgetType: 'chart' as WidgetType, chartType: 'stacked_area' as DashboardChartType, title: 'Stacked Area', icon: Activity, color: 'from-sky-500 to-indigo-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'combo' as DashboardChartType, title: 'Combo', icon: BarChart2, color: 'from-violet-400 to-purple-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'radar' as DashboardChartType, title: 'Radar', icon: Radar, color: 'from-cyan-400 to-blue-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'treemap' as DashboardChartType, title: 'Treemap', icon: TreePine, color: 'from-lime-400 to-green-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'funnel' as DashboardChartType, title: 'Funnel', icon: GitMerge, color: 'from-orange-400 to-red-500' },
+    ],
+  },
+  {
+    category: 'Specialized',
+    items: [
+      { widgetType: 'chart' as WidgetType, chartType: 'heatmap' as DashboardChartType, title: 'Heatmap', icon: Grid3X3, color: 'from-red-400 to-orange-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'waterfall' as DashboardChartType, title: 'Waterfall', icon: ArrowDownUp, color: 'from-blue-400 to-indigo-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'histogram' as DashboardChartType, title: 'Histogram', icon: BarChart3, color: 'from-fuchsia-400 to-pink-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'gauge' as DashboardChartType, title: 'Gauge', icon: Gauge, color: 'from-emerald-400 to-green-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'bubble' as DashboardChartType, title: 'Bubble', icon: Circle, color: 'from-pink-400 to-rose-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'candlestick' as DashboardChartType, title: 'Candlestick', icon: CandlestickChart, color: 'from-yellow-400 to-amber-500' },
     ],
   },
   {

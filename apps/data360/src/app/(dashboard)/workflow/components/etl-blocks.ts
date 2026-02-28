@@ -20,10 +20,18 @@ import {
   Sparkles,
   Users,
   CircleDot,
+  // New icons for merged blocks
+  GitBranch,
+  FileCode,
+  Code2,
+  BookOpen,
+  RefreshCw,
+  Server,
+  Container,
   type LucideIcon,
 } from 'lucide-react';
 // Category type for palette grouping
-export type ETLCategory = 'source' | 'transform' | 'destination';
+export type ETLCategory = 'source' | 'transform' | 'destination' | 'infrastructure';
 
 // ETL Block definition
 export interface ETLBlockDefinition {
@@ -332,6 +340,150 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     maxInputs: 1,
     tooltip: 'Export data to CSV, Parquet, or JSON file',
   },
+
+  // ============================================
+  // SOURCE BLOCKS (merged from data-engineering & developer)
+  // ============================================
+  {
+    id: 'stream_consume',
+    type: 'stream_consume',
+    label: 'Read Stream',
+    description: 'Consume CDC stream',
+    icon: GitBranch,
+    category: 'source',
+    color: 'text-cyan-600',
+    bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
+    borderColor: 'border-cyan-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Read change data from a Snowflake Stream (CDC)',
+  },
+  {
+    id: 'git_file',
+    type: 'git_file',
+    label: 'Git File',
+    description: 'Read file from Git repo',
+    icon: FileCode,
+    category: 'source',
+    color: 'text-slate-600',
+    bgColor: 'bg-slate-50 dark:bg-slate-900/20',
+    borderColor: 'border-slate-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Read a file from a Snowflake Git repository',
+  },
+
+  // ============================================
+  // TRANSFORM BLOCKS (code runner)
+  // ============================================
+  {
+    id: 'sql_script',
+    type: 'sql_script',
+    label: 'SQL Script',
+    description: 'Run custom SQL',
+    icon: Code2,
+    category: 'transform',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    borderColor: 'border-blue-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 4,
+    tooltip: 'Execute custom SQL with inline editor and test button',
+  },
+  {
+    id: 'python_script',
+    type: 'python_script',
+    label: 'Python Script',
+    description: 'Run Snowpark Python',
+    icon: Hash,
+    category: 'transform',
+    color: 'text-yellow-600',
+    bgColor: 'bg-yellow-50 dark:bg-yellow-900/20',
+    borderColor: 'border-yellow-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 4,
+    tooltip: 'Execute Snowpark Python code with test runner',
+  },
+  {
+    id: 'notebook_run',
+    type: 'notebook_run',
+    label: 'Run Notebook',
+    description: 'Execute Snowflake notebook',
+    icon: BookOpen,
+    category: 'transform',
+    color: 'text-orange-600',
+    bgColor: 'bg-orange-50 dark:bg-orange-900/20',
+    borderColor: 'border-orange-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 1,
+    tooltip: 'Execute a Snowflake Notebook and capture output',
+  },
+
+  // ============================================
+  // DESTINATION BLOCKS (data engineering)
+  // ============================================
+  {
+    id: 'dynamic_table',
+    type: 'dynamic_table',
+    label: 'Dynamic Table',
+    description: 'Auto-refreshing table',
+    icon: RefreshCw,
+    category: 'destination',
+    color: 'text-teal-600',
+    bgColor: 'bg-teal-50 dark:bg-teal-900/20',
+    borderColor: 'border-teal-400',
+    hasInput: true,
+    hasOutput: false,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Materialize as an auto-refreshing Dynamic Table',
+  },
+
+  // ============================================
+  // INFRASTRUCTURE BLOCKS (developer tools)
+  // ============================================
+  {
+    id: 'compute_pool',
+    type: 'compute_pool',
+    label: 'Compute Pool',
+    description: 'Provision compute',
+    icon: Server,
+    category: 'infrastructure',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Provision a compute pool for container workloads',
+  },
+  {
+    id: 'container_service',
+    type: 'container_service',
+    label: 'Container Service',
+    description: 'Run containerized job',
+    icon: Container,
+    category: 'infrastructure',
+    color: 'text-indigo-600',
+    bgColor: 'bg-indigo-50 dark:bg-indigo-900/20',
+    borderColor: 'border-indigo-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 1,
+    tooltip: 'Run a containerized service in Snowpark Container Services',
+  },
 ];
 
 // Get blocks by category
@@ -349,6 +501,7 @@ export const CATEGORY_LABELS: Record<ETLCategory, string> = {
   source: 'Data Sources',
   transform: 'Transformations',
   destination: 'Destinations',
+  infrastructure: 'Infrastructure',
 };
 
 // Category icons
@@ -356,6 +509,7 @@ export const CATEGORY_ICONS: Record<ETLCategory, LucideIcon> = {
   source: Database,
   transform: Calculator,
   destination: MapPin,
+  infrastructure: Server,
 };
 
 // ============================================

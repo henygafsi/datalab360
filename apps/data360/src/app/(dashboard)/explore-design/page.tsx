@@ -57,6 +57,12 @@ import AccessManagementSlot from './components/AccessManagementSlot';
 import ModelingTemplateModal from './components/ModelingTemplateModal';
 import type { ModelingChoice } from './components/ModelingTemplateModal';
 import DwhLocationPickerModal from './components/DwhLocationPickerModal';
+// Data Engineering modals (merged from data-engineering module)
+import DynamicTableModal from './components/DynamicTableModal';
+import StreamModal from './components/StreamModal';
+import AlertModal from './components/AlertModal';
+import EventTableModal from './components/EventTableModal';
+import HybridTableModal from './components/HybridTableModal';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -276,7 +282,11 @@ const CompactSourceSelector: React.FC<{
     { id: 'divider', label: '' }, // No icon for dividers
     { id: 'clone_schema', label: 'Clone Schema', icon: Layers },
     { id: 'export_ddl', label: 'Export DDL', icon: Download },
-    { id: 'divider2', label: '' }, // No icon for dividers
+    { id: 'divider2', label: '' },
+    { id: 'list_dynamic_tables', label: 'List Dynamic Tables', icon: RefreshCw },
+    { id: 'list_streams', label: 'List Streams', icon: GitBranch },
+    { id: 'list_alerts', label: 'List Alerts', icon: AlertTriangle },
+    { id: 'divider3', label: '' },
     { id: 'drop_schema', label: 'Drop Schema', icon: Trash2, danger: true },
   ];
 
@@ -604,6 +614,13 @@ export default function ExploreDesignPage() {
 
   // Table profile modal
   const [tableProfileModal, setTableProfileModal] = useState(false);
+
+  // Data Engineering modals
+  const [dynamicTableModal, setDynamicTableModal] = useState(false);
+  const [streamModal, setStreamModal] = useState(false);
+  const [alertModal, setAlertModal] = useState(false);
+  const [eventTableModal, setEventTableModal] = useState(false);
+  const [hybridTableModal, setHybridTableModal] = useState(false);
 
   // Track excluded columns per table
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
@@ -2517,6 +2534,28 @@ export default function ExploreDesignPage() {
                             <Columns3 className="h-5 w-5 text-slate-500" />
                             <span className="text-xs font-medium">Column Names</span>
                           </button>
+                          {/* Data Engineering Actions */}
+                          <button
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800"
+                            onClick={() => setDynamicTableModal(true)}
+                          >
+                            <RefreshCw className="h-5 w-5 text-teal-600" />
+                            <span className="text-xs font-medium text-teal-700 dark:text-teal-400">Dynamic Table</span>
+                          </button>
+                          <button
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800"
+                            onClick={() => setStreamModal(true)}
+                          >
+                            <GitBranch className="h-5 w-5 text-cyan-600" />
+                            <span className="text-xs font-medium text-cyan-700 dark:text-cyan-400">Stream</span>
+                          </button>
+                          <button
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
+                            onClick={() => setAlertModal(true)}
+                          >
+                            <AlertTriangle className="h-5 w-5 text-amber-600" />
+                            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">Alert</span>
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -3434,6 +3473,35 @@ export default function ExploreDesignPage() {
             }).catch(() => {});
           }
         }}
+      />
+
+      {/* Data Engineering Modals */}
+      <DynamicTableModal
+        isOpen={dynamicTableModal}
+        onClose={() => setDynamicTableModal(false)}
+        sourceTable={selectedTable || undefined}
+        warehouses={[]}
+      />
+      <StreamModal
+        isOpen={streamModal}
+        onClose={() => setStreamModal(false)}
+        sourceTable={selectedTable || undefined}
+      />
+      <AlertModal
+        isOpen={alertModal}
+        onClose={() => setAlertModal(false)}
+        sourceTable={selectedTable || undefined}
+        warehouses={[]}
+      />
+      <EventTableModal
+        isOpen={eventTableModal}
+        onClose={() => setEventTableModal(false)}
+        context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+      />
+      <HybridTableModal
+        isOpen={hybridTableModal}
+        onClose={() => setHybridTableModal(false)}
+        context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
       />
     </div>
   );

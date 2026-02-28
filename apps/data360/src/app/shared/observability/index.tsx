@@ -10,6 +10,8 @@ import {
   PiCurrencyDollarDuotone,
   PiChartLineDuotone,
   PiGearDuotone,
+  PiTreeStructureDuotone,
+  PiShieldStarDuotone,
 } from 'react-icons/pi';
 
 // Services
@@ -49,6 +51,8 @@ import ActivitySummaryCard from './activity-summary-card';
 import SecurityPostureCard from './security-posture-card';
 import CostOverviewCard from './cost-overview-card';
 import PerformanceMetricsCard from './performance-metrics-card';
+import DependenciesCard from './dependencies-card';
+import TrustCenterCard from './trust-center-card';
 
 const kpiIcons = {
   governance: PiShieldCheckDuotone,
@@ -69,6 +73,8 @@ const tabs: TabItem[] = [
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone },
   { id: 'activity', label: 'Activity & Security', icon: PiUsersDuotone },
   { id: 'cost', label: 'Cost & Performance', icon: PiCurrencyDollarDuotone },
+  { id: 'dependencies', label: 'Dependencies', icon: PiTreeStructureDuotone },
+  { id: 'trust-center', label: 'Trust Center', icon: PiShieldStarDuotone },
 ];
 
 export default function ObservabilityDashboard() {
@@ -338,6 +344,12 @@ export default function ObservabilityDashboard() {
             />
           </div>
         )}
+
+        {/* Dependencies Tab */}
+        {activeTab === 'dependencies' && <DependenciesCard />}
+
+        {/* Trust Center Tab */}
+        {activeTab === 'trust-center' && <TrustCenterCard />}
       </div>
 
       {/* Last Updated */}

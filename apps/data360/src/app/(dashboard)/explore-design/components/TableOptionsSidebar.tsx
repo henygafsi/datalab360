@@ -6,7 +6,7 @@ import { Button, Badge, Tooltip } from 'rizzui';
 import {
   X, Table2, Edit2, Plus, Copy, Key, Link2, Shield, Lock, Eye,
   Tag, Database, ArrowRight, Trash2, ChevronDown, ChevronRight,
-  RefreshCw, Clock, History, Layers, Check, AlertTriangle
+  RefreshCw, Clock, History, Layers, Check, AlertTriangle, GitBranch, Bell
 } from 'lucide-react';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -23,7 +23,13 @@ export type TableOptionAction =
   | 'tags'
   | 'aggregation'
   | 'relation'
-  | 'exclude';
+  | 'exclude'
+  // Data Engineering actions
+  | 'dynamic_table'
+  | 'stream'
+  | 'event_table'
+  | 'hybrid_table'
+  | 'alert';
 
 interface TableOptionsSidebarProps {
   table: TableItem | null;
@@ -171,6 +177,22 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             label="Duplicate"
             onClick={() => onAction('duplicate')}
           />
+          <ActionButton
+            icon={RefreshCw}
+            label="Create Dynamic Table"
+            onClick={() => onAction('dynamic_table')}
+            highlight
+          />
+          <ActionButton
+            icon={Bell}
+            label="Create Event Table"
+            onClick={() => onAction('event_table')}
+          />
+          <ActionButton
+            icon={Layers}
+            label="Create Hybrid Table"
+            onClick={() => onAction('hybrid_table')}
+          />
         </Section>
 
         <Section title="Keys & Relations">
@@ -190,6 +212,12 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             icon={ArrowRight}
             label="Create Relation"
             onClick={() => onAction('relation')}
+          />
+          <ActionButton
+            icon={GitBranch}
+            label="Create Stream (CDC)"
+            onClick={() => onAction('stream')}
+            highlight
           />
         </Section>
 
@@ -218,6 +246,11 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             icon={Database}
             label="Apply Aggregation"
             onClick={() => onAction('aggregation')}
+          />
+          <ActionButton
+            icon={AlertTriangle}
+            label="Add Alert"
+            onClick={() => onAction('alert')}
           />
         </Section>
 

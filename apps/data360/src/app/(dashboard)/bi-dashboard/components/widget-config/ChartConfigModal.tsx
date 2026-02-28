@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Modal, Input, Select, Button } from 'rizzui';
-import { BarChart3, X, Plus, Trash2, Eye } from 'lucide-react';
+import { Modal, Input, Select, Button, Switch } from 'rizzui';
+import { BarChart3, X, Plus, Trash2, Eye, Calculator, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { useDataSourcePicker } from '../../hooks/useDataSourcePicker';
 import DataSourceSection from './DataSourceSection';
 import { DynamicChart } from '../DynamicChart';
@@ -16,12 +17,37 @@ const AGGREGATORS = [
   { value: 'MIN', label: 'MIN' },
   { value: 'MAX', label: 'MAX' },
   { value: 'COUNT', label: 'COUNT' },
+  { value: 'COUNT_DISTINCT', label: 'COUNT DISTINCT' },
+  { value: 'MEDIAN', label: 'MEDIAN' },
+  { value: 'STDDEV', label: 'STDDEV' },
+];
+
+const DATE_GRANULARITIES = [
+  { value: '', label: '— None —' },
+  { value: 'YEAR', label: 'Year' },
+  { value: 'QUARTER', label: 'Quarter' },
+  { value: 'MONTH', label: 'Month' },
+  { value: 'WEEK', label: 'Week' },
+  { value: 'DAY', label: 'Day' },
+  { value: 'HOUR', label: 'Hour' },
+];
+
+const SORT_OPTIONS = [
+  { value: '', label: '— Default —' },
+  { value: 'ASC', label: 'Ascending' },
+  { value: 'DESC', label: 'Descending' },
 ];
 
 /** Shape of a single measure row in the form */
 interface MeasureRow {
   column: string;
   aggregator: string;
+}
+
+/** Calculated field definition */
+interface CalcField {
+  name: string;
+  expression: string;
 }
 
 /** Data the modal gives back to its parent on save */
@@ -47,6 +73,10 @@ export interface ComponentConfig {
   limit?: number;
   chartType?: string;
   prefetched?: { data: Record<string, unknown>[] };
+  dateGranularity?: string;
+  sortBy?: string;
+  sortOrder?: string;
+  calculatedFields?: CalcField[];
 }
 
 interface ChartConfigModalProps {
@@ -57,6 +87,30 @@ interface ChartConfigModalProps {
   componentType?: string;
   chartType?: string;
   initialConfig?: ComponentConfig;
+}
+
+/** Collapsible section for grouping advanced options */
+function CollapsibleSection({ title, icon: Icon, defaultOpen = false, children }: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+      >
+        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        <Icon className="h-3.5 w-3.5 text-blue-500" />
+        {title}
+      </button>
+      {open && <div className="px-3 pb-3 space-y-3 border-t border-slate-100 dark:border-slate-700 pt-3">{children}</div>}
+    </div>
+  );
 }
 
 export default function ChartConfigModal({
@@ -90,6 +144,14 @@ export default function ChartConfigModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Advanced options
+  const [dateGranularity, setDateGranularity] = useState(initCfg?.dateGranularity || '');
+  const [sortBy, setSortBy] = useState(initCfg?.sortBy || '');
+  const [sortOrder, setSortOrder] = useState(initCfg?.sortOrder || '');
+  const [calculatedFields, setCalculatedFields] = useState<CalcField[]>(
+    initCfg?.calculatedFields || []
+  );
+
   // Preview
   const [previewData, setPreviewData] = useState<Record<string, unknown>[] | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -99,6 +161,12 @@ export default function ChartConfigModal({
   const removeMeasure = (i: number) => setMeasures((prev) => prev.filter((_, idx) => idx !== i));
   const updateMeasure = (i: number, field: keyof MeasureRow, value: string) =>
     setMeasures((prev) => prev.map((m, idx) => (idx === i ? { ...m, [field]: value } : m)));
+
+  // Calculated fields helpers
+  const addCalcField = () => setCalculatedFields((prev) => [...prev, { name: '', expression: '' }]);
+  const removeCalcField = (i: number) => setCalculatedFields((prev) => prev.filter((_, idx) => idx !== i));
+  const updateCalcField = (i: number, field: keyof CalcField, value: string) =>
+    setCalculatedFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, [field]: value } : f)));
 
   // Build request body
   const buildRequest = () => ({
@@ -111,6 +179,10 @@ export default function ChartConfigModal({
       .map((m) => ({ column: m.column, aggregator: m.aggregator as any })),
     groupBy: groupBy.length > 0 ? groupBy : undefined,
     limit: limit > 0 ? limit : undefined,
+    dateGranularity: dateGranularity || undefined,
+    sortBy: sortBy || undefined,
+    sortOrder: sortOrder || undefined,
+    calculatedFields: calculatedFields.filter((f) => f.name && f.expression),
   });
 
   // Preview
@@ -140,7 +212,6 @@ export default function ChartConfigModal({
     setSaving(true);
     setError(null);
     try {
-      // Fetch data if not previewed yet
       let data = previewData;
       if (!data) {
         const res = await fetchChartData(buildRequest());
@@ -161,6 +232,10 @@ export default function ChartConfigModal({
         limit: limit > 0 ? limit : undefined,
         chartType,
         prefetched: data ? { data } : undefined,
+        dateGranularity: dateGranularity || undefined,
+        sortBy: sortBy || undefined,
+        sortOrder: sortOrder || undefined,
+        calculatedFields: calculatedFields.filter((f) => f.name && f.expression),
       };
 
       onSave(result);
@@ -172,7 +247,7 @@ export default function ChartConfigModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} customSize="700px">
+    <Modal isOpen={isOpen} onClose={onClose} customSize="750px">
       <div className="p-6 max-h-[85vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
@@ -181,7 +256,7 @@ export default function ChartConfigModal({
               <BarChart3 className="h-4 w-4 text-white" />
             </div>
             <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              Configure {chartType ? chartType.charAt(0).toUpperCase() + chartType.slice(1) : 'Chart'}
+              Configure {chartType ? chartType.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : 'Chart'}
             </h2>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
@@ -247,7 +322,7 @@ export default function ChartConfigModal({
                     size="sm"
                   />
                 </div>
-                <div className="w-28">
+                <div className="w-36">
                   <Select
                     label={i === 0 ? 'Aggregator' : undefined}
                     options={AGGREGATORS}
@@ -278,8 +353,8 @@ export default function ChartConfigModal({
             disabled={!picker.isComplete}
           />
 
-          {/* Limit */}
-          <div className="w-32">
+          {/* Row controls */}
+          <div className="grid grid-cols-2 gap-3">
             <Input
               label="Row Limit"
               type="number"
@@ -287,7 +362,78 @@ export default function ChartConfigModal({
               onChange={(e) => setLimit(Number(e.target.value) || 0)}
               placeholder="All"
             />
+            <Select
+              label="Sort Order"
+              options={SORT_OPTIONS}
+              value={sortOrder}
+              onChange={(opt: any) => setSortOrder(opt?.value || '')}
+            />
           </div>
+
+          {/* ── Date Intelligence ── */}
+          <CollapsibleSection title="Date Intelligence" icon={Calendar}>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+              Auto-group date/timestamp columns by time granularity.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Select
+                label="Date Column"
+                options={[{ value: '', label: '— None —' }, ...picker.columnOptions]}
+                value={sortBy}
+                onChange={(opt: any) => setSortBy(opt?.value || '')}
+                disabled={!picker.isComplete}
+                size="sm"
+              />
+              <Select
+                label="Granularity"
+                options={DATE_GRANULARITIES}
+                value={dateGranularity}
+                onChange={(opt: any) => setDateGranularity(opt?.value || '')}
+                size="sm"
+              />
+            </div>
+          </CollapsibleSection>
+
+          {/* ── Calculated Fields ── */}
+          <CollapsibleSection title="Calculated Fields" icon={Calculator}>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-2">
+              Create computed columns using SQL expressions (e.g., <code className="bg-slate-100 dark:bg-slate-700 px-1 rounded">col_a / col_b * 100</code>).
+            </p>
+            {calculatedFields.map((f, i) => (
+              <div key={i} className="flex items-end gap-2">
+                <div className="w-32">
+                  <Input
+                    label={i === 0 ? 'Alias' : undefined}
+                    value={f.name}
+                    onChange={(e) => updateCalcField(i, 'name', e.target.value)}
+                    placeholder="e.g., margin_pct"
+                    size="sm"
+                  />
+                </div>
+                <div className="flex-1">
+                  <Input
+                    label={i === 0 ? 'SQL Expression' : undefined}
+                    value={f.expression}
+                    onChange={(e) => updateCalcField(i, 'expression', e.target.value)}
+                    placeholder="e.g., revenue / cost * 100"
+                    size="sm"
+                  />
+                </div>
+                <button
+                  onClick={() => removeCalcField(i)}
+                  className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded mb-0.5"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={addCalcField}
+              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium mt-1"
+            >
+              <Plus className="h-3 w-3" /> Add Calculated Field
+            </button>
+          </CollapsibleSection>
 
           {/* Preview */}
           {previewData && previewData.length > 0 && (

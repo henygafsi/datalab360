@@ -20,10 +20,10 @@ import KPICard from '@/components/analytics/KPICard';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
-import DataGovernanceContent from './data-governance-content';
 import MLFeaturesContent from './ml-features-content';
+import AdvancedMLContent from './advanced-ml-content';
 
-type TabType = 'semantic-models' | 'data-governance' | 'ml-features';
+type TabType = 'semantic-models' | 'ml-features' | 'advanced-ml';
 
 const TABS = [
   {
@@ -35,20 +35,20 @@ const TABS = [
     badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
   },
   {
-    id: 'data-governance' as TabType,
-    name: 'Data & Governance',
-    icon: PiChatCircleDots,
-    description: 'ETL blocks, policies & security matrix',
-    badge: 'Reusable',
-    badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400',
-  },
-  {
     id: 'ml-features' as TabType,
     name: 'ML Features',
     icon: PiRobotDuotone,
     description: 'Text analysis, translation & more',
     badge: 'New',
     badgeColor: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
+  },
+  {
+    id: 'advanced-ml' as TabType,
+    name: 'Advanced ML',
+    icon: PiGear,
+    description: 'Fine-tuning, Classification & Document AI',
+    badge: 'Pro',
+    badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
   },
 ];
 
@@ -63,7 +63,7 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'data-governance' || t === 'ml-features' || t === 'semantic-models') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'advanced-ml') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
@@ -194,8 +194,9 @@ export default function IntelligentPage() {
         {/* Tab Content */}
         <div className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
-          {activeTab === 'data-governance' && <DataGovernanceContent />}
+          {/* Data & Governance tab removed — features available in Governance + Workflow */}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
+          {activeTab === 'advanced-ml' && <AdvancedMLContent />}
         </div>
       </div>
 

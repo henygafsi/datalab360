@@ -40,6 +40,7 @@ export const routes = {
   observability: {
     dashboard: '/observability',
   },
+  // dataEngineering & developer modules merged into explore-design & workflow
   data360Config: {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
     view: '/admin/data360-config',

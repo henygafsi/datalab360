@@ -119,6 +119,8 @@ export const MODULES: ModuleConfig[] = [
     visible: true
   },
 
+  // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
+
   // Hidden modules (not shown in menu but can be granted)
   { 
     id: 2, 

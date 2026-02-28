@@ -31,6 +31,7 @@ export type LanguageCode = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'ja' | 'ko'
 export interface CompletionRequest {
   prompt: string;
   model?: LLMModel;
+  guardrails?: boolean;
 }
 
 export interface CompletionResponse {
@@ -133,6 +134,7 @@ export async function generateCompletion(request: CompletionRequest): Promise<Co
       {
         prompt: request.prompt,
         model: request.model || 'mistral-7b',
+        guardrails: request.guardrails || false,
       },
       { headers }
     );
