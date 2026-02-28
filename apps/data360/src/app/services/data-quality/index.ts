@@ -98,6 +98,112 @@ export async function suggestDmfs(
   return data;
 }
 
+// =============================================================================
+// DASHBOARD METRICS — Match backend /data-quality/* endpoints
+// =============================================================================
+
+export interface QualitySummary {
+  total_tables: number;
+  tables_with_issues: number;
+  overall_score: number;
+  dimensions: Record<string, number>;
+}
+
+export interface MetricRow {
+  [key: string]: string | number | null;
+}
+
+export async function getQualitySummary(database: string, days?: number): Promise<QualitySummary> {
+  const { data } = await apiClient.get(`${PREFIX}/quality-summary`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data;
+}
+
+export async function getCompletenessMetrics(database: string, days?: number): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/completeness-metrics`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data || [];
+}
+
+export async function getFreshnessMetrics(database: string, days?: number): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/freshness-metrics`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data || [];
+}
+
+export async function getIngestionMetrics(database: string, days?: number): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/ingestion-metrics`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data || [];
+}
+
+export async function getSchemaQuality(database: string): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/schema-quality`, {
+    params: { database },
+  });
+  return data?.data || data || [];
+}
+
+export async function getClassificationCoverage(database: string): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/classification-coverage`, {
+    params: { database },
+  });
+  return data?.data || data || [];
+}
+
+export async function getCostMetrics(database: string, days?: number): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/cost-metrics`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data || [];
+}
+
+export async function getSecurityPosture(database: string): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/security-posture`, {
+    params: { database },
+  });
+  return data?.data || data || [];
+}
+
+export async function getDmfDashboardResults(database: string): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/dmf-results-dashboard`, {
+    params: { database },
+  });
+  return data?.data || data || [];
+}
+
+// =============================================================================
+// TREND & THRESHOLD — New features
+// =============================================================================
+
+export interface TrendDataPoint {
+  day: string;
+  metric_name: string;
+  avg_value: number;
+}
+
+export async function getTrendAnalysis(database: string, days?: number): Promise<TrendDataPoint[]> {
+  const { data } = await apiClient.get(`${PREFIX}/trend-analysis`, {
+    params: { database, days: days || 30 },
+  });
+  return data?.data || data || [];
+}
+
+export interface ThresholdConfig {
+  table_name: string;
+  metric: string;
+  threshold: number;
+}
+
+export async function setQualityThresholds(config: ThresholdConfig): Promise<{ status: string }> {
+  const { data } = await apiClient.post(`${PREFIX}/thresholds`, config);
+  return data?.data || data;
+}
+
 // Re-export local report service for backward compatibility
 export {
   createQualityReport,

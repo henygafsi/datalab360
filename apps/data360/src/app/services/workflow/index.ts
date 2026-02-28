@@ -696,6 +696,215 @@ export function getStatusIcon(status: string): string {
   return icons[status] || 'circle';
 }
 
+// =============================================================================
+// Developer Tools — Git Repositories
+// =============================================================================
+
+export interface GitRepository {
+  name: string;
+  origin: string;
+  created_on?: string;
+}
+
+export async function listGitRepositories(): Promise<GitRepository[]> {
+  const res = await apiClient.get('/workflow/git/repos');
+  return res.data?.data || res.data || [];
+}
+
+export async function createGitRepository(params: {
+  name: string;
+  origin: string;
+  api_integration?: string;
+  secret?: string;
+}): Promise<{ message: string }> {
+  const res = await apiClient.post('/workflow/git/repos', params);
+  return res.data;
+}
+
+export async function describeGitRepository(name: string): Promise<any> {
+  const res = await apiClient.get(`/workflow/git/repos/${encodeURIComponent(name)}`);
+  return res.data?.data || res.data;
+}
+
+export async function listGitBranches(repoName: string): Promise<string[]> {
+  const res = await apiClient.get(`/workflow/git/repos/${encodeURIComponent(repoName)}/branches`);
+  return res.data?.data || res.data || [];
+}
+
+export async function listGitTags(repoName: string): Promise<string[]> {
+  const res = await apiClient.get(`/workflow/git/repos/${encodeURIComponent(repoName)}/tags`);
+  return res.data?.data || res.data || [];
+}
+
+export async function fetchGitRepository(repoName: string): Promise<{ message: string }> {
+  const res = await apiClient.post(`/workflow/git/repos/${encodeURIComponent(repoName)}/fetch`);
+  return res.data;
+}
+
+export async function dropGitRepository(name: string): Promise<{ message: string }> {
+  const res = await apiClient.delete(`/workflow/git/repos/${encodeURIComponent(name)}`);
+  return res.data;
+}
+
+// =============================================================================
+// Developer Tools — Compute Pools
+// =============================================================================
+
+export interface ComputePool {
+  name: string;
+  state?: string;
+  min_nodes?: number;
+  max_nodes?: number;
+  instance_family?: string;
+  created_on?: string;
+}
+
+export async function listComputePools(): Promise<ComputePool[]> {
+  const res = await apiClient.get('/workflow/compute-pools');
+  return res.data?.data || res.data || [];
+}
+
+export async function createComputePool(params: {
+  name: string;
+  min_nodes: number;
+  max_nodes: number;
+  instance_family: string;
+  auto_resume?: boolean;
+  auto_suspend_secs?: number;
+}): Promise<{ message: string }> {
+  const res = await apiClient.post('/workflow/compute-pools', params);
+  return res.data;
+}
+
+export async function alterComputePool(name: string, params: {
+  min_nodes?: number;
+  max_nodes?: number;
+  auto_suspend_secs?: number;
+}): Promise<{ message: string }> {
+  const res = await apiClient.patch(`/workflow/compute-pools/${encodeURIComponent(name)}`, params);
+  return res.data;
+}
+
+export async function dropComputePool(name: string): Promise<{ message: string }> {
+  const res = await apiClient.delete(`/workflow/compute-pools/${encodeURIComponent(name)}`);
+  return res.data;
+}
+
+// =============================================================================
+// Developer Tools — Container Services
+// =============================================================================
+
+export interface ContainerService {
+  name: string;
+  status?: string;
+  compute_pool?: string;
+  created_on?: string;
+}
+
+export async function listContainerServices(): Promise<ContainerService[]> {
+  const res = await apiClient.get('/workflow/services');
+  return res.data?.data || res.data || [];
+}
+
+export async function createContainerService(params: {
+  name: string;
+  compute_pool: string;
+  spec: string;
+  min_instances?: number;
+  max_instances?: number;
+}): Promise<{ message: string }> {
+  const res = await apiClient.post('/workflow/services', params);
+  return res.data;
+}
+
+export async function describeContainerService(name: string): Promise<any> {
+  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}`);
+  return res.data?.data || res.data;
+}
+
+export async function getContainerServiceStatus(name: string): Promise<any> {
+  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}/status`);
+  return res.data?.data || res.data;
+}
+
+export async function getContainerServiceLogs(name: string, instanceId?: string): Promise<string[]> {
+  const params = instanceId ? { instance_id: instanceId } : {};
+  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}/logs`, { params });
+  return res.data?.data || res.data || [];
+}
+
+export async function dropContainerService(name: string): Promise<{ message: string }> {
+  const res = await apiClient.delete(`/workflow/services/${encodeURIComponent(name)}`);
+  return res.data;
+}
+
+// =============================================================================
+// Developer Tools — Notebooks
+// =============================================================================
+
+export interface Notebook {
+  name: string;
+  database?: string;
+  schema?: string;
+  created_on?: string;
+}
+
+export async function listNotebooks(): Promise<Notebook[]> {
+  const res = await apiClient.get('/workflow/notebooks');
+  return res.data?.data || res.data || [];
+}
+
+export async function createNotebook(params: {
+  name: string;
+  database: string;
+  schema: string;
+  warehouse?: string;
+}): Promise<{ message: string }> {
+  const res = await apiClient.post('/workflow/notebooks', params);
+  return res.data;
+}
+
+export async function executeNotebook(name: string): Promise<{ message: string; result?: any }> {
+  const res = await apiClient.post(`/workflow/notebooks/${encodeURIComponent(name)}/execute`);
+  return res.data;
+}
+
+export async function alterNotebook(name: string, params: {
+  warehouse?: string;
+  comment?: string;
+}): Promise<{ message: string }> {
+  const res = await apiClient.patch(`/workflow/notebooks/${encodeURIComponent(name)}`, params);
+  return res.data;
+}
+
+export async function dropNotebook(name: string): Promise<{ message: string }> {
+  const res = await apiClient.delete(`/workflow/notebooks/${encodeURIComponent(name)}`);
+  return res.data;
+}
+
+// =============================================================================
+// Developer Tools — Ad-hoc Execution
+// =============================================================================
+
+export async function runAdHocSQL(params: {
+  sql: string;
+  warehouse?: string;
+  database?: string;
+  schema?: string;
+}): Promise<{ data: any[]; columns: string[] }> {
+  const res = await apiClient.post('/workflow/execute/sql', params);
+  return res.data?.data || res.data;
+}
+
+export async function runAdHocPython(params: {
+  code: string;
+  warehouse?: string;
+  packages?: string[];
+}): Promise<{ output: string; result?: any }> {
+  const res = await apiClient.post('/workflow/execute/python', params);
+  return res.data?.data || res.data;
+}
+
 // Export all as default object for convenience
 export default {
   // Basic operations
@@ -725,6 +934,35 @@ export default {
   removeWorkflowContributor,
   // Setup
   initializeTables,
+  // Developer Tools — Git
+  listGitRepositories,
+  createGitRepository,
+  describeGitRepository,
+  listGitBranches,
+  listGitTags,
+  fetchGitRepository,
+  dropGitRepository,
+  // Developer Tools — Compute Pools
+  listComputePools,
+  createComputePool,
+  alterComputePool,
+  dropComputePool,
+  // Developer Tools — Container Services
+  listContainerServices,
+  createContainerService,
+  describeContainerService,
+  getContainerServiceStatus,
+  getContainerServiceLogs,
+  dropContainerService,
+  // Developer Tools — Notebooks
+  listNotebooks,
+  createNotebook,
+  executeNotebook,
+  alterNotebook,
+  dropNotebook,
+  // Developer Tools — Ad-hoc Execution
+  runAdHocSQL,
+  runAdHocPython,
   // Utilities
   formatDuration,
   getStatusColor,

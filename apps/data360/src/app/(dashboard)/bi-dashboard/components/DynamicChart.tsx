@@ -86,19 +86,20 @@ export function DynamicChart({ config }: DynamicChartProps) {
     });
   }, [data, dataKeys]);
 
+  const effectiveXKey = useMemo(() => {
+    if (xKey) return xKey;
+    if (!data || data.length === 0) return '';
+    const allKeys = Object.keys(data[0]);
+    return allKeys.find((k) => !dataKeys.includes(k) && typeof data[0][k] === 'string') || allKeys[0];
+  }, [data, xKey, dataKeys]);
+
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+      <div className="flex items-center justify-center h-full text-slate-400 dark:text-gray-500 text-sm">
         No data
       </div>
     );
   }
-
-  const effectiveXKey = useMemo(() => {
-    if (xKey) return xKey;
-    const allKeys = Object.keys(data[0]);
-    return allKeys.find((k) => !dataKeys.includes(k) && typeof data[0][k] === 'string') || allKeys[0];
-  }, [data, xKey, dataKeys]);
 
   const commonMargin = { top: 10, right: 10, bottom: 30, left: 10 };
   const commonXAxis = {
