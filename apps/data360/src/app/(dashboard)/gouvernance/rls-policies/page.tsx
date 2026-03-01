@@ -18,7 +18,7 @@ import {
   applyRLSPolicy,
   removeRLSPolicy,
   RLSPolicy,
-} from '@/app/services/gouvernance/security-matrix';
+} from '@/app/services/gouvernance/security_matrix';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';

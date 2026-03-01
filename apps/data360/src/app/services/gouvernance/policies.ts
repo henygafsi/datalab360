@@ -20,13 +20,6 @@ interface StandardResponse<T = any> {
   status?: string;
 }
 
-// Policy LIST response (no wrapper - direct response)
-interface PolicyListResponse {
-  policy_type: string;
-  total: number;
-  policies: BackendPolicy[];
-}
-
 // Backend policy structure (same for ALL policy types)
 interface BackendPolicy {
   name: string;
@@ -258,21 +251,21 @@ export async function getRLSPolicyDetails(
 }
 
 export async function getRLSPolicies(): Promise<RLSPolicy[]> {
-  const url = `${POLICIES_API}/ROW_ACCESS`;
+  const url = `${POLICIES_API}/row-access/list`;
   console.log('🔍 GET RLS Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET RLS Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -515,21 +508,21 @@ export async function getMaskingPolicyDetails(
 }
 
 export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
-  const url = `${POLICIES_API}/MASKING`;
+  const url = `${POLICIES_API}/masking/list`;
   console.log('🔍 GET Masking Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET Masking Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -700,22 +693,21 @@ export async function getNetworkPolicyDetails(policy_name: string): Promise<any>
 }
 
 export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
-  // Backend spec: Network uses specific endpoint (not generic /NETWORK)
   const url = `${POLICIES_API}/network/list`;
   console.log('🔍 GET Network Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET Network Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -958,21 +950,21 @@ export async function getPasswordPolicyDetails(
 }
 
 export async function getPasswordPolicies(): Promise<PasswordPolicy[]> {
-  const url = `${POLICIES_API}/PASSWORD`;
+  const url = `${POLICIES_API}/password/list`;
   console.log('🔍 GET Password Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET Password Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -1111,21 +1103,21 @@ export async function getSessionPolicyDetails(
 }
 
 export async function getSessionPolicies(): Promise<SessionPolicy[]> {
-  const url = `${POLICIES_API}/SESSION`;
+  const url = `${POLICIES_API}/session/list`;
   console.log('🔍 GET Session Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET Session Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -1251,21 +1243,21 @@ export async function getAggregationPolicyDetails(
 
 
 export async function getAggregationPolicies(): Promise<AggregationPolicy[]> {
-  const url = `${POLICIES_API}/AGGREGATION`;
+  const url = `${POLICIES_API}/aggregation/list`;
   console.log('🔍 GET Aggregation Policies API Call:', { url });
 
-  // Backend returns direct response (no wrapper)
-  const response = await apiClient.get<PolicyListResponse>(url);
+  // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
 
+  const responseData = response.data.data;
   console.log('✅ GET Aggregation Policies Response:', {
     status: response.status,
-    policyType: response.data.policy_type,
-    total: response.data.total,
-    policiesArray: response.data.policies
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length
   });
 
   // Defensive check: ensure we always return an array
-  const backendPolicies = response.data.policies;
+  const backendPolicies = responseData?.policies;
   if (!Array.isArray(backendPolicies)) {
     return [];
   }
@@ -1491,19 +1483,30 @@ export async function assignPolicyToRoles(
   console.log('[assignPolicyToRoles] Roles:', roles);
 
   try {
-    const response = await apiClient.put<StandardResponse<{
+    // Backend returns plain dict (not StandardResponse) with:
+    // { message, policy_name, policy_type, granted, already_had_policy, requested_roles, errors }
+    const response = await apiClient.put<{
       message: string;
       policy_name: string;
-      added: string[];
-      removed: string[];
-      verified_roles: string[];
-    }>>(`${POLICIES_API}/${backendPolicyType}/${policyName}/roles`,
+      policy_type: string;
+      granted: string[];
+      already_had_policy: string[];
+      requested_roles: string[];
+      errors: { action: string; role: string; error: string }[] | null;
+    }>(`${POLICIES_API}/${backendPolicyType}/${policyName}/roles`,
       { roles } // Send as body
     );
 
     console.log('[assignPolicyToRoles] Response:', response.data);
 
-    return response.data.data;
+    const data = response.data;
+    return {
+      message: data.message,
+      policy_name: data.policy_name,
+      added: data.granted || [],
+      removed: [],
+      verified_roles: data.requested_roles || roles,
+    };
   } catch (error: any) {
     console.error('Assign policy to roles error:', {
       message: error.response?.data?.message || error.message,

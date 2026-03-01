@@ -112,7 +112,8 @@ function FineTuningSection() {
     setLoading(true);
     try {
       const result = await listFineTuneJobs();
-      setJobs(result.data || result.jobs || result || []);
+      const raw = result?.data || result?.jobs || result;
+      setJobs(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load fine-tune jobs');
     } finally {
@@ -248,7 +249,8 @@ function ClassificationSection() {
     setLoading(true);
     try {
       const result = await listClassificationModels();
-      setModels(result.data || result.models || result || []);
+      const raw = result?.data || result?.models || result;
+      setModels(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load models');
     } finally {
@@ -419,7 +421,8 @@ function DocumentAISection() {
     setLoading(true);
     try {
       const result = await listDocumentAIModels();
-      setModels(result.data || result.models || result || []);
+      const raw = result?.data || result?.models || result;
+      setModels(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load models');
     } finally {
@@ -548,7 +551,8 @@ function TopInsightsSection() {
     setLoading(true);
     try {
       const result = await listTopInsights();
-      setInstances(result.data || result.instances || result || []);
+      const raw = result?.data || result?.instances || result;
+      setInstances(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load instances');
     } finally {

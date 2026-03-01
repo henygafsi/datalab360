@@ -11,7 +11,7 @@ import { assignPolicyToRoles } from '@/app/services/gouvernance/policies';
 interface AssignPolicyModalProps {
   policy: PolicyGrant | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (grantedRoles: string[]) => void;
 }
 
 const POLICY_TYPE_LABELS: Record<string, string> = {
@@ -95,7 +95,7 @@ export default function AssignPolicyModal({
         `✅ Policy ${policy.policy_name} assigned to ${selectedRoles.length} role(s)`
       );
 
-      onSuccess();
+      onSuccess(selectedRoles);
       onClose();
     } catch (error: any) {
       console.error('[Policy Grants] Failed to assign policy:', error);

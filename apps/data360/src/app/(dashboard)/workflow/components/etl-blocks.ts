@@ -347,8 +347,8 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
   {
     id: 'stream_consume',
     type: 'stream_consume',
-    label: 'Read Stream',
-    description: 'Consume CDC stream',
+    label: 'Create Stream',
+    description: 'Create & consume CDC stream on table/view',
     icon: GitBranch,
     category: 'source',
     color: 'text-cyan-600',
@@ -358,7 +358,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 0,
-    tooltip: 'Read change data from a Snowflake Stream (CDC)',
+    tooltip: 'Create a Snowflake Stream on a table or view to capture change data (CDC). The stream tracks INSERT, UPDATE, DELETE changes.',
   },
   {
     id: 'git_file',
@@ -394,7 +394,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 4,
-    tooltip: 'Execute custom SQL with inline editor and test button',
+    tooltip: 'Execute custom SQL with inline editor and test button. Results are previewed (limited to 10 rows).',
   },
   {
     id: 'python_script',
@@ -410,7 +410,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: true,
     minInputs: 0,
     maxInputs: 4,
-    tooltip: 'Execute Snowpark Python code with test runner',
+    tooltip: 'Execute Snowpark Python — call an existing stored procedure or write inline code. Supports testing with live output.',
   },
   {
     id: 'notebook_run',
@@ -436,7 +436,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     id: 'dynamic_table',
     type: 'dynamic_table',
     label: 'Dynamic Table',
-    description: 'Auto-refreshing table',
+    description: 'Auto-refreshing materialized table',
     icon: RefreshCw,
     category: 'destination',
     color: 'text-teal-600',
@@ -446,7 +446,7 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     hasOutput: false,
     minInputs: 1,
     maxInputs: 1,
-    tooltip: 'Materialize as an auto-refreshing Dynamic Table',
+    tooltip: 'Create a Snowflake Dynamic Table that auto-refreshes based on TARGET_LAG. Requires a warehouse and a SELECT query as the table definition.',
   },
 
   // ============================================

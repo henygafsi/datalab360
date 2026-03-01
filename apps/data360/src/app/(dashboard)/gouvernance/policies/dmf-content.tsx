@@ -101,7 +101,8 @@ export default function DMFContent() {
     setLoading(true);
     try {
       const result = await listDMFs(database || undefined, schema || undefined);
-      setItems(result.data || result.functions || result || []);
+      const raw = result?.data || result?.functions || result;
+      setItems(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load DMFs');
     } finally {
@@ -195,7 +196,8 @@ export default function DMFContent() {
     setRefsLoading(true);
     try {
       const result = await getDMFReferences(refsTable);
-      setRefs(result.data || result.references || result || []);
+      const raw = result?.data || result?.references || result;
+      setRefs(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load references');
     } finally {

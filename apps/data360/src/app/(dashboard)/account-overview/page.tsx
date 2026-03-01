@@ -3,7 +3,7 @@
 import { useState, useEffect, Component, type ReactNode } from 'react';
 import { Loader } from 'rizzui';
 import { PiWarningCircleBold } from 'react-icons/pi';
-import GouvernanceDashboard from '@/app/shared/dashboard';
+import CommandCenterDashboard from '@/app/shared/command-center';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -69,7 +69,7 @@ export default function AccountOverviewPage() {
 
   return (
     <AccountOverviewErrorBoundary onError={(msg) => setError(msg)}>
-      <GouvernanceDashboard />
+      <CommandCenterDashboard />
     </AccountOverviewErrorBoundary>
   );
 }

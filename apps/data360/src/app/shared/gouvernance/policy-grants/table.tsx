@@ -638,9 +638,15 @@ export default function PolicyGrantsTable() {
             setShowAssignModal(false);
             setSelectedPolicy(null);
           }}
-          onSuccess={() => {
-            fetchPolicies();
-            toast.success('Policy grants updated successfully');
+          onSuccess={(grantedRoles: string[]) => {
+            // Update local state immediately with the granted roles
+            if (selectedPolicy) {
+              setTableData(prev => prev.map(p =>
+                p.id === selectedPolicy.id
+                  ? { ...p, granted_roles: grantedRoles }
+                  : p
+              ));
+            }
           }}
         />
       )}

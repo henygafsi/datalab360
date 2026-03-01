@@ -157,6 +157,36 @@ const Input: React.FC<InputProps> = ({ value, onChange, placeholder, disabled, e
   />
 );
 
+interface TextareaProps {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  error?: boolean;
+  rows?: number;
+  className?: string;
+}
+
+const Textarea: React.FC<TextareaProps> = ({ value, onChange, placeholder, disabled, error, rows = 4, className }) => (
+  <textarea
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    placeholder={placeholder}
+    disabled={disabled}
+    rows={rows}
+    className={cn(
+      'w-full px-3 py-2 rounded-lg border resize-y',
+      'bg-white dark:bg-slate-800',
+      'text-sm text-slate-800 dark:text-slate-100',
+      'placeholder:text-slate-400',
+      'focus:outline-none focus:ring-2 focus:ring-blue-500',
+      error ? 'border-red-500' : 'border-slate-200 dark:border-slate-700',
+      disabled && 'opacity-50 cursor-not-allowed',
+      className
+    )}
+  />
+);
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -1380,6 +1410,641 @@ const ExportFileConfigForm: React.FC<{
   );
 };
 
+// SQL Script Config — with test runner
+const SQLScriptConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const [testResult, setTestResult] = useState<{ columns: string[]; rows: Record<string, any>[]; count: number } | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const handleTestSql = async () => {
+    if (!config.sql_code) return;
+    setIsTesting(true);
+    setTestResult(null);
+    setTestError(null);
+    try {
+      const response = await fetch('/api/v1/workflows/run-sql', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sql: config.sql_code, limit: 10 }),
+      });
+      const result = (await response.json()) as Record<string, any>;
+      if (result.status === 'success') {
+        setTestResult({ columns: result.columns || [], rows: result.rows || [], count: result.count || 0 });
+      } else {
+        setTestError((result.detail as any)?.message || result.message || 'Execution failed');
+      }
+    } catch (err: any) {
+      setTestError(err.message || 'Test failed');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="SQL Code" required error={errors.sql_code} hint="Write your SQL script to execute">
+        <Textarea
+          value={config.sql_code || ''}
+          onChange={(v) => updateConfig({ sql_code: v })}
+          placeholder="SELECT * FROM ..."
+          rows={10}
+          className="font-mono text-sm"
+          error={!!errors.sql_code}
+        />
+      </FormField>
+
+      <button
+        type="button"
+        onClick={handleTestSql}
+        disabled={isTesting || !config.sql_code}
+        className={cn(
+          'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+          isTesting || !config.sql_code
+            ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
+            : 'bg-blue-500 text-white hover:bg-blue-600'
+        )}
+      >
+        {isTesting ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <Save className="h-4 w-4" />
+        )}
+        {isTesting ? 'Running...' : 'Test SQL (limit 10 rows)'}
+      </button>
+
+      {testResult && (
+        <div className="p-3 bg-slate-900 rounded-lg overflow-auto max-h-60">
+          <div className="text-xs text-emerald-400 mb-1 font-medium">
+            {testResult.count} row{testResult.count !== 1 ? 's' : ''} returned
+          </div>
+          {testResult.columns.length > 0 && (
+            <table className="text-xs text-slate-300 font-mono w-full">
+              <thead>
+                <tr>
+                  {testResult.columns.map((col) => (
+                    <th key={col} className="text-left pr-3 pb-1 text-slate-400 border-b border-slate-700">{col}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {testResult.rows.slice(0, 5).map((row, i) => (
+                  <tr key={i}>
+                    {testResult.columns.map((col) => (
+                      <td key={col} className="pr-3 py-0.5 whitespace-nowrap">{String(row[col] ?? '')}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {testError && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+          <div className="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Error:</div>
+          <pre className="text-xs text-red-500 dark:text-red-300 whitespace-pre-wrap font-mono">{testError}</pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Python Script Config — supports both stored procedure call and inline code
+const PythonScriptConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  accessToken?: string | null;
+}> = ({ data, onChange, errors, accessToken }) => {
+  const config = data.config || data;
+  const [testOutput, setTestOutput] = useState<string | null>(null);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
+  const mode = config.python_mode || 'procedure';
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const handleTestCode = async () => {
+    if (!config.python_code) return;
+    setIsTesting(true);
+    setTestOutput(null);
+    setTestError(null);
+    try {
+      const response = await fetch('/api/v1/workflows/run-python', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: config.python_code }),
+      });
+      const result = (await response.json()) as Record<string, any>;
+      if (result.status === 'success') {
+        setTestOutput((result.output as string) || '(no output)');
+      } else {
+        setTestError((result.detail as any)?.message || result.message || 'Execution failed');
+      }
+    } catch (err: any) {
+      setTestError(err.message || 'Test failed');
+    } finally {
+      setIsTesting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Mode" hint="Choose between calling an existing procedure or writing inline code">
+        <Select
+          value={mode}
+          onChange={(v) => updateConfig({ python_mode: v })}
+          options={[
+            { value: 'procedure', label: 'Call Stored Procedure' },
+            { value: 'inline', label: 'Inline Python Code' },
+          ]}
+        />
+      </FormField>
+
+      {mode === 'procedure' ? (
+        <>
+          <FormField label="Database" required error={errors.database}>
+            <Input
+              value={config.database || ''}
+              onChange={(v) => updateConfig({ database: v })}
+              placeholder="e.g., MY_DATABASE"
+              error={!!errors.database}
+            />
+          </FormField>
+
+          <FormField label="Schema" required error={errors.schema}>
+            <Input
+              value={config.schema || ''}
+              onChange={(v) => updateConfig({ schema: v })}
+              placeholder="e.g., PUBLIC"
+              error={!!errors.schema}
+            />
+          </FormField>
+
+          <FormField label="Procedure Name" required error={errors.proc_name}>
+            <Input
+              value={config.proc_name || ''}
+              onChange={(v) => updateConfig({ proc_name: v })}
+              placeholder="e.g., MY_PYTHON_PROC"
+              error={!!errors.proc_name}
+            />
+          </FormField>
+        </>
+      ) : (
+        <>
+          <FormField label="Python Code" required error={errors.python_code}
+            hint="Write Snowpark Python code. Use 'session' variable to access Snowflake.">
+            <Textarea
+              value={config.python_code || ''}
+              onChange={(v) => updateConfig({ python_code: v })}
+              placeholder={`# Snowpark Python — 'session' is available\ndf = session.table("MY_DB.MY_SCHEMA.MY_TABLE")\nprint(df.count())`}
+              rows={12}
+              className="font-mono text-sm"
+              error={!!errors.python_code}
+            />
+          </FormField>
+
+          <FormField label="Runtime Version" hint="Python runtime version on Snowflake">
+            <Select
+              value={config.runtime_version || '3.11'}
+              onChange={(v) => updateConfig({ runtime_version: v })}
+              options={[
+                { value: '3.11', label: 'Python 3.11' },
+                { value: '3.10', label: 'Python 3.10' },
+                { value: '3.9', label: 'Python 3.9' },
+              ]}
+            />
+          </FormField>
+
+          <FormField label="Packages" hint="Comma-separated Snowpark packages">
+            <Input
+              value={config.packages || 'snowflake-snowpark-python'}
+              onChange={(v) => updateConfig({ packages: v })}
+              placeholder="snowflake-snowpark-python, pandas"
+            />
+          </FormField>
+
+          <button
+            type="button"
+            onClick={handleTestCode}
+            disabled={isTesting || !config.python_code}
+            className={cn(
+              'w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+              isTesting || !config.python_code
+                ? 'bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed'
+                : 'bg-yellow-500 text-white hover:bg-yellow-600'
+            )}
+          >
+            {isTesting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            {isTesting ? 'Running...' : 'Test Python Code'}
+          </button>
+
+          {testOutput && (
+            <div className="p-3 bg-slate-900 rounded-lg">
+              <div className="text-xs text-emerald-400 mb-1 font-medium">Output:</div>
+              <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono">{testOutput}</pre>
+            </div>
+          )}
+
+          {testError && (
+            <div className="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+              <div className="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Error:</div>
+              <pre className="text-xs text-red-500 dark:text-red-300 whitespace-pre-wrap font-mono">{testError}</pre>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+// Notebook Run Config
+const NotebookRunConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Database" required error={errors.database}>
+        <Input
+          value={config.database || ''}
+          onChange={(v) => updateConfig({ database: v })}
+          placeholder="e.g., MY_DATABASE"
+          error={!!errors.database}
+        />
+      </FormField>
+
+      <FormField label="Schema" required error={errors.schema}>
+        <Input
+          value={config.schema || ''}
+          onChange={(v) => updateConfig({ schema: v })}
+          placeholder="e.g., PUBLIC"
+          error={!!errors.schema}
+        />
+      </FormField>
+
+      <FormField label="Notebook Name" required error={errors.notebook_name}>
+        <Input
+          value={config.notebook_name || ''}
+          onChange={(v) => updateConfig({ notebook_name: v })}
+          placeholder="e.g., MY_NOTEBOOK"
+          error={!!errors.notebook_name}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Dynamic Table Config
+const DynamicTableConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input
+          value={config.table_name || ''}
+          onChange={(v) => updateConfig({ table_name: v })}
+          placeholder="e.g., DYN_SALES_SUMMARY"
+          error={!!errors.table_name}
+        />
+      </FormField>
+
+      <FormField label="Target Lag" required error={errors.target_lag} hint="Refresh lag interval (e.g., 1 hour, 30 minutes)">
+        <Input
+          value={config.target_lag || ''}
+          onChange={(v) => updateConfig({ target_lag: v })}
+          placeholder="e.g., 1 hour"
+          error={!!errors.target_lag}
+        />
+      </FormField>
+
+      <FormField label="Warehouse" required error={errors.warehouse}>
+        <Input
+          value={config.warehouse || ''}
+          onChange={(v) => updateConfig({ warehouse: v })}
+          placeholder="e.g., COMPUTE_WH"
+          error={!!errors.warehouse}
+        />
+      </FormField>
+
+      <FormField label="Query" required error={errors.query} hint="SQL query defining the dynamic table content">
+        <Textarea
+          value={config.query || ''}
+          onChange={(v) => updateConfig({ query: v })}
+          placeholder="SELECT * FROM source_table WHERE ..."
+          rows={6}
+          className="font-mono text-sm"
+          error={!!errors.query}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Stream Consume Config
+const StreamConsumeConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  accessToken?: string | null;
+}> = ({ data, onChange, errors, accessToken }) => {
+  const config = data.config || data;
+  const [databases, setDatabases] = useState<string[]>([]);
+  const [schemas, setSchemas] = useState<string[]>([]);
+  const [tables, setTables] = useState<string[]>([]);
+  const [loading, setLoading] = useState<string | null>(null);
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  useEffect(() => {
+    if (!accessToken) return;
+    setLoading('databases');
+    getDatabases().then(setDatabases).catch(console.error).finally(() => setLoading(null));
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!config.database) return;
+    setLoading('schemas');
+    setSchemas([]);
+    getSchemas(config.database).then(setSchemas).catch(console.error).finally(() => setLoading(null));
+  }, [config.database]);
+
+  useEffect(() => {
+    if (!config.database || !config.schema) return;
+    setLoading('tables');
+    setTables([]);
+    getTables(config.database, config.schema).then(setTables).catch(console.error).finally(() => setLoading(null));
+  }, [config.database, config.schema]);
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">
+          Creates a Snowflake Stream on a table or view to track changes (INSERT, UPDATE, DELETE). The stream captures CDC data for downstream processing.
+        </p>
+      </div>
+
+      <FormField label="Stream Name" required error={errors.stream_name}
+        hint="Name for the stream object (e.g., MY_TABLE_CHANGES)">
+        <Input
+          value={config.stream_name || ''}
+          onChange={(v) => updateConfig({ stream_name: v })}
+          placeholder="e.g., MY_TABLE_CHANGES"
+          error={!!errors.stream_name}
+        />
+      </FormField>
+
+      <FormField label="Source Database" required error={errors.database}>
+        <Select
+          value={config.database || ''}
+          onChange={(v) => updateConfig({ database: v, schema: '', source_object: '' })}
+          options={databases.map((d) => ({ value: d, label: d }))}
+          placeholder={loading === 'databases' ? 'Loading...' : 'Select database'}
+          disabled={loading === 'databases'}
+          error={!!errors.database}
+        />
+      </FormField>
+
+      <FormField label="Source Schema" required error={errors.schema}>
+        <Select
+          value={config.schema || ''}
+          onChange={(v) => updateConfig({ schema: v, source_object: '' })}
+          options={schemas.map((s) => ({ value: s, label: s }))}
+          placeholder={loading === 'schemas' ? 'Loading...' : 'Select schema'}
+          disabled={!config.database || loading === 'schemas'}
+          error={!!errors.schema}
+        />
+      </FormField>
+
+      <FormField label="Source Table/View" required error={errors.source_object}
+        hint="The table or view to create the stream on">
+        <Select
+          value={config.source_object || ''}
+          onChange={(v) => updateConfig({ source_object: v })}
+          options={tables.map((t) => ({ value: t, label: t }))}
+          placeholder={loading === 'tables' ? 'Loading...' : 'Select table or view'}
+          disabled={!config.schema || loading === 'tables'}
+          error={!!errors.source_object}
+        />
+      </FormField>
+
+      <FormField label="Stream Mode" hint="DEFAULT tracks all DML; APPEND_ONLY tracks only INSERTs">
+        <Select
+          value={config.consume_mode || 'DEFAULT'}
+          onChange={(v) => updateConfig({ consume_mode: v })}
+          options={[
+            { value: 'DEFAULT', label: 'DEFAULT (all DML)' },
+            { value: 'APPEND_ONLY', label: 'APPEND_ONLY (inserts only)' },
+            { value: 'INSERT_ONLY', label: 'INSERT_ONLY (external tables)' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Show Initial Rows" hint="Include existing rows as initial data">
+        <Select
+          value={config.show_initial_rows || 'FALSE'}
+          onChange={(v) => updateConfig({ show_initial_rows: v })}
+          options={[
+            { value: 'FALSE', label: 'No (only new changes)' },
+            { value: 'TRUE', label: 'Yes (include existing rows)' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Git File Config
+const GitFileConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Repository Name" required error={errors.repo_name}>
+        <Input
+          value={config.repo_name || ''}
+          onChange={(v) => updateConfig({ repo_name: v })}
+          placeholder="e.g., my-data-repo"
+          error={!!errors.repo_name}
+        />
+      </FormField>
+
+      <FormField label="File Path" required error={errors.file_path}>
+        <Input
+          value={config.file_path || ''}
+          onChange={(v) => updateConfig({ file_path: v })}
+          placeholder="e.g., scripts/transform.sql"
+          error={!!errors.file_path}
+        />
+      </FormField>
+
+      <FormField label="Branch" hint="Git branch to use (defaults to main)">
+        <Input
+          value={config.branch || 'main'}
+          onChange={(v) => updateConfig({ branch: v })}
+          placeholder="main"
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Compute Pool Config
+const ComputePoolConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Pool Name" required error={errors.pool_name}>
+        <Input
+          value={config.pool_name || ''}
+          onChange={(v) => updateConfig({ pool_name: v })}
+          placeholder="e.g., MY_COMPUTE_POOL"
+          error={!!errors.pool_name}
+        />
+      </FormField>
+
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Min Nodes" required error={errors.min_nodes}>
+          <Input
+            type="number"
+            value={config.min_nodes || ''}
+            onChange={(v) => updateConfig({ min_nodes: parseInt(v) || 0 })}
+            placeholder="1"
+            error={!!errors.min_nodes}
+          />
+        </FormField>
+
+        <FormField label="Max Nodes" required error={errors.max_nodes}>
+          <Input
+            type="number"
+            value={config.max_nodes || ''}
+            onChange={(v) => updateConfig({ max_nodes: parseInt(v) || 0 })}
+            placeholder="3"
+            error={!!errors.max_nodes}
+          />
+        </FormField>
+      </div>
+
+      <FormField label="Instance Family" required>
+        <Select
+          value={config.instance_family || 'CPU_X64_XS'}
+          onChange={(v) => updateConfig({ instance_family: v })}
+          options={[
+            { value: 'CPU_X64_XS', label: 'CPU_X64_XS' },
+            { value: 'CPU_X64_S', label: 'CPU_X64_S' },
+            { value: 'CPU_X64_M', label: 'CPU_X64_M' },
+            { value: 'GPU_NV_S', label: 'GPU_NV_S' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Container Service Config
+const ContainerServiceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <FormField label="Service Name" required error={errors.service_name}>
+        <Input
+          value={config.service_name || ''}
+          onChange={(v) => updateConfig({ service_name: v })}
+          placeholder="e.g., MY_SERVICE"
+          error={!!errors.service_name}
+        />
+      </FormField>
+
+      <FormField label="Compute Pool" required error={errors.compute_pool}>
+        <Input
+          value={config.compute_pool || ''}
+          onChange={(v) => updateConfig({ compute_pool: v })}
+          placeholder="e.g., MY_COMPUTE_POOL"
+          error={!!errors.compute_pool}
+        />
+      </FormField>
+
+      <FormField label="Stage" required error={errors.stage}>
+        <Input
+          value={config.stage || ''}
+          onChange={(v) => updateConfig({ stage: v })}
+          placeholder="e.g., @MY_STAGE"
+          error={!!errors.stage}
+        />
+      </FormField>
+
+      <FormField label="Spec File" required error={errors.spec_file}>
+        <Input
+          value={config.spec_file || ''}
+          onChange={(v) => updateConfig({ spec_file: v })}
+          placeholder="e.g., service_spec.yaml"
+          error={!!errors.spec_file}
+        />
+      </FormField>
+    </div>
+  );
+};
+
 // ============================================
 // MAIN SIDEBAR COMPONENT
 // ============================================
@@ -1466,6 +2131,50 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'export_file':
         if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
         break;
+      case 'sql_script':
+        if (!config.sql_code) newErrors.sql_code = 'SQL code is required';
+        break;
+      case 'python_script':
+        if (config.python_mode === 'inline') {
+          if (!config.python_code) newErrors.python_code = 'Python code is required';
+        } else {
+          if (!config.database) newErrors.database = 'Database is required';
+          if (!config.schema) newErrors.schema = 'Schema is required';
+          if (!config.proc_name) newErrors.proc_name = 'Procedure name is required';
+        }
+        break;
+      case 'notebook_run':
+        if (!config.database) newErrors.database = 'Database is required';
+        if (!config.schema) newErrors.schema = 'Schema is required';
+        if (!config.notebook_name) newErrors.notebook_name = 'Notebook name is required';
+        break;
+      case 'dynamic_table':
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        if (!config.target_lag) newErrors.target_lag = 'Target lag is required';
+        if (!config.warehouse) newErrors.warehouse = 'Warehouse is required';
+        if (!config.query) newErrors.query = 'Query is required';
+        break;
+      case 'stream_consume':
+        if (!config.stream_name) newErrors.stream_name = 'Stream name is required';
+        if (!config.database) newErrors.database = 'Source database is required';
+        if (!config.schema) newErrors.schema = 'Source schema is required';
+        if (!config.source_object) newErrors.source_object = 'Source table/view is required';
+        break;
+      case 'git_file':
+        if (!config.repo_name) newErrors.repo_name = 'Repository name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'compute_pool':
+        if (!config.pool_name) newErrors.pool_name = 'Pool name is required';
+        if (!config.min_nodes || config.min_nodes <= 0) newErrors.min_nodes = 'Min nodes must be greater than 0';
+        if (!config.max_nodes || config.max_nodes <= 0) newErrors.max_nodes = 'Max nodes must be greater than 0';
+        break;
+      case 'container_service':
+        if (!config.service_name) newErrors.service_name = 'Service name is required';
+        if (!config.compute_pool) newErrors.compute_pool = 'Compute pool is required';
+        if (!config.stage) newErrors.stage = 'Stage is required';
+        if (!config.spec_file) newErrors.spec_file = 'Spec file is required';
+        break;
     }
 
     setErrors(newErrors);
@@ -1536,6 +2245,22 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'export_file':
       case 'export_excel':
         return <ExportFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'sql_script':
+        return <SQLScriptConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'python_script':
+        return <PythonScriptConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} />;
+      case 'notebook_run':
+        return <NotebookRunConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'dynamic_table':
+        return <DynamicTableConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'stream_consume':
+        return <StreamConsumeConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} />;
+      case 'git_file':
+        return <GitFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'compute_pool':
+        return <ComputePoolConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'container_service':
+        return <ContainerServiceConfigForm data={formData} onChange={handleChange} errors={errors} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }

@@ -11,7 +11,7 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff, BarChart3, MinusCircle, Link2, TableIcon
+  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -594,6 +594,7 @@ export default function ExploreDesignPage() {
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [showRelationshipModal, setShowRelationshipModal] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
 
   // Column action modals
   const [columnPreviewModal, setColumnPreviewModal] = useState<{
@@ -2840,25 +2841,56 @@ export default function ExploreDesignPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Tooltip content={isReadOnly ? 'View-only access' : selectedProjectId ? "Create Table" : "Select a project first"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={isReadOnly}
-                        onClick={() => {
-                          if (readOnlyGuard()) return;
-                          if (!selectedProjectId) {
-                            toast.error('Please select a project first');
-                            return;
-                          }
-                          setShowCreateTableModal(true);
-                        }}
-                        className="gap-2"
-                      >
-                        <Plus className="h-4 w-4" />
-                        <TableIcon className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
+                    <div className="relative">
+                      <Tooltip content={isReadOnly ? 'View-only access' : selectedProjectId ? "Create Table" : "Select a project first"}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isReadOnly}
+                          onClick={() => {
+                            if (readOnlyGuard()) return;
+                            if (!selectedProjectId) {
+                              toast.error('Please select a project first');
+                              return;
+                            }
+                            setShowCreateMenu(!showCreateMenu);
+                          }}
+                          className="gap-1.5"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </Tooltip>
+                      {showCreateMenu && (
+                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-[200px]">
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setShowCreateTableModal(true); setShowCreateMenu(false); }}
+                          >
+                            <TableIcon className="w-4 h-4" /> Standard Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setDynamicTableModal(true); setShowCreateMenu(false); }}
+                          >
+                            <RefreshCw className="w-4 h-4" /> Dynamic Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setEventTableModal(true); setShowCreateMenu(false); }}
+                          >
+                            <Bell className="w-4 h-4" /> Event Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setHybridTableModal(true); setShowCreateMenu(false); }}
+                          >
+                            <Layers className="w-4 h-4" /> Hybrid Table
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     <Tooltip content={isReadOnly ? 'View-only access' : "Manage Relationships"}>
                       <Button
                         variant="outline"

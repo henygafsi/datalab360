@@ -60,6 +60,20 @@ interface ETLPipelineBuilderProps {
 // HELPER FUNCTIONS
 // ============================================
 
+/** Safely extract a string from an error that might be an object {error_code, message} */
+function extractErrorString(err: unknown): string {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (typeof err === 'object') {
+    const obj = err as Record<string, unknown>;
+    if (typeof obj.message === 'string') return obj.message;
+    if (typeof obj.detail === 'string') return obj.detail;
+    if (typeof obj.error_code === 'string') return obj.error_code;
+    return JSON.stringify(err);
+  }
+  return String(err);
+}
+
 function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
@@ -667,7 +681,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           if (response.status === 'completed' || response.status === 'success') {
             toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
           } else if (response.status === 'failed') {
-            toast.error('Execution failed');
+            const errorDetail = response.error
+              ? extractErrorString(response.error)
+              : 'Check execution history for details';
+            toast.error(`Execution failed: ${errorDetail}`, { duration: 6000 });
           }
         }
       } catch (error: any) {
@@ -694,7 +711,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (result.valid) {
         toast.success('Pipeline is valid');
       } else {
-        toast.error(`Validation failed: ${result.error || 'Unknown error'}`);
+        toast.error(`Validation failed: ${extractErrorString(result.error) || 'Unknown error'}`);
       }
     } catch (error: any) {
       console.error('Validation failed:', error);
@@ -709,7 +726,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     try {
       // AI suggestions not available via workflow API — show validation info
       const info: string[] = [];
-      if (validation.error) info.push(`Error: ${validation.error}`);
+      if (validation.error) info.push(`Error: ${extractErrorString(validation.error)}`);
       if (validation.mode) info.push(`Mode: ${validation.mode}`);
       if (validation.steps_count) info.push(`Steps: ${validation.steps_count}`);
       if (validation.destination) info.push(`Destination: ${validation.destination}`);
@@ -721,6 +738,38 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setAiSuggestionsLoading(false);
     }
   }, [validation]);
+
+  // ============================================
+  // SUBMIT FOR APPROVAL
+  // ============================================
+
+  const handleSubmitForApproval = useCallback(async () => {
+    if (!activeWorkflowId) {
+      toast.error('Save the pipeline first');
+      return;
+    }
+    if (readOnlyGuard()) return;
+
+    try {
+      // Get the latest version ID
+      const versionsResponse = await workflowApi.listVersions(activeWorkflowId, { limit: 1 });
+      const versions = (versionsResponse as any)?.versions || [];
+      if (versions.length === 0) {
+        toast.error('No version found. Save the pipeline first to create a version.');
+        return;
+      }
+      const latestVersionId = versions[0].version_id;
+
+      await workflowApi.requestDeployment(activeWorkflowId, {
+        version_id: latestVersionId,
+        deployment_type: 'with_approval',
+      });
+      toast.success('Pipeline submitted for approval!');
+    } catch (error: any) {
+      console.error('Submit for approval failed:', error);
+      toast.error(getApiErrorMessage(error) || 'Failed to submit for approval');
+    }
+  }, [activeWorkflowId, readOnlyGuard]);
 
   // ============================================
   // RENDER
@@ -850,12 +899,42 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             </button>
 
             <button
+              onClick={handleValidate}
+              disabled={!activeWorkflowId}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Validate pipeline DAG"
+            >
+              <CheckCircle className="h-3.5 w-3.5" />
+              Validate
+            </button>
+
+            <button
+              onClick={() => handleExecute(true)}
+              disabled={isExecuting || !activeWorkflowId}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Preview generated SQL"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              Preview SQL
+            </button>
+
+            <button
               onClick={() => handleExecute(false)}
               disabled={isExecuting || !activeWorkflowId || isReadOnly}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
             >
               {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Execute
+            </button>
+
+            <button
+              onClick={handleSubmitForApproval}
+              disabled={!activeWorkflowId || isReadOnly}
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Submit for approval before production deployment"
+            >
+              <AlertCircle className="h-3.5 w-3.5" />
+              Submit for Approval
             </button>
 
             {activeWorkflowId && !isReadOnly && (
@@ -1003,7 +1082,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     {validation.error && (
                       <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
                         <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Erreurs</div>
-                        <p className="text-xs text-red-600 dark:text-red-300">{validation.error}</p>
+                        <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
                       </div>
                     )}
                     {!validation.valid && !validation.error && (
