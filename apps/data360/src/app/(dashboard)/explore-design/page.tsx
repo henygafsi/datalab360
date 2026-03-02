@@ -11,7 +11,7 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell
+  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -51,7 +51,7 @@ import SensitiveColumnModal from './components/SensitiveColumnModal';
 import ColumnExclusionModal from './components/ColumnExclusionModal';
 import TablePreviewModal from './components/TablePreviewModal';
 import TableProfileModal from './components/TableProfileModal';
-import CreateTableModal from './components/CreateTableModal';
+import CreateTableModal, { SnowflakeTableType } from './components/CreateTableModal';
 import RelationshipModal from './components/RelationshipModal';
 import AccessManagementSlot from './components/AccessManagementSlot';
 import ModelingTemplateModal from './components/ModelingTemplateModal';
@@ -63,6 +63,8 @@ import StreamModal from './components/StreamModal';
 import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
 import HybridTableModal from './components/HybridTableModal';
+import PolicyAssignmentPanel from './components/PolicyAssignmentPanel';
+import IngestionConfigPanel from './components/IngestionConfigPanel';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -594,7 +596,8 @@ export default function ExploreDesignPage() {
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [showRelationshipModal, setShowRelationshipModal] = useState(false);
-  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [showCreateMenuCatalog, setShowCreateMenuCatalog] = useState(false);
+  const [showCreateMenuModeling, setShowCreateMenuModeling] = useState(false);
 
   // Column action modals
   const [columnPreviewModal, setColumnPreviewModal] = useState<{
@@ -638,9 +641,17 @@ export default function ExploreDesignPage() {
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [showEventPanel, setShowEventPanel] = useState(true);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [showDetailPanel, setShowDetailPanel] = useState(true);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [savedPanelState, setSavedPanelState] = useState({ sidebar: true, event: true });
+
+  // Create table type selector
+  const [createTableType, setCreateTableType] = useState<SnowflakeTableType>('standard');
+
+  // Catalog policy & ingestion panels
+  const [showCatalogPolicyPanel, setShowCatalogPolicyPanel] = useState(false);
+  const [showIngestionPanel, setShowIngestionPanel] = useState(false);
+  const [catalogIngestionMode, setCatalogIngestionMode] = useState<IngestionMode>('full_refresh');
 
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
@@ -1948,27 +1959,26 @@ export default function ExploreDesignPage() {
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen(prev => {
       if (!prev) {
-        // Entering fullscreen - hide all panels
+        // Save current panel state before entering fullscreen
+        setSavedPanelState({ sidebar: showSidebar, event: showEventPanel });
         setShowSidebar(false);
-        setShowDetailPanel(false);
         setShowEventPanel(false);
       }
       return !prev;
     });
-  }, []);
+  }, [showSidebar, showEventPanel]);
 
   // Exit fullscreen and restore panels
   const exitFullscreen = useCallback(() => {
     setIsFullscreen(false);
-    setShowSidebar(true);
-    setShowDetailPanel(true);
-    setShowEventPanel(true);
-  }, []);
+    setShowSidebar(savedPanelState.sidebar);
+    setShowEventPanel(savedPanelState.event);
+  }, [savedPanelState]);
 
   return (
     <div className={cn(
       "flex flex-col",
-      isFullscreen ? "h-screen" : "h-[calc(100vh-80px)]"
+      isFullscreen ? "h-screen" : "h-[calc(100vh-84px)]"
     )}>
       {/* Offline Warning Banner */}
       {isOffline && (
@@ -2170,19 +2180,6 @@ export default function ExploreDesignPage() {
                 <PanelLeft className="h-3.5 w-3.5" />
               </button>
             </Tooltip>
-            <Tooltip content={showDetailPanel ? 'Hide Details' : 'Show Details'}>
-              <button
-                onClick={() => setShowDetailPanel(!showDetailPanel)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showDetailPanel
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <Table2 className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
             <Tooltip content={showEventPanel ? 'Hide Events' : 'Show Events'}>
               <button
                 onClick={() => setShowEventPanel(!showEventPanel)}
@@ -2210,19 +2207,10 @@ export default function ExploreDesignPage() {
           defaultExpanded={false}
           hideWhenEmpty={!selectedProjectId}
           deploymentSlot={selectedProjectId ? (
-            <div className="p-4 space-y-3">
+            <div className="p-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Pending events: {displayablePendingEvents.length}. Validate and deploy from the Deploy button above.
+                Pending events: {displayablePendingEvents.length}. Use the Deploy button in the toolbar to validate and deploy.
               </p>
-              <Button
-                size="sm"
-                className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                onClick={() => { if (readOnlyGuard()) return; setShowDeploymentModal(true); }}
-                disabled={isReadOnly}
-              >
-                <Rocket className="h-3.5 w-3.5" />
-                Open Deploy & Validation
-              </Button>
             </div>
           ) : undefined}
           versionsSlot={selectedProjectId ? (
@@ -2391,10 +2379,13 @@ export default function ExploreDesignPage() {
         })()}
 
         {/* CENTER Panel - Catalog or Modeling View */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div className={cn(
+          "flex-1 flex flex-col overflow-hidden min-w-0",
+          viewMode === 'catalog' && "bg-slate-50 dark:bg-slate-900/50"
+        )}>
           {viewMode === 'catalog' ? (
             // Catalog View - Table Details in CENTER
-            <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-slate-50 dark:bg-slate-900/50">
+            <>
               {/* Show sidebar toggle when hidden */}
               {!showSidebar && (
                 <div className="px-3 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
@@ -2422,7 +2413,7 @@ export default function ExploreDesignPage() {
                       disabled={isReadOnly}
                       onClick={() => {
                         if (readOnlyGuard()) return;
-                        setShowCreateMenu(!showCreateMenu);
+                        setShowCreateMenuCatalog(!showCreateMenuCatalog);
                       }}
                       className="gap-1.5"
                     >
@@ -2431,42 +2422,70 @@ export default function ExploreDesignPage() {
                       <ChevronDown className="h-3 w-3" />
                     </Button>
                   </Tooltip>
-                  {showCreateMenu && (
-                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-[200px]">
+                  {showCreateMenuCatalog && (
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setShowCreateTableModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <Table2 className="w-4 h-4" /> Standard Table
                       </button>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setDynamicTableModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Clock className="w-4 h-4" /> Temporary Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Timer className="w-4 h-4" /> Transient Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Cloud className="w-4 h-4" /> External Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Snowflake className="w-4 h-4" /> Iceberg Table
+                      </button>
+                      <div className="border-t dark:border-slate-700 my-1" />
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setDynamicTableModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <RefreshCw className="w-4 h-4" /> Dynamic Table
                       </button>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setEventTableModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setEventTableModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <Bell className="w-4 h-4" /> Event Table
                       </button>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setHybridTableModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setHybridTableModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <Layers className="w-4 h-4" /> Hybrid Table
                       </button>
-                      <div className="border-t dark:border-gray-700 my-1" />
+                      <div className="border-t dark:border-slate-700 my-1" />
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setStreamModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setStreamModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <GitBranch className="w-4 h-4" /> Stream (CDC)
                       </button>
                       <button
-                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                        onClick={() => { setAlertModal(true); setShowCreateMenu(false); }}
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setAlertModal(true); setShowCreateMenuCatalog(false); }}
                       >
                         <AlertTriangle className="w-4 h-4" /> Alert
                       </button>
@@ -2544,21 +2563,21 @@ export default function ExploreDesignPage() {
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Ingestion configuration opened')}
+                            onClick={() => setShowIngestionPanel(true)}
                           >
                             <RefreshCw className="h-5 w-5 text-blue-500" />
                             <span className="text-xs font-medium">Ingestion</span>
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Masking configuration opened')}
+                            onClick={() => setShowCatalogPolicyPanel(true)}
                           >
                             <Shield className="h-5 w-5 text-green-500" />
                             <span className="text-xs font-medium">Masking</span>
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Aggregation configuration opened')}
+                            onClick={() => setShowCatalogPolicyPanel(true)}
                           >
                             <Layers className="h-5 w-5 text-purple-500" />
                             <span className="text-xs font-medium">Aggregation</span>
@@ -2593,7 +2612,7 @@ export default function ExploreDesignPage() {
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Column naming rules opened')}
+                            onClick={() => toast('Column naming rules — coming soon')}
                           >
                             <Columns3 className="h-5 w-5 text-slate-500" />
                             <span className="text-xs font-medium">Column Names</span>
@@ -2814,64 +2833,13 @@ export default function ExploreDesignPage() {
                   </div>
                 )}
               </div>
-            </div>
+            </>
           ) : (
             // Modeling View
             <div className="flex-1 overflow-hidden relative">
-              {/* Fullscreen Controls */}
-              <div className={cn(
-                "absolute top-3 right-3 z-20 flex items-center gap-2",
-                isFullscreen && "top-16"
-              )}>
-                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen Mode"}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={isFullscreen ? exitFullscreen : toggleFullscreen}
-                    className="bg-white dark:bg-slate-800 shadow-lg"
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="h-4 w-4" />
-                    ) : (
-                      <Maximize2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </Tooltip>
-                {!isFullscreen && (
-                  <>
-                    <Tooltip content={showSidebar ? "Hide Tables List" : "Show Tables List"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowSidebar(!showSidebar)}
-                        className={cn(
-                          "bg-white dark:bg-slate-800 shadow-lg",
-                          !showSidebar && "text-blue-600"
-                        )}
-                      >
-                        <PanelLeft className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowEventPanel(!showEventPanel)}
-                        className={cn(
-                          "bg-white dark:bg-slate-800 shadow-lg",
-                          !showEventPanel && "text-blue-600"
-                        )}
-                      >
-                        <PanelRight className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-
               {/* Fullscreen Header */}
               {isFullscreen && (
-                <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
+                <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       <Workflow className="h-5 w-5 text-blue-600" />
@@ -2894,7 +2862,7 @@ export default function ExploreDesignPage() {
                               toast.error('Please select a project first');
                               return;
                             }
-                            setShowCreateMenu(!showCreateMenu);
+                            setShowCreateMenuModeling(!showCreateMenuModeling);
                           }}
                           className="gap-1.5"
                         >
@@ -2903,42 +2871,70 @@ export default function ExploreDesignPage() {
                           <ChevronDown className="h-3 w-3" />
                         </Button>
                       </Tooltip>
-                      {showCreateMenu && (
-                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-[200px]">
+                      {showCreateMenuModeling && (
+                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setShowCreateTableModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <TableIcon className="w-4 h-4" /> Standard Table
                           </button>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setDynamicTableModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Clock className="w-4 h-4" /> Temporary Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Timer className="w-4 h-4" /> Transient Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Cloud className="w-4 h-4" /> External Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Snowflake className="w-4 h-4" /> Iceberg Table
+                          </button>
+                          <div className="border-t dark:border-slate-700 my-1" />
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setDynamicTableModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <RefreshCw className="w-4 h-4" /> Dynamic Table
                           </button>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setEventTableModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setEventTableModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <Bell className="w-4 h-4" /> Event Table
                           </button>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setHybridTableModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setHybridTableModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <Layers className="w-4 h-4" /> Hybrid Table
                           </button>
-                          <div className="border-t dark:border-gray-700 my-1" />
+                          <div className="border-t dark:border-slate-700 my-1" />
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setStreamModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setStreamModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <GitBranch className="w-4 h-4" /> Stream (CDC)
                           </button>
                           <button
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
-                            onClick={() => { setAlertModal(true); setShowCreateMenu(false); }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setAlertModal(true); setShowCreateMenuModeling(false); }}
                           >
                             <AlertTriangle className="w-4 h-4" /> Alert
                           </button>
@@ -3111,9 +3107,15 @@ export default function ExploreDesignPage() {
                   setSelectedTable(table);
                   setAlertModal(true);
                 }}
-                className={cn("h-full", isFullscreen && "pt-14")}
+                className={cn("h-full", isFullscreen && "pt-16")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={isFullscreen ? exitFullscreen : toggleFullscreen}
+                showSidebar={showSidebar}
+                onToggleSidebar={() => setShowSidebar(!showSidebar)}
+                showEventPanel={showEventPanel}
+                onToggleEventPanel={() => setShowEventPanel(!showEventPanel)}
                 targetTableIds={targetTableIds}
                 initialMappings={initialColumnMappings}
               />
@@ -3444,6 +3446,7 @@ export default function ExploreDesignPage() {
         database="CP_DATA360"
         schema="RETAIL_DWH"
         projectId={selectedProjectId!}
+        initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
           // Add the new table to the modeling view immediately
           const tableId = `${database}.${schema}.${tableName}`;
@@ -3609,6 +3612,30 @@ export default function ExploreDesignPage() {
         onClose={() => setHybridTableModal(false)}
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
       />
+
+      {/* Catalog Policy Assignment Panel */}
+      {showCatalogPolicyPanel && selectedTable && (
+        <Modal isOpen onClose={() => setShowCatalogPolicyPanel(false)} size="xl">
+          <PolicyAssignmentPanel
+            table={selectedTable}
+            columns={tableColumns}
+            onPolicyApplied={() => { toast.success('Policy applied'); setShowCatalogPolicyPanel(false); }}
+            onClose={() => setShowCatalogPolicyPanel(false)}
+            projectId={selectedProjectId}
+          />
+        </Modal>
+      )}
+
+      {/* Catalog Ingestion Config Panel */}
+      {showIngestionPanel && selectedTable && (
+        <Modal isOpen onClose={() => setShowIngestionPanel(false)} size="xl">
+          <IngestionConfigPanel
+            table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
+            ingestionMode={catalogIngestionMode}
+            onModeChange={setCatalogIngestionMode}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

@@ -5,8 +5,7 @@ import { cn } from '@/lib/utils';
 import { Button, Badge, Tooltip } from 'rizzui';
 import {
   X, Table2, Edit2, Plus, Copy, Key, Link2, Shield, Lock, Eye,
-  Tag, Database, ArrowRight, Trash2, ChevronDown, ChevronRight,
-  RefreshCw, Clock, History, Layers, Check, AlertTriangle, GitBranch, Bell
+  Tag, Database, ArrowRight, Trash2, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -26,10 +25,8 @@ export type TableOptionAction =
   | 'exclude'
   // Data Engineering actions
   | 'dynamic_table'
-  | 'stream'
   | 'event_table'
-  | 'hybrid_table'
-  | 'alert';
+  | 'hybrid_table';
 
 interface TableOptionsSidebarProps {
   table: TableItem | null;
@@ -197,12 +194,6 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             label="Create Relation"
             onClick={() => onAction('relation')}
           />
-          <ActionButton
-            icon={GitBranch}
-            label="Create Stream (CDC)"
-            onClick={() => onAction('stream')}
-            highlight
-          />
         </Section>
 
         <Section title="Security & Policies">
@@ -230,11 +221,6 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             icon={Database}
             label="Apply Aggregation"
             onClick={() => onAction('aggregation')}
-          />
-          <ActionButton
-            icon={AlertTriangle}
-            label="Add Alert"
-            onClick={() => onAction('alert')}
           />
         </Section>
 

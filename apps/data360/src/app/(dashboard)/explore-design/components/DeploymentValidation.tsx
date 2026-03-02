@@ -137,6 +137,11 @@ const EVENT_PRIORITY: Record<EventType, number> = {
 
   // Priority 1: Table creation (must exist before anything else)
   'TABLE_CREATED': 1,
+  'DYNAMIC_TABLE_CREATED': 1,
+  'STREAM_CREATED': 1,
+  'EVENT_TABLE_CREATED': 1,
+  'HYBRID_TABLE_CREATED': 1,
+  'ALERT_CREATED': 1,
 
   // Priority 2: Column additions (table must exist)
   'ADD_COLUMN': 2,

@@ -47,6 +47,11 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   TABLE_REMOVED_FROM_MODELING: { icon: Minus, label: 'Removed from Modeling', color: 'bg-red-100 text-red-600' },
   COLUMN_MAPPING_CREATED: { icon: Link2, label: 'Column Mapped', color: 'bg-blue-100 text-blue-600' },
   COLUMN_MAPPING_REMOVED: { icon: Link2, label: 'Mapping Removed', color: 'bg-red-100 text-red-600' },
+  DYNAMIC_TABLE_CREATED: { icon: RefreshCw, label: 'Dynamic Table Created', color: 'bg-teal-100 text-teal-600' },
+  STREAM_CREATED: { icon: Database, label: 'Stream Created', color: 'bg-cyan-100 text-cyan-600' },
+  EVENT_TABLE_CREATED: { icon: Clock, label: 'Event Table Created', color: 'bg-violet-100 text-violet-600' },
+  HYBRID_TABLE_CREATED: { icon: Layers, label: 'Hybrid Table Created', color: 'bg-indigo-100 text-indigo-600' },
+  ALERT_CREATED: { icon: AlertTriangle, label: 'Alert Created', color: 'bg-amber-100 text-amber-600' },
 };
 
 // Event display priority — same order as deployment execution

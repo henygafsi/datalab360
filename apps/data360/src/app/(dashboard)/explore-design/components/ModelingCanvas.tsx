@@ -27,7 +27,8 @@ import {
   ZoomIn, ZoomOut, Maximize2, Download, Upload, Undo2, Redo2,
   Grid3X3, Layers, Eye, EyeOff, Lock, Unlock, Plus, Minus,
   LayoutGrid, Save, RefreshCw, Settings, Filter, Search,
-  ArrowLeftRight, Database, Table2, GitBranch, Workflow, List
+  ArrowLeftRight, Database, Table2, GitBranch, Workflow, List,
+  Minimize2, PanelLeft, PanelRight
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import TableNode, { TableNodeData, TableNodeColumn } from './TableNode';
@@ -99,6 +100,13 @@ interface ModelingCanvasProps {
   onHybridTableCreate?: (table: TableItem) => void;
   onStreamCreate?: (table: TableItem) => void;
   onAlertCreate?: (table: TableItem) => void;
+  // Fullscreen & panel toggle props
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  showSidebar?: boolean;
+  onToggleSidebar?: () => void;
+  showEventPanel?: boolean;
+  onToggleEventPanel?: () => void;
 }
 
 // Auto-layout helper
@@ -135,6 +143,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   onHybridTableCreate,
   onStreamCreate,
   onAlertCreate,
+  isFullscreen = false,
+  onToggleFullscreen,
+  showSidebar,
+  onToggleSidebar,
+  showEventPanel,
+  onToggleEventPanel,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
@@ -669,9 +683,8 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       // (replaces createMapping API call — mappings are now event-driven and deployed via DDL actions)
       addEventRef.current(createColumnMappingEvent(
         { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
-        sourceColumns, // Now supports array of columns
-        { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table },
-        targetColumn,
+        { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table, columns: sourceColumns },
+        { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table, column: targetColumn },
         true, // created
         transformation // Pass transformation
       ));
@@ -836,6 +849,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       case 'open_options':
         // Open table options sidebar
         openTableOptions(table);
+        break;
+      case 'rename':
+        {
+          const newName = prompt('Enter new table name:', table.table);
+          if (newName && newName !== table.table) {
+            addEvent({
+              type: 'TABLE_RENAMED',
+              target: { database: table.database, schema: table.schema, table: table.table },
+              payload: { newName },
+            });
+            toast.success(`Rename "${table.table}" → "${newName}" added to pending changes`);
+          }
+        }
         break;
       case 'add_column':
         openAddColumnModal(table);
@@ -1124,6 +1150,45 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 <Download className="h-4 w-4" />
               </Button>
             </Tooltip>
+            {onToggleFullscreen && (
+              <>
+                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    onClick={onToggleFullscreen}
+                    className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
+                  >
+                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+            {!isFullscreen && onToggleSidebar && (
+              <Tooltip content={showSidebar ? "Hide Tables" : "Show Tables"}>
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={onToggleSidebar}
+                  className={cn("p-2", !showSidebar && "text-blue-500")}
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+            )}
+            {!isFullscreen && onToggleEventPanel && (
+              <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={onToggleEventPanel}
+                  className={cn("p-2", !showEventPanel && "text-blue-500")}
+                >
+                  <PanelRight className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+            )}
           </div>
         </Panel>
 
