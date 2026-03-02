@@ -93,6 +93,12 @@ interface ModelingCanvasProps {
   targetTableIds?: Set<string>; // IDs of target/DWH tables (default tables)
   initialMappings?: InitialColumnMapping[]; // Mappings loaded from events
   isReadOnly?: boolean;
+  // Data engineering callbacks
+  onDynamicTableCreate?: (table: TableItem) => void;
+  onEventTableCreate?: (table: TableItem) => void;
+  onHybridTableCreate?: (table: TableItem) => void;
+  onStreamCreate?: (table: TableItem) => void;
+  onAlertCreate?: (table: TableItem) => void;
 }
 
 // Auto-layout helper
@@ -124,6 +130,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   targetTableIds = new Set(),
   initialMappings = [],
   isReadOnly = false,
+  onDynamicTableCreate,
+  onEventTableCreate,
+  onHybridTableCreate,
+  onStreamCreate,
+  onAlertCreate,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
@@ -895,8 +906,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           setNodes((nds) => [...nds, newNode]);
         }
         break;
+      case 'dynamic_table':
+        if (onDynamicTableCreate) onDynamicTableCreate(table);
+        break;
+      case 'event_table':
+        if (onEventTableCreate) onEventTableCreate(table);
+        break;
+      case 'hybrid_table':
+        if (onHybridTableCreate) onHybridTableCreate(table);
+        break;
+      case 'stream':
+        if (onStreamCreate) onStreamCreate(table);
+        break;
+      case 'alert':
+        if (onAlertCreate) onAlertCreate(table);
+        break;
     }
-  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent]);
+  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent,
+      onDynamicTableCreate, onEventTableCreate, onHybridTableCreate, onStreamCreate, onAlertCreate]);
 
   // Update ref for context action handler
   handleNodeContextActionRef.current = handleNodeContextAction;

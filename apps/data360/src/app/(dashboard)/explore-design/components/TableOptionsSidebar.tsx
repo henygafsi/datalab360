@@ -177,22 +177,6 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
             label="Duplicate"
             onClick={() => onAction('duplicate')}
           />
-          <ActionButton
-            icon={RefreshCw}
-            label="Create Dynamic Table"
-            onClick={() => onAction('dynamic_table')}
-            highlight
-          />
-          <ActionButton
-            icon={Bell}
-            label="Create Event Table"
-            onClick={() => onAction('event_table')}
-          />
-          <ActionButton
-            icon={Layers}
-            label="Create Hybrid Table"
-            onClick={() => onAction('hybrid_table')}
-          />
         </Section>
 
         <Section title="Keys & Relations">

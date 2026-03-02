@@ -170,6 +170,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
 
   // UI state
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
@@ -692,6 +693,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         toast.error(getApiErrorMessage(error) || 'Execution failed');
       } finally {
         setIsExecuting(false);
+        // Force execution history to refresh after execution completes
+        setExecutionRefreshKey((k) => k + 1);
       }
     },
     [activeWorkflowId, nodes]
@@ -1029,6 +1032,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex-1 overflow-auto p-4">
             {activeTab === 'runs' && (
               <ETLExecutionHistory
+                key={executionRefreshKey}
                 pipelineId={activeWorkflowId}
                 pipelineName={activeWorkflowName}
                 compact

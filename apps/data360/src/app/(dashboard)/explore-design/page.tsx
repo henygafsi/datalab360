@@ -2412,6 +2412,69 @@ export default function ExploreDesignPage() {
                 </div>
               )}
 
+              {/* Catalog Toolbar - Create Dropdown */}
+              <div className="px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+                <div className="relative">
+                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new Snowflake object'}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isReadOnly}
+                      onClick={() => {
+                        if (readOnlyGuard()) return;
+                        setShowCreateMenu(!showCreateMenu);
+                      }}
+                      className="gap-1.5"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </Tooltip>
+                  {showCreateMenu && (
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg py-1 z-50 min-w-[200px]">
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setShowCreateTableModal(true); setShowCreateMenu(false); }}
+                      >
+                        <Table2 className="w-4 h-4" /> Standard Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setDynamicTableModal(true); setShowCreateMenu(false); }}
+                      >
+                        <RefreshCw className="w-4 h-4" /> Dynamic Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setEventTableModal(true); setShowCreateMenu(false); }}
+                      >
+                        <Bell className="w-4 h-4" /> Event Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setHybridTableModal(true); setShowCreateMenu(false); }}
+                      >
+                        <Layers className="w-4 h-4" /> Hybrid Table
+                      </button>
+                      <div className="border-t dark:border-gray-700 my-1" />
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setStreamModal(true); setShowCreateMenu(false); }}
+                      >
+                        <GitBranch className="w-4 h-4" /> Stream (CDC)
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                        onClick={() => { setAlertModal(true); setShowCreateMenu(false); }}
+                      >
+                        <AlertTriangle className="w-4 h-4" /> Alert
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Table Detail Panel - Now in CENTER */}
               <div className="flex-1 overflow-auto">
                 {selectedTable ? (
@@ -2534,28 +2597,6 @@ export default function ExploreDesignPage() {
                           >
                             <Columns3 className="h-5 w-5 text-slate-500" />
                             <span className="text-xs font-medium">Column Names</span>
-                          </button>
-                          {/* Data Engineering Actions */}
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800"
-                            onClick={() => setDynamicTableModal(true)}
-                          >
-                            <RefreshCw className="h-5 w-5 text-teal-600" />
-                            <span className="text-xs font-medium text-teal-700 dark:text-teal-400">Dynamic Table</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-cyan-50 dark:bg-cyan-900/20 border-cyan-200 dark:border-cyan-800"
-                            onClick={() => setStreamModal(true)}
-                          >
-                            <GitBranch className="h-5 w-5 text-cyan-600" />
-                            <span className="text-xs font-medium text-cyan-700 dark:text-cyan-400">Stream</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800"
-                            onClick={() => setAlertModal(true)}
-                          >
-                            <AlertTriangle className="h-5 w-5 text-amber-600" />
-                            <span className="text-xs font-medium text-amber-700 dark:text-amber-400">Alert</span>
                           </button>
                         </div>
                       </div>
@@ -2888,6 +2929,19 @@ export default function ExploreDesignPage() {
                           >
                             <Layers className="w-4 h-4" /> Hybrid Table
                           </button>
+                          <div className="border-t dark:border-gray-700 my-1" />
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setStreamModal(true); setShowCreateMenu(false); }}
+                          >
+                            <GitBranch className="w-4 h-4" /> Stream (CDC)
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 text-gray-700 dark:text-gray-300"
+                            onClick={() => { setAlertModal(true); setShowCreateMenu(false); }}
+                          >
+                            <AlertTriangle className="w-4 h-4" /> Alert
+                          </button>
                         </div>
                       )}
                     </div>
@@ -3036,6 +3090,26 @@ export default function ExploreDesignPage() {
                   } else {
                     toast.success('Mapping created (select a project to sync)');
                   }
+                }}
+                onDynamicTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setDynamicTableModal(true);
+                }}
+                onEventTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setEventTableModal(true);
+                }}
+                onHybridTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setHybridTableModal(true);
+                }}
+                onStreamCreate={(table) => {
+                  setSelectedTable(table);
+                  setStreamModal(true);
+                }}
+                onAlertCreate={(table) => {
+                  setSelectedTable(table);
+                  setAlertModal(true);
                 }}
                 className={cn("h-full", isFullscreen && "pt-14")}
                 projectId={selectedProjectId}
