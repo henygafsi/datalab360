@@ -9,7 +9,6 @@ import apiClient from '@/lib/api-client';
 const API_URL = API_CONFIG.BASE_URL;
 const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
 /** Explore & Design guided data flow: /explore-design/guided/* */
-const GUIDED_BASE = `${API_URL}/explore-design/guided`;
 /** New v1 explore-design prefix (uses apiClient with built-in auth) */
 const V1_EXPLORE = '/api/v1/explore-design';
 
@@ -3038,128 +3037,8 @@ export async function validateEventsBackend(
   };
 }
 
-/**
- * Get all scheduled deployments from backend
- * Uses /mapping/get_scheduled_deployments/ endpoint
- */
-export async function getScheduledDeploymentsFromBackend(): Promise<{
-  deployments: Array<{
-    workflow_name: string;
-    project_id: string;
-    scheduled_date: string;
-    deployment_method: string;
-    status: string;
-    created_by: string;
-    created_at: string;
-    module_type?: string;
-    mappings?: any[];
-  }>;
-}> {
-  const headers = await getAuthHeaders();
 
-  try {
-    const response = await axios.get(
-      `${GUIDED_BASE}/get_scheduled_deployments/`,
-      { headers }
-    );
 
-    return {
-      deployments: response.data.deployments || [],
-    };
-  } catch (error: any) {
-    console.error('Failed to get scheduled deployments:', error);
-    return { deployments: [] };
-  }
-}
-
-/**
- * Approve a scheduled deployment
- * Uses /mapping/approve_deployment/ endpoint
- */
-export async function approveScheduledDeploymentBackend(
-  workflowName: string
-): Promise<{ status: string; message: string }> {
-  const headers = await getAuthHeaders();
-
-  const response = await axios.post(
-    `${GUIDED_BASE}/approve_deployment/`,
-    { workflow_name: workflowName },
-    { headers }
-  );
-
-  return response.data;
-}
-
-/**
- * Activate (execute) an approved deployment
- * Uses /mapping/activate_deployment/ endpoint
- */
-export async function activateDeploymentBackend(
-  workflowName: string
-): Promise<{ status: string; message: string }> {
-  const headers = await getAuthHeaders();
-
-  const response = await axios.post(
-    `${GUIDED_BASE}/activate_deployment/`,
-    { workflow_name: workflowName },
-    { headers }
-  );
-
-  return response.data;
-}
-
-/**
- * Schedule a deployment for a future date
- * POST /explore-design/schedule-deployment (fallback to /mapping/schedule_deployment/)
- */
-export async function scheduleDeployment(
-  config: ScheduledDeploymentConfig
-): Promise<{
-  schedule_id: string;
-  status: ScheduledDeploymentStatus;
-  scheduled_date: string;
-  requires_approval: boolean;
-  approval_request_id?: string;
-}> {
-  const headers = await getAuthHeaders();
-
-  // Try /mapping/schedule_deployment/ first (which exists on the backend)
-  try {
-    const response = await axios.post(
-      `${GUIDED_BASE}/schedule_deployment/`,
-      {
-        ...config,
-        module_type: 'explore-design',
-        status: 'PENDING_APPROVAL',
-      },
-      { headers }
-    );
-    return {
-      schedule_id: response.data.schedule_id || `sched_${Date.now()}`,
-      status: 'PENDING_APPROVAL',
-      scheduled_date: config.scheduled_date,
-      requires_approval: true,
-      ...response.data,
-    };
-  } catch (mappingError: any) {
-    // Fall back to explore-design endpoint
-    console.warn('Falling back to explore-design endpoint:', mappingError.message);
-    try {
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/schedule-deployment`,
-        config,
-        { headers }
-      );
-      return response.data;
-    } catch (error: any) {
-      throw new Error(
-        error.response?.data?.detail ||
-        mappingError.response?.data?.detail ||
-        'Failed to schedule deployment. Please ensure the backend endpoint is configured.'
-      );
-    }
-  }
-}
 
 /**
  * Get all scheduled deployments for a project
@@ -4190,53 +4069,7 @@ export interface ManageTableRequest {
   COLUMN_COMMENT?: string;
 }
 
-/**
- * Manage table schema - rename tables/columns, add/drop constraints, etc.
- * Uses POST /mapping/manage_table endpoint
- */
-export async function manageTable(request: ManageTableRequest): Promise<any> {
-  const headers = await getAuthHeaders();
-  const url = `${GUIDED_BASE}/manage_table`;
 
-  // Build query params
-  const params = new URLSearchParams();
-  params.append('SOURCE_TABLE', request.SOURCE_TABLE);
-  params.append('CONSTRAINT_TYPE', request.CONSTRAINT_TYPE);
-
-  if (request.COLUMN_NAME) params.append('COLUMN_NAME', request.COLUMN_NAME);
-  if (request.COLUMN_TYPE) params.append('COLUMN_TYPE', request.COLUMN_TYPE);
-  if (request.NEW_NAME) params.append('NEW_NAME', request.NEW_NAME);
-  if (request.TABLE_REF) params.append('TABLE_REF', request.TABLE_REF);
-  if (request.COLUMN_REF) params.append('COLUMN_REF', request.COLUMN_REF);
-  if (request.DEFAULT_VALUE) params.append('DEFAULT_VALUE', request.DEFAULT_VALUE);
-  if (request.TARGET_TABLE) params.append('TARGET_TABLE', request.TARGET_TABLE);
-  if (request.COLUMN_COMMENT) params.append('COLUMN_COMMENT', request.COLUMN_COMMENT);
-
-  console.log('🔧 Manage Table API Call:', {
-    url: `${url}?${params.toString()}`,
-    request,
-  });
-
-  try {
-    const response = await axios.post(`${url}?${params.toString()}`, null, { headers });
-
-    console.log('✅ Manage Table Response:', {
-      status: response.status,
-      data: response.data,
-    });
-
-    return response.data;
-  } catch (error: any) {
-    console.error('❌ Manage Table Error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
-      status: error.response?.status,
-      request,
-      fullError: error.response?.data,
-    });
-    throw error;
-  }
-}
 
 /**
  * Rename a table

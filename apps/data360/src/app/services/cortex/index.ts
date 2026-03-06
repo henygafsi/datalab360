@@ -11,6 +11,7 @@ export {
   getSemanticModelContent,
   createSemanticModel,
   deleteSemanticModel,
+  generateSemanticModel,
   validateSemanticModelYaml,
   generateSampleModelYaml,
   formatFileSize,
@@ -20,6 +21,8 @@ export type {
   SemanticModel,
   SemanticModelContent,
   CreateSemanticModelRequest,
+  SemanticModelGenerateRequest,
+  SemanticModelGenerateResponse,
 } from './semantic-models';
 
 // Advanced ML Features

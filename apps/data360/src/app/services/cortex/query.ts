@@ -7,6 +7,7 @@ import axios from 'axios';
 
 export interface CortexQueryRequest {
   prompt: string;
+  semantic_model?: string;
 }
 
 export interface CortexQueryResult {

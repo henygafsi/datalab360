@@ -20,10 +20,11 @@ import KPICard from '@/components/analytics/KPICard';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
+import CortexChatContent from './cortex-chat-content';
 import MLFeaturesContent from './ml-features-content';
 import AdvancedMLContent from './advanced-ml-content';
 
-type TabType = 'semantic-models' | 'ml-features' | 'advanced-ml';
+type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml';
 
 const TABS = [
   {
@@ -33,6 +34,14 @@ const TABS = [
     description: 'YAML-based data models for Cortex Analyst',
     badge: 'AI-Powered',
     badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
+  },
+  {
+    id: 'cortex-chat' as TabType,
+    name: 'Cortex Chat',
+    icon: PiChatCircleDots,
+    description: 'Ask questions about your data in natural language',
+    badge: 'Beta',
+    badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
   },
   {
     id: 'ml-features' as TabType,
@@ -63,7 +72,7 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'advanced-ml') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
@@ -194,7 +203,7 @@ export default function IntelligentPage() {
         {/* Tab Content */}
         <div className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
-          {/* Data & Governance tab removed — features available in Governance + Workflow */}
+          {activeTab === 'cortex-chat' && <CortexChatContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
           {activeTab === 'advanced-ml' && <AdvancedMLContent />}
         </div>

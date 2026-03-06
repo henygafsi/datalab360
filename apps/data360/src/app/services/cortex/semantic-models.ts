@@ -29,6 +29,24 @@ export interface CreateSemanticModelRequest {
   description?: string;
 }
 
+export interface SemanticModelGenerateRequest {
+  database: string;
+  schema: string;
+  tables?: string[];
+  model_name?: string;
+  model_description?: string;
+  include_views?: boolean;
+  sample_values_limit?: number;
+}
+
+export interface SemanticModelGenerateResponse {
+  model_name: string;
+  yaml_content: string;
+  tables_count: number;
+  database: string;
+  schema: string;
+}
+
 export interface StandardResponse<T = any> {
   status: string;
   message: string;
@@ -248,6 +266,30 @@ export async function createSemanticModel(request: CreateSemanticModelRequest): 
     if (axios.isAxiosError(error)) {
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Failed to create semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Auto-generate a semantic model YAML from Snowflake DDL introspection
+ */
+export async function generateSemanticModel(
+  request: SemanticModelGenerateRequest
+): Promise<SemanticModelGenerateResponse> {
+  try {
+    const headers = await getAuthHeaders();
+    const response = await axios.post<StandardResponse<SemanticModelGenerateResponse>>(
+      `${API_BASE_URL}/cortex/semantic-models/generate`,
+      request,
+      { headers }
+    );
+    const data = response.data?.data || response.data;
+    return data as SemanticModelGenerateResponse;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to generate semantic model: ${message}`);
     }
     throw error;
   }

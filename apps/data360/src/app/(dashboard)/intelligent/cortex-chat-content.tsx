@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Button, Input, Badge, Loader } from 'rizzui';
+import { Button, Input, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   HiOutlinePaperAirplane,
@@ -21,6 +21,7 @@ import {
   PiMagicWand,
 } from 'react-icons/pi';
 import { queryCortex, type CortexQueryResponse, type CortexQueryResult } from '@/app/services/cortex';
+import { listSemanticModels, type SemanticModel } from '@/app/services/cortex/semantic-models';
 
 interface ChatMessage {
   id: string;
@@ -45,6 +46,36 @@ export default function CortexChatContent() {
   const [isQuerying, setIsQuerying] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Semantic model selection
+  const [models, setModels] = useState<SemanticModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState('');
+  const [loadingModels, setLoadingModels] = useState(true);
+
+  useEffect(() => {
+    loadModels();
+  }, []);
+
+  const loadModels = async () => {
+    setLoadingModels(true);
+    try {
+      const data = await listSemanticModels();
+      const modelsArray = Array.isArray(data) ? data : [];
+      setModels(modelsArray);
+      if (modelsArray.length > 0 && !selectedModel) {
+        setSelectedModel(modelsArray[0].name.replace('.yaml', ''));
+      }
+    } catch {
+      setModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const modelOptions = models.map((m) => ({
+    value: m.name.replace('.yaml', ''),
+    label: m.name.replace('.yaml', ''),
+  }));
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -58,6 +89,11 @@ export default function CortexChatContent() {
   const handleSendMessage = async (prompt?: string) => {
     const messageText = prompt || inputValue.trim();
     if (!messageText || isQuerying) return;
+
+    if (!selectedModel) {
+      toast.error('Please select a semantic model first');
+      return;
+    }
 
     // Add user message
     const userMessage: ChatMessage = {
@@ -81,7 +117,10 @@ export default function CortexChatContent() {
     setIsQuerying(true);
 
     try {
-      const response = await queryCortex({ prompt: messageText });
+      const response = await queryCortex({
+        prompt: messageText,
+        semantic_model: selectedModel || undefined,
+      });
 
       // Update assistant message with results
       setMessages(prev =>
@@ -245,17 +284,29 @@ export default function CortexChatContent() {
             </p>
           </div>
         </div>
-        {messages.length > 0 && (
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={handleClearChat}
-            className="text-slate-500 hover:text-red-500"
-          >
-            <HiOutlineTrash className="w-4 h-4 mr-1" />
-            Clear Chat
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <div className="w-52">
+            <Select
+              options={modelOptions}
+              value={selectedModel}
+              onChange={(opt: any) => setSelectedModel(opt?.value || '')}
+              placeholder={loadingModels ? 'Loading models...' : 'Select model'}
+              disabled={loadingModels || modelOptions.length === 0}
+              size="sm"
+            />
+          </div>
+          {messages.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleClearChat}
+              className="text-slate-500 hover:text-red-500"
+            >
+              <HiOutlineTrash className="w-4 h-4 mr-1" />
+              Clear Chat
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Chat Messages Area */}

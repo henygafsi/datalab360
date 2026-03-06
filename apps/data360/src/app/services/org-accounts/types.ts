@@ -18,6 +18,7 @@ export interface ClientAccount {
   account_url: string;
   created_on: string;
   comment: string | null;
+  deleted_on: string | null;
   dropped_on: string | null;
   scheduled_deletion_time: string | null;
   is_org_admin: boolean;
@@ -106,7 +107,7 @@ export interface QueryTrendPoint {
 export interface DashboardTrendsResponse {
   credits: CreditTrendPoint[];
   storage: StorageTrendPoint[];
-  queries: QueryTrendPoint[];
+  queries?: QueryTrendPoint[];
   period_days: number;
   generated_at: string;
   execution_time_ms: number;
@@ -141,10 +142,10 @@ export interface CreditsResponse {
 export interface AccountStorage {
   account_name: string;
   account_locator: string;
-  region: string;
+  region?: string;
   total_bytes: number;
   storage_credits: number;
-  by_type: Record<string, number>;
+  by_type?: Record<string, number>;
   total_tb: number;
 }
 
@@ -190,8 +191,8 @@ export interface HealthScore {
   overall_score: number;
   status: HealthStatus;
   cost_score: number;
-  activity_score: number;
-  security_score: number;
+  activity_score?: number;
+  security_score?: number;
   issues: string[];
   recommendations: string[];
   last_assessed: string;
@@ -436,6 +437,8 @@ export interface QueryTrendResponse {
 export interface DataTransferUsage {
   account_name: string;
   account_locator: string;
+  source_cloud: string;
+  source_region: string;
   target_cloud: string;
   target_region: string;
   transfer_type: string;
@@ -518,6 +521,240 @@ export interface ShareDetailResponse {
 
 export interface HealthScoresResponse {
   health_scores: HealthScore[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// DATABASE STORAGE (/storage/databases)
+// =============================================================================
+
+export interface DatabaseStorage {
+  account_name: string;
+  database_name: string;
+  database_bytes: number;
+  failsafe_bytes: number;
+  database_tb: number;
+}
+
+export interface DatabaseStorageResponse {
+  databases: DatabaseStorage[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// STAGE STORAGE (/storage/stages)
+// =============================================================================
+
+export interface StageStorage {
+  account_name: string;
+  stage_bytes: number;
+  stage_tb: number;
+}
+
+export interface StageStorageResponse {
+  stages: StageStorage[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// CONTRACT (/contract)
+// =============================================================================
+
+export interface ContractItem {
+  organization_name: string;
+  contract_number: string;
+  start_date: string;
+  end_date: string;
+  expiration_date: string;
+  contract_item: string;
+  currency: string;
+  amount: number;
+  contract_modified_date: string;
+}
+
+export interface ContractResponse {
+  contracts: ContractItem[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// RATE SHEET (/rate-sheet)
+// =============================================================================
+
+export interface RateSheetEntry {
+  account_name: string;
+  account_locator: string;
+  region: string;
+  service_level: string;
+  usage_type: string;
+  service_type: string;
+  currency: string;
+  effective_rate: number;
+  rating_type: string;
+  billing_type: string;
+  is_adjustment: boolean;
+}
+
+export interface RateSheetResponse {
+  rates: RateSheetEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// METERING (/metering)
+// =============================================================================
+
+export interface MeteringEntry {
+  account_name: string;
+  service_type: string;
+  compute_credits: number;
+  cloud_services_credits: number;
+  total_credits: number;
+  cloud_adjustment: number;
+  total_billed: number;
+}
+
+export interface MeteringResponse {
+  period_days: number;
+  metering: MeteringEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// METERING TREND (/metering/trend)
+// =============================================================================
+
+export interface MeteringTrendPoint {
+  usage_date: string;
+  compute_credits: number;
+  cloud_services_credits: number;
+  total_credits: number;
+  total_billed: number;
+  account_count: number;
+}
+
+export interface MeteringTrendResponse {
+  period_days: number;
+  trend: MeteringTrendPoint[];
+  data_points: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// COMPUTE SERVICES
+// =============================================================================
+
+// /services/clustering
+export interface ClusteringEntry {
+  account_name: string;
+  total_credits: number;
+  bytes_reclustered: number;
+  rows_reclustered: number;
+}
+
+export interface ClusteringResponse {
+  period_days: number;
+  clustering: ClusteringEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// /services/materialized-views
+export interface MaterializedViewEntry {
+  account_name: string;
+  total_credits: number;
+}
+
+export interface MaterializedViewResponse {
+  period_days: number;
+  materialized_views: MaterializedViewEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// /services/pipes
+export interface PipeEntry {
+  account_name: string;
+  total_credits: number;
+  total_bytes_inserted: number;
+  total_files_inserted: number;
+}
+
+export interface PipeResponse {
+  period_days: number;
+  pipes: PipeEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// /services/search-optimization
+export interface SearchOptimizationEntry {
+  account_name: string;
+  total_credits: number;
+}
+
+export interface SearchOptimizationResponse {
+  period_days: number;
+  search_optimization: SearchOptimizationEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// /services/query-acceleration
+export interface QueryAccelerationEntry {
+  account_name: string;
+  total_credits: number;
+}
+
+export interface QueryAccelerationResponse {
+  period_days: number;
+  query_acceleration: QueryAccelerationEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// REPLICATION (/replication)
+// =============================================================================
+
+export interface ReplicationEntry {
+  account_name: string;
+  total_credits: number;
+  total_bytes_transferred: number;
+}
+
+export interface ReplicationResponse {
+  period_days: number;
+  replication: ReplicationEntry[];
+  count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// ANOMALIES (/anomalies)
+// =============================================================================
+
+export interface AnomalyEntry {
+  date: string;
+  account_name: string;
+  account_locator: string;
+  region: string;
+  actual_value: number;
+  currency: string;
+  upper_bound: number;
+  lower_bound: number;
+  forecasted_value: number;
+}
+
+export interface AnomalyResponse {
+  period_days: number;
+  anomalies: AnomalyEntry[];
   count: number;
   execution_time_ms: number;
 }

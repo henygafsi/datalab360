@@ -14,8 +14,6 @@ import type {
   // Dashboard
   DashboardOverviewResponse,
   DashboardUsageResponse,
-  DashboardCreditsResponse,
-  DashboardStorageResponse,
   DashboardTrendsResponse,
   // Accounts
   AccountsListResponse,
@@ -29,6 +27,8 @@ import type {
   // Storage
   StorageResponse,
   StorageTrendResponse,
+  DatabaseStorageResponse,
+  StageStorageResponse,
   // Warehouses
   WarehousesResponse,
   AccountWarehousesResponse,
@@ -41,13 +41,27 @@ import type {
   QueryTrendResponse,
   // Data Transfer
   DataTransferResponse,
-  // Balance
+  // Balance & Billing
   BalanceResponse,
+  ContractResponse,
+  RateSheetResponse,
+  // Metering
+  MeteringResponse,
+  MeteringTrendResponse,
   // Health
   HealthScore,
   HealthScoresResponse,
   // Alerts
   AlertsResponse,
+  // Compute Services
+  ClusteringResponse,
+  MaterializedViewResponse,
+  PipeResponse,
+  SearchOptimizationResponse,
+  QueryAccelerationResponse,
+  // Replication & Anomalies
+  ReplicationResponse,
+  AnomalyResponse,
   // Reader Accounts & Shares
   ReaderAccountsResponse,
   CreateReaderAccountRequest,
@@ -76,22 +90,6 @@ export async function getDashboardOverview(): Promise<DashboardOverviewResponse>
  */
 export async function getDashboardUsage(): Promise<DashboardUsageResponse> {
   const { data } = await apiClient.get<DashboardUsageResponse>(`${BASE_URL}/dashboard/usage`);
-  return data;
-}
-
-/**
- * @deprecated Use getDashboardUsage() instead
- */
-export async function getDashboardCredits(days = 30): Promise<DashboardCreditsResponse> {
-  const { data } = await apiClient.get<DashboardCreditsResponse>(`${BASE_URL}/dashboard/credits?days=${days}`);
-  return data;
-}
-
-/**
- * @deprecated Use getDashboardUsage() instead
- */
-export async function getDashboardStorage(): Promise<DashboardStorageResponse> {
-  const { data } = await apiClient.get<DashboardStorageResponse>(`${BASE_URL}/dashboard/storage`);
   return data;
 }
 
@@ -197,6 +195,26 @@ export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> 
   return data;
 }
 
+/**
+ * Database-level storage breakdown (yesterday's snapshot).
+ */
+export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
+  const { data } = await apiClient.get<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
+    timeout: 60000,
+  });
+  return data;
+}
+
+/**
+ * Stage storage per account (yesterday's snapshot).
+ */
+export async function getStorageStages(): Promise<StageStorageResponse> {
+  const { data } = await apiClient.get<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
+    timeout: 60000,
+  });
+  return data;
+}
+
 // =============================================================================
 // WAREHOUSES
 // =============================================================================
@@ -288,7 +306,7 @@ export async function getDataTransfer(days = 30): Promise<DataTransferResponse> 
 }
 
 // =============================================================================
-// BALANCE
+// BALANCE & BILLING
 // =============================================================================
 
 /**
@@ -296,6 +314,42 @@ export async function getDataTransfer(days = 30): Promise<DataTransferResponse> 
  */
 export async function getBalance(): Promise<BalanceResponse> {
   const { data } = await apiClient.get<BalanceResponse>(`${BASE_URL}/balance`);
+  return data;
+}
+
+/**
+ * Contract items.
+ */
+export async function getContract(): Promise<ContractResponse> {
+  const { data } = await apiClient.get<ContractResponse>(`${BASE_URL}/contract`);
+  return data;
+}
+
+/**
+ * Current pricing rates per account.
+ */
+export async function getRateSheet(): Promise<RateSheetResponse> {
+  const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
+  return data;
+}
+
+// =============================================================================
+// METERING
+// =============================================================================
+
+/**
+ * Metering by account & service type.
+ */
+export async function getMetering(days = 30): Promise<MeteringResponse> {
+  const { data } = await apiClient.get<MeteringResponse>(`${BASE_URL}/metering?days=${days}`);
+  return data;
+}
+
+/**
+ * Daily metering trend.
+ */
+export async function getMeteringTrend(days = 30): Promise<MeteringTrendResponse> {
+  const { data } = await apiClient.get<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
   return data;
 }
 
@@ -309,7 +363,7 @@ export async function getBalance(): Promise<BalanceResponse> {
  */
 export async function getHealth(): Promise<HealthScoresResponse> {
   const { data } = await apiClient.get<HealthScoresResponse>(`${BASE_URL}/health`, {
-    timeout: 60000, // 60 seconds for this slow endpoint
+    timeout: 60000,
   });
   return data;
 }
@@ -329,6 +383,70 @@ export async function getAccountHealth(accountName: string): Promise<HealthScore
  */
 export async function getAlerts(days = 7): Promise<AlertsResponse> {
   const { data } = await apiClient.get<AlertsResponse>(`${BASE_URL}/alerts?days=${days}`);
+  return data;
+}
+
+// =============================================================================
+// COMPUTE SERVICES
+// =============================================================================
+
+/**
+ * Auto-clustering credits per account.
+ */
+export async function getServicesClustering(days = 30): Promise<ClusteringResponse> {
+  const { data } = await apiClient.get<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
+  return data;
+}
+
+/**
+ * Materialized view refresh credits per account.
+ */
+export async function getServicesMaterializedViews(days = 30): Promise<MaterializedViewResponse> {
+  const { data } = await apiClient.get<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
+  return data;
+}
+
+/**
+ * Snowpipe usage per account.
+ */
+export async function getServicesPipes(days = 30): Promise<PipeResponse> {
+  const { data } = await apiClient.get<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
+  return data;
+}
+
+/**
+ * Search optimization credits per account.
+ */
+export async function getServicesSearchOptimization(days = 30): Promise<SearchOptimizationResponse> {
+  const { data } = await apiClient.get<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
+  return data;
+}
+
+/**
+ * Query acceleration credits per account.
+ */
+export async function getServicesQueryAcceleration(days = 30): Promise<QueryAccelerationResponse> {
+  const { data } = await apiClient.get<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
+  return data;
+}
+
+// =============================================================================
+// REPLICATION & ANOMALIES
+// =============================================================================
+
+/**
+ * Replication usage per account.
+ */
+export async function getReplication(days = 30): Promise<ReplicationResponse> {
+  const { data } = await apiClient.get<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
+  return data;
+}
+
+/**
+ * Cost anomalies detected.
+ */
+export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
+  const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
   return data;
 }
 

@@ -91,16 +91,20 @@ function HealthItem({ health }: HealthItemProps) {
                   Cost: <span className="font-medium">{health.cost_score}</span>
                 </Text>
               </Tooltip>
-              <Tooltip content="Activity Score">
-                <Text className="text-xs text-gray-500">
-                  Activity: <span className="font-medium">{health.activity_score}</span>
-                </Text>
-              </Tooltip>
-              <Tooltip content="Security Score">
-                <Text className="text-xs text-gray-500">
-                  Security: <span className="font-medium">{health.security_score}</span>
-                </Text>
-              </Tooltip>
+              {health.activity_score != null && (
+                <Tooltip content="Activity Score">
+                  <Text className="text-xs text-gray-500">
+                    Activity: <span className="font-medium">{health.activity_score}</span>
+                  </Text>
+                </Tooltip>
+              )}
+              {health.security_score != null && (
+                <Tooltip content="Security Score">
+                  <Text className="text-xs text-gray-500">
+                    Security: <span className="font-medium">{health.security_score}</span>
+                  </Text>
+                </Tooltip>
+              )}
             </div>
           </div>
 

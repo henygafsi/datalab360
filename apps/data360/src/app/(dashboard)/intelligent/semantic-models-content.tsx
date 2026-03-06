@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Button, Input, Modal, Badge, Loader } from 'rizzui';
+import { Button, Input, Modal, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   HiOutlinePlus,
@@ -27,13 +27,21 @@ import {
   getSemanticModelContent,
   createSemanticModel,
   deleteSemanticModel,
-  generateSampleModelYaml,
+  generateSemanticModel,
   formatFileSize,
   formatDate,
   validateSemanticModelYaml,
   type SemanticModel,
   type SemanticModelContent,
 } from '@/app/services/cortex/semantic-models';
+import { getDatabases } from '@/app/services/mapping/getDatabases';
+import { getSchemas } from '@/app/services/mapping/getSchema';
+import { getTables } from '@/app/services/mapping/getTables';
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
 
 export default function SemanticModelsContent() {
   const [models, setModels] = useState<SemanticModel[]>([]);
@@ -50,9 +58,49 @@ export default function SemanticModelsContent() {
   const [modelDescription, setModelDescription] = useState('');
   const [yamlContent, setYamlContent] = useState('');
 
+  // Data source picker state
+  const [database, setDatabase] = useState('');
+  const [schema, setSchema] = useState('');
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [dbOptions, setDbOptions] = useState<SelectOption[]>([]);
+  const [schemaOptions, setSchemaOptions] = useState<SelectOption[]>([]);
+  const [tableOptions, setTableOptions] = useState<SelectOption[]>([]);
+  const [generating, setGenerating] = useState(false);
+
   useEffect(() => {
     loadModels();
   }, []);
+
+  // Load databases when modal opens
+  useEffect(() => {
+    if (showCreateModal && dbOptions.length === 0) {
+      getDatabases()
+        .then((dbs) => setDbOptions(dbs.map((d) => ({ value: d, label: d }))))
+        .catch(() => {});
+    }
+  }, [showCreateModal]);
+
+  // Load schemas when database changes
+  useEffect(() => {
+    if (!database) {
+      setSchemaOptions([]);
+      return;
+    }
+    getSchemas(database)
+      .then((schemas) => setSchemaOptions(schemas.map((s) => ({ value: s, label: s }))))
+      .catch(() => setSchemaOptions([]));
+  }, [database]);
+
+  // Load tables when schema changes
+  useEffect(() => {
+    if (!database || !schema) {
+      setTableOptions([]);
+      return;
+    }
+    getTables(database, schema)
+      .then((tables) => setTableOptions(tables.map((t) => ({ value: t, label: t }))))
+      .catch(() => setTableOptions([]));
+  }, [database, schema]);
 
   const loadModels = async () => {
     try {
@@ -141,10 +189,30 @@ export default function SemanticModelsContent() {
     }
   };
 
-  const handleGenerateSample = () => {
-    const sample = generateSampleModelYaml(modelName || 'SAMPLE_TABLE');
-    setYamlContent(sample);
-    toast.success('Sample YAML template generated!');
+  const handleGenerate = async () => {
+    if (!database || !schema) {
+      toast.error('Please select a database and schema first');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const result = await generateSemanticModel({
+        database,
+        schema,
+        tables: selectedTables.length > 0 ? selectedTables : undefined,
+        model_name: modelName || undefined,
+        model_description: modelDescription || undefined,
+      });
+      setYamlContent(result.yaml_content);
+      if (!modelName && result.model_name) {
+        setModelName(result.model_name);
+      }
+      toast.success(`Generated from ${result.tables_count} table(s)`);
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to generate semantic model');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleCopyContent = () => {
@@ -158,6 +226,11 @@ export default function SemanticModelsContent() {
     setModelName('');
     setModelDescription('');
     setYamlContent('');
+    setDatabase('');
+    setSchema('');
+    setSelectedTables([]);
+    setSchemaOptions([]);
+    setTableOptions([]);
   };
 
   // Helper function to format error messages from API responses
@@ -360,23 +433,101 @@ export default function SemanticModelsContent() {
               onChange={(e) => setModelDescription(e.target.value)}
             />
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  YAML Content
-                </label>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleGenerateSample}
-                  className="text-violet-600 border-violet-200 hover:bg-violet-50"
-                >
-                  <PiMagicWand className="w-4 h-4 mr-1" />
-                  Generate Sample
-                </Button>
+            {/* Data Source Pickers */}
+            <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                <PiDatabase className="w-4 h-4" />
+                Generate from Data Source
               </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Database"
+                  options={dbOptions}
+                  value={database}
+                  onChange={(opt: any) => {
+                    const val = opt?.value || '';
+                    setDatabase(val);
+                    setSchema('');
+                    setSelectedTables([]);
+                  }}
+                  placeholder={dbOptions.length === 0 ? 'Loading...' : 'Select database'}
+                />
+                <Select
+                  label="Schema"
+                  options={schemaOptions}
+                  value={schema}
+                  onChange={(opt: any) => {
+                    setSchema(opt?.value || '');
+                    setSelectedTables([]);
+                  }}
+                  placeholder={!database ? 'Select database first' : schemaOptions.length === 0 ? 'Loading...' : 'Select schema'}
+                  disabled={!database}
+                />
+              </div>
+              {database && schema && tableOptions.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                    Tables (optional - leave empty to include all)
+                  </label>
+                  <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+                    {tableOptions.map((t) => {
+                      const isSelected = selectedTables.includes(t.value);
+                      return (
+                        <button
+                          key={t.value}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTables((prev) =>
+                              isSelected
+                                ? prev.filter((v) => v !== t.value)
+                                : [...prev, t.value]
+                            );
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                            isSelected
+                              ? 'bg-violet-100 dark:bg-violet-900/40 border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 font-medium'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-violet-200 dark:hover:border-violet-700'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedTables.length > 0 && (
+                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">
+                      {selectedTables.length} table(s) selected
+                    </p>
+                  )}
+                </div>
+              )}
+              <Button
+                size="sm"
+                onClick={handleGenerate}
+                disabled={!database || !schema || generating}
+                className="w-full bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:opacity-50"
+              >
+                {generating ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Generating from DDL...
+                  </>
+                ) : (
+                  <>
+                    <PiMagicWand className="w-4 h-4 mr-2" />
+                    Generate YAML from Tables
+                  </>
+                )}
+              </Button>
+            </div>
+
+            {/* YAML Content */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                YAML Content
+              </label>
               <textarea
-                className="w-full h-80 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
+                className="w-full h-72 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
                 value={yamlContent}
                 onChange={(e) => setYamlContent(e.target.value)}
                 placeholder={`name: my_semantic_model
@@ -384,26 +535,17 @@ description: Describe your semantic model
 
 tables:
   - name: MY_TABLE
-    description: Main data table
     base_table:
       database: CP_DATA360
       schema: STAGING
       table: MY_TABLE
-
     dimensions:
       - name: id
-        description: Unique identifier
         expr: ID
-        data_type: NUMBER
-
-    measures:
-      - name: total_count
-        description: Count of records
-        expr: COUNT(*)
         data_type: NUMBER`}
               />
               <p className="text-xs text-slate-500 mt-1">
-                Define tables, dimensions, measures, and relationships for your semantic model
+                Generate from a data source above, or write YAML manually
               </p>
             </div>
 
