@@ -10,7 +10,7 @@ import {
   AlertTriangle, CheckCircle, MinusCircle, Users, Database,
   Cpu, Box, Brain, BarChart3, Zap, Upload, Clock, Gauge,
   Lock, FileText, Layers, Rocket, ChevronUp, ChevronDown,
-  Download, Search, X, Filter, ArrowUpDown,
+  Download, Search, X, Filter, ArrowUpDown, Check, XCircle,
 } from 'lucide-react';
 import {
   ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -35,6 +35,7 @@ import {
   getProjectsOverview, getGovernanceGrantsOverview, getDataOperationsOverview,
   getPlatformActivityFiltered, getFilterOptions,
 } from '@/app/services/org-accounts/hooks';
+import { approveDeployment, rejectDeployment } from '@/app/services/api/projectsApi';
 import type {
   SecurityOverviewResponse, PerformanceOverviewResponse, CortexCostsResponse,
   PlatformActivityResponse, AccountHealthScoreResponse,
@@ -665,7 +666,7 @@ export default function CommandCenterDashboard() {
       {/* ── Tab Content ───────────────────────────────────────────── */}
       <div className="space-y-6">
         {activeTab === 'overview' && <OverviewTab summary={summary} moduleHealth={moduleHealth} activityFeed={activityFeed} obsKpis={obsKpis} healthScore={healthScore} loading={tabLoading.overview} />}
-        {activeTab === 'projects' && <ProjectsTab data={projectsData} loading={tabLoading.projects} />}
+        {activeTab === 'projects' && <ProjectsTab data={projectsData} loading={tabLoading.projects} onRefresh={fetchProjects} />}
         {activeTab === 'security-adv' && <SecurityAdvTab data={securityData} loading={tabLoading['security-adv']} />}
         {activeTab === 'governance-grants' && <GovernanceGrantsTab data={govGrantsData} loading={tabLoading['governance-grants']} />}
         {activeTab === 'data-ops' && <DataOperationsTab data={dataOpsData} loading={tabLoading['data-ops']} />}
@@ -777,9 +778,43 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
 // TAB 2: PROJECTS & DEPLOYMENTS
 // ═════════════════════════════════════════════════════════════════════════════
 
-const ProjectsTab = memo(function ProjectsTab({ data, loading }: {
-  data: ProjectsOverviewResponse | null; loading: boolean;
+const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
+  data: ProjectsOverviewResponse | null; loading: boolean; onRefresh?: () => void;
 }) {
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const handleApprove = useCallback(async (projectId: string, deploymentId: string, projectName: string) => {
+    if (actionLoading) return;
+    setActionLoading(deploymentId);
+    try {
+      await approveDeployment(projectId, deploymentId);
+      toast.success(`Deployment approved for ${projectName}`);
+      onRefresh?.();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to approve deployment');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [actionLoading, onRefresh]);
+
+  const handleReject = useCallback(async () => {
+    if (!rejectModal || actionLoading) return;
+    setActionLoading(rejectModal.deploymentId);
+    try {
+      await rejectDeployment(rejectModal.projectId, rejectModal.deploymentId, { reason: rejectReason || undefined });
+      toast.success(`Deployment rejected for ${rejectModal.projectName}`);
+      setRejectModal(null);
+      setRejectReason('');
+      onRefresh?.();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to reject deployment');
+    } finally {
+      setActionLoading(null);
+    }
+  }, [rejectModal, actionLoading, rejectReason, onRefresh]);
+
   if (loading || !data) return <LoadingSection />;
 
   const summary = data.summary || {} as any;
@@ -888,6 +923,27 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading }: {
           { key: 'approved_by', label: 'Approved By', sortable: true },
           { key: 'deployed_at', label: 'Deployed', sortable: true,
             render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+          { key: 'deployment_id', label: 'Actions', sortable: false,
+            render: (_: string, row: any) => row.status === 'pending_approval' ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => handleApprove(row.project_id, row.deployment_id, row.project_name)}
+                  disabled={actionLoading === row.deployment_id}
+                  className="rounded-md bg-green-100 dark:bg-green-900/30 p-1.5 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                  title="Approve deployment"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  onClick={() => setRejectModal({ projectId: row.project_id, deploymentId: row.deployment_id, projectName: row.project_name })}
+                  disabled={actionLoading === row.deployment_id}
+                  className="rounded-md bg-red-100 dark:bg-red-900/30 p-1.5 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"
+                  title="Reject deployment"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : null },
         ]}
       />
 
@@ -901,7 +957,23 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading }: {
                 <div key={i} className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-medium text-gray-900 dark:text-white">{p.project_name}</span>
-                    <Badge size="sm" variant="flat" color="warning">{p.environment}</Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge size="sm" variant="flat" color="warning">{p.environment}</Badge>
+                      <button
+                        onClick={() => handleApprove(p.project_id, p.deployment_id, p.project_name)}
+                        disabled={actionLoading === p.deployment_id}
+                        className="rounded-md bg-green-100 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                      >
+                        {actionLoading === p.deployment_id ? '...' : 'Approve'}
+                      </button>
+                      <button
+                        onClick={() => setRejectModal({ projectId: p.project_id, deploymentId: p.deployment_id, projectName: p.project_name })}
+                        disabled={actionLoading === p.deployment_id}
+                        className="rounded-md bg-red-100 dark:bg-red-900/30 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
                     {p.project_type?.replace(/_/g, ' ')} | Requested by {p.requested_by} — {relativeTime(p.requested_at)}
@@ -947,6 +1019,40 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading }: {
           </div>
         </SectionCard>
       </div>
+
+      {/* Reject Deployment Modal */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectModal(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Reject deployment for <span className="font-medium text-gray-900 dark:text-white">{rejectModal.projectName}</span>
+            </p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection (optional)"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
+              rows={3}
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => { setRejectModal(null); setRejectReason(''); }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={actionLoading === rejectModal.deploymentId}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {actionLoading === rejectModal.deploymentId ? 'Rejecting...' : 'Reject Deployment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 });

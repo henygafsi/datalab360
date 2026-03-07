@@ -6,7 +6,7 @@ import { toast } from 'react-hot-toast';
 import {
   FolderOpen, Users, Crown, Pencil, Eye, Trash2,
   ChevronDown, ChevronRight, Loader2, RefreshCw,
-  UserPlus, Check, X, Search,
+  UserPlus, Check, X, Search, Rocket, Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSession } from 'next-auth/react';
@@ -17,7 +17,10 @@ import {
   listContributors,
   addContributor,
   removeContributor,
+  approveDeployment,
+  rejectDeployment,
 } from '@/app/services/api/projectsApi';
+import { getProjectsOverview } from '@/app/services/org-accounts/hooks';
 import type { Project, Contributor, ContributorRole } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 
@@ -463,6 +466,55 @@ export default function ProjectsGovernancePage() {
     return { total, explore, workflow, totalMembers };
   }, [projects]);
 
+  // Pending deployments
+  const [pendingDeploys, setPendingDeploys] = useState<any[]>([]);
+  const [deployActionLoading, setDeployActionLoading] = useState<string | null>(null);
+  const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const fetchPendingDeploys = useCallback(async () => {
+    try {
+      const overview = await getProjectsOverview({ days: 90 });
+      setPendingDeploys(overview?.pending_approvals || []);
+    } catch {
+      // Silently fail — non-critical
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPendingDeploys();
+  }, [fetchPendingDeploys]);
+
+  const handleApproveDeploy = useCallback(async (projectId: string, deploymentId: string, projectName: string) => {
+    if (deployActionLoading) return;
+    setDeployActionLoading(deploymentId);
+    try {
+      await approveDeployment(projectId, deploymentId);
+      toast.success(`Deployment approved for ${projectName}`);
+      fetchPendingDeploys();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setDeployActionLoading(null);
+    }
+  }, [deployActionLoading, fetchPendingDeploys]);
+
+  const handleRejectDeploy = useCallback(async () => {
+    if (!rejectModal || deployActionLoading) return;
+    setDeployActionLoading(rejectModal.deploymentId);
+    try {
+      await rejectDeployment(rejectModal.projectId, rejectModal.deploymentId, { reason: rejectReason || undefined });
+      toast.success(`Deployment rejected for ${rejectModal.projectName}`);
+      setRejectModal(null);
+      setRejectReason('');
+      fetchPendingDeploys();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setDeployActionLoading(null);
+    }
+  }, [rejectModal, deployActionLoading, rejectReason, fetchPendingDeploys]);
+
   const tabs: { id: FilterTab; label: string; count: number }[] = [
     { id: 'all', label: 'All', count: stats.total },
     { id: 'explore_design', label: 'Explore & Design', count: stats.explore },
@@ -498,6 +550,93 @@ export default function ProjectsGovernancePage() {
           </Button>
         }
       />
+
+      {/* Pending Deployments */}
+      {pendingDeploys.length > 0 && (
+        <div className="rounded-xl border border-amber-200 dark:border-amber-800/50 bg-amber-50/50 dark:bg-amber-900/10 p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Rocket className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+            <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Pending Deployment Approvals
+            </h3>
+            <Badge className="bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 px-2 py-0.5 text-xs font-medium">
+              {pendingDeploys.length}
+            </Badge>
+          </div>
+          <div className="space-y-2">
+            {pendingDeploys.map((d: any, i: number) => (
+              <div key={d.deployment_id || i} className="flex items-center justify-between rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-800 dark:text-slate-200 truncate">{d.project_name}</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+                      {d.project_type?.replace(/_/g, ' ')}
+                    </span>
+                    <Badge size="sm" variant="flat" color="warning">{d.environment}</Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-slate-500 dark:text-slate-400">
+                    <Clock className="h-3 w-3" />
+                    Requested by {d.requested_by}
+                    {d.requested_at && ` — ${formatDistanceToNow(new Date(d.requested_at), { addSuffix: true })}`}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 ml-4">
+                  <button
+                    onClick={() => handleApproveDeploy(d.project_id, d.deployment_id, d.project_name)}
+                    disabled={deployActionLoading === d.deployment_id}
+                    className="rounded-lg bg-green-100 dark:bg-green-900/30 px-3 py-1.5 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <Check className="h-3.5 w-3.5" />
+                    {deployActionLoading === d.deployment_id ? '...' : 'Approve'}
+                  </button>
+                  <button
+                    onClick={() => setRejectModal({ projectId: d.project_id, deploymentId: d.deployment_id, projectName: d.project_name })}
+                    disabled={deployActionLoading === d.deployment_id}
+                    className="rounded-lg bg-red-100 dark:bg-red-900/30 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50 flex items-center gap-1"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Reject Deployment Modal */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectModal(null)}>
+          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+              Reject deployment for <span className="font-medium text-gray-900 dark:text-white">{rejectModal.projectName}</span>
+            </p>
+            <textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection (optional)"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
+              rows={3}
+            />
+            <div className="mt-4 flex justify-end gap-3">
+              <button
+                onClick={() => { setRejectModal(null); setRejectReason(''); }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRejectDeploy}
+                disabled={deployActionLoading === rejectModal.deploymentId}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+              >
+                {deployActionLoading === rejectModal.deploymentId ? 'Rejecting...' : 'Reject Deployment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6 space-y-4">
         {/* Tabs + Search */}
