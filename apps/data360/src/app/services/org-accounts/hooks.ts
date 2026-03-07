@@ -83,6 +83,13 @@ import type {
   DataOperationsOverviewResponse,
   CommandCenterFilters,
   FilterOptionsResponse,
+  // Snowflake Intelligence
+  RowTimestampActivationResponse,
+  RowTimestampStatusResponse,
+  CrossAccountUsageResponse,
+  QueryAuditResponse,
+  AccessAuditResponse,
+  LoginAuditResponse,
 } from './types';
 
 const BASE_URL = '/org-accounts';
@@ -623,6 +630,64 @@ export async function getPlatformActivityFiltered(
 export async function getFilterOptions(): Promise<FilterOptionsResponse> {
   const { data } = await apiClient.get<FilterOptionsResponse>(
     `${BASE_URL}/filter-options`, { timeout: 30000 }
+  );
+  return data;
+}
+
+// =============================================================================
+// SNOWFLAKE INTELLIGENCE — Row Timestamps & Audit
+// =============================================================================
+
+export async function activateRowTimestamps(
+  database: string,
+): Promise<RowTimestampActivationResponse> {
+  const { data } = await apiClient.post<RowTimestampActivationResponse>(
+    `${BASE_URL}/row-timestamps/activate`, null, { params: { database }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getRowTimestampStatus(
+  database: string, schema?: string,
+): Promise<RowTimestampStatusResponse> {
+  const { data } = await apiClient.get<RowTimestampStatusResponse>(
+    `${BASE_URL}/row-timestamps/status`, { params: { database, schema }, timeout: 30000 }
+  );
+  return data;
+}
+
+export async function getCrossAccountUsage(
+  days: number = 30,
+): Promise<CrossAccountUsageResponse> {
+  const { data } = await apiClient.get<CrossAccountUsageResponse>(
+    `${BASE_URL}/cross-account/usage`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getQueryAuditHistory(
+  params?: { days?: number; username?: string; query_type?: string; min_duration_ms?: number; limit?: number },
+): Promise<QueryAuditResponse> {
+  const { data } = await apiClient.get<QueryAuditResponse>(
+    `${BASE_URL}/audit/query-history`, { params: { days: 7, ...params }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getAccessAuditHistory(
+  params?: { days?: number; username?: string; object_name?: string; limit?: number },
+): Promise<AccessAuditResponse> {
+  const { data } = await apiClient.get<AccessAuditResponse>(
+    `${BASE_URL}/audit/access-history`, { params: { days: 7, ...params }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getLoginAuditHistory(
+  params?: { days?: number; username?: string; is_success?: string; limit?: number },
+): Promise<LoginAuditResponse> {
+  const { data } = await apiClient.get<LoginAuditResponse>(
+    `${BASE_URL}/audit/login-history`, { params: { days: 7, ...params }, timeout: 60000 }
   );
   return data;
 }

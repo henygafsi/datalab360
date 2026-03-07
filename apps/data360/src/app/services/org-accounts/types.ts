@@ -1020,3 +1020,98 @@ export interface FilterOptionsResponse {
   deployment_statuses: string[];
   execution_time_ms: number;
 }
+
+// ─── Snowflake Intelligence Types ──────────────────────────────────────────
+
+export interface RowTimestampActivationResponse {
+  database: string;
+  activation_result: string;
+  tables_count: number;
+  tables: Array<{ TABLE_SCHEMA: string; TABLE_NAME: string; ROW_COUNT: number }>;
+  execution_time_ms: number;
+}
+
+export interface RowTimestampStatusResponse {
+  database: string;
+  schema_filter: string | null;
+  tables: Array<{
+    TABLE_SCHEMA: string;
+    TABLE_NAME: string;
+    TABLE_TYPE: string;
+    ROW_COUNT: number;
+    LAST_ALTERED: string;
+    CREATED: string;
+  }>;
+  total_tables: number;
+  execution_time_ms: number;
+}
+
+export interface CrossAccountUsageResponse {
+  period_days: number;
+  account_summary: Array<{
+    account_name: string;
+    total_credits: number;
+    total_cost: number;
+    currency: string;
+  }>;
+  daily_credits: any[];
+  storage: any[];
+  warehouse_usage: any[];
+  data_transfer: any[];
+  execution_time_ms: number;
+}
+
+export interface QueryAuditResponse {
+  period_days: number;
+  queries: Array<{
+    QUERY_ID: string;
+    QUERY_TEXT: string;
+    QUERY_TYPE: string;
+    USER_NAME: string;
+    ROLE_NAME: string;
+    WAREHOUSE_NAME: string;
+    DATABASE_NAME: string;
+    EXECUTION_STATUS: string;
+    START_TIME: string;
+    END_TIME: string;
+    TOTAL_ELAPSED_TIME: number;
+    BYTES_SCANNED: number;
+    ROWS_PRODUCED: number;
+  }>;
+  total_returned: number;
+  summary_by_type: Array<{
+    QUERY_TYPE: string;
+    QUERY_COUNT: number;
+    AVG_DURATION_MS: number;
+    TOTAL_BYTES_SCANNED: number;
+    UNIQUE_USERS: number;
+  }>;
+  execution_time_ms: number;
+}
+
+export interface AccessAuditResponse {
+  period_days: number;
+  access_records: any[];
+  total_returned: number;
+  execution_time_ms: number;
+}
+
+export interface LoginAuditResponse {
+  period_days: number;
+  logins: Array<{
+    EVENT_TIMESTAMP: string;
+    USER_NAME: string;
+    CLIENT_IP: string;
+    REPORTED_CLIENT_TYPE: string;
+    IS_SUCCESS: string;
+    ERROR_MESSAGE: string | null;
+  }>;
+  total_returned: number;
+  summary: Array<{
+    IS_SUCCESS: string;
+    LOGIN_COUNT: number;
+    UNIQUE_USERS: number;
+    UNIQUE_IPS: number;
+  }>;
+  execution_time_ms: number;
+}
