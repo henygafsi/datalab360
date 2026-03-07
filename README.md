@@ -925,14 +925,60 @@ const { data, loading, isStale } = useCacheAwareQuery(
 
 ---
 
+## Snowflake Intelligence Service Functions
+
+```typescript
+// Row Timestamps
+activateRowTimestamps(database: string): Promise<RowTimestampActivationResponse>
+getRowTimestampStatus(database: string, schema?: string): Promise<RowTimestampStatusResponse>
+
+// Cross-Account Audit
+getCrossAccountUsage(days?: number): Promise<CrossAccountUsageResponse>
+getQueryAuditHistory(params?: { days?, username?, query_type?, min_duration_ms? }): Promise<QueryAuditResponse>
+getAccessAuditHistory(params?: { days?, username?, object_name? }): Promise<AccessAuditResponse>
+getLoginAuditHistory(params?: { days?, username?, is_success? }): Promise<LoginAuditResponse>
+```
+
+## ETL Block Types (Workflow DAG Builder)
+
+| Category | Blocks |
+|----------|--------|
+| Source | `source`, `org_usage_source` (ORGANIZATION_USAGE), `audit_source` (ACCOUNT_USAGE), `stream_consume`, `git_file` |
+| Transform | `join`, `filter`, `aggregate`, `select`, `rename`, `cast`, `formula`, `sort`, `union`, `distinct`, `limit` |
+| AI | `recommendation`, `segmentation`, `clustering` |
+| Script | `sql_script`, `python_script`, `notebook_run` |
+| Destination | `destination`, `export_file` |
+| Infrastructure | `dynamic_table`, `compute_pool`, `container_service` |
+
+## Bookmarks Store (SAP-Grade Favorites)
+
+```typescript
+// Jotai + localStorage persistence
+import { useBookmarks } from '@/store/bookmarks-store';
+
+const { bookmarks, addBookmark, removeBookmark, isBookmarked, toggleBookmark } = useBookmarks();
+toggleBookmark({ label: 'Dashboard', href: '/bi-dashboard', module: 'BI' });
+```
+
+## Deployment Approval UI
+
+- **Command Center**: Approve/Reject buttons in Pending Approvals card + deployment table Actions column
+- **Governance Projects**: Pending Deployments section with approve/reject for all `pending_approval` deployments
+- **Rejection Modal**: Reason input with dark mode support, auto-refreshes data after action
+
+---
+
 ## Total Statistics
 
-- **Pages:** 10 core Data360 pages + demo pages
-- **Services:** 18 modules with 200+ API functions
+- **Pages:** 14 core Data360 pages + admin config
+- **Services:** 18 modules with 230+ API functions
 - **Custom Hooks:** 8 (cache-aware, SSE, governance, toast)
-- **Type Definitions:** 400+ interfaces
+- **Type Definitions:** 450+ interfaces
 - **Shared Components:** 60+ domain-specific directories
-- **API Endpoints Wrapped:** 250+
-- **State Management:** jotai atoms + page-specific stores
+- **API Endpoints Wrapped:** 280+
+- **State Management:** jotai atoms (bookmarks, sidebar, dashboard) + page-specific stores
+- **ETL Block Types:** 28 (source, transform, AI, script, destination, infrastructure)
+- **Cmd+K Search:** 19 module pages + 5 quick actions + bookmarked favorites
 - **Performance-optimized dashboards:** command-center, observability, main dashboard
-- **Intelligent refresh:** SSE + LAST_ALTERED timestamp-driven cache invalidation
+- **Intelligent refresh:** SSE + LAST_ALTERED timestamp-driven cache invalidation (15 zones)
+- **Snowflake Intelligence:** Row timestamps, cross-account audit, DQL/login/access history
