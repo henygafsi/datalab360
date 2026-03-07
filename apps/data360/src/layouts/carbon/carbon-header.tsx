@@ -6,6 +6,9 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import cn from '@core/utils/class-names';
 
+// Store
+import { useBookmarks } from '@/store/bookmarks-store';
+
 // Components
 import HamburgerButton from '@/layouts/hamburger-button';
 import Logo from '@core/components/logo';
@@ -24,21 +27,41 @@ import {
   HiOutlineDocumentText,
   HiOutlineArrowTrendingUp,
   HiOutlineCog6Tooth,
+  HiOutlineCpuChip,
+  HiOutlineShieldCheck,
+  HiOutlineEye,
+  HiOutlineCircleStack,
+  HiOutlineBolt,
+  HiOutlineBeaker,
+  HiOutlineBuildingOffice,
+  HiOutlineStar,
 } from 'react-icons/hi2';
 import { IoCloseCircle } from 'react-icons/io5';
 
-// Search suggestions
+// Search suggestions — all Data360 modules
 const searchSuggestions = {
   pages: [
-    { label: 'BI Dashboard', href: '/bi-dashboard', icon: HiOutlineChartBarSquare, description: 'View analytics and reports' },
-    { label: 'Data Sources', href: '/data-source-connection', icon: HiOutlineGlobeAlt, description: 'Manage data connections' },
-    { label: 'Governance', href: '/gouvernance', icon: HiOutlineUsers, description: 'User and role management' },
-    { label: 'Explore & Design', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Data modeling & wrangling' },
+    { label: 'Dashboard', href: '/', icon: HiOutlineChartBarSquare, description: 'Platform overview and KPIs' },
+    { label: 'Connect Data', href: '/data-source-connection', icon: HiOutlineGlobeAlt, description: 'Stages, pipes, integrations' },
+    { label: 'Explore & Design', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Data modeling, DDL, catalog' },
+    { label: 'Workflow', href: '/workflow', icon: HiOutlineBolt, description: 'ETL pipelines, tasks, scheduling' },
+    { label: 'BI Dashboard', href: '/bi-dashboard', icon: HiOutlineChartBarSquare, description: 'Charts, widgets, dashboards' },
+    { label: 'Governance', href: '/gouvernance', icon: HiOutlineUsers, description: 'Roles, grants, policies, audit' },
+    { label: 'Governance Grants', href: '/gouvernance/grants', icon: HiOutlineShieldCheck, description: 'Role-based access control' },
+    { label: 'Governance Policies', href: '/gouvernance/policies', icon: HiOutlineShieldCheck, description: 'RLS, masking, network policies' },
+    { label: 'Governance Projects', href: '/gouvernance/projects', icon: HiOutlineUsers, description: 'Project members & deployments' },
+    { label: 'Data Quality', href: '/data-quality', icon: HiOutlineBeaker, description: 'DMF checks, reports, quality gates' },
+    { label: 'AI Intelligence', href: '/intelligent', icon: HiOutlineCpuChip, description: 'Cortex AI, LLM, semantic models' },
+    { label: 'Observability', href: '/observability', icon: HiOutlineEye, description: 'KPIs, lineage, performance monitoring' },
+    { label: 'Account Overview', href: '/account-overview', icon: HiOutlineBuildingOffice, description: 'Command center, cross-account audit' },
+    { label: 'Data Engineer Hub', href: '/data-engineer-hub', icon: HiOutlineCircleStack, description: 'Dynamic tables, streams, alerts' },
   ],
   actions: [
-    { label: 'Create New Report', href: '/reports/create', icon: HiOutlineArrowTrendingUp, description: 'Generate analytics report' },
-    { label: 'Export Data', href: '/export', icon: HiOutlineDocumentText, description: 'Export data to various formats' },
-    { label: 'System Settings', href: '/settings', icon: HiOutlineCog6Tooth, description: 'Configure system preferences' },
+    { label: 'New Explore Project', href: '/explore-design', icon: HiOutlineDocumentText, description: 'Create data modeling project' },
+    { label: 'New Workflow', href: '/workflow', icon: HiOutlineBolt, description: 'Create ETL pipeline' },
+    { label: 'New BI Dashboard', href: '/bi-dashboard', icon: HiOutlineChartBarSquare, description: 'Create analytics dashboard' },
+    { label: 'Run Data Quality Check', href: '/data-quality', icon: HiOutlineBeaker, description: 'Execute DMF validation' },
+    { label: 'Admin Config', href: '/admin/data360-config', icon: HiOutlineCog6Tooth, description: 'Platform settings & cache config' },
   ],
 };
 
@@ -49,8 +72,18 @@ function SearchBar() {
   const [selectedIndex, setSelectedIndex] = useState(-1);
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { bookmarks, toggleBookmark, isBookmarked } = useBookmarks();
+
+  const bookmarkSuggestions = bookmarks.map((b) => ({
+    label: b.label,
+    href: b.href,
+    icon: HiOutlineStar,
+    description: b.module,
+    category: 'Favorites',
+  }));
 
   const allSuggestions = [
+    ...bookmarkSuggestions,
     ...searchSuggestions.pages.map((item) => ({ ...item, category: 'Pages' })),
     ...searchSuggestions.actions.map((item) => ({ ...item, category: 'Actions' })),
   ];
@@ -220,6 +253,19 @@ function SearchBar() {
                     <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 dark:bg-slate-800 dark:text-slate-500">
                       {item.category}
                     </span>
+                    {item.category !== 'Actions' && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          toggleBookmark({ label: item.label, href: item.href, module: item.category });
+                        }}
+                        className="ml-1 shrink-0 rounded-md p-1 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors"
+                        title={isBookmarked(item.href) ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        <HiOutlineStar className={cn('h-3.5 w-3.5', isBookmarked(item.href) ? 'text-amber-500 fill-amber-500' : 'text-slate-300 dark:text-slate-600')} />
+                      </button>
+                    )}
                   </a>
                 ))}
 
