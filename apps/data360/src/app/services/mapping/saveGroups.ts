@@ -1,22 +1,6 @@
 import axios from 'axios';
-import { getAuthSession } from '@/lib/auth';
+import apiClient from '@/lib/api-client';
 import { formatApiDetail } from '@/lib/utils';
-
-/**
- * Helper to get authentication headers with Snowflake account context
- */
-async function getAuthHeaders() {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
-}
 
 export interface TableSelection {
     database: string;
@@ -39,14 +23,10 @@ export interface SaveGroupsPayload {
  * Creates the project if it doesn't exist
  */
 async function ensureProjectExists(projectId: string): Promise<void> {
-    const headers = await getAuthHeaders();
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
     try {
-        await axios.post(
-            `${API_BASE_URL}/explore-design/guided/create_project`,
-            { name: projectId },
-            { headers }
+        await apiClient.post(
+            '/explore-design/guided/create_project',
+            { name: projectId }
         );
         console.log(`[saveGroups] Created/verified project: ${projectId}`);
     } catch (error: unknown) {
@@ -67,9 +47,6 @@ async function ensureProjectExists(projectId: string): Promise<void> {
  * This is consistent with your existing backend architecture
  */
 export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
-    const headers = await getAuthHeaders();
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
     // Ensure project exists before adding events
     await ensureProjectExists(payload.project_id);
 
@@ -86,10 +63,9 @@ export async function addGroupEvent(payload: SaveGroupsPayload): Promise<void> {
                 }
             };
 
-            return axios.post(
-                `${API_BASE_URL}/explore-design/guided/add-event/`,
-                eventPayload,
-                { headers }
+            return apiClient.post(
+                '/explore-design/guided/add-event/',
+                eventPayload
             );
         });
 

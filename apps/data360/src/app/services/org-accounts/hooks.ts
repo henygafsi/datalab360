@@ -68,6 +68,21 @@ import type {
   CreateReaderAccountResponse,
   SharesResponse,
   ShareDetailResponse,
+  // New: Account Overview enhanced tabs
+  SecurityOverviewResponse,
+  GovernanceOverviewResponse,
+  DataLoadingOverviewResponse,
+  AutomationOverviewResponse,
+  PerformanceOverviewResponse,
+  CortexCostsResponse,
+  PlatformActivityResponse,
+  AccountHealthScoreResponse,
+  GrantsOverviewResponse,
+  ProjectsOverviewResponse,
+  GovernanceGrantsOverviewResponse,
+  DataOperationsOverviewResponse,
+  CommandCenterFilters,
+  FilterOptionsResponse,
 } from './types';
 
 const BASE_URL = '/org-accounts';
@@ -494,6 +509,120 @@ export async function getShares(): Promise<SharesResponse> {
 export async function getShareDetail(shareName: string): Promise<ShareDetailResponse> {
   const { data } = await apiClient.get<ShareDetailResponse>(
     `${BASE_URL}/shares/${encodeURIComponent(shareName)}`
+  );
+  return data;
+}
+
+// =============================================================================
+// ACCOUNT OVERVIEW - ENHANCED TABS
+// =============================================================================
+
+export async function getSecurityOverview(days = 30): Promise<SecurityOverviewResponse> {
+  const { data } = await apiClient.get<SecurityOverviewResponse>(
+    `${BASE_URL}/security-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getGovernanceOverview(): Promise<GovernanceOverviewResponse> {
+  const { data } = await apiClient.get<GovernanceOverviewResponse>(
+    `${BASE_URL}/governance-overview`, { timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getDataLoadingOverview(days = 30): Promise<DataLoadingOverviewResponse> {
+  const { data } = await apiClient.get<DataLoadingOverviewResponse>(
+    `${BASE_URL}/data-loading-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getAutomationOverview(days = 30): Promise<AutomationOverviewResponse> {
+  const { data } = await apiClient.get<AutomationOverviewResponse>(
+    `${BASE_URL}/automation-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getPerformanceOverview(days = 7): Promise<PerformanceOverviewResponse> {
+  const { data } = await apiClient.get<PerformanceOverviewResponse>(
+    `${BASE_URL}/performance-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getCortexCosts(days = 30): Promise<CortexCostsResponse> {
+  const { data } = await apiClient.get<CortexCostsResponse>(
+    `${BASE_URL}/cortex-costs`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getPlatformActivity(days = 7): Promise<PlatformActivityResponse> {
+  const { data } = await apiClient.get<PlatformActivityResponse>(
+    `${BASE_URL}/platform-activity`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getAccountHealthScore(): Promise<AccountHealthScoreResponse> {
+  const { data } = await apiClient.get<AccountHealthScoreResponse>(
+    `${BASE_URL}/account-health-score`, { timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getGrantsOverview(days = 90): Promise<GrantsOverviewResponse> {
+  const { data } = await apiClient.get<GrantsOverviewResponse>(
+    `${BASE_URL}/grants-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
+}
+
+// =============================================================================
+// MERGED / NEW ENDPOINTS (Tab Restructure)
+// =============================================================================
+
+export async function getProjectsOverview(
+  filters?: Partial<CommandCenterFilters>,
+): Promise<ProjectsOverviewResponse> {
+  const { data } = await apiClient.get<ProjectsOverviewResponse>(
+    `${BASE_URL}/projects-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getGovernanceGrantsOverview(
+  filters?: Partial<CommandCenterFilters>,
+): Promise<GovernanceGrantsOverviewResponse> {
+  const { data } = await apiClient.get<GovernanceGrantsOverviewResponse>(
+    `${BASE_URL}/governance-grants-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getDataOperationsOverview(
+  filters?: Partial<CommandCenterFilters>,
+): Promise<DataOperationsOverviewResponse> {
+  const { data } = await apiClient.get<DataOperationsOverviewResponse>(
+    `${BASE_URL}/data-operations-overview`, { params: { days: 180, ...filters }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getPlatformActivityFiltered(
+  filters?: Partial<CommandCenterFilters>,
+): Promise<PlatformActivityResponse> {
+  const { data } = await apiClient.get<PlatformActivityResponse>(
+    `${BASE_URL}/platform-activity`, { params: { days: 7, ...filters }, timeout: 60000 }
+  );
+  return data;
+}
+
+export async function getFilterOptions(): Promise<FilterOptionsResponse> {
+  const { data } = await apiClient.get<FilterOptionsResponse>(
+    `${BASE_URL}/filter-options`, { timeout: 30000 }
   );
   return data;
 }

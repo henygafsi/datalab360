@@ -91,8 +91,12 @@ export interface MaskingPolicy {
   column_type?: string;
   masking_expression?: string;
   created_at?: string;
+  created_on?: string;
+  created_by?: string;
+  owner?: string;
   granted_roles?: string[];
   expiration_date?: string;
+  references_count?: number;
 }
 
 export interface CreateMaskingPolicyRequest {

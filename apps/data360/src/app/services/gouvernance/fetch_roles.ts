@@ -20,6 +20,8 @@ export async function getRoles(): Promise<RoleTableDataType[]> {
       numberOfGrants: role.granted_roles || 0,
       comment: role.comment || '',
       createdOn: role.created_on || '',
+      owner: role.owner || '',
+      assignedUsers: role.assigned_to_users || 0,
     }));
 
     return roles;

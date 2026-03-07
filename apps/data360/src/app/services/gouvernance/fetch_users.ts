@@ -40,6 +40,9 @@ export async function getUsers(): Promise<UserTableDataType[]> {
         roles: roles.length > 0 ? roles : [],
         status: user.disabled === 'false' ? 'Active' : 'Disabled',
         createdOn: user.created_on || '',
+        lastLogin: user.last_success_login || '',
+        defaultRole: user.default_role || '',
+        owner: user.owner || '',
       };
     });
 
@@ -113,6 +116,9 @@ export async function getUserDetails(username: string): Promise<UserTableDataTyp
       roles: roles.length > 0 ? roles : [],
       status: user.disabled === 'false' ? 'Active' : 'Disabled',
       createdOn: user.created_on || '',
+      lastLogin: user.last_success_login || '',
+      defaultRole: user.default_role || '',
+      owner: user.owner || '',
     };
   } catch (error) {
     console.error('Error fetching user details:', error);

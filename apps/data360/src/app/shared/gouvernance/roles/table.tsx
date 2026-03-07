@@ -25,6 +25,8 @@ export type RoleTableDataType = {
   numberOfGrants: number;
   comment: string;
   createdOn: string;
+  owner?: string;         // Role owner from Snowflake metadata
+  assignedUsers?: number; // Number of users with this role
 };
 
 // Protected system roles that cannot be deleted

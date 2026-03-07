@@ -42,22 +42,42 @@ export const roleListColumns = [
       <Text className="text-sm">{row.original.role || 'N/A'}</Text>
     ),
   }),
+  columnHelper.accessor('owner', {
+    id: 'owner',
+    size: 130,
+    header: 'Owner',
+    cell: ({ row }) => (
+      <Text className="text-sm text-gray-600 dark:text-gray-400">{row.original.owner || '-'}</Text>
+    ),
+  }),
   columnHelper.accessor('numberOfGrants', {
     id: 'numberOfGrants',
-    size: 150,
-    header: 'Number of Grants',
+    size: 120,
+    header: 'Grants',
     cell: ({ row }) => (
-      <Text className="text-sm">{row.original.numberOfGrants ?? 'N/A'}</Text> // Use ?? for number fallback
+      <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+        {row.original.numberOfGrants ?? 0}
+      </span>
+    ),
+  }),
+  columnHelper.display({
+    id: 'assignedUsers',
+    size: 100,
+    header: 'Users',
+    cell: ({ row }) => (
+      <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
+        {row.original.assignedUsers ?? 0}
+      </span>
     ),
   }),
   columnHelper.accessor('createdOn', {
     id: 'createdOn',
-    size: 200,
+    size: 150,
     header: 'Created On',
     cell: ({ row }) => {
       const dateValue = row.original.createdOn ? new Date(row.original.createdOn) : null;
       if (!dateValue || isNaN(dateValue.getTime())) {
-        return <Text className="text-sm text-gray-500">Invalid Date</Text>;
+        return <Text className="text-sm text-gray-500">-</Text>;
       }
       return <DateCell date={dateValue} />;
     },
@@ -67,7 +87,7 @@ export const roleListColumns = [
     size: 150,
     header: 'Comment',
     cell: ({ row }) => (
-      <Text className="text-sm">{row.original.comment || 'N/A'}</Text>
+      <Text className="text-sm text-gray-500 dark:text-gray-400">{row.original.comment || '-'}</Text>
     ),
   }),
   columnHelper.display({

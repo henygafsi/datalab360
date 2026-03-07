@@ -34,35 +34,100 @@ export const userListColumns = [
   }),
   columnHelper.accessor('name', {
     id: 'name',
-    size: 200,
-    header: 'Full Name', // Changed to Full Name for clarity
+    size: 180,
+    header: 'Full Name',
     cell: ({ row }) => (
-      <Text className="text-sm">{row.original.name || 'N/A'}</Text> // Display N/A if null/empty
+      <Text className="text-sm font-medium">{row.original.name || 'N/A'}</Text>
     ),
   }),
   columnHelper.display({
     id: 'email',
-    size: 280,
+    size: 240,
     header: 'Email',
-    cell: ({ row }) => row.original.email.toLowerCase() || 'N/A', // Display N/A if null/empty
+    cell: ({ row }) => (
+      <Text className="text-sm text-gray-600 dark:text-gray-400">
+        {row.original.email?.toLowerCase() || 'N/A'}
+      </Text>
+    ),
+  }),
+  columnHelper.display({
+    id: 'roles',
+    size: 220,
+    header: 'Roles',
+    cell: ({ row }) => {
+      const roles = row.original.roles || [];
+      if (roles.length === 0) {
+        return <Text className="text-sm italic text-gray-400">No roles</Text>;
+      }
+      return (
+        <div className="flex flex-wrap gap-1">
+          {roles.slice(0, 3).map((role) => (
+            <span
+              key={role}
+              className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+            >
+              {role}
+            </span>
+          ))}
+          {roles.length > 3 && (
+            <Tooltip content={roles.slice(3).join(', ')} placement="top">
+              <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+                +{roles.length - 3}
+              </span>
+            </Tooltip>
+          )}
+        </div>
+      );
+    },
+  }),
+  columnHelper.accessor('defaultRole', {
+    id: 'defaultRole',
+    size: 140,
+    header: 'Default Role',
+    cell: ({ row }) => {
+      const role = row.original.defaultRole;
+      if (!role) return <Text className="text-sm text-gray-400">-</Text>;
+      return (
+        <span className="inline-flex items-center rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
+          {role}
+        </span>
+      );
+    },
   }),
   columnHelper.accessor('createdOn', {
     id: 'createdOn',
-    size: 200,
+    size: 150,
     header: 'Created On',
     cell: ({ row }) => {
-      // Attempt to create a Date object only if createdOn string exists
       const dateValue = row.original.createdOn ? new Date(row.original.createdOn) : null;
-      // Check if the date is valid before passing to DateCell
       if (!dateValue || isNaN(dateValue.getTime())) {
-        return <Text className="text-sm text-gray-500">Invalid Date</Text>; // Or 'N/A'
+        return <Text className="text-sm text-gray-500">-</Text>;
       }
       return <DateCell date={dateValue} />;
     },
   }),
+  columnHelper.accessor('lastLogin', {
+    id: 'lastLogin',
+    size: 150,
+    header: 'Last Login',
+    cell: ({ row }) => {
+      const dateStr = row.original.lastLogin;
+      if (!dateStr) return <Text className="text-sm text-gray-400">Never</Text>;
+      const dateValue = new Date(dateStr);
+      if (isNaN(dateValue.getTime())) return <Text className="text-sm text-gray-400">-</Text>;
+      const now = new Date();
+      const diffDays = Math.floor((now.getTime() - dateValue.getTime()) / (1000 * 60 * 60 * 24));
+      const color = diffDays > 30 ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400';
+      return (
+        <Text className={`text-sm ${color}`}>
+          {diffDays === 0 ? 'Today' : diffDays === 1 ? 'Yesterday' : `${diffDays}d ago`}
+        </Text>
+      );
+    },
+  }),
   columnHelper.accessor('status', {
     id: 'status',
-    size: 150,
+    size: 120,
     header: 'Status',
     cell: ({ row }) => (
       <Text

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useTransition, useMemo, useDeferredValue, memo, lazy, Suspense } from 'react';
 import { Loader, Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
@@ -8,7 +8,9 @@ import {
   RefreshCw, LayoutDashboard, Activity, Server,
   GitBranch, Shield, DollarSign, TrendingUp, TrendingDown,
   AlertTriangle, CheckCircle, MinusCircle, Users, Database,
-  Cpu, Box, Brain, BarChart3, Zap,
+  Cpu, Box, Brain, BarChart3, Zap, Upload, Clock, Gauge,
+  Lock, FileText, Layers, Rocket, ChevronUp, ChevronDown,
+  Download, Search, X, Filter, ArrowUpDown,
 } from 'lucide-react';
 import {
   ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -27,6 +29,18 @@ import type {
 } from '@/app/services/command-center/types';
 import { getIntelligentKpis } from '@/app/services/observability';
 import type { IntelligentKpis } from '@/app/services/observability/types';
+import {
+  getSecurityOverview, getPerformanceOverview, getCortexCosts,
+  getPlatformActivity, getAccountHealthScore,
+  getProjectsOverview, getGovernanceGrantsOverview, getDataOperationsOverview,
+  getPlatformActivityFiltered, getFilterOptions,
+} from '@/app/services/org-accounts/hooks';
+import type {
+  SecurityOverviewResponse, PerformanceOverviewResponse, CortexCostsResponse,
+  PlatformActivityResponse, AccountHealthScoreResponse,
+  ProjectsOverviewResponse, GovernanceGrantsOverviewResponse, DataOperationsOverviewResponse,
+  CommandCenterFilters, FilterOptionsResponse,
+} from '@/app/services/org-accounts/types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -51,17 +65,20 @@ interface TabItem {
 }
 
 const tabs: TabItem[] = [
-  { id: 'overview',       label: 'Overview',           icon: LayoutDashboard },
-  { id: 'activity',       label: 'Activity',           icon: Activity },
-  { id: 'infrastructure', label: 'Infrastructure',     icon: Server },
-  { id: 'pipelines',      label: 'Pipelines & Quality', icon: GitBranch },
-  { id: 'security',       label: 'Security',           icon: Shield },
-  { id: 'cost',           label: 'Cost Intelligence',  icon: DollarSign },
+  { id: 'overview',          label: 'Overview',              icon: LayoutDashboard },
+  { id: 'projects',          label: 'Projects & Deployments', icon: Rocket },
+  { id: 'security-adv',      label: 'Security',              icon: Lock },
+  { id: 'governance-grants', label: 'Governance & Grants',   icon: Shield },
+  { id: 'data-ops',          label: 'Data Operations',       icon: Upload },
+  { id: 'performance',       label: 'Performance',           icon: Gauge },
+  { id: 'cost',              label: 'Cost & Billing',        icon: DollarSign },
+  { id: 'compute',           label: 'Compute & Infra',       icon: Server },
+  { id: 'platform-activity', label: 'Platform Activity',     icon: Layers },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function KpiCard({
+const KpiCard = memo(function KpiCard({
   label, value, icon: Icon, trend, color = 'blue', suffix,
 }: {
   label: string; value: string | number; icon: React.ElementType;
@@ -87,9 +104,9 @@ function KpiCard({
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{label}</p>
     </div>
   );
-}
+});
 
-function SectionCard({ title, children, className }: {
+const SectionCard = memo(function SectionCard({ title, children, className }: {
   title: string; children: React.ReactNode; className?: string;
 }) {
   return (
@@ -98,7 +115,7 @@ function SectionCard({ title, children, className }: {
       {children}
     </div>
   );
-}
+});
 
 function LoadingSection() {
   return (
@@ -127,7 +144,7 @@ const MODULE_COLORS: Record<string, string> = {
 
 // ─── Custom tooltip for dark mode ────────────────────────────────────────────
 
-function ChartTooltip({ active, payload, label }: any) {
+const ChartTooltip = memo(function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 shadow-lg text-xs">
@@ -139,12 +156,260 @@ function ChartTooltip({ active, payload, label }: any) {
       ))}
     </div>
   );
+});
+
+// ─── Global Filter Bar ───────────────────────────────────────────────────────
+
+const FilterSelect = memo(function FilterSelect({ label, value, options, onChange, icon: Icon }: {
+  label: string; value: string; options: string[]; onChange: (v: string) => void; icon?: React.ElementType;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      {Icon && <Icon className="h-3.5 w-3.5 text-gray-400" />}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-primary"
+      >
+        <option value="">{label}</option>
+        {options.map(o => <option key={o} value={o}>{o?.replace(/_/g, ' ')}</option>)}
+      </select>
+    </div>
+  );
+});
+
+const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, options }: {
+  filters: CommandCenterFilters;
+  setFilters: (f: CommandCenterFilters) => void;
+  options: FilterOptionsResponse | null;
+}) {
+  const hasFilters = filters.project_type || filters.username || filters.status
+    || filters.environment || filters.module_name || filters.days !== 180;
+
+  return (
+    <div className="mb-5 flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2.5">
+      <div className="flex items-center gap-1.5 mr-1">
+        <Filter className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+        <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Filters</span>
+      </div>
+      <FilterSelect label="Period" value={String(filters.days)} options={['7', '30', '90', '180', '365']}
+        onChange={(v) => setFilters({ ...filters, days: Number(v) || 180 })} icon={Clock} />
+      <FilterSelect label="Project Type" value={filters.project_type || ''} options={options?.project_types || ['explore_design', 'workflow', 'bi_dashboard']}
+        onChange={(v) => setFilters({ ...filters, project_type: v || undefined })} icon={Rocket} />
+      <FilterSelect label="User" value={filters.username || ''} options={options?.usernames || []}
+        onChange={(v) => setFilters({ ...filters, username: v || undefined })} icon={Users} />
+      <FilterSelect label="Role" value={filters.role_name || ''} options={options?.roles || []}
+        onChange={(v) => setFilters({ ...filters, role_name: v || undefined })} icon={Shield} />
+      <FilterSelect label="Environment" value={filters.environment || ''} options={options?.environments || ['production', 'staging', 'dev']}
+        onChange={(v) => setFilters({ ...filters, environment: v || undefined })} icon={Server} />
+      <FilterSelect label="Status" value={filters.status || ''} options={options?.deployment_statuses || ['active', 'draft', 'archived', 'deployed', 'failed']}
+        onChange={(v) => setFilters({ ...filters, status: v || undefined })} icon={CheckCircle} />
+      <FilterSelect label="Module" value={filters.module_name || ''} options={options?.modules || []}
+        onChange={(v) => setFilters({ ...filters, module_name: v || undefined })} icon={Layers} />
+      {hasFilters && (
+        <button
+          onClick={() => setFilters({ days: 180 })}
+          className="ml-auto flex items-center gap-1 rounded-lg bg-red-50 dark:bg-red-900/30 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+        >
+          <X className="h-3 w-3" /> Clear
+        </button>
+      )}
+    </div>
+  );
+});
+
+// ─── Audit Table ─────────────────────────────────────────────────────────────
+
+interface AuditColumn<T> {
+  key: keyof T & string;
+  label: string;
+  sortable?: boolean;
+  filterable?: boolean;
+  render?: (value: any, row: T) => React.ReactNode;
+  width?: string;
+  align?: 'left' | 'right' | 'center';
+}
+
+function AuditTable<T extends Record<string, any>>({
+  data, columns, pageSize = 15, title, emptyMessage = 'No data',
+}: {
+  data: T[];
+  columns: AuditColumn<T>[];
+  pageSize?: number;
+  title?: string;
+  emptyMessage?: string;
+}) {
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const deferredColFilters = useDeferredValue(colFilters);
+  const [page, setPage] = useState(0);
+  const [showFilters, setShowFilters] = useState(false);
+
+  // Filter (memoized + deferred for smooth typing on large datasets)
+  const filtered = useMemo(() => data.filter(row =>
+    Object.entries(deferredColFilters).every(([key, val]) => {
+      if (!val) return true;
+      const cellVal = String(row[key] ?? '').toLowerCase();
+      return cellVal.includes(val.toLowerCase());
+    })
+  ), [data, deferredColFilters]);
+
+  // Sort (memoized for large datasets)
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
+    if (!sortKey) return 0;
+    const av = a[sortKey], bv = b[sortKey];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    if (typeof av === 'number' && typeof bv === 'number') return sortDir === 'asc' ? av - bv : bv - av;
+    return sortDir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+  }), [filtered, sortKey, sortDir]);
+
+  const totalPages = Math.ceil(sorted.length / pageSize);
+  const pageData = useMemo(() => sorted.slice(page * pageSize, (page + 1) * pageSize), [sorted, page, pageSize]);
+
+  const handleSort = useCallback((key: string) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+    setPage(0);
+  }, [sortKey, sortDir]);
+
+  const exportCsv = useCallback(() => {
+    const headers = columns.map(c => c.label).join(',');
+    const rows = sorted.map(row => columns.map(c => `"${String(row[c.key] ?? '').replace(/"/g, '""')}"`).join(','));
+    const csv = [headers, ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${title || 'export'}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  }, [columns, sorted, title]);
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-4 py-3">
+        <div className="flex items-center gap-3">
+          {title && <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{title}</h3>}
+          <Badge size="sm" variant="flat" color="secondary">{sorted.length} rows</Badge>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setShowFilters(!showFilters)}
+            className={cn('rounded-lg p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors',
+              showFilters && 'bg-primary/10 text-primary')}>
+            <Search className="h-4 w-4" />
+          </button>
+          <button onClick={exportCsv} className="rounded-lg p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+            <Download className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/80 z-10">
+            <tr className="border-b border-gray-200 dark:border-gray-700">
+              {columns.map(col => (
+                <th key={col.key} className={cn('py-2.5 px-3 font-medium text-gray-500 dark:text-gray-400',
+                  col.align === 'right' ? 'text-right' : 'text-left', col.width)}
+                >
+                  {col.sortable ? (
+                    <button onClick={() => handleSort(col.key)} className="flex items-center gap-1 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
+                      {col.label}
+                      {sortKey === col.key ? (sortDir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />) : <ArrowUpDown className="h-3 w-3 opacity-30" />}
+                    </button>
+                  ) : col.label}
+                </th>
+              ))}
+            </tr>
+            {showFilters && (
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                {columns.map(col => (
+                  <th key={`f-${col.key}`} className="py-1.5 px-3">
+                    {col.filterable ? (
+                      <input
+                        type="text" placeholder="Filter…"
+                        value={colFilters[col.key] || ''}
+                        onChange={(e) => { setColFilters({ ...colFilters, [col.key]: e.target.value }); setPage(0); }}
+                        className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    ) : null}
+                  </th>
+                ))}
+              </tr>
+            )}
+          </thead>
+          <tbody>
+            {pageData.map((row, ri) => (
+              <tr key={ri} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                {columns.map(col => (
+                  <td key={col.key} className={cn('py-2 px-3', col.align === 'right' ? 'text-right' : 'text-left',
+                    !col.render && 'text-gray-700 dark:text-gray-300')}>
+                    {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '-')}
+                  </td>
+                ))}
+              </tr>
+            ))}
+            {pageData.length === 0 && (
+              <tr><td colSpan={columns.length} className="py-10 text-center text-sm text-gray-400">{emptyMessage}</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-700 px-4 py-2.5">
+          <span className="text-xs text-gray-500 dark:text-gray-400">
+            {page * pageSize + 1}–{Math.min((page + 1) * pageSize, sorted.length)} of {sorted.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button disabled={page === 0} onClick={() => setPage(page - 1)}
+              className="rounded px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed">
+              Prev
+            </button>
+            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+              const p = totalPages <= 5 ? i : Math.max(0, Math.min(page - 2, totalPages - 5)) + i;
+              return (
+                <button key={p} onClick={() => setPage(p)}
+                  className={cn('rounded px-2.5 py-1 text-xs transition-colors',
+                    p === page ? 'bg-primary text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800')}>
+                  {p + 1}
+                </button>
+              );
+            })}
+            <button disabled={page >= totalPages - 1} onClick={() => setPage(page + 1)}
+              className="rounded px-2.5 py-1 text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed">
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function statusBadgeColor(s: string | null): 'success' | 'danger' | 'warning' | 'secondary' | 'info' {
+  if (!s) return 'secondary';
+  const v = s.toLowerCase();
+  if (['deployed', 'success', 'succeeded', 'active', 'started', 'healthy'].includes(v)) return 'success';
+  if (['failed', 'error', 'dropped', 'cancelled'].includes(v)) return 'danger';
+  if (['pending', 'pending_approval', 'warning', 'degraded'].includes(v)) return 'warning';
+  if (['approved', 'running', 'in_progress'].includes(v)) return 'info';
+  return 'secondary';
 }
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export default function CommandCenterDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
+  const [isTabTransitioning, startTabTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -156,10 +421,23 @@ export default function CommandCenterDashboard() {
   const [infra, setInfra] = useState<InfrastructureResponse | null>(null);
   const [pipelines, setPipelines] = useState<PipelinesResponse | null>(null);
   const [costData, setCostData] = useState<CostBreakdownResponse | null>(null);
+  // Tab data states
+  const [securityData, setSecurityData] = useState<SecurityOverviewResponse | null>(null);
+  const [projectsData, setProjectsData] = useState<ProjectsOverviewResponse | null>(null);
+  const [govGrantsData, setGovGrantsData] = useState<GovernanceGrantsOverviewResponse | null>(null);
+  const [dataOpsData, setDataOpsData] = useState<DataOperationsOverviewResponse | null>(null);
+  const [performanceData, setPerformanceData] = useState<PerformanceOverviewResponse | null>(null);
+  const [platformData, setPlatformData] = useState<PlatformActivityResponse | null>(null);
+  const [healthScore, setHealthScore] = useState<AccountHealthScoreResponse | null>(null);
+
+  // Global filters
+  const [filters, setFilters] = useState<CommandCenterFilters>({ days: 180 });
+  const [filterOptions, setFilterOptions] = useState<FilterOptionsResponse | null>(null);
 
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
-    overview: true, activity: false, infrastructure: false,
-    pipelines: false, security: false, cost: false,
+    overview: true, projects: false, 'security-adv': false,
+    'governance-grants': false, 'data-ops': false, performance: false,
+    cost: false, compute: false, 'platform-activity': false,
   });
 
   // ── Fetchers ─────────────────────────────────────────────────────────────
@@ -174,8 +452,9 @@ export default function CommandCenterDashboard() {
       setSummary(s);
       setModuleHealth(mh);
       setActivityFeed(af);
-      // Also fetch observability scores (non-blocking)
+      // Also fetch observability scores + health score (non-blocking)
       getIntelligentKpis().then(setObsKpis).catch(() => {});
+      getAccountHealthScore().then(setHealthScore).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load summary';
       setError(msg);
@@ -186,88 +465,131 @@ export default function CommandCenterDashboard() {
     }
   }, []);
 
-  const fetchActivity = useCallback(async () => {
-    if (activityFeed && activityFeed.count > 10) return;
-    setTabLoading(p => ({ ...p, activity: true }));
+  const fetchProjects = useCallback(async () => {
+    setTabLoading(p => ({ ...p, projects: true }));
     try {
-      const af = await getActivityFeed(100);
-      setActivityFeed(af);
+      const data = await getProjectsOverview(filters);
+      setProjectsData(data);
     } catch (err) {
-      toast.error('Failed to load activity feed');
+      toast.error('Failed to load projects data');
     } finally {
-      setTabLoading(p => ({ ...p, activity: false }));
+      setTabLoading(p => ({ ...p, projects: false }));
     }
-  }, [activityFeed]);
+  }, [filters]);
 
-  const fetchInfra = useCallback(async () => {
-    if (infra) return;
-    setTabLoading(p => ({ ...p, infrastructure: true }));
+  const fetchSecurityAdv = useCallback(async () => {
+    setTabLoading(p => ({ ...p, 'security-adv': true }));
     try {
-      const data = await getInfrastructure();
-      setInfra(data);
-    } catch (err) {
-      toast.error('Failed to load infrastructure data');
-    } finally {
-      setTabLoading(p => ({ ...p, infrastructure: false }));
-    }
-  }, [infra]);
-
-  const fetchPipelines = useCallback(async () => {
-    if (pipelines) return;
-    setTabLoading(p => ({ ...p, pipelines: true }));
-    try {
-      const data = await getPipelines();
-      setPipelines(data);
-    } catch (err) {
-      toast.error('Failed to load pipeline data');
-    } finally {
-      setTabLoading(p => ({ ...p, pipelines: false }));
-    }
-  }, [pipelines]);
-
-  const fetchSecurity = useCallback(async () => {
-    if (obsKpis) return;
-    setTabLoading(p => ({ ...p, security: true }));
-    try {
-      const data = await getIntelligentKpis();
-      setObsKpis(data);
+      const data = await getSecurityOverview(filters.days);
+      setSecurityData(data);
     } catch (err) {
       toast.error('Failed to load security data');
     } finally {
-      setTabLoading(p => ({ ...p, security: false }));
+      setTabLoading(p => ({ ...p, 'security-adv': false }));
     }
-  }, [obsKpis]);
+  }, [filters]);
+
+  const fetchGovGrants = useCallback(async () => {
+    setTabLoading(p => ({ ...p, 'governance-grants': true }));
+    try {
+      const data = await getGovernanceGrantsOverview(filters);
+      setGovGrantsData(data);
+    } catch (err) {
+      toast.error('Failed to load governance & grants data');
+    } finally {
+      setTabLoading(p => ({ ...p, 'governance-grants': false }));
+    }
+  }, [filters]);
+
+  const fetchDataOps = useCallback(async () => {
+    setTabLoading(p => ({ ...p, 'data-ops': true }));
+    try {
+      const data = await getDataOperationsOverview(filters);
+      setDataOpsData(data);
+    } catch (err) {
+      toast.error('Failed to load data operations overview');
+    } finally {
+      setTabLoading(p => ({ ...p, 'data-ops': false }));
+    }
+  }, [filters]);
+
+  const fetchPerformance = useCallback(async () => {
+    setTabLoading(p => ({ ...p, performance: true }));
+    try {
+      const data = await getPerformanceOverview(filters.days > 30 ? 7 : filters.days);
+      setPerformanceData(data);
+    } catch (err) {
+      toast.error('Failed to load performance data');
+    } finally {
+      setTabLoading(p => ({ ...p, performance: false }));
+    }
+  }, [filters]);
 
   const fetchCost = useCallback(async () => {
-    if (costData) return;
     setTabLoading(p => ({ ...p, cost: true }));
     try {
-      const data = await getCostBreakdown(30);
-      setCostData(data);
+      const [cost] = await Promise.all([getCostBreakdown(30), getCortexCosts(30)]);
+      setCostData(cost);
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
       setTabLoading(p => ({ ...p, cost: false }));
     }
-  }, [costData]);
+  }, []);
+
+  const fetchCompute = useCallback(async () => {
+    setTabLoading(p => ({ ...p, compute: true }));
+    try {
+      const data = await getInfrastructure();
+      setInfra(data);
+    } catch (err) {
+      toast.error('Failed to load compute data');
+    } finally {
+      setTabLoading(p => ({ ...p, compute: false }));
+    }
+  }, []);
+
+  const fetchPlatformActivity = useCallback(async () => {
+    setTabLoading(p => ({ ...p, 'platform-activity': true }));
+    try {
+      const [plat, af] = await Promise.all([
+        getPlatformActivityFiltered(filters),
+        getActivityFeed(100),
+      ]);
+      setPlatformData(plat);
+      setActivityFeed(af);
+    } catch (err) {
+      toast.error('Failed to load platform activity');
+    } finally {
+      setTabLoading(p => ({ ...p, 'platform-activity': false }));
+    }
+  }, [filters]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
   useEffect(() => { fetchOverview(); }, [fetchOverview]);
+  useEffect(() => { getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
 
+  // Re-fetch active tab when filters change
   useEffect(() => {
     switch (activeTab) {
-      case 'activity': fetchActivity(); break;
-      case 'infrastructure': fetchInfra(); break;
-      case 'pipelines': fetchPipelines(); break;
-      case 'security': fetchSecurity(); break;
+      case 'projects': fetchProjects(); break;
+      case 'security-adv': fetchSecurityAdv(); break;
+      case 'governance-grants': fetchGovGrants(); break;
+      case 'data-ops': fetchDataOps(); break;
+      case 'performance': fetchPerformance(); break;
       case 'cost': fetchCost(); break;
+      case 'compute': fetchCompute(); break;
+      case 'platform-activity': fetchPlatformActivity(); break;
     }
-  }, [activeTab]);
+  }, [activeTab, filters]);
 
   const handleRefresh = useCallback(() => {
     setSummary(null); setModuleHealth(null); setActivityFeed(null);
     setObsKpis(null); setInfra(null); setPipelines(null); setCostData(null);
+    setSecurityData(null); setProjectsData(null); setGovGrantsData(null);
+    setDataOpsData(null); setPerformanceData(null);
+    setPlatformData(null); setHealthScore(null);
     fetchOverview();
   }, [fetchOverview]);
 
@@ -321,7 +643,7 @@ export default function CommandCenterDashboard() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => startTabTransition(() => setActiveTab(tab.id))}
                 className={cn(
                   'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors',
                   isActive
@@ -337,14 +659,20 @@ export default function CommandCenterDashboard() {
         </div>
       </div>
 
+      {/* ── Global Filter Bar ──────────────────────────────────────── */}
+      <GlobalFilterBar filters={filters} setFilters={setFilters} options={filterOptions} />
+
       {/* ── Tab Content ───────────────────────────────────────────── */}
       <div className="space-y-6">
-        {activeTab === 'overview' && <OverviewTab summary={summary} moduleHealth={moduleHealth} activityFeed={activityFeed} obsKpis={obsKpis} loading={tabLoading.overview} />}
-        {activeTab === 'activity' && <ActivityTab feed={activityFeed} summary={summary} loading={tabLoading.activity} />}
-        {activeTab === 'infrastructure' && <InfrastructureTab data={infra} loading={tabLoading.infrastructure} />}
-        {activeTab === 'pipelines' && <PipelinesTab data={pipelines} summary={summary} loading={tabLoading.pipelines} />}
-        {activeTab === 'security' && <SecurityTab summary={summary} obsKpis={obsKpis} loading={tabLoading.security} />}
+        {activeTab === 'overview' && <OverviewTab summary={summary} moduleHealth={moduleHealth} activityFeed={activityFeed} obsKpis={obsKpis} healthScore={healthScore} loading={tabLoading.overview} />}
+        {activeTab === 'projects' && <ProjectsTab data={projectsData} loading={tabLoading.projects} />}
+        {activeTab === 'security-adv' && <SecurityAdvTab data={securityData} loading={tabLoading['security-adv']} />}
+        {activeTab === 'governance-grants' && <GovernanceGrantsTab data={govGrantsData} loading={tabLoading['governance-grants']} />}
+        {activeTab === 'data-ops' && <DataOperationsTab data={dataOpsData} loading={tabLoading['data-ops']} />}
+        {activeTab === 'performance' && <PerformanceTab data={performanceData} loading={tabLoading.performance} />}
         {activeTab === 'cost' && <CostTab data={costData} loading={tabLoading.cost} />}
+        {activeTab === 'compute' && <ComputeTab data={infra} loading={tabLoading.compute} />}
+        {activeTab === 'platform-activity' && <PlatformActivityTab platformData={platformData} activityFeed={activityFeed} summary={summary} loading={tabLoading['platform-activity']} />}
       </div>
     </div>
   );
@@ -354,12 +682,15 @@ export default function CommandCenterDashboard() {
 // TAB 1: OVERVIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
-function OverviewTab({ summary, moduleHealth, activityFeed, obsKpis, loading }: {
+const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityFeed, obsKpis, healthScore, loading }: {
   summary: SummaryResponse | null; moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null; obsKpis: IntelligentKpis | null;
+  healthScore: AccountHealthScoreResponse | null;
   loading: boolean;
 }) {
   if (loading || !summary) return <LoadingSection />;
+
+  const gradeColor: Record<string, string> = { A: 'text-green-500', B: 'text-blue-500', C: 'text-amber-500', D: 'text-orange-500', F: 'text-red-500' };
 
   const radarData = obsKpis ? [
     { axis: 'Governance', value: obsKpis.governance?.score ?? 0 },
@@ -440,496 +771,214 @@ function OverviewTab({ summary, moduleHealth, activityFeed, obsKpis, loading }: 
       </div>
     </>
   );
-}
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
-// TAB 2: ACTIVITY
+// TAB 2: PROJECTS & DEPLOYMENTS
 // ═════════════════════════════════════════════════════════════════════════════
 
-function ActivityTab({ feed, summary, loading }: {
-  feed: ActivityFeedResponse | null; summary: SummaryResponse | null; loading: boolean;
+const ProjectsTab = memo(function ProjectsTab({ data, loading }: {
+  data: ProjectsOverviewResponse | null; loading: boolean;
 }) {
-  if (loading) return <LoadingSection />;
+  if (loading || !data) return <LoadingSection />;
 
-  // Aggregate events by module for pie chart
-  const moduleAgg: Record<string, number> = {};
-  feed?.events.forEach(e => { moduleAgg[e.module] = (moduleAgg[e.module] || 0) + 1; });
-  const pieData = Object.entries(moduleAgg).map(([name, value]) => ({ name, value }));
+  const summary = data.summary || {} as any;
+  const byType = summary.by_type || {};
+  const deploymentStatus = data.deployment_status || [];
+  const recentDeployments = data.recent_deployments || [];
+  const pendingApprovals = data.pending_approvals || [];
+  const executionDaily = data.execution_daily || [];
+  const memberRoles = data.member_roles || [];
+  const topContributors = data.top_contributors || [];
 
-  // Daily aggregation for area chart
-  const dailyAgg: Record<string, number> = {};
-  feed?.events.forEach(e => {
-    if (e.timestamp) {
-      const day = e.timestamp.slice(0, 10);
-      dailyAgg[day] = (dailyAgg[day] || 0) + 1;
-    }
-  });
-  const dailyData = Object.entries(dailyAgg)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, count]) => ({ date, count }));
+  const typePieData = Object.entries(byType)
+    .filter(([_, v]) => (v as number) > 0)
+    .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: value as number }));
+
+  const statusPieData = deploymentStatus
+    .filter((d: any) => d.count > 0)
+    .map((d: any) => ({ name: d.status?.replace(/_/g, ' '), value: d.count }));
+
+  const statusColors: Record<string, string> = {
+    deployed: '#10B981', pending_approval: '#F59E0B', approved: '#3B82F6',
+    failed: '#EF4444', rejected: '#9CA3AF', cancelled: '#6B7280',
+  };
 
   return (
     <>
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <KpiCard label="Total Users" value={summary?.platform.total_users ?? 0} icon={Users} color="blue" />
-        <KpiCard label="Active (7d)" value={summary?.platform.active_users_7d ?? 0} icon={Activity} color="green" />
-        <KpiCard label="Events Today" value={summary?.platform.events_today ?? 0} icon={Zap} color="amber" />
-        <KpiCard label="Data Sources" value={summary?.platform.data_sources ?? 0} icon={Database} color="violet" />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <KpiCard label="Total Projects" value={summary.total_projects ?? 0} icon={Rocket} color="blue" />
+        <KpiCard label="Explore Design" value={byType.explore_design ?? 0} icon={Database} color="violet" />
+        <KpiCard label="Workflows" value={byType.workflow ?? 0} icon={GitBranch} color="amber" />
+        <KpiCard label="Pending Approvals" value={summary.pending_approvals ?? 0} icon={Clock} color="orange" />
+        <KpiCard label="Deploy Success" value={`${summary.deployment_success_rate ?? 0}%`} icon={CheckCircle} color="green" />
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Events by Module">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
-                  {pieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                </Pie>
-                <Tooltip content={<ChartTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Daily Activity">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="count" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.2} name="Events" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* Activity Feed Table */}
-      <SectionCard title="Activity Feed">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-200 dark:border-gray-700">
-                <th className="pb-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Time</th>
-                <th className="pb-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">User</th>
-                <th className="pb-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Module</th>
-                <th className="pb-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Action</th>
-                <th className="pb-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {feed?.events.map((evt, i) => (
-                <tr key={i} className="border-b border-gray-100 dark:border-gray-800">
-                  <td className="py-2 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">{relativeTime(evt.timestamp)}</td>
-                  <td className="py-2 text-gray-900 dark:text-white">{evt.username}</td>
-                  <td className="py-2"><Badge size="sm" variant="flat">{evt.module}</Badge></td>
-                  <td className="py-2 text-gray-700 dark:text-gray-300">{evt.event_type}</td>
-                  <td className="py-2">
-                    <Badge size="sm" variant="flat" color={evt.status === 'SUCCESS' ? 'success' : 'danger'}>
-                      {evt.status}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {(!feed || feed.events.length === 0) && (
-            <p className="text-sm text-gray-400 text-center py-8">No events found</p>
-          )}
-        </div>
-      </SectionCard>
-    </>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TAB 3: INFRASTRUCTURE
-// ═════════════════════════════════════════════════════════════════════════════
-
-function InfrastructureTab({ data, loading }: {
-  data: InfrastructureResponse | null; loading: boolean;
-}) {
-  if (loading || !data) return <LoadingSection />;
-
-  const storageTotalTb = data.storage.database_tb + data.storage.stage_tb + data.storage.failsafe_tb;
-  const successRate = data.query_performance.total_queries > 0
-    ? Math.round((data.query_performance.success / data.query_performance.total_queries) * 100) : 0;
-
-  const whChartData = data.warehouses.slice(0, 10).map(w => ({
-    name: w.warehouse_name.length > 15 ? w.warehouse_name.slice(0, 15) + '...' : w.warehouse_name,
-    credits: w.total_credits,
-  }));
-
-  const taskBarData = data.tasks.by_state.map(t => ({ name: t.state, count: t.count }));
-
-  const clusterData = data.clustering.tables.slice(0, 10).map(t => ({
-    name: t.table_name.length > 20 ? t.table_name.slice(0, 20) + '...' : t.table_name,
-    credits: t.credits,
-  }));
-
-  return (
-    <>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <KpiCard label="Warehouses" value={data.warehouses.length} icon={Cpu} color="blue" />
-        <KpiCard label="Queries (7d)" value={data.query_performance.total_queries.toLocaleString()} icon={BarChart3} color="violet" />
-        <KpiCard label="Success Rate" value={`${successRate}%`} icon={CheckCircle} color="green" />
-        <KpiCard label="Storage (TB)" value={storageTotalTb.toFixed(3)} icon={Database} color="amber" />
-        <KpiCard label="Tasks (7d)" value={data.tasks.total_7d} icon={Zap} color="cyan" />
-      </div>
-
-      {/* Warehouse Credits + Query Perf */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Warehouse Credits (30d)">
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={whChartData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={120} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="credits" fill="#3B82F6" name="Credits" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Query Performance (7d)">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{data.query_performance.avg_exec_ms.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Avg Exec (ms)</p>
-            </div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{data.query_performance.p95_ms.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">P95 (ms)</p>
-            </div>
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{data.query_performance.success.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Succeeded</p>
-            </div>
-            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-center">
-              <p className="text-2xl font-bold text-red-600 dark:text-red-400">{data.query_performance.failed.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Failed</p>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* Tasks + Pipes + Clustering */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <SectionCard title="Task Execution (7d)">
-          {taskBarData.length > 0 ? (
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={taskBarData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis dataKey="name" tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="count" fill="#06B6D4" name="Runs" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No task data</p>}
-        </SectionCard>
-
-        <SectionCard title={`Snowpipe (${data.pipes.total_credits} credits)`}>
-          {data.pipes.pipes.length > 0 ? (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {data.pipes.pipes.map((p, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate max-w-[60%]">{p.pipe_name}</span>
-                  <span className="text-xs font-medium text-gray-900 dark:text-white">{p.credits} cr</span>
-                </div>
-              ))}
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No Snowpipe data</p>}
-        </SectionCard>
-
-        <SectionCard title={`Clustering (${data.clustering.total_credits} credits)`}>
-          {clusterData.length > 0 ? (
-            <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={clusterData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <YAxis type="category" dataKey="name" width={100} tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="credits" fill="#F59E0B" name="Credits" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No clustering data</p>}
-        </SectionCard>
-      </div>
-
-      {/* MV + Replication */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title={`Materialized Views (${data.materialized_views.total_credits} credits)`}>
-          {data.materialized_views.views.length > 0 ? (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {data.materialized_views.views.map((v, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate max-w-[60%]">{v.table_name}</span>
-                  <span className="text-xs font-medium text-gray-900 dark:text-white">{v.credits} cr</span>
-                </div>
-              ))}
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No MV refresh data</p>}
-        </SectionCard>
-
-        <SectionCard title={`Replication (${data.replication.total_credits} credits)`}>
-          {data.replication.databases.length > 0 ? (
-            <div className="space-y-2 max-h-48 overflow-y-auto">
-              {data.replication.databases.map((d, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate max-w-[60%]">{d.database_name}</span>
-                  <span className="text-xs font-medium text-gray-900 dark:text-white">{d.credits} cr</span>
-                </div>
-              ))}
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No replication data</p>}
-        </SectionCard>
-      </div>
-    </>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TAB 4: PIPELINES & QUALITY
-// ═════════════════════════════════════════════════════════════════════════════
-
-function PipelinesTab({ data, summary, loading }: {
-  data: PipelinesResponse | null; summary: SummaryResponse | null; loading: boolean;
-}) {
-  if (loading || !data) return <LoadingSection />;
-
-  const wfBarData = [
-    { name: 'Success', value: data.workflows.by_status.success, fill: '#10B981' },
-    { name: 'Failed', value: data.workflows.by_status.failed, fill: '#EF4444' },
-  ];
-
-  return (
-    <>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <KpiCard label="Connectors" value={data.connectors.total} icon={Database} color="blue" />
-        <KpiCard label="Workflows" value={data.workflows.total} icon={GitBranch} color="violet" />
-        <KpiCard label="WF Success Rate" value={`${data.workflows.success_rate}%`} icon={CheckCircle} color="green" />
-        <KpiCard label="Quality Score" value={`${summary?.quality.health_score ?? 0}%`} icon={BarChart3} color="amber" />
-        <KpiCard label="Ingestion (7d)" value={data.ingestion.copy_loads_7d.toLocaleString()} icon={Zap} color="cyan" />
-      </div>
-
-      {/* Workflow + Quality */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Workflow Executions (7d)">
-          <div className="h-48">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={wfBarData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="name" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="value" name="Count" radius={[4, 4, 0, 0]}>
-                  {wfBarData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Ingestion Summary (7d)">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{data.ingestion.copy_loads_7d.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">COPY Loads</p>
-            </div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{data.ingestion.success_rate}%</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Success Rate</p>
-            </div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{data.ingestion.rows_loaded.toLocaleString()}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Rows Loaded</p>
-            </div>
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{data.ingestion.pipe_credits_7d}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Pipe Credits</p>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      {/* Tasks + Connectors */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <SectionCard title="Task Execution (7d)">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4 text-center">
-              <p className="text-xl font-bold text-gray-900 dark:text-white">{data.tasks.total_7d}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
-            </div>
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-green-600 dark:text-green-400">{data.tasks.succeeded_7d}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Succeeded</p>
-            </div>
-            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-red-600 dark:text-red-400">{data.tasks.failed_7d}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Failed</p>
-            </div>
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Connector Types">
-          {data.connectors.by_type.length > 0 ? (
-            <div className="space-y-2">
-              {data.connectors.by_type.map((ct, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                  <span className="text-sm text-gray-700 dark:text-gray-300">{ct.type}</span>
-                  <Badge size="sm" variant="flat">{ct.count}</Badge>
-                </div>
-              ))}
-            </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No connector data</p>}
-        </SectionCard>
-      </div>
-    </>
-  );
-}
-
-// ═════════════════════════════════════════════════════════════════════════════
-// TAB 5: SECURITY
-// ═════════════════════════════════════════════════════════════════════════════
-
-function SecurityTab({ summary, obsKpis, loading }: {
-  summary: SummaryResponse | null; obsKpis: IntelligentKpis | null; loading: boolean;
-}) {
-  if (loading || !summary) return <LoadingSection />;
-
-  const secRadar = obsKpis ? [
-    { axis: 'MFA', value: summary.security.mfa_coverage_pct },
-    { axis: 'Masking', value: Math.min(summary.security.masking_policies * 10, 100) },
-    { axis: 'RLS', value: Math.min(summary.security.rls_policies * 10, 100) },
-    { axis: 'Login Safety', value: Math.max(0, 100 - summary.security.failed_logins_7d * 2) },
-    { axis: 'Governance', value: obsKpis.governance?.score ?? 0 },
-  ] : [];
-
-  return (
-    <>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <KpiCard label="MFA Coverage" value={`${summary.security.mfa_coverage_pct}%`} icon={Shield} color="blue" />
-        <KpiCard label="Masking Policies" value={summary.security.masking_policies} icon={Shield} color="violet" />
-        <KpiCard label="RLS Policies" value={summary.security.rls_policies} icon={Shield} color="green" />
-        <KpiCard label="Failed Logins (7d)" value={summary.security.failed_logins_7d} icon={AlertTriangle} color="red" />
-        <KpiCard label="Governance Score" value={`${obsKpis?.governance?.score ?? 0}%`} icon={CheckCircle} color="amber" />
-      </div>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Security Radar */}
-        {secRadar.length > 0 && (
-          <SectionCard title="Security Posture">
+        {/* Projects by Type */}
+        <SectionCard title="Projects by Type">
+          {typePieData.length > 0 ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={secRadar}>
-                  <PolarGrid stroke="#374151" />
-                  <PolarAngleAxis dataKey="axis" tick={{ fill: '#9CA3AF', fontSize: 12 }} />
-                  <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <Radar name="Score" dataKey="value" stroke="#10B981" fill="#10B981" fillOpacity={0.25} />
-                </RadarChart>
+                <PieChart>
+                  <Pie data={typePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {typePieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
               </ResponsiveContainer>
             </div>
-          </SectionCard>
-        )}
+          ) : <p className="text-sm text-gray-400 text-center py-8">No projects</p>}
+        </SectionCard>
 
-        {/* Compliance Status */}
-        <SectionCard title="Compliance & Observability">
-          <div className="space-y-4">
-            {obsKpis?.governance && (
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">Governance</span>
-                  <Badge size="sm" variant="flat" color={obsKpis.governance.score >= 70 ? 'success' : 'warning'}>
-                    {obsKpis.governance.score}%
-                  </Badge>
+        {/* Deployment Status */}
+        <SectionCard title="Deployment Status">
+          {statusPieData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={statusPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {statusPieData.map((entry, i) => <Cell key={i} fill={statusColors[deploymentStatus[i]?.status] || COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No deployments</p>}
+        </SectionCard>
+
+        {/* Daily Execution Runs */}
+        <SectionCard title="Daily Execution Runs">
+          {executionDaily.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={executionDaily}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="success" fill="#10B981" name="Success" stackId="a" radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="failed" fill="#EF4444" name="Failed" stackId="a" radius={[4, 4, 0, 0]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No execution data</p>}
+        </SectionCard>
+      </div>
+
+      {/* Recent Deployments Audit Table */}
+      <AuditTable
+        data={recentDeployments}
+        title={`Recent Deployments (${data.period_days}d)`}
+        emptyMessage="No deployments in this period"
+        columns={[
+          { key: 'project_name', label: 'Project', sortable: true, filterable: true,
+            render: (v: string) => <span className="font-medium text-gray-900 dark:text-white">{v}</span> },
+          { key: 'project_type', label: 'Type', sortable: true, filterable: true,
+            render: (v: string) => <Badge size="sm" variant="flat" color="info">{v?.replace(/_/g, ' ')}</Badge> },
+          { key: 'status', label: 'Status', sortable: true, filterable: true,
+            render: (v: string) => <Badge size="sm" variant="flat" color={statusBadgeColor(v)}>{v?.replace(/_/g, ' ')}</Badge> },
+          { key: 'environment', label: 'Env', sortable: true, filterable: true },
+          { key: 'requested_by', label: 'Requested By', sortable: true, filterable: true },
+          { key: 'approved_by', label: 'Approved By', sortable: true },
+          { key: 'deployed_at', label: 'Deployed', sortable: true,
+            render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+        ]}
+      />
+
+      {/* Pending Approvals + Members */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Pending Approvals */}
+        <SectionCard title="Pending Approvals">
+          {pendingApprovals.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {pendingApprovals.map((p: any, i: number) => (
+                <div key={i} className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{p.project_name}</span>
+                    <Badge size="sm" variant="flat" color="warning">{p.environment}</Badge>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {p.project_type?.replace(/_/g, ' ')} | Requested by {p.requested_by} — {relativeTime(p.requested_at)}
+                  </p>
                 </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div className="bg-green-500 h-2 rounded-full" style={{ width: `${obsKpis.governance.score}%` }} />
-                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No pending approvals</p>
+            </div>
+          )}
+        </SectionCard>
+
+        {/* Project Members */}
+        <SectionCard title="Members & Contributors">
+          <div className="mb-4 grid grid-cols-3 gap-3">
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-3 text-center">
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{summary.unique_members ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Unique Members</p>
+            </div>
+            {memberRoles.slice(0, 2).map((r: any, i: number) => (
+              <div key={i} className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3 text-center">
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{r.user_count}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{r.role}</p>
               </div>
-            )}
-            {obsKpis?.compliance && (
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">Compliance</span>
-                  <Badge size="sm" variant="flat" color={obsKpis.compliance.score >= 70 ? 'success' : 'warning'}>
-                    {obsKpis.compliance.score}%
-                  </Badge>
+            ))}
+          </div>
+          <div className="space-y-2 max-h-48 overflow-y-auto">
+            {topContributors.slice(0, 10).map((c: any, i: number) => (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
+                <div>
+                  <span className="text-sm text-gray-900 dark:text-white">{c.username}</span>
+                  <Badge size="sm" variant="flat" className="ml-2">{c.role}</Badge>
                 </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: `${obsKpis.compliance.score}%` }} />
-                </div>
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{c.project_count} projects</span>
               </div>
-            )}
-            {obsKpis?.cost && (
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">Cost Efficiency</span>
-                  <Badge size="sm" variant="flat" color={obsKpis.cost.score >= 70 ? 'success' : 'warning'}>
-                    {obsKpis.cost.score}%
-                  </Badge>
-                </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div className="bg-amber-500 h-2 rounded-full" style={{ width: `${obsKpis.cost.score}%` }} />
-                </div>
-              </div>
-            )}
-            {obsKpis?.performance && (
-              <div className="rounded-lg bg-gray-50 dark:bg-gray-800 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">Performance</span>
-                  <Badge size="sm" variant="flat" color={obsKpis.performance.score >= 70 ? 'success' : 'warning'}>
-                    {obsKpis.performance.score}%
-                  </Badge>
-                </div>
-                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                  <div className="bg-violet-500 h-2 rounded-full" style={{ width: `${obsKpis.performance.score}%` }} />
-                </div>
-              </div>
+            ))}
+            {topContributors.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4">No contributors</p>
             )}
           </div>
         </SectionCard>
       </div>
     </>
   );
-}
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // TAB 6: COST INTELLIGENCE
 // ═════════════════════════════════════════════════════════════════════════════
 
-function CostTab({ data, loading }: {
+const CostTab = memo(function CostTab({ data, loading }: {
   data: CostBreakdownResponse | null; loading: boolean;
 }) {
   if (loading || !data) return <LoadingSection />;
 
-  const categoryPieData = Object.entries(data.by_category)
-    .filter(([_, v]) => v > 0)
-    .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: Math.round(value * 100) / 100 }));
+  const byCategory = data.by_category || {};
+  const storage = data.storage || {} as any;
+  const balance = data.balance || {} as any;
+
+  const categoryPieData = Object.entries(byCategory)
+    .filter(([_, v]) => (v as number) > 0)
+    .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: Math.round((value as number) * 100) / 100 }));
 
   const storagePieData = [
-    { name: 'Database', value: data.storage.database_tb },
-    { name: 'Stage', value: data.storage.stage_tb },
-    { name: 'Failsafe', value: data.storage.failsafe_tb },
+    { name: 'Database', value: storage.database_tb ?? 0 },
+    { name: 'Stage', value: storage.stage_tb ?? 0 },
+    { name: 'Failsafe', value: storage.failsafe_tb ?? 0 },
   ].filter(d => d.value > 0);
 
-  const dailyAvg = data.daily_trend.length > 0
-    ? Math.round(data.daily_trend.reduce((s, d) => s + d.credits, 0) / data.daily_trend.length * 100) / 100
+  const dailyTrend = data.daily_trend || [];
+  const topWarehouses = data.top_warehouses || [];
+
+  const dailyAvg = dailyTrend.length > 0
+    ? Math.round(dailyTrend.reduce((s: number, d: any) => s + d.credits, 0) / dailyTrend.length * 100) / 100
     : 0;
 
   return (
@@ -938,8 +987,8 @@ function CostTab({ data, loading }: {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <KpiCard label="Credits (30d)" value={data.total_credits.toLocaleString()} icon={DollarSign} color="amber" trend={data.credit_trend_pct} />
         <KpiCard label="Trend" value={`${data.credit_trend_pct > 0 ? '+' : ''}${data.credit_trend_pct}%`} icon={data.credit_trend_pct >= 0 ? TrendingUp : TrendingDown} color={data.credit_trend_pct >= 0 ? 'red' : 'green'} />
-        <KpiCard label="Storage (TB)" value={(data.storage.database_tb + data.storage.stage_tb + data.storage.failsafe_tb).toFixed(3)} icon={Database} color="blue" />
-        <KpiCard label="Balance" value={data.balance.capacity.toLocaleString()} icon={DollarSign} color="green" />
+        <KpiCard label="Storage (TB)" value={((storage.database_tb ?? 0) + (storage.stage_tb ?? 0) + (storage.failsafe_tb ?? 0)).toFixed(3)} icon={Database} color="blue" />
+        <KpiCard label="Balance" value={(balance.capacity ?? 0).toLocaleString()} icon={DollarSign} color="green" />
         <KpiCard label="Daily Average" value={dailyAvg.toLocaleString()} icon={BarChart3} color="violet" />
       </div>
 
@@ -947,7 +996,7 @@ function CostTab({ data, loading }: {
       <SectionCard title="Daily Credit Trend (30d)">
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data.daily_trend}>
+            <AreaChart data={dailyTrend}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
               <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -979,7 +1028,7 @@ function CostTab({ data, loading }: {
         <SectionCard title="Top Warehouses">
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.top_warehouses.slice(0, 10)} layout="vertical">
+              <BarChart data={topWarehouses.slice(0, 10)} layout="vertical">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                 <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={120} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
@@ -1012,19 +1061,19 @@ function CostTab({ data, loading }: {
         <SectionCard title="Credit Balance">
           <div className="grid grid-cols-2 gap-4">
             <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-green-600 dark:text-green-400">{data.balance.free_remaining.toLocaleString()}</p>
+              <p className="text-xl font-bold text-green-600 dark:text-green-400">{(balance.free_remaining ?? 0).toLocaleString()}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Free Remaining</p>
             </div>
             <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{data.balance.capacity.toLocaleString()}</p>
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">{(balance.capacity ?? 0).toLocaleString()}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Capacity</p>
             </div>
             <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">{data.balance.on_demand.toLocaleString()}</p>
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">{(balance.on_demand ?? 0).toLocaleString()}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">On-Demand</p>
             </div>
             <div className="rounded-lg bg-purple-50 dark:bg-purple-900/20 p-4 text-center">
-              <p className="text-xl font-bold text-purple-600 dark:text-purple-400">{data.balance.rollover.toLocaleString()}</p>
+              <p className="text-xl font-bold text-purple-600 dark:text-purple-400">{(balance.rollover ?? 0).toLocaleString()}</p>
               <p className="text-xs text-gray-500 dark:text-gray-400">Rollover</p>
             </div>
           </div>
@@ -1032,4 +1081,832 @@ function CostTab({ data, loading }: {
       </div>
     </>
   );
-}
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB: SECURITY (Advanced — Snowflake Login/Session/MFA)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
+  data: SecurityOverviewResponse | null; loading: boolean;
+}) {
+  if (loading || !data) return <LoadingSection />;
+
+  const loginSummary = data.login_summary || [];
+  const loginTrend = data.login_trend || [];
+  const clientTypes = data.client_types || [];
+  const failedLogins = data.failed_logins || [];
+  const mfaCoverage = data.mfa_coverage || {} as any;
+
+  const totalLogins = loginSummary.reduce((s: number, r: any) => s + r.event_count, 0);
+  const successLogins = loginSummary.filter((r: any) => r.is_success === 'YES').reduce((s: number, r: any) => s + r.event_count, 0);
+  const failedLoginCount = totalLogins - successLogins;
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <KpiCard label="Total Logins" value={totalLogins.toLocaleString()} icon={Users} color="blue" />
+        <KpiCard label="Success Rate" value={`${totalLogins > 0 ? Math.round(successLogins / totalLogins * 100) : 0}%`} icon={CheckCircle} color="green" />
+        <KpiCard label="Failed Attempts" value={failedLogins.toLocaleString()} icon={AlertTriangle} color="red" />
+        <KpiCard label="MFA Coverage" value={`${mfaCoverage.mfa_percentage ?? 0}%`} icon={Lock} color="violet" />
+        <KpiCard label="Network Policies" value={data.network_policy_count ?? 0} icon={Shield} color="amber" />
+      </div>
+
+      {/* Login Trend Chart */}
+      <SectionCard title={`Login Activity (${data.period_days}d)`}>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={loginTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Bar dataKey="success" fill="#10B981" name="Success" radius={[4, 4, 0, 0]} stackId="a" />
+              <Bar dataKey="failure" fill="#EF4444" name="Failed" radius={[4, 4, 0, 0]} stackId="a" />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </SectionCard>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Client Type Distribution */}
+        <SectionCard title="Login by Client Type">
+          {clientTypes.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={clientTypes.map((c: any) => ({ name: c.client_type || 'Unknown', value: c.login_count }))} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {clientTypes.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No data</p>}
+        </SectionCard>
+
+        {/* MFA Coverage Card */}
+        <SectionCard title="User Security Overview">
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{mfaCoverage.total_users ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Total Users</p>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{mfaCoverage.mfa_enabled ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">MFA Enabled</p>
+              </div>
+              <div className="rounded-lg bg-red-50 dark:bg-red-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{mfaCoverage.disabled_users ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Disabled</p>
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm text-gray-700 dark:text-gray-300">MFA Adoption</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{mfaCoverage.mfa_percentage ?? 0}%</span>
+              </div>
+              <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                <div className="bg-green-500 h-3 rounded-full transition-all" style={{ width: `${mfaCoverage.mfa_percentage ?? 0}%` }} />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Failed Logins Audit Table */}
+      {failedLogins.length > 0 && (
+        <AuditTable
+          data={failedLogins}
+          title="Top Failed Login Attempts"
+          columns={[
+            { key: 'user_name', label: 'User', sortable: true, filterable: true,
+              render: (v: string) => <span className="font-medium text-gray-900 dark:text-white">{v}</span> },
+            { key: 'failure_count', label: 'Failures', sortable: true, align: 'right',
+              render: (v: number) => <Badge size="sm" variant="flat" color="danger">{v}</Badge> },
+            { key: 'last_failure', label: 'Last Failure', sortable: true,
+              render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+            { key: 'last_error', label: 'Error', filterable: true,
+              render: (v: string) => <span className="max-w-xs truncate block">{v}</span> },
+          ]}
+        />
+      )}
+    </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 4: GOVERNANCE & GRANTS (merged)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const GovernanceGrantsTab = memo(function GovernanceGrantsTab({ data, loading }: {
+  data: GovernanceGrantsOverviewResponse | null; loading: boolean;
+}) {
+  if (loading || !data) return <LoadingSection />;
+
+  const s = data.summary || {} as any;
+  const objectCoverage = data.object_coverage || [];
+  const roleGrantDist = data.role_grant_distribution || [];
+  const privilegeDist = data.privilege_distribution || [];
+  const policyCoverage = data.policy_coverage || [];
+  const userRoleDist = data.user_role_distribution || [];
+  const recentChanges = data.recent_changes || [];
+  const auditLog = data.audit_log || [];
+
+  const policyPieData = [
+    { name: 'Masking', value: s.masking_policies ?? 0 },
+    { name: 'Row Access', value: s.rls_policies ?? 0 },
+    { name: 'Aggregation', value: s.aggregation_policies ?? 0 },
+  ].filter(d => d.value > 0);
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+        <KpiCard label="Total Roles" value={s.role_count ?? 0} icon={Users} color="blue" />
+        <KpiCard label="Policies" value={s.total_policies ?? 0} icon={Shield} color="violet" />
+        <KpiCard label="Tags Applied" value={s.total_tags ?? 0} icon={Layers} color="cyan" />
+        <KpiCard label="Total Grants" value={(s.total_role_grants ?? 0).toLocaleString()} icon={FileText} color="green" />
+        <KpiCard label="Users with Roles" value={s.users_with_roles ?? 0} icon={Users} color="amber" />
+        <KpiCard label="Object Types" value={s.object_types_covered ?? 0} icon={Database} color="rose" />
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Policy Distribution Pie */}
+        <SectionCard title="Policy Distribution">
+          {policyPieData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={policyPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {policyPieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No policies defined</p>}
+        </SectionCard>
+
+        {/* Grants by Object Type */}
+        <SectionCard title="Grants by Object Type">
+          {objectCoverage.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={objectCoverage.map((o: any) => ({ name: o.object_type, value: o.grant_count }))} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {objectCoverage.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No grants data</p>}
+        </SectionCard>
+      </div>
+
+      {/* Grants per Role + Privilege Distribution */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Grants per Role (Top 15)">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={roleGrantDist.slice(0, 15)} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis type="category" dataKey="role_name" width={140} tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="total_grants" fill="#3B82F6" name="Total Grants" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Privilege Distribution (Top 15)">
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={privilegeDist.slice(0, 15)}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="privilege" tick={{ fill: '#9CA3AF', fontSize: 10 }} angle={-45} textAnchor="end" height={80} />
+                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="grant_count" fill="#8B5CF6" name="Grants" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Policy Coverage + User-Role Distribution */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Policy Coverage">
+          <div className="space-y-3">
+            {policyCoverage.map((p: any, i: number) => (
+              <div key={i} className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{p.policy_kind}</span>
+                  <div className="flex items-center gap-2">
+                    <Badge size="sm" variant="flat" color="primary">{p.unique_policies} policies</Badge>
+                    <Badge size="sm" variant="flat" color="success">{p.objects_covered} objects</Badge>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {policyCoverage.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No policy references</p>}
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Roles per User (Top 15)">
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {userRoleDist.slice(0, 15).map((u: any, i: number) => (
+              <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{u.user_name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.roles}</p>
+                </div>
+                <Badge size="sm" variant="flat" color={u.role_count > 5 ? 'warning' : 'primary'}>{u.role_count} roles</Badge>
+              </div>
+            ))}
+            {userRoleDist.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No user-role data</p>}
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Recent Grant Changes */}
+      <SectionCard title={`Recent Grant Changes (${data.period_days ?? 180}d)`}>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {recentChanges.slice(0, 20).map((c: any, i: number) => (
+            <div key={i} className={cn('rounded-lg p-3', c.action === 'GRANTED' ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20')}>
+              <div className="flex items-center justify-between mb-1">
+                <Badge size="sm" variant="flat" color={c.action === 'GRANTED' ? 'success' : 'danger'}>{c.action}</Badge>
+                <span className="text-xs text-gray-500 dark:text-gray-400">{relativeTime(c.action === 'GRANTED' ? c.created_on : c.deleted_on)}</span>
+              </div>
+              <p className="text-sm text-gray-900 dark:text-white">{c.privilege} on {c.object_type}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Role: {c.role_name} | Object: {c.object_name}</p>
+            </div>
+          ))}
+          {recentChanges.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No recent changes</p>}
+        </div>
+      </SectionCard>
+
+      {/* Audit Trail */}
+      {auditLog.length > 0 && (
+        <AuditTable
+          data={auditLog}
+          title="Recent Audit Trail"
+          columns={[
+            { key: 'action', label: 'Action', sortable: true, filterable: true,
+              render: (v: string) => <Badge size="sm" variant="flat" color={v?.includes('CREATE') ? 'success' : v?.includes('DROP') ? 'danger' : 'info'}>{v}</Badge> },
+            { key: 'entity_type', label: 'Entity', sortable: true, filterable: true,
+              render: (v: string, row: any) => <span className="text-gray-900 dark:text-white">{v}: {row.entity_name}</span> },
+            { key: 'target_type', label: 'Target', filterable: true,
+              render: (v: string, row: any) => v ? `${v}: ${row.target_name}` : '-' },
+            { key: 'performed_by', label: 'By', sortable: true, filterable: true },
+            { key: 'performed_at', label: 'When', sortable: true,
+              render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+          ]}
+        />
+      )}
+    </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 5: DATA OPERATIONS (merged Data Loading + Automation)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const DataOperationsTab = memo(function DataOperationsTab({ data, loading }: {
+  data: DataOperationsOverviewResponse | null; loading: boolean;
+}) {
+  if (loading || !data) return <LoadingSection />;
+
+  const loadingSummary = (data as any).loading_summary || {};
+  const automationSummary = (data as any).automation_summary || {};
+  const dailyVolume = (data as any).daily_volume || [];
+  const pipeActivity = (data as any).pipe_activity || [];
+  const loadingErrors = (data as any).loading_errors || [];
+  const taskDaily = (data as any).task_daily || [];
+  const activeTasks = (data as any).active_tasks || [];
+  const dynamicTables = (data as any).dynamic_tables || [];
+  const recentTasks = (data as any).recent_tasks || [];
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+        <KpiCard label="Files Loaded" value={(loadingSummary.total_files ?? 0).toLocaleString()} icon={Upload} color="blue" />
+        <KpiCard label="Rows Ingested" value={(loadingSummary.total_rows ?? 0).toLocaleString()} icon={Database} color="green" />
+        <KpiCard label="Data Volume" value={`${((loadingSummary.total_bytes ?? 0) / 1073741824).toFixed(2)} GB`} icon={Box} color="violet" />
+        <KpiCard label="Load Success" value={`${loadingSummary.success_rate ?? 0}%`} icon={CheckCircle} color="emerald" />
+        <KpiCard label="Task Runs" value={(automationSummary.total_runs ?? 0).toLocaleString()} icon={Clock} color="amber" />
+        <KpiCard label="Active Tasks" value={automationSummary.active_tasks ?? 0} icon={Zap} color="cyan" />
+      </div>
+
+      {/* Data Loading Section */}
+      <div className="mt-2">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+          <Upload className="h-4 w-4" /> Data Loading
+        </h3>
+      </div>
+
+      {/* Daily Volume Chart */}
+      {dailyVolume.length > 0 && (
+        <SectionCard title="Daily Loading Volume">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={dailyVolume}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis yAxisId="left" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar yAxisId="left" dataKey="file_count" fill="#3B82F6" name="Files" radius={[4, 4, 0, 0]} />
+                <Line yAxisId="right" type="monotone" dataKey="total_rows" stroke="#10B981" name="Rows" strokeWidth={2} dot={false} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Pipe Activity */}
+        <SectionCard title="Snowpipe Activity">
+          {pipeActivity.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {pipeActivity.slice(0, 10).map((p: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{p.pipe_name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{p.files_inserted} files, {(p.bytes_inserted / 1048576).toFixed(1)} MB</p>
+                  </div>
+                  <Badge size="sm" variant="flat" color="primary">{p.credits?.toFixed(2)} credits</Badge>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No pipe activity</p>}
+        </SectionCard>
+
+        {/* Loading Errors */}
+        <SectionCard title="Recent Loading Errors">
+          {loadingErrors.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {loadingErrors.slice(0, 10).map((e: any, i: number) => (
+                <div key={i} className="rounded-lg bg-red-50 dark:bg-red-900/20 p-3">
+                  <div className="flex items-center justify-between mb-1">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{e.table}</p>
+                    <Badge size="sm" variant="flat" color="danger">{e.error_count} errors</Badge>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{e.error_message}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <CheckCircle className="h-8 w-8 text-green-500 mx-auto mb-2" />
+              <p className="text-sm text-gray-500 dark:text-gray-400">No loading errors</p>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Automation Section */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 flex items-center gap-2">
+          <Zap className="h-4 w-4" /> Automation & Tasks
+        </h3>
+      </div>
+
+      {/* Task Execution Trend */}
+      {taskDaily.length > 0 && (
+        <SectionCard title="Task Execution Trend">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={taskDaily}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="success" fill="#10B981" name="Success" stackId="a" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="failure" fill="#EF4444" name="Failed" stackId="a" radius={[0, 0, 0, 0]} />
+                <Bar dataKey="skipped" fill="#9CA3AF" name="Skipped" stackId="a" radius={[4, 4, 0, 0]} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Active Tasks */}
+        <SectionCard title="Active Tasks">
+          {activeTasks.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {activeTasks.slice(0, 15).map((t: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{t.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{t.database}.{t.schema}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {t.schedule && <span className="text-xs text-gray-400">{t.schedule}</span>}
+                    <Badge size="sm" variant="flat" color={t.state === 'started' ? 'success' : 'secondary'}>{t.state}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No active tasks</p>}
+        </SectionCard>
+
+        {/* Dynamic Tables */}
+        <SectionCard title="Dynamic Tables">
+          {dynamicTables.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {dynamicTables.slice(0, 15).map((dt: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{dt.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{dt.database}.{dt.schema}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge size="sm" variant="flat" color="info">{dt.target_lag}</Badge>
+                    <Badge size="sm" variant="flat" color="secondary">{dt.refresh_mode}</Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No dynamic tables</p>}
+        </SectionCard>
+      </div>
+
+      {/* Recent Failed Tasks Audit Table */}
+      {recentTasks.filter((t: any) => t.state === 'FAILED').length > 0 && (
+        <AuditTable
+          data={recentTasks.filter((t: any) => t.state === 'FAILED')}
+          title="Recent Failed Tasks"
+          columns={[
+            { key: 'task_name', label: 'Task', sortable: true, filterable: true,
+              render: (v: string) => <span className="font-medium text-gray-900 dark:text-white">{v}</span> },
+            { key: 'database', label: 'Database', sortable: true, filterable: true },
+            { key: 'error_message', label: 'Error', filterable: true,
+              render: (v: string) => <span className="max-w-xs truncate block">{v}</span> },
+            { key: 'scheduled_time', label: 'Time', sortable: true,
+              render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+          ]}
+        />
+      )}
+    </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB: PERFORMANCE
+// ═════════════════════════════════════════════════════════════════════════════
+
+const PerformanceTab = memo(function PerformanceTab({ data, loading }: {
+  data: PerformanceOverviewResponse | null; loading: boolean;
+}) {
+  if (loading || !data) return <LoadingSection />;
+
+  const queryPerf = data.query_performance || [];
+  const slowQueries = data.slow_queries || [];
+  const queryTypes = data.query_types || [];
+
+  const avgP50 = queryPerf.length > 0
+    ? Math.round(queryPerf.reduce((s: number, r: any) => s + r.p50_ms, 0) / queryPerf.length)
+    : 0;
+  const avgP95 = queryPerf.length > 0
+    ? Math.round(queryPerf.reduce((s: number, r: any) => s + r.p95_ms, 0) / queryPerf.length)
+    : 0;
+  const totalQueries = queryPerf.reduce((s: number, r: any) => s + r.query_count, 0);
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <KpiCard label="Total Queries" value={totalQueries.toLocaleString()} icon={BarChart3} color="blue" />
+        <KpiCard label="P50 Latency" value={`${(avgP50 / 1000).toFixed(1)}s`} icon={Gauge} color="green" />
+        <KpiCard label="P95 Latency" value={`${(avgP95 / 1000).toFixed(1)}s`} icon={Gauge} color="amber" />
+        <KpiCard label="Slow Queries" value={slowQueries.length} icon={AlertTriangle} color="red" />
+        <KpiCard label="Query Types" value={queryTypes.length} icon={Cpu} color="violet" />
+      </div>
+
+      {/* Query Latency Trend */}
+      <SectionCard title={`Query Latency Trend (${data.period_days}d)`}>
+        <div className="h-64">
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={queryPerf}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+              <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} label={{ value: 'ms', angle: -90, position: 'insideLeft', fill: '#9CA3AF' }} />
+              <Tooltip content={<ChartTooltip />} />
+              <Area type="monotone" dataKey="p99_ms" stroke="#EF4444" fill="#EF4444" fillOpacity={0.1} name="P99" />
+              <Area type="monotone" dataKey="p95_ms" stroke="#F59E0B" fill="#F59E0B" fillOpacity={0.1} name="P95" />
+              <Line type="monotone" dataKey="p50_ms" stroke="#10B981" strokeWidth={2} name="P50" dot={false} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </SectionCard>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Query Type Distribution */}
+        <SectionCard title="Query Type Distribution">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={queryTypes.slice(0, 8)} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis type="category" dataKey="type" width={100} tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="count" fill="#3B82F6" name="Count" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+
+        {/* Compilation vs Execution */}
+        <SectionCard title="Compile vs Execute Time">
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={queryPerf}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="avg_compile_ms" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.2} name="Compile" stackId="1" />
+                <Area type="monotone" dataKey="avg_exec_ms" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.2} name="Execute" stackId="1" />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Slow Queries Audit Table */}
+      {slowQueries.length > 0 && (
+        <AuditTable
+          data={slowQueries}
+          title="Slowest Queries"
+          columns={[
+            { key: 'query_text', label: 'Query', filterable: true,
+              render: (v: string) => <span className="max-w-xs truncate block font-mono text-xs text-gray-900 dark:text-white">{v}</span> },
+            { key: 'user', label: 'User', sortable: true, filterable: true },
+            { key: 'warehouse', label: 'Warehouse', sortable: true, filterable: true },
+            { key: 'duration_ms', label: 'Duration', sortable: true, align: 'right',
+              render: (v: number) => <Badge size="sm" variant="flat" color={v > 60000 ? 'danger' : 'warning'}>{(v / 1000).toFixed(1)}s</Badge> },
+            { key: 'start_time', label: 'When', sortable: true,
+              render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+          ]}
+        />
+      )}
+    </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 8: COMPUTE & INFRASTRUCTURE
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ComputeTab = memo(function ComputeTab({ data, loading }: {
+  data: InfrastructureResponse | null; loading: boolean;
+}) {
+  if (loading || !data) return <LoadingSection />;
+
+  const warehouses = data.warehouses || [];
+  const replicationDbs = data.replication?.databases || [];
+  const totalCredits = warehouses.reduce((s, w) => s + (w.total_credits || 0), 0);
+  const sorted = [...warehouses].sort((a, b) => (b.total_credits || 0) - (a.total_credits || 0));
+  const topWarehouse = sorted.length > 0 ? sorted[0] : null;
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <KpiCard label="Warehouses" value={warehouses.length} icon={Server} color="blue" />
+        <KpiCard label="Total Credits" value={totalCredits.toFixed(2)} icon={DollarSign} color="amber" />
+        <KpiCard label="Top Consumer" value={topWarehouse?.warehouse_name || '-'} icon={Cpu} color="violet" />
+        <KpiCard label="Replication DBs" value={replicationDbs.length} icon={GitBranch} color="green" />
+      </div>
+
+      {/* Warehouse Credits Bar Chart */}
+      {sorted.length > 0 && (
+        <SectionCard title="Warehouse Credits">
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={sorted.slice(0, 12)} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis type="category" dataKey="warehouse_name" width={130} tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="total_credits" fill="#F59E0B" name="Credits" radius={[0, 4, 4, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Warehouse Details Audit Table */}
+      <AuditTable
+        data={warehouses}
+        title="Warehouse Details"
+        emptyMessage="No warehouses found"
+        columns={[
+          { key: 'warehouse_name', label: 'Warehouse', sortable: true, filterable: true,
+            render: (v: string) => <span className="font-medium text-gray-900 dark:text-white">{v}</span> },
+          { key: 'total_credits', label: 'Total Credits', sortable: true, align: 'right',
+            render: (v: number) => (v ?? 0).toFixed(2) },
+          { key: 'compute_credits', label: 'Compute', sortable: true, align: 'right',
+            render: (v: number) => (v ?? 0).toFixed(2) },
+          { key: 'cloud_credits', label: 'Cloud', sortable: true, align: 'right',
+            render: (v: number) => (v ?? 0).toFixed(2) },
+        ]}
+      />
+
+      {/* Replication + Tasks Summary */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Replication">
+          {replicationDbs.length > 0 ? (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {replicationDbs.map((r: any, i: number) => (
+                <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{r.database_name || r.name}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">DATABASE</p>
+                  </div>
+                  <Badge size="sm" variant="flat" color="info">{(r.credits ?? 0).toFixed(2)} credits</Badge>
+                </div>
+              ))}
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No replication configured</p>}
+        </SectionCard>
+
+        <SectionCard title="Tasks & Pipes">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{data.tasks?.total_7d ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Tasks (7d)</p>
+            </div>
+            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{data.pipes?.total_files ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Pipes</p>
+            </div>
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{data.clustering?.total_credits?.toFixed(2) ?? '0'}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Cluster Credits</p>
+            </div>
+            <div className="rounded-lg bg-violet-50 dark:bg-violet-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{data.materialized_views?.total_credits?.toFixed(2) ?? '0'}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">MV Credits</p>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+    </>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TAB 9: PLATFORM ACTIVITY (Data360 Internal + Activity Feed)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, activityFeed, summary, loading }: {
+  platformData: PlatformActivityResponse | null;
+  activityFeed: ActivityFeedResponse | null;
+  summary: SummaryResponse | null;
+  loading: boolean;
+}) {
+  if (loading || (!platformData && !activityFeed)) return <LoadingSection />;
+
+  const totalEvents = platformData?.event_activity?.reduce((s, e) => s + e.count, 0) ?? 0;
+  const totalSessions = platformData?.user_sessions?.reduce((s, u) => s + u.sessions, 0) ?? 0;
+  const uniqueUsersTotal = platformData?.user_sessions && platformData.user_sessions.length > 0
+    ? Math.max(...platformData.user_sessions.map(u => u.unique_users))
+    : 0;
+
+  // Aggregate module usage for pie chart
+  const moduleAgg: Record<string, number> = {};
+  platformData?.module_usage?.forEach(m => {
+    moduleAgg[m.module] = (moduleAgg[m.module] || 0) + m.count;
+  });
+  const modulePieData = Object.entries(moduleAgg).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+
+  // Activity feed as table data
+  const activityRows = (activityFeed?.events || []).map(evt => ({
+    module: evt.module,
+    event_type: evt.event_type,
+    username: evt.username,
+    status: evt.status,
+    timestamp: evt.timestamp,
+  }));
+
+  return (
+    <>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+        <KpiCard label="Total Events" value={totalEvents.toLocaleString()} icon={Activity} color="blue" />
+        <KpiCard label="Sessions" value={totalSessions.toLocaleString()} icon={Users} color="green" />
+        <KpiCard label="Peak Users" value={uniqueUsersTotal} icon={Users} color="violet" />
+        <KpiCard label="Modules Active" value={modulePieData.length} icon={Layers} color="cyan" />
+        <KpiCard label="Roles" value={platformData?.governance_stats?.roles ?? 0} icon={Shield} color="amber" />
+        <KpiCard label="Permissions" value={platformData?.governance_stats?.permissions ?? 0} icon={Lock} color="rose" />
+      </div>
+
+      {/* User Sessions Trend */}
+      {platformData?.user_sessions && platformData.user_sessions.length > 0 && (
+        <SectionCard title={`User Sessions (${platformData.period_days}d)`}>
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={platformData.user_sessions}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar dataKey="sessions" fill="#3B82F6" name="Sessions" radius={[4, 4, 0, 0]} />
+                <Line type="monotone" dataKey="unique_users" stroke="#10B981" strokeWidth={2} name="Unique Users" dot={false} />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </SectionCard>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Module Usage Distribution */}
+        <SectionCard title="Module Usage">
+          {modulePieData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={modulePieData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={50} outerRadius={90} paddingAngle={2}>
+                    {modulePieData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <p className="text-sm text-gray-400 text-center py-8">No module activity</p>}
+        </SectionCard>
+
+        {/* Governance Stats */}
+        <SectionCard title="Platform Governance">
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{platformData?.governance_stats?.roles ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Roles</p>
+            </div>
+            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{platformData?.governance_stats?.permissions ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Permissions</p>
+            </div>
+            <div className="rounded-lg bg-violet-50 dark:bg-violet-900/20 p-4 text-center">
+              <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{platformData?.governance_stats?.module_grants ?? 0}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Module Grants</p>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+
+      {/* Full Activity Feed as Audit Table */}
+      <AuditTable
+        data={activityRows}
+        title="Activity Feed"
+        emptyMessage="No recent activity"
+        pageSize={20}
+        columns={[
+          { key: 'module', label: 'Module', sortable: true, filterable: true,
+            render: (v: string) => <Badge size="sm" variant="flat" color={MODULE_COLORS[v] as any || 'secondary'}>{v?.replace(/_/g, ' ')}</Badge> },
+          { key: 'event_type', label: 'Event', sortable: true, filterable: true },
+          { key: 'username', label: 'User', sortable: true, filterable: true },
+          { key: 'status', label: 'Status', sortable: true, filterable: true,
+            render: (v: string) => <Badge size="sm" variant="flat" color={statusBadgeColor(v)}>{v}</Badge> },
+          { key: 'timestamp', label: 'Time', sortable: true,
+            render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+        ]}
+      />
+
+      {/* Recent Platform Audit */}
+      {platformData?.recent_audit && platformData.recent_audit.length > 0 && (
+        <AuditTable
+          data={platformData.recent_audit}
+          title="Platform Audit Trail"
+          columns={[
+            { key: 'action', label: 'Action', sortable: true, filterable: true,
+              render: (v: string) => <Badge size="sm" variant="flat" color="info">{v}</Badge> },
+            { key: 'entity_type', label: 'Entity', sortable: true, filterable: true,
+              render: (v: string, row: any) => <span className="text-gray-900 dark:text-white">{v}: {row.entity_name}</span> },
+            { key: 'performed_by', label: 'By', sortable: true, filterable: true },
+            { key: 'performed_at', label: 'When', sortable: true,
+              render: (v: string) => <span title={v}>{relativeTime(v)}</span> },
+          ]}
+        />
+      )}
+    </>
+  );
+});

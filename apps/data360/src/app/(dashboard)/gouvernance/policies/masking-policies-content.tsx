@@ -344,13 +344,38 @@ export default function MaskingPoliciesContent() {
                 <h3 className="font-semibold text-lg text-amber-600 hover:text-amber-700">
                   {String(policy.policy_name || '')}
                 </h3>
-                <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                  Type: {String(policy.column_type || policy.data_type || 'N/A')}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 mt-1">
+                  <span className="text-sm text-slate-600 dark:text-slate-400">
+                    Type: {String(policy.column_type || policy.data_type || 'N/A')}
+                  </span>
+                  {policy.owner && (
+                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-400">
+                      Owner: {String(policy.owner)}
+                    </span>
+                  )}
+                  {policy.references_count != null && policy.references_count > 0 && (
+                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                      Applied to {policy.references_count} column(s)
+                    </span>
+                  )}
+                  {policy.expiration_date && (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      Expires: {new Date(policy.expiration_date).toLocaleDateString()}
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 mt-1 font-mono">
                   {String(policy.masking_expression || 'Click to view full expression')}
                 </p>
-                <p className="text-xs text-slate-500 mt-1">Schema: {String(policy.schema || 'N/A')}</p>
+                <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
+                  <span>Schema: {String(policy.schema || 'N/A')}</span>
+                  {policy.created_on && (
+                    <span>Created: {new Date(policy.created_on).toLocaleDateString()}</span>
+                  )}
+                  {policy.created_by && (
+                    <span>by {String(policy.created_by)}</span>
+                  )}
+                </div>
               </div>
               <div className="flex gap-2">
                 <Button

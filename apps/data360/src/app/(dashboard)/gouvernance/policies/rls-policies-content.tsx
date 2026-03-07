@@ -477,7 +477,7 @@ export default function RLSPoliciesContent() {
                           {String(policy.expression || policy.filter_expression || 'N/A')}
                         </code>
                       </div>
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
                           <p className="text-slate-500 dark:text-slate-400 mb-1">Schema</p>
                           <p className="font-medium text-slate-900 dark:text-white">{String(policy.schema || 'N/A')}</p>
@@ -487,6 +487,20 @@ export default function RLSPoliciesContent() {
                             <p className="text-slate-500 dark:text-slate-400 mb-1">Applied To</p>
                             <p className="font-medium text-slate-900 dark:text-white">
                               {String(policy.database || '')}.{String(policy.table_name || '')}
+                            </p>
+                          </div>
+                        )}
+                        {(policy as any).owner && (
+                          <div>
+                            <p className="text-slate-500 dark:text-slate-400 mb-1">Owner</p>
+                            <p className="font-medium text-slate-900 dark:text-white">{String((policy as any).owner)}</p>
+                          </div>
+                        )}
+                        {(policy as any).created_on && (
+                          <div>
+                            <p className="text-slate-500 dark:text-slate-400 mb-1">Created</p>
+                            <p className="font-medium text-slate-900 dark:text-white">
+                              {new Date((policy as any).created_on).toLocaleDateString()}
                             </p>
                           </div>
                         )}

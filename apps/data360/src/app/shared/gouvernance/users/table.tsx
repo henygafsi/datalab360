@@ -29,6 +29,9 @@ export type UserTableDataType = {
   roles: string[];
   status: string;
   createdOn: string;
+  lastLogin?: string;     // Last successful login from Snowflake metadata
+  defaultRole?: string;   // Default role from SHOW USERS
+  owner?: string;         // Owner from Snowflake
 };
 
 type UsersTableProps = {

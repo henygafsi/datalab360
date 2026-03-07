@@ -4,14 +4,21 @@
  */
 import apiClient from '@/lib/api-client';
 
+export type RoleGrantData = {
+  role_name: string;
+  modules: string[];
+  created_at?: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+  last_action?: string | null;
+};
+
 /**
- * Get all roles with their module grants
- *
- * Backend MUST return array of {role_name, modules[]}
+ * Get all roles with their module grants and tracking info
  */
-export const getRoles = async (): Promise<{ role_name: string; modules: string[] }[]> => {
+export const getRoles = async (): Promise<RoleGrantData[]> => {
   const response = await apiClient.get('/gouvernance/grants');
-  return response.data as { role_name: string; modules: string[] }[];
+  return response.data as RoleGrantData[];
 };
 
 /**

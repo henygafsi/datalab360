@@ -758,3 +758,265 @@ export interface AnomalyResponse {
   count: number;
   execution_time_ms: number;
 }
+
+// =============================================================================
+// SECURITY OVERVIEW (/security-overview)
+// =============================================================================
+
+export interface SecurityOverviewResponse {
+  period_days: number;
+  login_summary: { event_type: string; is_success: string; event_count: number; unique_users: number }[];
+  login_trend: { date: string; success: number; failure: number; total: number }[];
+  failed_logins: { user_name: string; failure_count: number; last_failure: string; last_error: string }[];
+  client_types: { client_type: string; login_count: number; unique_users: number }[];
+  mfa_coverage: { total_users: number; mfa_enabled: number; disabled_users: number; mfa_percentage: number };
+  network_policies: { name: string; created_on: string; comment: string }[];
+  network_policy_count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// GOVERNANCE OVERVIEW (/governance-overview)
+// =============================================================================
+
+export interface GovernanceOverviewResponse {
+  policy_coverage: { policy_kind: string; policy_count: number; unique_policies: number; objects_covered: number }[];
+  tag_usage: { tag_name: string; tag_schema: string; tag_database: string; object_type: string; tag_count: number }[];
+  role_count: number;
+  grant_summary: { privilege: string; granted_on: string; grant_count: number }[];
+  policies: { masking: number; row_access: number; aggregation: number; total: number };
+  audit_log: { entity_type: string; entity_name: string; action: string; target_type: string; target_name: string; performed_by: string; performed_at: string }[];
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// DATA LOADING OVERVIEW (/data-loading-overview)
+// =============================================================================
+
+export interface DataLoadingOverviewResponse {
+  period_days: number;
+  summary: { total_files: number; total_rows: number; total_bytes: number; total_errors: number; success_rate: number };
+  daily_volume: { date: string; file_count: number; total_rows: number; total_bytes: number; errors: number; success: number; failure: number }[];
+  recent_loads: { database: string; schema: string; table: string; file: string; status: string; rows: number; size_bytes: number; errors: number; error_message: string; load_time: string }[];
+  pipe_activity: { pipe_name: string; credits: number; bytes_inserted: number; files_inserted: number; start_time: string }[];
+  loading_errors: { table: string; file: string; error_count: number; error_message: string; status: string; load_time: string }[];
+  pipe_count: number;
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// AUTOMATION OVERVIEW (/automation-overview)
+// =============================================================================
+
+export interface AutomationOverviewResponse {
+  period_days: number;
+  summary: { total_runs: number; success_count: number; failure_count: number; success_rate: number; active_tasks: number; dynamic_tables: number };
+  task_daily: { date: string; total: number; success: number; failure: number; skipped: number; avg_duration: number }[];
+  recent_tasks: { task_name: string; database: string; schema: string; state: string; error_code: string; error_message: string; scheduled_time: string; completed_time: string; duration_seconds: number }[];
+  active_tasks: { name: string; database: string; schema: string; state: string; schedule: string; warehouse: string }[];
+  serverless_credits: { date: string; credits: number }[];
+  dynamic_tables: { name: string; database: string; schema: string; target_lag: string; refresh_mode: string }[];
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// PERFORMANCE OVERVIEW (/performance-overview)
+// =============================================================================
+
+export interface PerformanceOverviewResponse {
+  period_days: number;
+  query_performance: { date: string; query_count: number; p50_ms: number; p95_ms: number; p99_ms: number; avg_compile_ms: number; avg_exec_ms: number; avg_queue_ms: number; bytes_scanned: number }[];
+  slow_queries: { query_id: string; query_text: string; user: string; warehouse: string; duration_ms: number; compile_ms: number; exec_ms: number; queue_ms: number; bytes_scanned: number; start_time: string }[];
+  query_types: { type: string; count: number; avg_duration_ms: number; total_credits: number }[];
+  clustering: { date: string; table: string; credits: number; bytes_reclustered: number }[];
+  search_optimization: { date: string; credits: number; bytes_persisted: number }[];
+  mv_refresh: { date: string; table: string; credits: number }[];
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// CORTEX / AI COSTS (/cortex-costs)
+// =============================================================================
+
+export interface CortexCostsResponse {
+  period_days: number;
+  summary: { ai_credits: number; ml_compute_credits: number; total_credits: number };
+  daily_costs: { date: string; service_type: string; credits: number; tokens: number; requests: number }[];
+  ml_compute: { date: string; credits: number }[];
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// PLATFORM ACTIVITY (/platform-activity)
+// =============================================================================
+
+export interface PlatformActivityResponse {
+  period_days: number;
+  event_activity: { date: string; event_type: string; count: number }[];
+  module_usage: { module: string; action: string; count: number; unique_users: number }[];
+  user_sessions: { date: string; sessions: number; unique_users: number }[];
+  recent_audit: { entity_type: string; entity_name: string; action: string; target_type: string; target_name: string; performed_by: string; performed_at: string }[];
+  governance_stats: { roles: number; permissions: number; module_grants: number };
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// ACCOUNT HEALTH SCORE (/account-health-score)
+// =============================================================================
+
+export interface AccountHealthScoreResponse {
+  health_score: number;
+  max_score: number;
+  grade: string;
+  breakdown: { security: number; governance: number; performance: number; cost_efficiency: number };
+  details: { total_users: number; mfa_coverage_pct: number; total_policies: number; total_roles: number; total_warehouses: number };
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// GRANTS OVERVIEW (/grants-overview)
+// =============================================================================
+
+export interface GrantsOverviewResponse {
+  period_days: number;
+  summary: {
+    total_role_grants: number;
+    total_user_role_mappings: number;
+    roles_with_grants: number;
+    users_with_roles: number;
+    unique_privileges: number;
+    object_types_covered: number;
+  };
+  privilege_distribution: { privilege: string; object_type: string; grant_count: number; role_count: number }[];
+  role_grant_distribution: { role_name: string; total_grants: number; unique_privileges: number; object_type_count: number; database_count: number }[];
+  user_role_distribution: { user_name: string; role_count: number; roles: string }[];
+  object_coverage: { object_type: string; grant_count: number; role_count: number; object_count: number }[];
+  recent_changes: { role_name: string; privilege: string; object_type: string; object_name: string; action: string; created_on: string; deleted_on: string }[];
+  recent_role_grants: { role_name: string; privilege: string; object_type: string; object_name: string; database: string; schema: string; grant_option: string; granted_on: string }[];
+  user_role_mappings: { user_name: string; role_name: string; granted_by: string; granted_on: string }[];
+  execution_time_ms: number;
+}
+
+// ─── Projects & Deployments Overview ─────────────────────────────────────────
+
+export interface ProjectsOverviewResponse {
+  period_days: number;
+  summary: {
+    total_projects: number;
+    by_type: Record<string, number>;
+    by_status: Record<string, number>;
+    deployments_period: number;
+    deployment_success_rate: number;
+    pending_approvals: number;
+    failed_deployments: number;
+    unique_members: number;
+  };
+  project_distribution: { type: string; status: string; count: number }[];
+  deployment_status: { status: string; count: number }[];
+  execution_daily: { date: string; total: number; success: number; failed: number; avg_duration: number; steps_executed: number; steps_failed: number }[];
+  recent_deployments: {
+    deployment_id: string; project_id: string; project_name: string; project_type: string;
+    status: string; deployment_type: string; environment: string;
+    requested_by: string; requested_at: string;
+    approved_by: string; approved_at: string;
+    deployed_by: string; deployed_at: string;
+    rejected_by: string; rejection_reason: string;
+    error_message: string; retry_count: number;
+  }[];
+  pending_approvals: {
+    deployment_id: string; project_id: string; project_name: string; project_type: string;
+    requested_by: string; requested_at: string; environment: string;
+  }[];
+  members: {
+    username: string; role: string; project_id: string;
+    project_name: string; project_type: string;
+    added_by: string; added_at: string;
+  }[];
+  member_roles: { role: string; user_count: number; project_count: number }[];
+  top_contributors: { username: string; role: string; project_count: number }[];
+  execution_time_ms: number;
+}
+
+// ─── Governance & Grants Overview (merged) ───────────────────────────────────
+
+export interface GovernanceGrantsOverviewResponse {
+  period_days: number;
+  summary: {
+    role_count: number;
+    total_policies: number;
+    masking_policies: number;
+    rls_policies: number;
+    aggregation_policies: number;
+    total_tags: number;
+    total_role_grants: number;
+    users_with_roles: number;
+    object_types_covered: number;
+  };
+  policy_coverage: { policy_kind: string; policy_count: number; unique_policies: number; objects_covered: number }[];
+  tag_usage: { tag_name: string; tag_schema: string; tag_database: string; object_type: string; tag_count: number }[];
+  privilege_distribution: { privilege: string; object_type: string; grant_count: number; role_count: number }[];
+  role_grant_distribution: { role_name: string; total_grants: number; unique_privileges: number; object_type_count: number; database_count: number }[];
+  user_role_distribution: { user_name: string; role_count: number; roles: string }[];
+  object_coverage: { object_type: string; grant_count: number; role_count: number; object_count: number }[];
+  recent_changes: { role_name: string; privilege: string; object_type: string; object_name: string; action: string; created_on: string; deleted_on: string }[];
+  audit_log: { entity_type: string; entity_name: string; action: string; target_type: string; target_name: string; performed_by: string; performed_at: string }[];
+  execution_time_ms: number;
+}
+
+// ─── Data Operations Overview (merged) ───────────────────────────────────────
+
+export interface DataOperationsOverviewResponse {
+  period_days: number;
+  summary: {
+    total_files_loaded: number;
+    total_rows_loaded: number;
+    total_bytes_loaded: number;
+    load_error_count: number;
+    load_success_rate: number;
+    pipe_count: number;
+    total_task_runs: number;
+    task_success_count: number;
+    task_failure_count: number;
+    task_success_rate: number;
+    active_tasks: number;
+    dynamic_tables: number;
+  };
+  daily_volume: { date: string; file_count: number; total_rows: number; total_bytes: number; errors: number; success: number; failure: number }[];
+  pipe_activity: { pipe_name: string; credits: number; bytes_inserted: number; files_inserted: number; start_time: string }[];
+  loading_errors: { table: string; file: string; error_count: number; error_message: string; status: string; load_time: string }[];
+  task_daily: { date: string; total: number; success: number; failure: number; skipped: number; avg_duration: number }[];
+  recent_tasks: { task_name: string; database: string; schema: string; state: string; error_message: string; scheduled_time: string; completed_time: string; duration_seconds: number }[];
+  active_tasks: { name: string; database: string; schema: string; state: string; schedule: string; warehouse: string }[];
+  serverless_credits: { date: string; credits: number }[];
+  dynamic_tables: { name: string; database: string; schema: string; target_lag: string; refresh_mode: string }[];
+  execution_time_ms: number;
+}
+
+// =============================================================================
+// CROSS-TAB FILTERS
+// =============================================================================
+
+export interface CommandCenterFilters {
+  days: number;
+  project_type?: string;
+  username?: string;
+  status?: string;
+  environment?: string;
+  role_name?: string;
+  module_name?: string;
+  event_type?: string;
+  warehouse_name?: string;
+  query_type?: string;
+}
+
+export interface FilterOptionsResponse {
+  project_types: string[];
+  project_statuses: string[];
+  environments: string[];
+  usernames: string[];
+  roles: string[];
+  modules: string[];
+  warehouses: string[];
+  deployment_statuses: string[];
+  execution_time_ms: number;
+}

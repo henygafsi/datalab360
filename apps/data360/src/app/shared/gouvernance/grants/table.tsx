@@ -6,7 +6,7 @@ import {
   getCoreRowModel,
 } from '@tanstack/react-table';
 import { exportToCSV } from '@core/utils/export-to-csv';
-import { getRoles, updateGrants } from '@/app/services/gouvernance/grants';
+import { getRoles, updateGrants, type RoleGrantData } from '@/app/services/gouvernance/grants';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import Filters from './filters';
@@ -44,7 +44,7 @@ import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import { GrantsMatrixSkeleton } from '@/components/ui/TableSkeleton';
 import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
-type RoleGrant = { role_name: string; modules: string[] };
+type RoleGrant = RoleGrantData;
 
 // Type used by columns.tsx - represents module with associated roles
 export type GrantTableDataType = {
@@ -214,6 +214,42 @@ export default function GrantsTable() {
                       </span>
                     );
                   })}
+                </div>
+              );
+            },
+          },
+          {
+            header: 'Last Action',
+            accessorKey: 'last_action',
+            cell: ({ getValue }: any) => {
+              const action = getValue() as string | null;
+              if (!action) return <span className="text-slate-400 dark:text-slate-500">-</span>;
+              const colorMap: Record<string, string> = {
+                'CREATED': 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+                'GRANTS_UPDATED': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+                'SYNCED': 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+              };
+              const cls = colorMap[action] || 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+              return (
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${cls}`}>
+                  {action.replace(/_/g, ' ')}
+                </span>
+              );
+            },
+          },
+          {
+            header: 'Updated',
+            accessorKey: 'updated_at',
+            cell: ({ row }: any) => {
+              const date = row.original.updated_at;
+              const by = row.original.updated_by;
+              if (!date) return <span className="text-slate-400 dark:text-slate-500">-</span>;
+              const formatted = new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+              const time = new Date(date).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+              return (
+                <div className="text-xs">
+                  <div className="text-slate-700 dark:text-slate-300">{formatted} {time}</div>
+                  {by && <div className="text-slate-400 dark:text-slate-500">by {by}</div>}
                 </div>
               );
             },

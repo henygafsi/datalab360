@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useTransition } from 'react';
 import { Loader, Text, Title, Tab } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
@@ -80,6 +80,7 @@ const tabs: TabItem[] = [
 
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
+  const [, startTabTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -123,7 +124,7 @@ export default function ObservabilityDashboard() {
     }
   }, [activeTab]);
 
-  async function fetchKpis() {
+  const fetchKpis = useCallback(async () => {
     try {
       setLoadingStates((prev) => ({ ...prev, kpis: true }));
       setError(null);
@@ -138,9 +139,9 @@ export default function ObservabilityDashboard() {
       setLoadingStates((prev) => ({ ...prev, kpis: false }));
       setIsLoading(false);
     }
-  }
+  }, []);
 
-  async function fetchComplianceData() {
+  const fetchComplianceData = useCallback(async () => {
     setLoadingStates((prev) => ({ ...prev, compliance: true }));
     try {
       const [gdpr, soc2] = await Promise.all([
@@ -157,9 +158,9 @@ export default function ObservabilityDashboard() {
     } finally {
       setLoadingStates((prev) => ({ ...prev, compliance: false }));
     }
-  }
+  }, []);
 
-  async function fetchActivityData() {
+  const fetchActivityData = useCallback(async () => {
     setLoadingStates((prev) => ({ ...prev, activity: true }));
     try {
       const [activity, security] = await Promise.all([
@@ -176,9 +177,9 @@ export default function ObservabilityDashboard() {
     } finally {
       setLoadingStates((prev) => ({ ...prev, activity: false }));
     }
-  }
+  }, []);
 
-  async function fetchCostData() {
+  const fetchCostData = useCallback(async () => {
     setLoadingStates((prev) => ({ ...prev, cost: true }));
     try {
       const [warehouse, storage, credits, performance, slow] = await Promise.all([
@@ -201,7 +202,7 @@ export default function ObservabilityDashboard() {
     } finally {
       setLoadingStates((prev) => ({ ...prev, cost: false }));
     }
-  }
+  }, []);
 
   if (isLoading) {
     return (
@@ -240,7 +241,7 @@ export default function ObservabilityDashboard() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => startTabTransition(() => setActiveTab(tab.id))}
                 className={cn(
                   'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors',
                   isActive
