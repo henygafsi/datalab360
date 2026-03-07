@@ -78,7 +78,7 @@ function inferDDLType(eventType: EventType): DDLType {
     default: return 'ALTER_ADD_COLUMN'; // Default for PKs, FKs, policies
   }
 }
-import { getCortexRecommend } from '@/app/services/cortex';
+import { getCortexRecommend } from '@/app/services/cortex/';
 import { getApiErrorMessage } from '@/lib/api-client';
 
 // Test result interface
@@ -143,6 +143,7 @@ const EVENT_PRIORITY: Record<EventType, number> = {
   'HYBRID_TABLE_CREATED': 1,
   'ALERT_CREATED': 1,
 
+
   // Priority 2: Column additions (table must exist)
   'ADD_COLUMN': 2,
 
@@ -185,6 +186,7 @@ const EVENT_PRIORITY: Record<EventType, number> = {
 
   // Priority 9: Table renames (should be last to avoid breaking references)
   'TABLE_RENAMED': 9,
+
 };
 
 /**

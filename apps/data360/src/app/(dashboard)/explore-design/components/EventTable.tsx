@@ -58,27 +58,27 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
 // Lower = show first (schema before tables before FKs before policies)
 const EVENT_DISPLAY_PRIORITY: Partial<Record<EventType, number>> = {
   SCHEMA_CREATED: 0,
-  TABLE_CREATED: 1,
-  ADD_COLUMN: 2,
-  COLUMN_RENAMED: 3,
-  COLUMN_TYPE_CHANGED: 3,
-  REMOVE_COLUMN: 3,
-  PRIMARY_KEY_SET: 4,
-  PRIMARY_KEY_REMOVED: 4,
-  FOREIGN_KEY_ADDED: 5,
-  FOREIGN_KEY_REMOVED: 5,
-  COLUMN_MAPPING_CREATED: 5,
-  COLUMN_MAPPING_REMOVED: 5,
-  MASKING_POLICY_APPLIED: 6,
-  MASKING_POLICY_REMOVED: 6,
-  RLS_POLICY_APPLIED: 6,
-  RLS_POLICY_REMOVED: 6,
-  AGGREGATION_POLICY_APPLIED: 6,
-  AGGREGATION_POLICY_REMOVED: 6,
-  TAG_APPLIED: 7,
-  TAG_REMOVED: 7,
-  INGESTION_MODE_SET: 8,
-  TABLE_RENAMED: 9,
+  TABLE_ADDED_TO_MODELING: 1,
+  TABLE_REMOVED_FROM_MODELING: 1,
+  TABLE_CREATED: 2,
+  ADD_COLUMN: 3,
+  COLUMN_RENAMED: 4,
+  COLUMN_TYPE_CHANGED: 4,
+  REMOVE_COLUMN: 4,
+  PRIMARY_KEY_SET: 5,
+  PRIMARY_KEY_REMOVED: 5,
+  FOREIGN_KEY_ADDED: 6,
+  FOREIGN_KEY_REMOVED: 6,
+  MASKING_POLICY_APPLIED: 7,
+  MASKING_POLICY_REMOVED: 7,
+  RLS_POLICY_APPLIED: 7,
+  RLS_POLICY_REMOVED: 7,
+  AGGREGATION_POLICY_APPLIED: 7,
+  AGGREGATION_POLICY_REMOVED: 7,
+  TAG_APPLIED: 8,
+  TAG_REMOVED: 8,
+  INGESTION_MODE_SET: 9,
+  TABLE_RENAMED: 10,
 };
 
 const sortByPriority = (events: DesignEvent[]): DesignEvent[] =>
@@ -225,7 +225,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
   const [showTemplateEvents, setShowTemplateEvents] = useState(false);
 
   // Event types that should be displayed in the Changes panel
-  // Only show actual schema changes, not UI state events like SCHEMA_SELECTED
+  // Schema changes + modeling actions (ETL mappings are shown in Deployment modal instead)
   const displayableEventTypes: EventType[] = [
     'SCHEMA_CREATED',
     'TABLE_CREATED',
@@ -244,8 +244,8 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
     'RLS_POLICY_REMOVED',
     'FOREIGN_KEY_ADDED',
     'FOREIGN_KEY_REMOVED',
-    'COLUMN_MAPPING_CREATED',
-    'COLUMN_MAPPING_REMOVED',
+    'TABLE_ADDED_TO_MODELING',
+    'TABLE_REMOVED_FROM_MODELING',
   ];
 
   // Filter pending events to only count displayable ones
