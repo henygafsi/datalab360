@@ -10,7 +10,6 @@ import {
   HiOutlineCloudArrowUp,
   HiOutlineShieldCheck,
   HiOutlineCheckCircle,
-  HiOutlineTrash,
   HiOutlineExclamationCircle
 } from 'react-icons/hi2';
 import { Database, ArrowLeft } from 'lucide-react';
@@ -24,6 +23,12 @@ import {
     createAzureStage,
     setupAwsStorageIntegration,
     createAwsStage,
+    patchStorageIntegration,
+    type AwsStorageIntegrationResponse,
+    setupGcsStorageIntegration,
+    createGcsStage,
+    setupGcsNotificationIntegration,
+    type GcsStorageIntegrationResponse,
     connectSnowflakeDatalake,
     listSnowflakeStages,
     listSnowflakeStageFiles,
@@ -202,10 +207,20 @@ type AwsFormData = {
     integration_name: string;
     bucket_name: string;
     aws_role_arn: string;
-    external_id: string;
     stage_name: string;
     load_data: boolean;
     auto_update: boolean;
+};
+
+type GcsFormData = {
+    integration_name: string;
+    bucket_name: string;
+    stage_name: string;
+    prefix: string;
+    load_data: boolean;
+    auto_update: boolean;
+    notification_integration_name: string;
+    gcp_pubsub_subscription_name: string;
 };
 
 type SnowflakeFormData = {
@@ -215,24 +230,11 @@ type SnowflakeFormData = {
     datalake_role: string;
 };
 
-type DatalakeConnection = {
+type StageConnection = {
     id: string;
-    provider: 'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
     name: string;
-    connected_at: string;
-    details: {
-        username?: string;
-        account?: string;
-        tenant_id?: string;
-        bucket_name?: string;
-        integration_name?: string;
-        stage_name?: string;
-        host?: string;
-        catalog?: string;
-        uri?: string;
-        namespace?: string;
-        database?: string;
-    };
+    schema_name?: string;
+    database_name?: string;
 };
 
 export default function DataSourceConnectionPage() {
@@ -242,8 +244,10 @@ export default function DataSourceConnectionPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
-  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | null>(null);
-  const [activeConnections, setActiveConnections] = useState<DatalakeConnection[]>([]);
+  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | null>(null);
+  const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
+  const [activeConnections, setActiveConnections] = useState<StageConnection[]>([]);
+  const [connectionsLoading, setConnectionsLoading] = useState<boolean>(false);
   const [errorMessages, setErrorMessages] = useState<string[]>([]); // État persistant pour les erreurs
   const [showAddConnection, setShowAddConnection] = useState<boolean>(false); // Contrôle affichage section Add Connection
 
@@ -262,10 +266,20 @@ export default function DataSourceConnectionPage() {
       integration_name: '',
       bucket_name: '',
       aws_role_arn: '',
-      external_id: '',
       stage_name: '',
       load_data: false,
       auto_update: false,
+  });
+
+  const [gcsFormData, setGcsFormData] = useState<GcsFormData>({
+      integration_name: '',
+      bucket_name: '',
+      stage_name: '',
+      prefix: '',
+      load_data: false,
+      auto_update: false,
+      notification_integration_name: '',
+      gcp_pubsub_subscription_name: '',
   });
 
   const [snowflakeFormData, setSnowflakeFormData] = useState<SnowflakeFormData>({
@@ -280,6 +294,7 @@ export default function DataSourceConnectionPage() {
       snowflake: '/data-sources/snowflake-logo.png',
       azure: '/data-sources/azure-logo.png',
       aws: '/data-sources/aws-s3.png',
+      gcs: '/data-sources/gcs-logo.svg',
       databricks: '/data-sources/databricks-logo.svg',
       iceberg: '/data-sources/iceberg-logo.svg',
       postgres: '/data-sources/postgres-logo.svg',
@@ -304,6 +319,12 @@ export default function DataSourceConnectionPage() {
       name: 'Amazon S3',
       icon: '/data-sources/aws-s3.png',
       description: 'Amazon Simple Storage Service for scalable cloud storage',
+    },
+    {
+      id: 'gcs',
+      name: 'Google Cloud Storage',
+      icon: '/data-sources/gcs-logo.svg',
+      description: 'Google Cloud Storage for scalable object storage on GCP',
     },
     {
       id: 'databricks',
@@ -348,39 +369,40 @@ export default function DataSourceConnectionPage() {
     }
   }, [status, canManageConnections, router]);
 
-  // Load connections from localStorage only (no mock/static list; connections are created by user via form + API)
+  // Load stages from backend API
+  const loadConnections = async () => {
+    setConnectionsLoading(true);
+    try {
+      const response = await listSnowflakeStages();
+      const stages: any[] = Array.isArray(response?.stages) ? response.stages : [];
+      const connections: StageConnection[] = stages
+        .filter((s: any) => !s.error)
+        .map((s: any) => ({
+          id: s.name ?? s.stage_name ?? String(s),
+          name: s.name ?? s.stage_name ?? String(s),
+          schema_name: s.schema_name,
+          database_name: s.database_name,
+        }));
+      setActiveConnections(connections);
+    } catch (err) {
+      console.error('Failed to load stages', err);
+      setActiveConnections([]);
+    } finally {
+      setConnectionsLoading(false);
+    }
+  };
+
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const stored = localStorage.getItem('datalake_connections');
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored) as DatalakeConnection[];
-          setActiveConnections(Array.isArray(parsed) ? parsed : []);
-        } catch (e) {
-          console.error('Failed to parse stored connections', e);
-        }
-      }
+    if (status === 'authenticated' && canManageConnections) {
+      loadConnections();
     }
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, canManageConnections]);
 
-  const saveConnection = (connection: DatalakeConnection) => {
-    const updated = [...activeConnections, connection];
-    setActiveConnections(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('datalake_connections', JSON.stringify(updated));
-    }
-  };
-
-  const removeConnection = (connectionId: string) => {
-    const updated = activeConnections.filter(c => c.id !== connectionId);
-    setActiveConnections(updated);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('datalake_connections', JSON.stringify(updated));
-    }
-  };
-
-  const browseConnection = (connection: DatalakeConnection) => {
-    setConnectedProvider(connection.provider);
+  const browseConnection = (connection: StageConnection) => {
+    // All stages are Snowflake stages (external or internal)
+    setConnectedProvider('snowflake');
+    setActiveConnectionId(connection.id);
     setShowDatalakeBrowser(true);
     setCurrentStep(0);
   };
@@ -395,15 +417,30 @@ export default function DataSourceConnectionPage() {
       setCurrentStep(0);
       setShowDatalakeBrowser(false);
       setConnectedProvider(null);
+      setActiveConnectionId(null);
       // Reset specific form data when going back to selection
       setAzureFormData({
           storage_integration_name: '', notification_integration_name: '', tenant_id: '', storage_url: '', queue_url: '',
           stage_name: '', load_data: true, auto_update: false // Reset load_data to true
       });
       setAwsFormData({
-          integration_name: '', bucket_name: '', aws_role_arn: '', external_id: '',
+          integration_name: '', bucket_name: '', aws_role_arn: '',
           stage_name: '', load_data: false, auto_update: false
       });
+      setGcsFormData({
+          integration_name: '', bucket_name: '', stage_name: '', prefix: '',
+          load_data: false, auto_update: false,
+          notification_integration_name: '', gcp_pubsub_subscription_name: ''
+      });
+      setAwsCurrentSubStep(1);
+      setAwsIntegrationCreated(false);
+      setAwsIamUserArn(null);
+      setAwsExternalId(null);
+      setGcsCurrentSubStep(1);
+      setGcsIntegrationCreated(false);
+      setGcsServiceAccount(null);
+      setGcsNotificationCreated(false);
+      setGcsPubsubServiceAccount(null);
       setSnowflakeFormData({
           datalake_username: '', datalake_password: '', datalake_account: '', datalake_role: ''
       });
@@ -415,7 +452,7 @@ export default function DataSourceConnectionPage() {
       setMySQLFormData({ host: '', port: 3306, database: '', user: '', password: '' });
   };
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws' | 'snowflake') => {
+  const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws' | 'gcs' | 'snowflake') => {
       const { name, value, type } = e.target;
       const target = e.target as HTMLInputElement;
 
@@ -426,6 +463,11 @@ export default function DataSourceConnectionPage() {
           }));
       } else if (provider === 'aws') {
           setAwsFormData(prev => ({
+              ...prev,
+              [name]: type === 'checkbox' ? target.checked : value,
+          }));
+      } else if (provider === 'gcs') {
+          setGcsFormData(prev => ({
               ...prev,
               [name]: type === 'checkbox' ? target.checked : value,
           }));
@@ -525,15 +567,9 @@ export default function DataSourceConnectionPage() {
                       notificationIntegrationParam
                   );
                   toast.success('Azure Stage created successfully!');
-                  try {
-                      if (typeof window !== 'undefined') {
-                          window.localStorage.setItem('features.datalakeConnected', '1');
-                          window.dispatchEvent(new Event('app:refresh-menu'));
-                      }
-                  } catch {}
+                  await loadConnections();
                   try { await silentReauth(); } catch {}
-                  // Show browser instead of going back to selection
-                  setConnectedProvider('azure');
+                  setConnectedProvider('snowflake');
                   setShowDatalakeBrowser(true);
                   setCurrentStep(0);
               } else {
@@ -564,30 +600,10 @@ export default function DataSourceConnectionPage() {
               );
               toast.success('Azure Stage created successfully!');
 
-              // Save connection
-              const connection: DatalakeConnection = {
-                  id: `azure_${Date.now()}`,
-                  provider: 'azure',
-                  name: `Azure - ${azureFormData.stage_name}`,
-                  connected_at: new Date().toISOString(),
-                  details: {
-                      tenant_id: azureFormData.tenant_id,
-                      integration_name: azureFormData.storage_integration_name,
-                      stage_name: azureFormData.stage_name,
-                  }
-              };
-              saveConnection(connection);
-
-              try {
-                  if (typeof window !== 'undefined') {
-                      window.localStorage.setItem('features.datalakeConnected', '1');
-                      window.dispatchEvent(new Event('app:refresh-menu'));
-                  }
-              } catch {}
+              await loadConnections();
               try { await silentReauth(); } catch {}
 
-              // Show browser instead of redirecting for consistency
-              setConnectedProvider('azure');
+              setConnectedProvider('snowflake');
               setShowDatalakeBrowser(true);
               setCurrentStep(0);
           }
@@ -604,6 +620,15 @@ export default function DataSourceConnectionPage() {
   // --- AWS Connection Steps ---
   const [awsCurrentSubStep, setAwsCurrentSubStep] = useState<number>(1);
   const [awsIntegrationCreated, setAwsIntegrationCreated] = useState<boolean>(false);
+  const [awsIamUserArn, setAwsIamUserArn] = useState<string | null>(null);
+  const [awsExternalId, setAwsExternalId] = useState<string | null>(null);
+
+  // --- GCS Connection Steps ---
+  const [gcsCurrentSubStep, setGcsCurrentSubStep] = useState<number>(1);
+  const [gcsIntegrationCreated, setGcsIntegrationCreated] = useState<boolean>(false);
+  const [gcsServiceAccount, setGcsServiceAccount] = useState<string | null>(null);
+  const [gcsNotificationCreated, setGcsNotificationCreated] = useState<boolean>(false);
+  const [gcsPubsubServiceAccount, setGcsPubsubServiceAccount] = useState<string | null>(null);
 
   // --- Snowflake Connection ---
   const [snowflakeConnected, setSnowflakeConnected] = useState<boolean>(false);
@@ -640,16 +665,23 @@ export default function DataSourceConnectionPage() {
       setLoading(true);
       try {
           if (awsCurrentSubStep === 1) {
-              await setupAwsStorageIntegration(
+              const result = await setupAwsStorageIntegration(
                   awsFormData.integration_name,
                   awsFormData.bucket_name,
                   awsFormData.aws_role_arn,
-                  awsFormData.external_id
               );
               setAwsIntegrationCreated(true);
+              setAwsIamUserArn(result.STORAGE_AWS_IAM_USER_ARN || null);
+              setAwsExternalId(result.STORAGE_AWS_EXTERNAL_ID || null);
               toast.success('AWS Storage Integration created successfully!');
               setAwsCurrentSubStep(2);
-          } else if (awsCurrentSubStep === 2) {
+          } else if (awsCurrentSubStep === 3) {
+              // Patch the integration with the external_id before creating the stage
+              if (awsExternalId) {
+                  await patchStorageIntegration(awsFormData.integration_name, {
+                      storage_aws_external_id: awsExternalId,
+                  });
+              }
               await createAwsStage(
                   awsFormData.stage_name,
                   awsFormData.bucket_name,
@@ -659,30 +691,52 @@ export default function DataSourceConnectionPage() {
               );
               toast.success('AWS Stage created successfully!');
 
-              // Save connection
-              const connection: DatalakeConnection = {
-                  id: `aws_${Date.now()}`,
-                  provider: 'aws',
-                  name: `AWS - ${awsFormData.stage_name}`,
-                  connected_at: new Date().toISOString(),
-                  details: {
-                      bucket_name: awsFormData.bucket_name,
-                      integration_name: awsFormData.integration_name,
-                      stage_name: awsFormData.stage_name,
-                  }
-              };
-              saveConnection(connection);
-
-              try {
-                  if (typeof window !== 'undefined') {
-                      window.localStorage.setItem('features.datalakeConnected', '1');
-                      window.dispatchEvent(new Event('app:refresh-menu'));
-                  }
-              } catch {}
+              await loadConnections();
               try { await silentReauth(); } catch {}
 
-              // Show browser instead of redirecting for consistency
-              setConnectedProvider('aws');
+              setConnectedProvider('snowflake');
+              setShowDatalakeBrowser(true);
+              setCurrentStep(0);
+          }
+      } catch (error: any) {
+          const errorMsg = error.message || 'An unexpected error occurred.';
+          setErrorMessages(prev => [...prev, errorMsg]);
+          toast.error(`Failed: ${errorMsg}`);
+          console.error('Error:', error);
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleGcsSubmit = async (e: FormEvent) => {
+      e.preventDefault();
+      setLoading(true);
+      try {
+          if (gcsCurrentSubStep === 1) {
+              const result = await setupGcsStorageIntegration(
+                  gcsFormData.integration_name,
+                  gcsFormData.bucket_name
+              );
+              setGcsIntegrationCreated(true);
+              setGcsServiceAccount(result.STORAGE_GCP_SERVICE_ACCOUNT);
+              toast.success('GCS Storage Integration created successfully!');
+              setGcsCurrentSubStep(2); // Move to IAM guide step
+          } else if (gcsCurrentSubStep === 3) {
+              await createGcsStage(
+                  gcsFormData.stage_name,
+                  gcsFormData.bucket_name,
+                  gcsFormData.integration_name,
+                  gcsFormData.load_data,
+                  gcsFormData.auto_update,
+                  gcsFormData.prefix || null
+              );
+              toast.success('GCS Stage created successfully!');
+
+              // Save connection
+              await loadConnections();
+              try { await silentReauth(); } catch {}
+
+              setConnectedProvider('snowflake');
               setShowDatalakeBrowser(true);
               setCurrentStep(0);
           }
@@ -709,28 +763,9 @@ export default function DataSourceConnectionPage() {
           setSnowflakeConnected(true);
           toast.success('Snowflake Datalake connected successfully!');
 
-          // Save connection
-          const connection: DatalakeConnection = {
-              id: `snowflake_${Date.now()}`,
-              provider: 'snowflake',
-              name: `Snowflake - ${snowflakeFormData.datalake_account}`,
-              connected_at: new Date().toISOString(),
-              details: {
-                  username: snowflakeFormData.datalake_username,
-                  account: snowflakeFormData.datalake_account,
-              }
-          };
-          saveConnection(connection);
-
-          try {
-              if (typeof window !== 'undefined') {
-                  window.localStorage.setItem('features.datalakeConnected', '1');
-                  window.dispatchEvent(new Event('app:refresh-menu'));
-              }
-          } catch {}
+          await loadConnections();
           try { await silentReauth(); } catch {}
 
-          // Show browser instead of redirecting for consistency
           setConnectedProvider('snowflake');
           setShowDatalakeBrowser(true);
           setCurrentStep(0);
@@ -868,9 +903,47 @@ export default function DataSourceConnectionPage() {
                                           <Text className="text-sm text-gray-700 dark:text-gray-300 italic">URL not available.</Text>
                                       )}
                                   </div>
-                                  <Text className="text-sm text-slate-600 dark:text-slate-400 mt-3">
-                                      Please open the URL above in a new tab, follow the instructions to grant consent, then return here to continue.
-                                  </Text>
+
+                                  <div className="border-t border-blue-200 dark:border-blue-800 pt-4 mt-4">
+                                      <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                          Follow these steps in your Azure Portal:
+                                      </Text>
+                                      <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">1</span>
+                                              <span>Open the <strong>Consent URL</strong> above in a new browser tab</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">2</span>
+                                              <span>Sign in with an Azure AD admin account and click <strong>Accept</strong> to grant permissions to the Snowflake application</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">3</span>
+                                              <span>Go to <strong>Azure Portal &rarr; Storage accounts &rarr; your storage account &rarr; Access Control (IAM)</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">4</span>
+                                              <span>Click <strong>Add role assignment</strong>, select <strong>Storage Blob Data Reader</strong> (or <strong>Contributor</strong> for write access)</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">5</span>
+                                              <span>Under <strong>Members</strong>, select the Snowflake application (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">{azureStorageMultiTenantAppName || 'Snowflake app'}</code>) and click <strong>Review + assign</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">6</span>
+                                              <span>Return here and click <strong>Continue</strong></span>
+                                          </li>
+                                      </ol>
+                                  </div>
+
+                                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3 mt-4">
+                                      <div className="flex items-start space-x-2">
+                                          <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                          <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                              The stage creation will fail if the Snowflake app has not been granted access to your storage account. Complete all steps above before proceeding.
+                                          </Text>
+                                      </div>
+                                  </div>
                               </div>
                           ) : (
                               <Text className="text-base text-gray-700 dark:text-gray-300 font-semibold text-center py-4">
@@ -974,9 +1047,42 @@ export default function DataSourceConnectionPage() {
                                           <Text className="text-sm text-gray-700 dark:text-gray-300 italic">URL not available.</Text>
                                       )}
                                   </div>
-                                  <Text className="text-sm text-slate-600 dark:text-slate-400 mt-3">
-                                      Please open the URL above in a new tab, follow the instructions to grant consent, then return here to continue.
-                                  </Text>
+                                  <div className="border-t border-blue-200 dark:border-blue-800 pt-4 mt-4">
+                                      <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                          Follow these steps in your Azure Portal:
+                                      </Text>
+                                      <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">1</span>
+                                              <span>Open the <strong>Consent URL</strong> above in a new browser tab</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">2</span>
+                                              <span>Sign in with an Azure AD admin account and click <strong>Accept</strong> to grant permissions to the Snowflake application</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">3</span>
+                                              <span>Go to <strong>Azure Portal &rarr; Storage account &rarr; Events</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">4</span>
+                                              <span>Create an <strong>Event Subscription</strong> with event type <strong>Blob Created</strong>, endpoint type <strong>Storage Queue</strong>, and select the queue you configured</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">5</span>
+                                              <span>Return here and click <strong>Continue</strong></span>
+                                          </li>
+                                      </ol>
+                                  </div>
+
+                                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3 mt-4">
+                                      <div className="flex items-start space-x-2">
+                                          <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                          <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                              Snowpipe will not work until consent is granted and the Event Grid subscription is configured. Complete all steps above before proceeding.
+                                          </Text>
+                                      </div>
+                                  </div>
                               </div>
                           ) : (
                               <Text className="text-base text-gray-700 dark:text-gray-300 font-semibold text-center py-4">
@@ -1035,13 +1141,53 @@ export default function DataSourceConnectionPage() {
                                   label="Enable automatic updates (Snowpipe)"
                                   checked={azureFormData.auto_update}
                                   onChange={(e) => handleChange(e, 'azure')}
-                                  disabled={loading || !azureNotificationIntegrationCreated || !azureNotificationDetailsFetched} // Disable if notification not created or details not fetched
+                                  disabled={loading || !azureNotificationIntegrationCreated || !azureNotificationDetailsFetched}
                               />
                           )}
                           {!showAzureNotificationOption && (
                               <Text className="text-sm text-gray-600 dark:text-gray-400 italic">
                                   Automatic updates (Snowpipe) require a Notification Integration to be enabled in Step 3.
                               </Text>
+                          )}
+
+                          {/* Snowpipe / Azure Event Grid Guide */}
+                          {azureFormData.auto_update && showAzureNotificationOption && (
+                              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-950/30 p-5 space-y-4">
+                                  <Text className="font-semibold text-indigo-800 dark:text-indigo-300">
+                                      Snowpipe Setup &mdash; Azure Event Grid
+                                  </Text>
+                                  <div className="border-t border-indigo-200 dark:border-indigo-800 pt-4">
+                                      <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                          Ensure the following is configured in your Azure Portal:
+                                      </Text>
+                                      <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">1</span>
+                                              <span>Go to <strong>Azure Portal &rarr; Storage account &rarr; Events</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">2</span>
+                                              <span>Create an <strong>Event Subscription</strong> with Event type: <strong>Blob Created</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">3</span>
+                                              <span>Set endpoint type to <strong>Storage Queue</strong> and select the queue URL you used for the notification integration</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">4</span>
+                                              <span>Click <strong>Create</strong> to enable automatic event notifications</span>
+                                          </li>
+                                      </ol>
+                                  </div>
+                                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                      <div className="flex items-start space-x-2">
+                                          <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                          <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                              Snowpipe will start ingesting data automatically once the Event Grid subscription delivers blob-created events to your Storage Queue.
+                                          </Text>
+                                      </div>
+                                  </div>
+                              </div>
                           )}
 
                           <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (azureFormData.auto_update && !azureFormData.notification_integration_name)}>
@@ -1101,16 +1247,7 @@ export default function DataSourceConnectionPage() {
                               disabled={awsIntegrationCreated || loading}
                               className="w-full"
                           />
-                          <Input
-                              name="external_id"
-                              label="External ID"
-                              placeholder="e.g., YOUR_EXTERNAL_ID"
-                              value={awsFormData.external_id}
-                              onChange={(e) => handleChange(e, 'aws')}
-                              required
-                              disabled={awsIntegrationCreated || loading}
-                              className="w-full"
-                          />
+                        
                           {!awsIntegrationCreated && (
                               <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
                                   {loading ? 'Setting up...' : 'Create Storage Integration'}
@@ -1118,15 +1255,181 @@ export default function DataSourceConnectionPage() {
                           )}
                           {awsIntegrationCreated && (
                               <Button type="button" onClick={() => setAwsCurrentSubStep(2)} className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
-                                  Continue to Stage Setup
+                                  Continue to IAM Setup
                               </Button>
                           )}
                       </>
                   )}
 
+                  {/* Step 2: AWS IAM Trust Policy Guide */}
                   {awsCurrentSubStep === 2 && (
                       <>
-                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Create AWS Stage</h4>
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Configure AWS IAM Trust Policy</h4>
+                          <div className="rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/30 p-6 space-y-4">
+                              <div className="flex items-start space-x-3">
+                                  <HiOutlineShieldCheck className="h-6 w-6 text-blue-500 mt-0.5 shrink-0" />
+                                  <div className="flex-1">
+                                      <Text className="font-semibold text-blue-800 dark:text-blue-300 mb-1">
+                                          Snowflake IAM User ARN
+                                      </Text>
+                                      {awsIamUserArn ? (
+                                          <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 rounded-lg px-4 py-2 border border-blue-200 dark:border-blue-700">
+                                              <code className="text-sm font-mono text-blue-700 dark:text-blue-300 break-all select-all">
+                                                  {awsIamUserArn}
+                                              </code>
+                                              <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="shrink-0 text-xs"
+                                                  onClick={() => {
+                                                      navigator.clipboard.writeText(awsIamUserArn || '');
+                                                      toast.success('IAM User ARN copied!');
+                                                  }}
+                                              >
+                                                  Copy
+                                              </Button>
+                                          </div>
+                                      ) : (
+                                          <div className="space-y-2">
+                                              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                                  <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                                      IAM User ARN was not returned by the API. Click below to fetch integration details.
+                                                  </Text>
+                                              </div>
+                                              <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="text-xs"
+                                                  disabled={loading}
+                                                  onClick={async () => {
+                                                      setLoading(true);
+                                                      try {
+                                                          const details = await getIntegrationDetails(awsFormData.integration_name);
+                                                          const props = (details as any)?.properties ?? details;
+                                                          const arn = props?.STORAGE_AWS_IAM_USER_ARN ?? '';
+                                                          const extId = props?.STORAGE_AWS_EXTERNAL_ID ?? '';
+                                                          if (arn) {
+                                                              setAwsIamUserArn(arn);
+                                                              if (extId) setAwsExternalId(extId);
+                                                              toast.success('IAM details retrieved!');
+                                                          } else {
+                                                              toast.error('IAM User ARN not found. Check your integration in Snowflake.');
+                                                          }
+                                                      } catch (err: any) {
+                                                          toast.error(`Failed to fetch details: ${err.message}`);
+                                                      } finally {
+                                                          setLoading(false);
+                                                      }
+                                                  }}
+                                              >
+                                                  {loading ? 'Fetching...' : 'Verify Integration & Fetch IAM Details'}
+                                              </Button>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+
+                              {awsExternalId && (
+                                  <div className="flex items-start space-x-3">
+                                      <HiOutlineShieldCheck className="h-6 w-6 text-indigo-500 mt-0.5 shrink-0" />
+                                      <div className="flex-1">
+                                          <Text className="font-semibold text-indigo-800 dark:text-indigo-300 mb-1">
+                                              Snowflake External ID
+                                          </Text>
+                                          <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 rounded-lg px-4 py-2 border border-indigo-200 dark:border-indigo-700">
+                                              <code className="text-sm font-mono text-indigo-700 dark:text-indigo-300 break-all select-all">
+                                                  {awsExternalId}
+                                              </code>
+                                              <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="shrink-0 text-xs"
+                                                  onClick={() => {
+                                                      navigator.clipboard.writeText(awsExternalId || '');
+                                                      toast.success('External ID copied!');
+                                                  }}
+                                              >
+                                                  Copy
+                                              </Button>
+                                          </div>
+                                      </div>
+                                  </div>
+                              )}
+
+                              <div className="border-t border-blue-200 dark:border-blue-800 pt-4">
+                                  <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                      Follow these steps in your AWS Console:
+                                  </Text>
+                                  <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">1</span>
+                                          <span>Go to <strong>AWS Console &rarr; IAM &rarr; Roles</strong> and find the role you specified (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">{awsFormData.aws_role_arn}</code>)</span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">2</span>
+                                          <span>Click the <strong>Trust relationships</strong> tab, then <strong>Edit trust policy</strong></span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">3</span>
+                                          <span>Update the trust policy to allow the Snowflake IAM User ARN above to assume this role. Replace the <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">AWS</code> principal with the ARN and set the <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">sts:ExternalId</code> condition to the External ID above</span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">4</span>
+                                          <span>The trust policy should look like:</span>
+                                      </li>
+                                  </ol>
+                                  <pre className="mt-2 rounded-lg bg-slate-900 dark:bg-slate-950 p-4 text-xs text-green-400 overflow-x-auto">
+{`{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {
+      "AWS": "${awsIamUserArn || '<STORAGE_AWS_IAM_USER_ARN>'}"
+    },
+    "Action": "sts:AssumeRole",
+    "Condition": {
+      "StringEquals": {
+        "sts:ExternalId": "${awsExternalId || '<STORAGE_AWS_EXTERNAL_ID>'}"
+      }
+    }
+  }]
+}`}
+                                  </pre>
+                                  <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300 mt-4" start={5}>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">5</span>
+                                          <span>Click <strong>Update policy</strong>, then come back here and continue</span>
+                                      </li>
+                                  </ol>
+                              </div>
+
+                              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                  <div className="flex items-start space-x-2">
+                                      <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                      <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                          The stage creation will fail if the trust policy has not been updated. Make sure to complete the IAM setup before proceeding.
+                                      </Text>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <Button
+                              type="button"
+                              onClick={() => setAwsCurrentSubStep(3)}
+                              className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]"
+                              disabled={loading}
+                          >
+                              I&apos;ve completed the IAM setup &mdash; Continue to Stage Creation
+                          </Button>
+                      </>
+                  )}
+
+                  {awsCurrentSubStep === 3 && (
+                      <>
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 3: Create AWS Stage</h4>
                           <Input
                               name="stage_name"
                               label="Stage Name"
@@ -1162,8 +1465,409 @@ export default function DataSourceConnectionPage() {
                               disabled={loading}
                           />
 
+                          {/* Snowpipe / AWS SQS Event Notification Guide */}
+                          {awsFormData.auto_update && (
+                              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-950/30 p-5 space-y-4">
+                                  <Text className="font-semibold text-indigo-800 dark:text-indigo-300">
+                                      Snowpipe Setup &mdash; S3 Event Notification
+                                  </Text>
+                                  <Text className="text-sm text-gray-600 dark:text-gray-400">
+                                      Snowpipe uses SQS to detect new files in your S3 bucket. After stage creation, configure event notifications on your bucket.
+                                  </Text>
+                                  <div className="border-t border-indigo-200 dark:border-indigo-800 pt-4">
+                                      <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                          After stage creation, follow these steps in the AWS Console:
+                                      </Text>
+                                      <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">1</span>
+                                              <span>Go to <strong>AWS Console &rarr; S3 &rarr; your bucket &rarr; Properties</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">2</span>
+                                              <span>Scroll to <strong>Event notifications</strong> and click <strong>Create event notification</strong></span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">3</span>
+                                              <span>Select event types: <strong>All object create events</strong> (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">s3:ObjectCreated:*</code>)</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">4</span>
+                                              <span>Under <strong>Destination</strong>, choose <strong>SQS Queue</strong> and enter the Snowflake SQS ARN (found via <code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">SHOW PIPES</code> in Snowflake after creating the pipe)</span>
+                                          </li>
+                                          <li className="flex items-start space-x-2">
+                                              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">5</span>
+                                              <span>Click <strong>Save changes</strong></span>
+                                          </li>
+                                      </ol>
+                                  </div>
+                                  <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                      <div className="flex items-start space-x-2">
+                                          <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                          <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                              Snowpipe will start working once the S3 event notification is configured to send events to the Snowflake SQS queue.
+                                          </Text>
+                                      </div>
+                                  </div>
+                              </div>
+                          )}
+
                           <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
                               {loading ? 'Creating Stage...' : 'Create AWS Stage'}
+                          </Button>
+                      </>
+                  )}
+              </form>
+              <Button className="mt-6 w-full bg-surface-secondary hover:bg-surface-tertiary border border-border-secondary transition-all duration-300 hover:shadow-elevation-2" onClick={handleBackToProviderSelection} disabled={loading} title="Back to Data Source Selection">
+                  <ArrowLeft className="w-4 h-4 mr-2" />
+                  Back to Data Source Selection
+              </Button>
+          </div>
+      );
+  };
+
+  const renderGcsForm = () => {
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-8 flex items-center justify-between">
+                  <h3 className="text-2xl font-bold text-blue-600 bg-gradient-to-r from-blue-600 to-blue-700 bg-clip-text text-transparent">Google Cloud Storage</h3>
+                  <div className="animate-float">
+                      <Image src={logos['gcs']} alt="GCS Logo" width={80} height={80} className="transition-transform duration-300 hover:scale-110" unoptimized />
+                  </div>
+              </div>
+              <form className="space-y-6" onSubmit={handleGcsSubmit}>
+                  {/* Step 1: Create Storage Integration */}
+                  {gcsCurrentSubStep === 1 && (
+                      <>
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 1: Storage Integration</h4>
+                          <Input
+                              name="integration_name"
+                              label="Integration Name"
+                              placeholder="e.g., GCS_MY_DATALAKE"
+                              value={gcsFormData.integration_name}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              required
+                              disabled={gcsIntegrationCreated || loading}
+                              className="w-full"
+                          />
+                          <Input
+                              name="bucket_name"
+                              label="GCS Bucket Name"
+                              placeholder="e.g., my-company-datalake (without gs:// prefix)"
+                              value={gcsFormData.bucket_name}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              required
+                              disabled={gcsIntegrationCreated || loading}
+                              className="w-full"
+                          />
+                          {!gcsIntegrationCreated && (
+                              <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                                  {loading ? 'Setting up...' : 'Create Storage Integration'}
+                              </Button>
+                          )}
+                          {gcsIntegrationCreated && (
+                              <Button type="button" onClick={() => setGcsCurrentSubStep(2)} className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading}>
+                                  Continue to IAM Setup
+                              </Button>
+                          )}
+                      </>
+                  )}
+
+                  {/* Step 2: IAM Setup Guide */}
+                  {gcsCurrentSubStep === 2 && (
+                      <>
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 2: Configure GCP IAM Access</h4>
+                          <div className="rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/30 p-6 space-y-4">
+                              <div className="flex items-start space-x-3">
+                                  <HiOutlineShieldCheck className="h-6 w-6 text-blue-500 mt-0.5 shrink-0" />
+                                  <div className="flex-1">
+                                      <Text className="font-semibold text-blue-800 dark:text-blue-300 mb-1">
+                                          Snowflake GCS Service Account
+                                      </Text>
+                                      {gcsServiceAccount ? (
+                                          <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 rounded-lg px-4 py-2 border border-blue-200 dark:border-blue-700">
+                                              <code className="text-sm font-mono text-blue-700 dark:text-blue-300 break-all select-all">
+                                                  {gcsServiceAccount}
+                                              </code>
+                                              <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="shrink-0 text-xs"
+                                                  onClick={() => {
+                                                      navigator.clipboard.writeText(gcsServiceAccount || '');
+                                                      toast.success('Service account copied!');
+                                                  }}
+                                              >
+                                                  Copy
+                                              </Button>
+                                          </div>
+                                      ) : (
+                                          <div className="space-y-2">
+                                              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                                  <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                                      Service account was not returned by the API. Click below to fetch integration details.
+                                                  </Text>
+                                              </div>
+                                              <Button
+                                                  type="button"
+                                                  size="sm"
+                                                  variant="outline"
+                                                  className="text-xs"
+                                                  disabled={loading}
+                                                  onClick={async () => {
+                                                      setLoading(true);
+                                                      try {
+                                                          const details = await getIntegrationDetails(gcsFormData.integration_name);
+                                                          const props = (details as any)?.properties ?? details;
+                                                          const sa = props?.STORAGE_GCP_SERVICE_ACCOUNT ?? '';
+                                                          if (sa) {
+                                                              setGcsServiceAccount(sa);
+                                                              toast.success('Service account retrieved!');
+                                                          } else {
+                                                              toast.error('Service account not found in integration properties. Please check your integration in Snowflake.');
+                                                          }
+                                                      } catch (err: any) {
+                                                          toast.error(`Failed to fetch details: ${err.message}`);
+                                                      } finally {
+                                                          setLoading(false);
+                                                      }
+                                                  }}
+                                              >
+                                                  {loading ? 'Fetching...' : 'Verify Integration & Fetch Service Account'}
+                                              </Button>
+                                          </div>
+                                      )}
+                                  </div>
+                              </div>
+
+                              <div className="border-t border-blue-200 dark:border-blue-800 pt-4">
+                                  <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                      Follow these steps in your GCP Console:
+                                  </Text>
+                                  <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">1</span>
+                                          <span>Go to <strong>GCP Console &rarr; Cloud Storage &rarr; your bucket &rarr; Permissions</strong></span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">2</span>
+                                          <span>Click <strong>Grant Access</strong></span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">3</span>
+                                          <span>Paste the service account above as the <strong>New principal</strong></span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">4</span>
+                                          <span>Assign the role:
+                                              <br /><strong>Storage Object Viewer</strong> (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">roles/storage.objectViewer</code>) for read-only
+                                              <br /><strong>Storage Object Admin</strong> (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">roles/storage.objectAdmin</code>) for read + write
+                                          </span>
+                                      </li>
+                                      <li className="flex items-start space-x-2">
+                                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 text-blue-600 dark:text-blue-400 text-xs font-bold shrink-0">5</span>
+                                          <span>Click <strong>Save</strong>, then come back here and continue</span>
+                                      </li>
+                                  </ol>
+                              </div>
+
+                              <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                  <div className="flex items-start space-x-2">
+                                      <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                      <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                          The stage creation will fail if the service account has not been granted access to the bucket. Make sure to complete the IAM setup before proceeding.
+                                      </Text>
+                                  </div>
+                              </div>
+                          </div>
+
+                          <Button
+                              type="button"
+                              onClick={() => setGcsCurrentSubStep(3)}
+                              className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]"
+                              disabled={loading}
+                          >
+                              I&apos;ve completed the IAM setup &mdash; Continue to Stage Creation
+                          </Button>
+                      </>
+                  )}
+
+                  {/* Step 3: Create GCS Stage */}
+                  {gcsCurrentSubStep === 3 && (
+                      <>
+                          <h4 className="text-xl font-medium text-gray-800 dark:text-gray-200">Step 3: Create GCS Stage</h4>
+                          <Input
+                              name="stage_name"
+                              label="Stage Name"
+                              placeholder="e.g., STG_GCS_DATALAKE"
+                              value={gcsFormData.stage_name}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              required
+                              disabled={loading}
+                              className="w-full"
+                          />
+                          <Text className="text-sm text-gray-600 dark:text-gray-400">
+                              Bucket: <strong>{gcsFormData.bucket_name}</strong> &middot; Integration: <strong>{gcsFormData.integration_name}</strong>
+                          </Text>
+                          <Input
+                              name="prefix"
+                              label="Path Prefix (optional)"
+                              placeholder="e.g., raw/2024/"
+                              value={gcsFormData.prefix}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              disabled={loading}
+                              className="w-full"
+                          />
+                          <Checkbox
+                              name="load_data"
+                              label="Load data into tables after stage creation"
+                              checked={gcsFormData.load_data}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              disabled={loading}
+                          />
+                          <Checkbox
+                              name="auto_update"
+                              label="Enable automatic updates (Snowpipe)"
+                              checked={gcsFormData.auto_update}
+                              onChange={(e) => handleChange(e, 'gcs')}
+                              disabled={loading}
+                          />
+
+                          {/* Snowpipe / GCS Notification Integration Setup */}
+                          {gcsFormData.auto_update && (
+                              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 dark:border-indigo-800 dark:bg-indigo-950/30 p-5 space-y-4">
+                                  <Text className="font-semibold text-indigo-800 dark:text-indigo-300">
+                                      Snowpipe Setup &mdash; GCP Pub/Sub Notification Integration
+                                  </Text>
+                                  <Text className="text-sm text-gray-600 dark:text-gray-400">
+                                      Snowpipe requires a Pub/Sub subscription to auto-ingest new files. Create a notification integration below.
+                                  </Text>
+                                  <Input
+                                      name="notification_integration_name"
+                                      label="Notification Integration Name"
+                                      placeholder="e.g., GCS_NOTIF_INTEGRATION"
+                                      value={gcsFormData.notification_integration_name}
+                                      onChange={(e) => handleChange(e, 'gcs')}
+                                      required
+                                      disabled={gcsNotificationCreated || loading}
+                                      className="w-full"
+                                  />
+                                  <Input
+                                      name="gcp_pubsub_subscription_name"
+                                      label="GCP Pub/Sub Subscription Name"
+                                      placeholder="e.g., projects/my-project/subscriptions/my-sub"
+                                      value={gcsFormData.gcp_pubsub_subscription_name}
+                                      onChange={(e) => handleChange(e, 'gcs')}
+                                      required
+                                      disabled={gcsNotificationCreated || loading}
+                                      className="w-full"
+                                  />
+
+                                  {!gcsNotificationCreated && (
+                                      <Button
+                                          type="button"
+                                          className="w-full bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white"
+                                          disabled={loading || !gcsFormData.notification_integration_name || !gcsFormData.gcp_pubsub_subscription_name}
+                                          onClick={async () => {
+                                              setLoading(true);
+                                              try {
+                                                  const result = await setupGcsNotificationIntegration(
+                                                      gcsFormData.notification_integration_name,
+                                                      gcsFormData.gcp_pubsub_subscription_name
+                                                  );
+                                                  setGcsNotificationCreated(true);
+                                                  setGcsPubsubServiceAccount(result.GCP_PUBSUB_SERVICE_ACCOUNT || null);
+                                                  toast.success('GCS Notification Integration created!');
+                                              } catch (err: any) {
+                                                  toast.error(err.message || 'Failed to create notification integration');
+                                              } finally {
+                                                  setLoading(false);
+                                              }
+                                          }}
+                                      >
+                                          {loading ? 'Creating...' : 'Create Notification Integration'}
+                                      </Button>
+                                  )}
+
+                                  {gcsNotificationCreated && (
+                                      <div className="space-y-4">
+                                          <div className="flex items-center space-x-2 text-green-600 dark:text-green-400">
+                                              <HiOutlineCheckCircle className="h-5 w-5" />
+                                              <Text className="font-medium text-sm">Notification Integration created!</Text>
+                                          </div>
+
+                                          {gcsPubsubServiceAccount && (
+                                              <div className="flex items-start space-x-3">
+                                                  <HiOutlineShieldCheck className="h-6 w-6 text-indigo-500 mt-0.5 shrink-0" />
+                                                  <div className="flex-1">
+                                                      <Text className="font-semibold text-indigo-800 dark:text-indigo-300 mb-1">
+                                                          GCP Pub/Sub Service Account
+                                                      </Text>
+                                                      <div className="flex items-center space-x-2 bg-white dark:bg-slate-900 rounded-lg px-4 py-2 border border-indigo-200 dark:border-indigo-700">
+                                                          <code className="text-sm font-mono text-indigo-700 dark:text-indigo-300 break-all select-all">
+                                                              {gcsPubsubServiceAccount}
+                                                          </code>
+                                                          <Button
+                                                              type="button"
+                                                              size="sm"
+                                                              variant="outline"
+                                                              className="shrink-0 text-xs"
+                                                              onClick={() => {
+                                                                  navigator.clipboard.writeText(gcsPubsubServiceAccount || '');
+                                                                  toast.success('Pub/Sub service account copied!');
+                                                              }}
+                                                          >
+                                                              Copy
+                                                          </Button>
+                                                      </div>
+                                                  </div>
+                                              </div>
+                                          )}
+
+                                          <div className="border-t border-indigo-200 dark:border-indigo-800 pt-4">
+                                              <Text className="font-semibold text-gray-800 dark:text-gray-200 mb-3">
+                                                  Configure GCP Pub/Sub IAM:
+                                              </Text>
+                                              <ol className="space-y-3 text-sm text-gray-700 dark:text-gray-300">
+                                                  <li className="flex items-start space-x-2">
+                                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">1</span>
+                                                      <span>Go to <strong>GCP Console &rarr; Pub/Sub &rarr; Subscriptions</strong> and select your subscription</span>
+                                                  </li>
+                                                  <li className="flex items-start space-x-2">
+                                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">2</span>
+                                                      <span>Click the <strong>Permissions</strong> tab, then <strong>Grant Access</strong></span>
+                                                  </li>
+                                                  <li className="flex items-start space-x-2">
+                                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">3</span>
+                                                      <span>Paste the service account above as the <strong>New principal</strong></span>
+                                                  </li>
+                                                  <li className="flex items-start space-x-2">
+                                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">4</span>
+                                                      <span>Assign the role <strong>Pub/Sub Subscriber</strong> (<code className="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">roles/pubsub.subscriber</code>)</span>
+                                                  </li>
+                                                  <li className="flex items-start space-x-2">
+                                                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold shrink-0">5</span>
+                                                      <span>Click <strong>Save</strong>, then come back here and create the stage</span>
+                                                  </li>
+                                              </ol>
+                                          </div>
+
+                                          <div className="rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 px-4 py-3">
+                                              <div className="flex items-start space-x-2">
+                                                  <HiOutlineExclamationCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                                                  <Text className="text-sm text-amber-800 dark:text-amber-300">
+                                                      Snowpipe will not work until the Pub/Sub service account has been granted Subscriber access. Complete the IAM setup above before creating the stage.
+                                                  </Text>
+                                              </div>
+                                          </div>
+                                      </div>
+                                  )}
+                              </div>
+                          )}
+
+                          <Button type="submit" className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-elevation-2 hover:shadow-elevation-3 transition-all duration-300 transform hover:scale-[1.02]" disabled={loading || (gcsFormData.auto_update && !gcsNotificationCreated)}>
+                              {loading ? 'Creating Stage...' : 'Create GCS Stage'}
                           </Button>
                       </>
                   )}
@@ -1295,14 +1999,7 @@ export default function DataSourceConnectionPage() {
                   tables: databricksFormData.tables.length ? databricksFormData.tables : undefined,
               });
               toast.success('Databricks ingest completed');
-              const connection: DatalakeConnection = {
-                  id: `databricks_${Date.now()}`,
-                  provider: 'databricks',
-                  name: `Databricks - ${databricksFormData.catalog}`,
-                  connected_at: new Date().toISOString(),
-                  details: { host: databricksFormData.host, catalog: databricksFormData.catalog },
-              };
-              saveConnection(connection);
+              await loadConnections();
               setCurrentStep(0);
               setSelectedSource('');
           } catch (err: any) {
@@ -1414,14 +2111,7 @@ export default function DataSourceConnectionPage() {
                   tables: icebergFormData.tables.length ? icebergFormData.tables : undefined,
               });
               toast.success('Iceberg ingest completed');
-              const connection: DatalakeConnection = {
-                  id: `iceberg_${Date.now()}`,
-                  provider: 'iceberg',
-                  name: `Iceberg - ${icebergFormData.namespace}`,
-                  connected_at: new Date().toISOString(),
-                  details: { uri: icebergFormData.uri, namespace: icebergFormData.namespace },
-              };
-              saveConnection(connection);
+              await loadConnections();
               setCurrentStep(0);
               setSelectedSource('');
           } catch (err: any) {
@@ -1491,14 +2181,7 @@ export default function DataSourceConnectionPage() {
           try {
               await postgresIngest(postgresFormData);
               toast.success('PostgreSQL ingest completed. Tables in CP_DATA360.POSTGRES');
-              const connection: DatalakeConnection = {
-                  id: `postgres_${Date.now()}`,
-                  provider: 'postgres',
-                  name: `PostgreSQL - ${postgresFormData.database}`,
-                  connected_at: new Date().toISOString(),
-                  details: { host: postgresFormData.host, database: postgresFormData.database },
-              };
-              saveConnection(connection);
+              await loadConnections();
               setCurrentStep(0);
               setSelectedSource('');
           } catch (err: any) {
@@ -1533,14 +2216,7 @@ export default function DataSourceConnectionPage() {
           try {
               await mysqlIngest(mysqlFormData);
               toast.success('MySQL ingest completed. Tables in CP_DATA360.MYSQL');
-              const connection: DatalakeConnection = {
-                  id: `mysql_${Date.now()}`,
-                  provider: 'mysql',
-                  name: `MySQL - ${mysqlFormData.database}`,
-                  connected_at: new Date().toISOString(),
-                  details: { host: mysqlFormData.host, database: mysqlFormData.database },
-              };
-              saveConnection(connection);
+              await loadConnections();
               setCurrentStep(0);
               setSelectedSource('');
           } catch (err: any) {
@@ -1569,16 +2245,6 @@ export default function DataSourceConnectionPage() {
   };
 
   const renderForm = () => {
-        // Show datalake browser if connected
-        if (showDatalakeBrowser && connectedProvider) {
-            return (
-                <DatalakeBrowser
-                    provider={connectedProvider}
-                    onBack={handleBackToProviderSelection}
-                />
-            );
-        }
-
         if (currentStep === 0) {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
@@ -1604,36 +2270,29 @@ export default function DataSourceConnectionPage() {
                                             key={conn.id}
                                             onClick={() => browseConnection(conn)}
                                             className={`relative px-6 py-3 text-sm font-medium transition-all duration-200 whitespace-nowrap flex items-center space-x-2 border-b-2 ${
-                                                connectedProvider === conn.provider
+                                                activeConnectionId === conn.id
                                                     ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-950/20'
                                                     : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                                             }`}
                                         >
-                                            <Image
-                                                src={logos[conn.provider]}
-                                                alt={conn.provider}
-                                                width={20}
-                                                height={20}
-                                                className="opacity-80"
-                                            />
+                                            <Database className="h-4 w-4 opacity-80" />
                                             <span>{conn.name}</span>
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    removeConnection(conn.id);
-                                                    toast.success('Connection removed');
-                                                }}
-                                                className="ml-2 text-red-500 hover:text-red-700 opacity-0 hover:opacity-100 group-hover:opacity-100 transition-opacity"
-                                                title="Remove connection"
-                                            >
-                                                <HiOutlineTrash className="h-4 w-4" />
-                                            </button>
                                         </button>
                                     ))}
                                 </div>
                             </div>
 
-                            {/* Tab Content - Connection Details */}
+                            {/* Tab Content — Browser when a connection is selected, Quick Access otherwise */}
+                            {showDatalakeBrowser && connectedProvider ? (
+                                <DatalakeBrowser
+                                    provider={connectedProvider}
+                                    onBack={() => {
+                                        setShowDatalakeBrowser(false);
+                                        setConnectedProvider(null);
+                                        setActiveConnectionId(null);
+                                    }}
+                                />
+                            ) : (
                             <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-slate-700">
                                 <div className="space-y-4">
                                     <div className="flex items-start justify-between">
@@ -1664,44 +2323,33 @@ export default function DataSourceConnectionPage() {
                                             >
                                                 <div className="flex items-center space-x-3 mb-3">
                                                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600">
-                                                        <Image
-                                                            src={logos[conn.provider]}
-                                                            alt={conn.provider}
-                                                            width={24}
-                                                            height={24}
-                                                        />
+                                                        <Database className="h-5 w-5 text-white" />
                                                     </div>
                                                     <div className="flex-1 min-w-0">
                                                         <h5 className="font-semibold text-sm text-slate-900 dark:text-white truncate">
                                                             {conn.name}
                                                         </h5>
-                                                        <Text className="text-xs text-slate-500 dark:text-slate-400 capitalize">
-                                                            {conn.provider}
+                                                        <Text className="text-xs text-slate-500 dark:text-slate-400">
+                                                            Stage
                                                         </Text>
                                                     </div>
                                                 </div>
                                                 <div className="space-y-1 text-xs text-slate-600 dark:text-slate-400">
-                                                    {conn.details.account && (
+                                                    {conn.database_name && (
                                                         <div className="flex items-center">
-                                                            <span className="font-medium mr-1">Account:</span>
-                                                            <span className="truncate">{conn.details.account}</span>
+                                                            <span className="font-medium mr-1">Database:</span>
+                                                            <span className="truncate">{conn.database_name}</span>
                                                         </div>
                                                     )}
-                                                    {conn.details.bucket_name && (
+                                                    {conn.schema_name && (
                                                         <div className="flex items-center">
-                                                            <span className="font-medium mr-1">Bucket:</span>
-                                                            <span className="truncate">{conn.details.bucket_name}</span>
-                                                        </div>
-                                                    )}
-                                                    {conn.details.tenant_id && (
-                                                        <div className="flex items-center">
-                                                            <span className="font-medium mr-1">Tenant:</span>
-                                                            <span className="truncate">{conn.details.tenant_id}</span>
+                                                            <span className="font-medium mr-1">Schema:</span>
+                                                            <span className="truncate">{conn.schema_name}</span>
                                                         </div>
                                                     )}
                                                     <div className="flex items-center text-green-600 dark:text-green-400 mt-2">
                                                         <div className="h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
-                                                        <span>Connected {new Date(conn.connected_at).toLocaleDateString()}</span>
+                                                        <span>Active</span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1709,6 +2357,7 @@ export default function DataSourceConnectionPage() {
                                     </div>
                                 </div>
                             </div>
+                            )}
 
                             <div className="mt-6 border-t border-slate-200 dark:border-slate-700"></div>
                         </div>
@@ -1805,8 +2454,16 @@ export default function DataSourceConnectionPage() {
                     return (
                         <div className="mx-auto max-w-2xl space-y-8">
                             <Breadcrumb onHomeClick={() => router.push(routes.home)} />
-                            <StepIndicator currentStep={awsCurrentSubStep} totalSteps={2} />
+                            <StepIndicator currentStep={awsCurrentSubStep} totalSteps={3} />
                             {renderAwsForm()}
+                        </div>
+                    );
+                case 'gcs':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            <StepIndicator currentStep={gcsCurrentSubStep} totalSteps={3} />
+                            {renderGcsForm()}
                         </div>
                     );
                 case 'snowflake':

@@ -349,14 +349,109 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
     console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
 
-    // Preserve existing mapping edges and add/update FK edges
+    // Preserve existing mapping edges and FK edges from events, add/update template FK edges
     setEdges(prev => {
-      // Keep existing mapping edges (user-created ETL mappings)
       const mappingEdges = prev.filter(e => e.data?.edgeType === 'mapping');
-      // Combine with new FK edges
-      return [...newEdges, ...mappingEdges];
+      const eventFkEdges = prev.filter(e => e.data?.edgeType === 'fk' && e.id.startsWith('fk-evt-'));
+      // Template FK edges + event FK edges (dedup by source→target)
+      const templatePairs = new Set(newEdges.map(e => `${e.source}->${e.target}`));
+      const nonDupEventFks = eventFkEdges.filter(e => !templatePairs.has(`${e.source}->${e.target}`));
+      return [...newEdges, ...nonDupEventFks, ...mappingEdges];
     });
   }, [defaultRelationships, tables, setEdges]);
+
+  // Build FK edges from FOREIGN_KEY_ADDED events (covers manual FK creation + post-deployment)
+  // Event payload shape: { columns: string[], referencedTable: {database,schema,table}, referencedColumns: string[], sourceColumn, targetTable, targetColumn }
+  useEffect(() => {
+    const fkEvents = events.filter(e => e.type === 'FOREIGN_KEY_ADDED');
+    if (fkEvents.length === 0 || tables.length === 0) return;
+
+    const fkEdges: Edge[] = [];
+    const seenPairs = new Set<string>();
+
+    for (const fk of fkEvents) {
+      // Source table from event.target
+      const srcDb = fk.target?.database;
+      const srcSchema = fk.target?.schema;
+      const srcTable = fk.target?.table;
+      // Source column (multiple paths for compat)
+      const srcCol = fk.payload?.sourceColumn || fk.payload?.columns?.[0] || fk.target?.column;
+
+      // Target table from payload.referencedTable or payload.targetTable
+      const refTable = fk.payload?.referencedTable || fk.payload?.targetTable;
+      const tgtDb = typeof refTable === 'object' ? refTable?.database : srcDb;
+      const tgtSchema = typeof refTable === 'object' ? refTable?.schema : srcSchema;
+      const tgtTable = typeof refTable === 'object' ? refTable?.table : (typeof refTable === 'string' ? refTable : null);
+      // Target column
+      const tgtCol = fk.payload?.targetColumn || fk.payload?.referencedColumns?.[0];
+
+      if (!srcTable || !tgtTable) continue;
+
+      // Match table nodes flexibly: exact ID > schema.table > table name only
+      // This handles database mismatches (e.g., FK event says "draft_source" but canvas has "cp_data360")
+      const findNode = (db: string | undefined, schema: string | undefined, table: string) => {
+        const fullId = db && schema ? `${db}.${schema}.${table}` : null;
+        const schemaTable = schema ? `${schema}.${table}` : null;
+        return (
+          (fullId && tables.find(t => t.id === fullId)) ||
+          (schemaTable && tables.find(t => t.id.endsWith(`.${schema}.${table}`))) ||
+          (schemaTable && tables.find(t => t.schema === schema && t.table === table)) ||
+          tables.find(t => t.table === table)
+        ) || null;
+      };
+
+      const sourceNode = findNode(srcDb, srcSchema, srcTable);
+      const targetNode = findNode(tgtDb, tgtSchema, tgtTable);
+
+      if (!sourceNode || !targetNode) {
+        console.warn(`[ModelingCanvas] FK edge skipped — no match for src=${srcDb}.${srcSchema}.${srcTable} or tgt=${tgtDb}.${tgtSchema}.${tgtTable}`, {
+          tablesOnCanvas: tables.map(t => t.id).slice(0, 10),
+        });
+        continue;
+      }
+
+      // Deduplicate by source→target pair
+      const pairKey = `${sourceNode.id}->${targetNode.id}`;
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+
+      const edgeId = `fk-evt-${fk.id}`;
+      fkEdges.push({
+        id: edgeId,
+        source: sourceNode.id,
+        target: targetNode.id,
+        type: 'smoothstep',
+        animated: false,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: edgeStyles['fk'],
+        label: srcCol && tgtCol ? `FK: ${srcCol} → ${tgtCol}` : 'FK',
+        labelStyle: { fontSize: 10, fill: '#8b5cf6', fontStyle: 'italic' },
+        labelBgStyle: { fill: '#f5f3ff', fillOpacity: 0.9 },
+        data: {
+          edgeType: 'fk',
+          relationType: 'many_to_one',
+          columnMappings: srcCol && tgtCol
+            ? [{ source_column: srcCol, target_column: tgtCol }]
+            : [],
+        },
+      });
+    }
+
+    if (fkEdges.length > 0) {
+      setEdges(prev => {
+        // Avoid duplicating edges already on canvas (from defaultRelationships)
+        const existingFkPairs = new Set(
+          prev.filter(e => e.data?.edgeType === 'fk').map(e => `${e.source}->${e.target}`)
+        );
+        const existingIds = new Set(prev.map(e => e.id));
+        const newEdges = fkEdges.filter(e =>
+          !existingIds.has(e.id) && !existingFkPairs.has(`${e.source}->${e.target}`)
+        );
+        if (newEdges.length === 0) return prev;
+        return [...prev, ...newEdges];
+      });
+    }
+  }, [events, tables, setEdges]);
 
   // State
   const [showMinimap, setShowMinimap] = useState(true);

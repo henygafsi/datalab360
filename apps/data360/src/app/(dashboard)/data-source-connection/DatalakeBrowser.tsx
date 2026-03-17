@@ -25,10 +25,10 @@ import {
   type StageFilePreviewResponse
 } from './connectionServices';
 
-type Provider = 'snowflake' | 'azure' | 'aws' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
+type Provider = 'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
 type ViewMode = 'grid' | 'table';
 
-const BROWSER_ONLY_PROVIDERS: Provider[] = ['snowflake', 'azure', 'aws'];
+const BROWSER_ONLY_PROVIDERS: Provider[] = ['snowflake', 'azure', 'aws', 'gcs'];
 
 interface DatalakeBrowserProps {
   provider: Provider;
@@ -73,17 +73,10 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     try {
       let stageList: any[] = [];
 
-      if (provider === 'snowflake') {
+      if (provider === 'snowflake' || provider === 'aws' || provider === 'azure' || provider === 'gcs') {
+        // All cloud providers create Snowflake external stages, so we list via the same API
         const response = await listSnowflakeStages();
         stageList = Array.isArray(response?.stages) ? response.stages : [];
-      } else if (provider === 'azure') {
-        toast.error('Azure container listing not yet implemented');
-        setLoading(false);
-        return;
-      } else if (provider === 'aws') {
-        toast.error('AWS bucket listing not yet implemented');
-        setLoading(false);
-        return;
       }
 
       const formattedStages: StageItem[] = stageList.map((stage: any) => ({
@@ -120,17 +113,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       let fileList: any[] = [];
       const sortParam = sortBy === 'modified' ? 'last_modified' : sortBy;
 
-      if (provider === 'snowflake') {
+      if (provider === 'snowflake' || provider === 'aws' || provider === 'azure' || provider === 'gcs') {
         const response = await listSnowflakeStageFiles(stageName, { sort: sortParam });
         fileList = response.files || [];
-      } else if (provider === 'azure') {
-        toast.error('Azure blob listing not yet implemented');
-        setLoading(false);
-        return;
-      } else if (provider === 'aws') {
-        toast.error('AWS S3 object listing not yet implemented');
-        setLoading(false);
-        return;
       }
 
       const formattedFiles: StageItem[] = fileList.map((file: any) => ({
@@ -197,7 +182,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     const offset = newPage * previewPageSize;
     fetchPreview(currentStage, previewFile.name, previewPageSize, offset)
       .then(() => setPreviewPage(newPage))
-      .catch((e) => toast.error(e.message))
+      .catch((e: any) => toast.error(e.message))
       .finally(() => setPreviewLoading(false));
   };
 

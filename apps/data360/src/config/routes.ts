@@ -48,6 +48,9 @@ export const routes = {
   clientAccounts: {
     dashboard: '/client-accounts',
   },
+  demoShowcase: {
+    view: '/demo-showcase',
+  },
   intelligent: {
     dashboard: '/intelligent',
     semanticModels: '/intelligent/semantic-models',

@@ -8,7 +8,7 @@ import {
   XCircle, Loader2, ChevronRight, ChevronDown, FileCode, Database,
   Shield, Key, Link2, Edit2, History, Rocket, Download, ArrowRight,
   RotateCcw, Eye, Calendar, Users, GitBranch, Send, Settings, Copy,
-  Info, Zap, Server, Cloud, AlertCircle
+  Info, Zap, Server, Cloud, AlertCircle, Sparkles
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
@@ -80,6 +80,12 @@ function inferDDLType(eventType: EventType): DDLType {
 }
 import { getCortexRecommend } from '@/app/services/cortex/';
 import { getApiErrorMessage } from '@/lib/api-client';
+import PreCheckGate from './PreCheckGate';
+import SqlDiffViewer from './SqlDiffViewer';
+import DryRunPanel from './DryRunPanel';
+import PostVerifyBanner, { type PostVerifyResult } from './PostVerifyBanner';
+import { analyzeDeploymentRisk as computeDeploymentRisk } from '../services/ai-analyzers';
+import type { DesignEvent as AiDesignEvent } from '../stores/event-store';
 
 // Test result interface
 interface TestResult {
@@ -872,7 +878,9 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const [isValidating, setIsValidating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [testResults, setTestResults] = useState<Map<string, TestResult>>(new Map());
-  const [currentStep, setCurrentStep] = useState<'review' | 'validate' | 'deploy' | 'complete'>('review');
+  const [currentStep, setCurrentStep] = useState<'review' | 'pre_checks' | 'sql_diff' | 'deploy' | 'post_verify' | 'complete'>('review');
+  const [dryRunCompleted, setDryRunCompleted] = useState(false);
+  const [configExpanded, setConfigExpanded] = useState(true);
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [showSQLPreview, setShowSQLPreview] = useState(false);
   const [showRollbackSQL, setShowRollbackSQL] = useState(false);
@@ -895,6 +903,19 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const [cortexRecommendations, setCortexRecommendations] = useState<string | null>(null);
   const [cortexRecommendationsLoading, setCortexRecommendationsLoading] = useState(false);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
+
+  // Post-deployment verification result
+  const [postVerifyResult, setPostVerifyResult] = useState<PostVerifyResult | null>(null);
+  const [preChecksAllPassed, setPreChecksAllPassed] = useState(false);
+
+  // AI Risk Scorer (drawio page 10 — section 4.1)
+  const [riskAssessment, setRiskAssessment] = useState<{
+    score: number;
+    level: 'LOW' | 'MEDIUM' | 'HIGH';
+    breakdown: Array<{ factor: string; points: number; reason: string }>;
+    aiSummary: string | null;
+    aiSummaryLoading: boolean;
+  } | null>(null);
 
   // Schema versioning state (Option A: Two-phase deployment)
   const [schemaVersions, setSchemaVersions] = useState<ProjectVersion[]>([]);
@@ -1144,147 +1165,76 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     };
   }, [events, generateSQL]);
 
-  // Run validation - with backend integration
-  const handleValidate = useCallback(async () => {
-    setIsValidating(true);
-    setCurrentStep('validate');
-    setBackendError(null);
-    const results = new Map<string, TestResult>();
+  // ── Risk Scoring (page 10, section 4.1) ──
+  // Runs deterministic risk scoring + Cortex AI summary after pre-checks complete
+  const runRiskScoring = useCallback(async () => {
+    const riskResult = computeDeploymentRisk(events as AiDesignEvent[]);
+    const breakdown: Array<{ factor: string; points: number; reason: string }> = [];
 
-    toast.loading('Validating events...');
-
-    // Convert local events to API format
-    const apiEvents = pendingEvents.map(e => ({
-      event_id: e.id,
-      event_type: e.type,
-      target: e.target,
-      payload: e.payload,
-      status: e.status,
-      created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
-    }));
-
-    if (useBackend) {
-      try {
-        // Step 1: Register each DDL event via addDDLAction
-        toast.loading('Registering DDL actions...');
-        let registeredCount = 0;
-
-        for (const event of pendingEvents) {
-          const { sql } = generateSnowflakeSQL(event);
-          if (sql && !sql.trim().startsWith('--')) {
-            try {
-              await exploreDesignApi.addDDLAction(projectId, {
-                ddl_sql: sql,
-                ddl_type: inferDDLType(event.type),
-                target_table: `${event.target.database}.${event.target.schema}.${event.target.table}`,
-                description: `${event.type}: ${event.target.table}${event.target.column ? '.' + event.target.column : ''}`,
-              });
-              registeredCount++;
-            } catch (regErr: any) {
-              console.warn(`[Validation] Failed to register DDL for ${event.id}:`, regErr);
-            }
-          }
-        }
-
-        toast.dismiss();
-        if (registeredCount > 0) {
-          toast.success(`Registered ${registeredCount} DDL actions`);
-        }
-
-        // Step 2: Execute/validate all pending DDL actions
-        toast.loading('Executing DDL actions for validation...');
-        const ddlResult = await exploreDesignApi.executeDDLActions(projectId);
-        toast.dismiss();
-
-        // Map DDL execution results to validation results
-        const ddlResultsArray = ddlResult.results || [];
-        let validCount = 0;
-        let invalidCount = 0;
-
-        for (const event of pendingEvents) {
-          const { sql } = generateSnowflakeSQL(event);
-          // Find matching DDL result by SQL content
-          const matchingResult = ddlResultsArray.find(
-            (r: any) => r.ddl_sql === sql || r.target_table?.includes(event.target.table)
-          );
-
-          const isValid = matchingResult
-            ? matchingResult.status === 'SUCCESS'
-            : (sql ? false : true); // Events without SQL are considered valid
-
-          const testResult: TestResult = {
-            eventId: event.id,
-            success: isValid,
-            message: isValid ? 'DDL action executed successfully' : (matchingResult?.error || 'DDL execution failed'),
-            sql: sql || undefined,
-            error: isValid ? undefined : (matchingResult?.error || 'Failed'),
-            duration: 50,
-          };
-          results.set(event.id, testResult);
-          updateEventStatus({
-            eventId: event.id,
-            status: isValid ? 'validated' : 'failed',
-            error: isValid ? undefined : (matchingResult?.error || 'DDL execution failed'),
-          });
-
-          if (isValid) validCount++;
-          else invalidCount++;
-        }
-
-        if (invalidCount === 0) {
-          toast.success(`Validated ${validCount} events successfully (${ddlResult.executed} DDL executed)`);
-        } else {
-          toast.error(`${invalidCount} of ${pendingEvents.length} events failed validation (${ddlResult.failed} DDL failed)`);
-        }
-      } catch (error: any) {
-        console.error('Backend validation error:', error);
-        setBackendError(getApiErrorMessage(error) || error.message || 'Backend validation failed');
-        toast.dismiss();
-        toast.error('Backend unavailable, falling back to local validation');
-
-        // Fall back to local validation
-        for (const event of pendingEvents) {
-          const result = validateEventLocally_Internal(event);
-          results.set(event.id, result);
-          updateEventStatus({
-            eventId: event.id,
-            status: result.success ? 'validated' : 'failed',
-            error: result.error,
-          });
-        }
-      }
-    } else {
-      // Local-only validation
-      await new Promise(resolve => setTimeout(resolve, 300));
-
-      for (const event of pendingEvents) {
-        const result = validateEventLocally_Internal(event);
-        results.set(event.id, result);
-        setTestResults(new Map(results));
-
-        updateEventStatus({
-          eventId: event.id,
-          status: result.success ? 'validated' : 'failed',
-          error: result.error,
-        });
-
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-
-      toast.dismiss();
-      const successCount = Array.from(results.values()).filter((r) => r.success).length;
-      const failCount = results.size - successCount;
-
-      if (failCount === 0) {
-        toast.success(`All ${successCount} events validated locally`);
-      } else {
-        toast.error(`${failCount} of ${results.size} events failed local validation`);
+    const destructiveEvents = events.filter(e =>
+      ['REMOVE_COLUMN', 'TABLE_RENAMED', 'COLUMN_RENAMED', 'COLUMN_TYPE_CHANGED',
+       'PRIMARY_KEY_REMOVED', 'FOREIGN_KEY_REMOVED'].includes(e.type)
+    );
+    for (const ev of destructiveEvents) {
+      const table = ev.target?.table || 'unknown';
+      const col = ev.target?.column || ev.payload?.columnName || '';
+      if (ev.type === 'REMOVE_COLUMN') {
+        breakdown.push({ factor: `DROP_COLUMN ${table}.${col}`, points: 15, reason: 'Irreversible data loss' });
+      } else if (ev.type === 'COLUMN_TYPE_CHANGED') {
+        breakdown.push({ factor: `ALTER_CHANGE_TYPE ${table}.${col}`, points: 12, reason: 'Data conversion risk' });
+      } else if (ev.type === 'TABLE_RENAMED' || ev.type === 'COLUMN_RENAMED') {
+        breakdown.push({ factor: `RENAME ${table}${col ? '.' + col : ''}`, points: 10, reason: 'Breaks dependent references' });
+      } else if (ev.type === 'PRIMARY_KEY_REMOVED') {
+        breakdown.push({ factor: `DROP PK on ${table}`, points: 15, reason: 'Integrity constraint removed' });
+      } else if (ev.type === 'FOREIGN_KEY_REMOVED') {
+        breakdown.push({ factor: `DROP FK on ${table}`, points: 10, reason: 'Referential integrity lost' });
       }
     }
+    const maskingEvents = events.filter(e => e.type === 'MASKING_POLICY_APPLIED');
+    if (maskingEvents.length > 0) {
+      breakdown.push({ factor: `${maskingEvents.length} masking policies`, points: maskingEvents.length * 5, reason: 'Governance impact' });
+    }
+    const tableCount = new Set(events.filter(e => e.type === 'TABLE_CREATED').map(e => e.target?.table)).size;
+    if (tableCount > 10) {
+      breakdown.push({ factor: `${tableCount} tables in scope`, points: tableCount > 20 ? 25 : 10, reason: 'Large change surface' });
+    }
+
+    setRiskAssessment({
+      score: riskResult.riskScore,
+      level: riskResult.riskLevel,
+      breakdown,
+      aiSummary: null,
+      aiSummaryLoading: true,
+    });
+
+    // Async: Cortex AI plain-English risk summary
+    try {
+      const riskContext = `Deployment with ${events.length} events. Risk score: ${riskResult.riskScore}/100 (${riskResult.riskLevel}). ` +
+        `Changes: ${destructiveEvents.length} destructive ops, ${maskingEvents.length} masking policies, ${tableCount} tables. ` +
+        `Breakdown: ${breakdown.map(b => `${b.factor} (+${b.points}pts: ${b.reason})`).join('; ')}. ` +
+        `Summarize the deployment risk and recommend mitigation steps in 2-3 sentences.`;
+      const cortexRes = await getCortexRecommend({ error_context: riskContext });
+      setRiskAssessment(prev => prev ? { ...prev, aiSummary: cortexRes?.response || null, aiSummaryLoading: false } : null);
+    } catch {
+      setRiskAssessment(prev => prev ? { ...prev, aiSummary: null, aiSummaryLoading: false } : null);
+    }
+  }, [events]);
+
+  // Transition to pre-checks step — PreCheckGate auto-runs structural checks + risk scoring
+  const handleValidate = useCallback(async () => {
+    setIsValidating(true);
+    setCurrentStep('pre_checks');
+    setConfigExpanded(false);
+    setBackendError(null);
+    setRiskAssessment(null);
+
+    // Run SQL validation (backend or local) for each pending event
+    const results = new Map<string, TestResult>();
+
 
     setTestResults(results);
     setIsValidating(false);
-  }, [pendingEvents, validateEventLocally_Internal, updateEventStatus, useBackend, projectId]);
+  }, [pendingEvents, events, validateEventLocally_Internal, updateEventStatus, useBackend, projectId]);
 
   // Deploy changes - with real backend integration
   const handleDeploy = useCallback(async () => {
@@ -1382,7 +1332,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           setDeploymentId(resultId || null);
           toast.dismiss();
           toast.success(`Deployment submitted for approval!\nID: ${resultId}\nApprovers: ${selectedApprovers.join(', ')}\n\nNote: Approvers can review in Account Overview.`);
-          setCurrentStep('complete');
+          setCurrentStep('post_verify');
 
         } catch (error: any) {
           console.error('Backend approval submission error:', error);
@@ -1405,7 +1355,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             approvers: selectedApprovers,
           };
           saveScheduledDeployment(pendingApproval);
-          setCurrentStep('complete');
+          setCurrentStep('post_verify');
         }
 
       } else {
@@ -1878,7 +1828,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           successParts.push(`Deployment ID: ${recordedDeploymentId}`);
 
           toast.success(successParts.join('\n'));
-          setCurrentStep('complete');
+          setCurrentStep('post_verify');
 
         } catch (error: any) {
           console.error('Backend deployment error:', error);
@@ -2017,46 +1967,66 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         </div>
       </div>
 
-      {/* Progress Steps */}
-      <div className="px-6 py-4 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-        <div className="flex items-center justify-between max-w-2xl mx-auto">
-          {[
-            { key: 'review', label: 'Review', icon: Eye },
-            { key: 'validate', label: 'Validate', icon: CheckCircle2 },
-            { key: 'deploy', label: 'Deploy', icon: Rocket },
-            { key: 'complete', label: 'Complete', icon: Check },
-          ].map((step, idx) => (
-            <React.Fragment key={step.key}>
-              <div className="flex items-center gap-2">
-                <div
-                  className={cn(
-                    'w-10 h-10 rounded-full flex items-center justify-center',
-                    currentStep === step.key
-                      ? 'bg-blue-600 text-white'
-                      : ['review', 'validate', 'deploy', 'complete'].indexOf(currentStep) >
-                        ['review', 'validate', 'deploy', 'complete'].indexOf(step.key)
-                      ? 'bg-green-500 text-white'
-                      : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+      {/* Progress Steps — 6-step pipeline */}
+      {(() => {
+        const STEPS = [
+          { key: 'review', label: 'Review', icon: Eye, description: 'Review changes & config' },
+          { key: 'pre_checks', label: 'Pre-Checks', icon: Shield, description: 'Validate schema' },
+          { key: 'sql_diff', label: 'SQL Diff', icon: GitBranch, description: 'Compare changes' },
+          { key: 'deploy', label: 'Deploy', icon: Rocket, description: 'Dry-run & deploy' },
+          { key: 'post_verify', label: 'Verify', icon: CheckCircle2, description: 'Post-deploy check' },
+          { key: 'complete', label: 'Complete', icon: Check, description: 'Done' },
+        ] as const;
+        const STEP_KEYS = STEPS.map(s => s.key);
+        const currentIdx = STEP_KEYS.indexOf(currentStep);
+
+        // Gating: can only go back to completed steps, not forward freely
+        const canNavigateTo = (idx: number) => {
+          if (idx >= currentIdx) return false; // Can't skip forward
+          return true; // Can go back to any completed step
+        };
+
+        return (
+          <div className="px-6 py-3 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 overflow-x-auto">
+            <div className="flex items-center justify-between min-w-[560px] mx-auto">
+              {STEPS.map((step, idx) => (
+                <React.Fragment key={step.key}>
+                  <button
+                    onClick={() => canNavigateTo(idx) && setCurrentStep(step.key as typeof currentStep)}
+                    disabled={!canNavigateTo(idx)}
+                    className="flex items-center gap-1.5 group"
+                    title={step.description}
+                  >
+                    <div
+                      className={cn(
+                        'w-8 h-8 rounded-full flex items-center justify-center transition-colors text-xs',
+                        currentStep === step.key
+                          ? 'bg-blue-600 text-white ring-2 ring-blue-300'
+                          : idx < currentIdx
+                          ? 'bg-green-500 text-white cursor-pointer group-hover:bg-green-600'
+                          : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                      )}
+                    >
+                      {idx < currentIdx ? <Check className="h-3.5 w-3.5" /> : <step.icon className="h-3.5 w-3.5" />}
+                    </div>
+                    <span
+                      className={cn(
+                        'text-xs font-medium hidden sm:inline',
+                        currentStep === step.key ? 'text-blue-600' : idx < currentIdx ? 'text-green-600' : 'text-slate-400'
+                      )}
+                    >
+                      {step.label}
+                    </span>
+                  </button>
+                  {idx < STEPS.length - 1 && (
+                    <div className={cn('flex-1 h-0.5 mx-1', idx < currentIdx ? 'bg-green-400' : 'bg-slate-200 dark:bg-slate-700')} />
                   )}
-                >
-                  <step.icon className="h-5 w-5" />
-                </div>
-                <span
-                  className={cn(
-                    'text-sm font-medium',
-                    currentStep === step.key ? 'text-blue-600' : 'text-slate-500'
-                  )}
-                >
-                  {step.label}
-                </span>
-              </div>
-              {idx < 3 && (
-                <ArrowRight className="h-5 w-5 text-slate-300 dark:text-slate-600" />
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Banner: X of Y in error – you can still submit valid events for approval */}
       {stats.failed > 0 && stats.total > 0 && (
@@ -2524,109 +2494,257 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           </div>
         ) : (
           <div className="space-y-4">
-            {Object.entries(eventsByTable).map(([tableKey, tableEvents]) => {
-              const isSchemaGroup = tableEvents.some(e => e.type === 'SCHEMA_CREATED');
-              const displayKey = isSchemaGroup
-                ? tableKey.split('.').slice(0, 2).join('.')
-                : tableKey;
-              return (
-              <div
-                key={tableKey}
-                className="border dark:border-slate-700 rounded-lg overflow-hidden"
-              >
+            {/* ── B3: Pre-Deployment Checks ── */}
+            {currentStep === 'pre_checks' && (
+              <PreCheckGate
+                projectId={projectId}
+                onAllPassed={() => setPreChecksAllPassed(true)}
+                onChecksComplete={() => runRiskScoring()}
+                autoRun
+              />
+            )}
+
+            {/* ── 4.1: AI Deployment Risk Scorer (page 10) ── */}
+            {currentStep === 'pre_checks' && riskAssessment && (
+              <div className="border dark:border-slate-700 rounded-lg overflow-hidden">
+                {/* Risk Score Header */}
                 <div className={cn(
-                  "px-4 py-3 flex items-center gap-3",
-                  isSchemaGroup
-                    ? "bg-indigo-50 dark:bg-indigo-900/20"
-                    : "bg-slate-50 dark:bg-slate-800"
+                  'px-4 py-3 flex items-center justify-between',
+                  riskAssessment.level === 'LOW' ? 'bg-green-50 dark:bg-green-900/20' :
+                  riskAssessment.level === 'MEDIUM' ? 'bg-amber-50 dark:bg-amber-900/20' :
+                  'bg-red-50 dark:bg-red-900/20'
                 )}>
-                  <Database className={cn("h-5 w-5", isSchemaGroup ? "text-indigo-500" : "text-blue-500")} />
-                  <span className="font-medium">{displayKey}</span>
-                  {isSchemaGroup && (
-                    <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 font-medium">Schema</span>
-                  )}
-                  <Badge className="ml-auto">{tableEvents.length} {tableEvents.length === 1 ? 'change' : 'changes'}</Badge>
+                  <div className="flex items-center gap-3">
+                    <Sparkles className={cn(
+                      'h-4 w-4',
+                      riskAssessment.level === 'LOW' ? 'text-green-500' :
+                      riskAssessment.level === 'MEDIUM' ? 'text-amber-500' : 'text-red-500'
+                    )} />
+                    <span className="font-medium text-sm">AI Deployment Risk Scorer</span>
+                    <Badge size="sm" className="bg-violet-100 text-violet-600 text-[10px]">~0.002 credits</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={cn(
+                      'text-2xl font-bold',
+                      riskAssessment.level === 'LOW' ? 'text-green-600' :
+                      riskAssessment.level === 'MEDIUM' ? 'text-amber-600' : 'text-red-600'
+                    )}>
+                      {riskAssessment.score}
+                    </span>
+                    <span className="text-xs text-slate-400">/100</span>
+                    <Badge size="sm" className={cn(
+                      'ml-1',
+                      riskAssessment.level === 'LOW' ? 'bg-green-100 text-green-700' :
+                      riskAssessment.level === 'MEDIUM' ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                    )}>
+                      {riskAssessment.level}
+                    </Badge>
+                  </div>
                 </div>
-                <div className="divide-y dark:divide-slate-700">
-                  {tableEvents.map((event) => {
-                    const result = testResults.get(event.id);
-                    const isExpanded = expandedEvents.has(event.id);
 
-                    return (
-                      <div key={event.id}>
-                        <div
-                          className={cn(
-                            'px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50',
-                            event.status === 'failed' && 'bg-red-50 dark:bg-red-900/10'
-                          )}
-                          onClick={() => toggleExpand(event.id)}
-                        >
-                          <button className="p-0.5">
-                            {isExpanded ? (
-                              <ChevronDown className="h-4 w-4 text-slate-400" />
-                            ) : (
-                              <ChevronRight className="h-4 w-4 text-slate-400" />
-                            )}
-                          </button>
+                {/* Risk Breakdown Table */}
+                {riskAssessment.breakdown.length > 0 && (
+                  <div className="divide-y dark:divide-slate-700">
+                    <div className="px-4 py-2 grid grid-cols-[1fr_80px_1fr] gap-2 text-[10px] uppercase tracking-wider text-slate-400 font-medium bg-slate-50 dark:bg-slate-800/50">
+                      <span>Factor</span>
+                      <span className="text-center">Points</span>
+                      <span>Reason</span>
+                    </div>
+                    {riskAssessment.breakdown.map((item, idx) => (
+                      <div key={idx} className="px-4 py-2 grid grid-cols-[1fr_80px_1fr] gap-2 text-xs items-center">
+                        <span className="font-mono text-slate-700 dark:text-slate-300">{item.factor}</span>
+                        <span className={cn(
+                          'text-center font-bold',
+                          item.points >= 15 ? 'text-red-600' : item.points >= 10 ? 'text-amber-600' : 'text-slate-500'
+                        )}>
+                          +{item.points}
+                        </span>
+                        <span className="text-slate-500">{item.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-                          {/* Status Icon */}
-                          {event.status === 'pending' && (
-                            <Clock className="h-4 w-4 text-amber-500" />
-                          )}
-                          {event.status === 'validated' && (
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          )}
-                          {event.status === 'failed' && (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
-                          {event.status === 'applied' && (
-                            <Check className="h-4 w-4 text-blue-500" />
-                          )}
-
-                          {/* Event Type */}
-                          <span className="text-sm font-medium">
-                            {formatEventType(event.type)}
-                          </span>
-
-                          {/* Event Summary */}
-                          <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]">
-                            {getEventSummary(event)}
-                          </span>
-
-                          {/* Duration */}
-                          {result?.duration && (
-                            <span className="text-xs text-slate-400 ml-auto">
-                              {result.duration}ms
-                            </span>
-                          )}
+                {/* AI Summary (mistral-7b) */}
+                <div className="px-4 py-3 border-t dark:border-slate-700 bg-violet-50/50 dark:bg-violet-900/10">
+                  <div className="flex items-start gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-violet-500 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] uppercase tracking-wider text-violet-500 font-medium mb-1">AI Summary (mistral-7b)</p>
+                      {riskAssessment.aiSummaryLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Generating risk summary...
                         </div>
+                      ) : riskAssessment.aiSummary ? (
+                        <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">{riskAssessment.aiSummary}</p>
+                      ) : (
+                        <p className="text-xs text-slate-400 italic">No AI summary available (Cortex not connected)</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
 
-                        {/* Expanded Content */}
-                        {isExpanded && (
-                          <div className="px-4 pb-3 ml-8 space-y-2">
-                            <div className="p-3 bg-slate-900 dark:bg-slate-950 rounded text-xs font-mono text-green-400 overflow-auto">
-                              {generateSQL(event)}
+                {/* Risk Legend */}
+                <div className="px-4 py-2 border-t dark:border-slate-700 flex items-center gap-4 text-[10px] text-slate-400">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-green-500" /> 0-30 LOW</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-amber-500" /> 31-60 MEDIUM</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm bg-red-500" /> 61-100 HIGH</span>
+                  {riskAssessment.score > 60 && (
+                    <span className="ml-auto text-red-500 font-medium">Score {'>'} 60 → Confirmation required</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── B5: SQL Diff (split view — current vs proposed) ── */}
+            {currentStep === 'sql_diff' && (
+              <SqlDiffViewer
+                beforeSql={allRollbackSQL ? `-- Current schema (rollback target)\n${allRollbackSQL}` : '-- No existing schema changes'}
+                afterSql={allSQL || '-- No SQL generated'}
+                beforeLabel="CURRENT SQL"
+                afterLabel="PROPOSED SQL (DIFF)"
+              />
+            )}
+
+            {/* ── Dry-Run inside Deploy step ── */}
+            {currentStep === 'deploy' && !dryRunCompleted && (
+              <DryRunPanel
+                projectId={projectId}
+                warehouse={scheduleWarehouse}
+                onPromoteToProd={() => setDryRunCompleted(true)}
+              />
+            )}
+
+            {/* ── B4: Post-Deployment Verification ── */}
+            {currentStep === 'post_verify' && (
+              <PostVerifyBanner
+                result={postVerifyResult}
+                projectId={projectId}
+                database={database}
+                schemaName={schemas[0]}
+                deploymentId={deploymentId || undefined}
+                onRecheck={async () => {
+                  setPostVerifyResult(null);
+                  // Trigger recheck — the component handles its own loading state
+                }}
+              />
+            )}
+
+            {/* ── Events List — split into Phase 1 (DDL) and Phase 2 (ETL) ── */}
+            {(currentStep === 'review' || currentStep === 'deploy') && (() => {
+              const ETL_EVENT_TYPES: Set<string> = new Set([
+                'COLUMN_MAPPING_CREATED', 'COLUMN_MAPPING_REMOVED',
+                'INGESTION_MODE_SET', 'SCD_CONFIGURED',
+              ]);
+
+              // Split events by table, then separate DDL vs ETL
+              const ddlEntries: Array<[string, typeof events]> = [];
+              const etlEntries: Array<[string, typeof events]> = [];
+
+              for (const [tableKey, tableEvents] of Object.entries(eventsByTable)) {
+                const ddlEvents = tableEvents.filter(e => !ETL_EVENT_TYPES.has(e.type));
+                const etlEvents = tableEvents.filter(e => ETL_EVENT_TYPES.has(e.type));
+                if (ddlEvents.length > 0) ddlEntries.push([tableKey, ddlEvents]);
+                if (etlEvents.length > 0) etlEntries.push([tableKey, etlEvents]);
+              }
+
+              const renderEventGroup = (tableKey: string, tableEvents: typeof events) => {
+                const isSchemaGroup = tableEvents.some(e => e.type === 'SCHEMA_CREATED');
+                const displayKey = isSchemaGroup
+                  ? tableKey.split('.').slice(0, 2).join('.')
+                  : tableKey;
+                return (
+                  <div key={tableKey} className="border dark:border-slate-700 rounded-lg overflow-hidden">
+                    <div className={cn(
+                      "px-4 py-3 flex items-center gap-3",
+                      isSchemaGroup ? "bg-indigo-50 dark:bg-indigo-900/20" : "bg-slate-50 dark:bg-slate-800"
+                    )}>
+                      <Database className={cn("h-5 w-5", isSchemaGroup ? "text-indigo-500" : "text-blue-500")} />
+                      <span className="font-medium">{displayKey}</span>
+                      {isSchemaGroup && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 font-medium">Schema</span>
+                      )}
+                      <Badge className="ml-auto">{tableEvents.length} {tableEvents.length === 1 ? 'change' : 'changes'}</Badge>
+                    </div>
+                    <div className="divide-y dark:divide-slate-700">
+                      {tableEvents.map((event) => {
+                        const result = testResults.get(event.id);
+                        const isExpanded = expandedEvents.has(event.id);
+                        return (
+                          <div key={event.id}>
+                            <div
+                              className={cn(
+                                'px-4 py-3 flex items-center gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50',
+                                event.status === 'failed' && 'bg-red-50 dark:bg-red-900/10'
+                              )}
+                              onClick={() => toggleExpand(event.id)}
+                            >
+                              <button className="p-0.5">
+                                {isExpanded ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+                              </button>
+                              {event.status === 'pending' && <Clock className="h-4 w-4 text-amber-500" />}
+                              {event.status === 'validated' && <CheckCircle2 className="h-4 w-4 text-green-500" />}
+                              {event.status === 'failed' && <XCircle className="h-4 w-4 text-red-500" />}
+                              {event.status === 'applied' && <Check className="h-4 w-4 text-blue-500" />}
+                              <span className="text-sm font-medium">{formatEventType(event.type)}</span>
+                              <span className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[200px]">{getEventSummary(event)}</span>
+                              {result?.duration && <span className="text-xs text-slate-400 ml-auto">{result.duration}ms</span>}
                             </div>
-                            {result?.error && (
-                              <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-600 dark:text-red-400">
-                                <strong>Error:</strong> {result.error}
+                            {isExpanded && (
+                              <div className="px-4 pb-3 ml-8 space-y-2">
+                                <div className="p-3 bg-slate-900 dark:bg-slate-950 rounded text-xs font-mono text-green-400 overflow-auto">
+                                  {generateSQL(event)}
+                                </div>
+                                {result?.error && (
+                                  <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-600 dark:text-red-400">
+                                    <strong>Error:</strong> {result.error}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
-                        )}
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              };
+
+              return (
+                <>
+                  {/* Phase 1: Schema (DDL) */}
+                  {ddlEntries.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 px-1">
+                        <div className="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-xs font-bold">1</div>
+                        <span className="text-sm font-semibold text-blue-700 dark:text-blue-400">Phase 1: Schema (DDL)</span>
+                        <Badge className="bg-blue-100 text-blue-600 text-[10px]">{ddlEntries.reduce((s, [, e]) => s + e.length, 0)} changes</Badge>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
+                      {ddlEntries.map(([k, e]) => renderEventGroup(k, e))}
+                    </div>
+                  )}
+
+                  {/* Phase 2: Ingestion (ETL) */}
+                  {etlEntries.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2 px-1">
+                        <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold">2</div>
+                        <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-400">Phase 2: Ingestion (ETL)</span>
+                        <Badge className="bg-emerald-100 text-emerald-600 text-[10px]">{etlEntries.reduce((s, [, e]) => s + e.length, 0)} mappings</Badge>
+                      </div>
+                      {etlEntries.map(([k, e]) => renderEventGroup(k, e))}
+                    </div>
+                  )}
+                </>
               );
-            })}
+            })()}
           </div>
         )}
       </div>
 
-      {/* Mapped Sources/Targets Overview - Always show when there are mappings */}
-      {mappedTablesOverview.length > 0 && currentStep !== 'complete' && (
+      {/* Mapped Sources/Targets Overview — only on review/deploy steps */}
+      {mappedTablesOverview.length > 0 && (currentStep === 'review' || currentStep === 'deploy') && (
         <div className="px-6 py-4 border-t dark:border-slate-700 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20">
           <h4 className="font-medium text-sm flex items-center gap-2 mb-3">
             <GitBranch className="h-4 w-4 text-purple-600" />
@@ -2741,13 +2859,26 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         </div>
       )}
 
-      {/* Deployment Configuration - Always show */}
+      {/* Deployment Configuration — collapsible, auto-collapsed after review */}
       {currentStep !== 'complete' && !isValidating && !isDeploying && (
-        <div className="px-6 py-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-4">
-          <h4 className="font-medium text-sm flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Deployment Configuration
-          </h4>
+        <div className="px-6 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+          <button
+            onClick={() => setConfigExpanded(!configExpanded)}
+            className="w-full py-3 flex items-center justify-between hover:text-blue-600 transition-colors"
+          >
+            <h4 className="font-medium text-sm flex items-center gap-2">
+              <Settings className="h-4 w-4" />
+              Deployment Configuration
+              {!configExpanded && (
+                <span className="text-xs text-slate-400 font-normal ml-2">
+                  {deploymentType === 'immediate' ? 'Immediate' : 'With Approval'} · {scheduleWarehouse}
+                </span>
+              )}
+            </h4>
+            {configExpanded ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
+          </button>
+          {configExpanded && (
+            <div className="pb-4 space-y-4">
 
           {/* Deployment Type */}
           <div className="grid grid-cols-2 gap-3">
@@ -2944,11 +3075,13 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 </div>
               )}
             </div>
+            </div>
           </div>
+          )}
         </div>
       )}
 
-      {/* Footer Actions - Always show */}
+      {/* Footer Actions */}
       {currentStep !== 'complete' && (
         <div className="px-6 py-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-2 flex-wrap">
@@ -2991,48 +3124,94 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            {currentStep === 'validate' && !isValidating && (
-              <Button variant="outline" onClick={handleReset} className="gap-2">
+            {/* Back button for non-review steps */}
+            {currentStep !== 'review' && (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const stepOrder = ['review', 'pre_checks', 'sql_diff', 'deploy', 'post_verify', 'complete'] as const;
+                  const idx = stepOrder.indexOf(currentStep as typeof stepOrder[number]);
+                  if (idx > 0) {
+                    setCurrentStep(stepOrder[idx - 1]);
+                    if (stepOrder[idx - 1] === 'review') setConfigExpanded(true);
+                  }
+                }}
+                className="gap-2"
+              >
                 <RotateCcw className="h-4 w-4" />
-                Reset
+                Back
               </Button>
             )}
 
+            {/* Review → Pre-Checks: runs validation then moves to pre-checks */}
             {currentStep === 'review' && (
               <Button
                 onClick={handleValidate}
                 disabled={pendingEvents.length === 0}
                 className="gap-2 bg-blue-600 hover:bg-blue-700"
               >
-                <Zap className="h-4 w-4" />
-                Validate ({pendingEvents.length})
+                <Shield className="h-4 w-4" />
+                Run Pre-Checks ({pendingEvents.length})
               </Button>
             )}
 
             {isValidating && (
               <Button disabled className="gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Validating...
+                Checking...
               </Button>
             )}
 
-            {/* Deploy button - always accessible; show count of events that will be submitted (validated or all pending) */}
-            {!isValidating && !isDeploying && (() => {
+            {/* Pre-Checks → SQL Diff (gated: must pass pre-checks) */}
+            {currentStep === 'pre_checks' && !isValidating && (
+              <Tooltip content={!preChecksAllPassed ? 'Fix pre-check failures before proceeding' : undefined}>
+                <Button
+                  onClick={() => setCurrentStep('sql_diff')}
+                  disabled={!preChecksAllPassed && stats.failed > 0}
+                  className="gap-2 bg-blue-600 hover:bg-blue-700"
+                >
+                  <GitBranch className="h-4 w-4" />
+                  View SQL Diff
+                </Button>
+              </Tooltip>
+            )}
+
+            {/* SQL Diff → Deploy */}
+            {currentStep === 'sql_diff' && (
+              <Button
+                onClick={() => setCurrentStep('deploy')}
+                className="gap-2 bg-blue-600 hover:bg-blue-700"
+              >
+                <Rocket className="h-4 w-4" />
+                Proceed to Deploy
+              </Button>
+            )}
+
+            {/* Deploy step — dry-run + deploy buttons */}
+            {currentStep === 'deploy' && !isDeploying && (() => {
               const validatedCount = events.filter((e) => e.status === 'validated').length;
               const toSubmitCount = validatedCount > 0 ? validatedCount : pendingEvents.length;
-              const label = deploymentType === 'immediate' ? 'Deploy Now' : 'Submit for approval';
-              const countLabel = stats.failed > 0 && toSubmitCount > 0
-                ? `(${toSubmitCount} valid${stats.failed > 0 ? `, ${stats.failed} in error` : ''})`
-                : (pendingEvents.length > 0 ? `(${pendingEvents.length})` : '');
               return (
-                <Button
-                  onClick={handleDeploy}
-                  className="gap-2 bg-green-600 hover:bg-green-700"
-                  disabled={toSubmitCount === 0 && !(events.some(e => e.type === 'COLUMN_MAPPING_CREATED'))}
-                >
-                  <Rocket className="h-4 w-4" />
-                  {label} {countLabel}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {!dryRunCompleted && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setDryRunCompleted(true)}
+                      className="gap-2 text-amber-600 border-amber-300 hover:bg-amber-50"
+                    >
+                      <Server className="h-4 w-4" />
+                      Skip Dry-Run
+                    </Button>
+                  )}
+                  <Button
+                    onClick={handleDeploy}
+                    className="gap-2 bg-green-600 hover:bg-green-700"
+                    disabled={toSubmitCount === 0 && !events.some(e => e.type === 'COLUMN_MAPPING_CREATED')}
+                  >
+                    <Rocket className="h-4 w-4" />
+                    {deploymentType === 'immediate' ? 'Deploy Now' : 'Submit for Approval'} ({toSubmitCount})
+                  </Button>
+                </div>
               );
             })()}
 
@@ -3040,6 +3219,17 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               <Button disabled className="gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 {deploymentType === 'immediate' ? 'Deploying...' : 'Submitting...'}
+              </Button>
+            )}
+
+            {/* Post-verify → Complete */}
+            {currentStep === 'post_verify' && (
+              <Button
+                onClick={() => setCurrentStep('complete')}
+                className="gap-2 bg-green-600 hover:bg-green-700"
+              >
+                <Check className="h-4 w-4" />
+                Done
               </Button>
             )}
           </div>

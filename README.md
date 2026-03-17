@@ -982,3 +982,82 @@ toggleBookmark({ label: 'Dashboard', href: '/bi-dashboard', module: 'BI' });
 - **Performance-optimized dashboards:** command-center, observability, main dashboard
 - **Intelligent refresh:** SSE + LAST_ALTERED timestamp-driven cache invalidation (15 zones)
 - **Snowflake Intelligence:** Row timestamps, cross-account audit, DQL/login/access history
+
+---
+
+## Demo Guide — Scale DWH
+
+A recommended 5-minute walkthrough for presenting Data360 Pro to stakeholders.
+
+**In-app demo page:** Navigate to `/demo-showcase` for an interactive overview with module cards, architecture flow, roadmap, and improvements.
+
+### Demo Flow (8 Stops)
+
+| # | Module | What to Show | Route |
+|---|--------|-------------|-------|
+| 1 | **Command Center** | Overview tab → KPI cards, observability radar, module health grid, activity feed | `/account-overview` |
+| 2 | **Connect Data** | S3 connector setup flow, datalake file browser, connection testing | `/data-source-connection` |
+| 3 | **Explore & Design** | Load DWH template (13 retail tables), show ReactFlow canvas with FK relationships, event log | `/explore-design` |
+| 4 | **Workflow** | Build ETL pipeline: Source → Filter → Aggregate → Destination, then deploy with approval | `/workflow` |
+| 5 | **Governance** | Security matrix grid, masking policies, role-based grants, audit trail | `/gouvernance/security-matrix` |
+| 6 | **AI Intelligence** | Cortex Chat natural language query, semantic model YAML, sentiment analysis | `/intelligent` |
+| 7 | **BI Dashboard** | Create chart from query, multi-page dashboard layout | `/bi-dashboard` |
+| 8 | **Observability** | Health scores, GDPR/SOC2 compliance, data lineage graph | `/observability` |
+
+### Key Talking Points
+
+- Unified platform: ingestion, modeling, ETL, AI, governance, reporting — all in one
+- No-code ETL with 28+ reusable blocks (Source, Transform, AI/ML, Destination, Infrastructure)
+- Built on Snowflake with Cortex AI for natural language querying
+- Enterprise governance: RBAC, 7 policy types, security matrix, full audit trail
+- Real-time monitoring with SSE cache invalidation across 15 zones
+
+---
+
+## Next Steps & Roadmap
+
+### Phase 1 — Core Platform (Done)
+- Command Center with 9 analytics tabs
+- Multi-source connectors (S3, Azure, Databricks, Iceberg, PostgreSQL, MySQL)
+- Explore & Design with DWH template (13 tables) & ReactFlow canvas
+- Workflow builder with 28+ ETL blocks
+- Governance (RBAC, 7 policy types, security matrix)
+- BI Dashboard builder with drag-drop widgets
+- AI Intelligence (Cortex Chat, semantic models, ML classification, document AI)
+- Data Health & Observability with compliance reports
+
+### Phase 2 — V2 Explore & Design Wizard (In Progress)
+- 6-step guided wizard: Source Explorer → Schema Design → Ingestion & Mappings → Masking → Model & Deploy → Scheduling
+- New API services (`projectsApi`, `exploreDesignApi`)
+- Wizard state persistence via GET/PUT
+- Shared components (StatusBadge, ConfirmDialog, PaginatedTable)
+- Route swap: replace legacy page with V2
+
+### Phase 3 — Advanced AI & Automation (Planned)
+- Advanced ML pipelines with Cortex fine-tuning
+- Auto-generated ETL from schema analysis
+- Intelligent data quality recommendations
+- Cross-account analytics & federation
+
+### Phase 4 — Enterprise Scale (Planned)
+- Multi-tenant architecture
+- Real-time collaboration (multi-user editing)
+- Custom connector SDK
+- Mobile-responsive dashboards
+- Advanced data lineage & impact analysis
+
+---
+
+## Planned Improvements
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| V2 Explore & Design Wizard | In Progress | 6-step guided wizard replacing legacy monolithic page |
+| Enhanced Cortex Integration | In Progress | Deeper AI with fine-tuning and document AI |
+| SSE Cache Invalidation | Done | Real-time cache refresh via Server-Sent Events (15 zones) |
+| Deployment Approval Workflow | Done | Multi-stage: draft → review → approve → deploy |
+| Command Center (9 Tabs) | Done | Unified analytics with KPIs, costs, security, performance |
+| Real-time Collaboration | Planned | Multi-user editing with presence indicators |
+| Advanced Data Lineage | Planned | Visual dependency graph with impact analysis |
+| Custom Connector SDK | Planned | Build and deploy custom data source connectors |
+| Mobile-responsive Dashboards | Planned | Optimized BI dashboards for tablet and mobile |

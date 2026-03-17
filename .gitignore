@@ -8,8 +8,8 @@ node_modules
 # read mes
 .md
 .sh
-
-
+*.drawio
+*.drawio.backup
 # testing
 coverage
 

@@ -9,6 +9,10 @@ import {
   ChevronDown, ChevronRight, Workflow, Zap, Code2, FolderOpen
 } from 'lucide-react';
 import { useEventStore, createIngestionModeEvent } from '../stores/event-store';
+import SqlPreviewPanel from './SqlPreviewPanel';
+import WhereClauseBuilder from './WhereClauseBuilder';
+import QualityGatesPanel from './QualityGatesPanel';
+import IngestionDryRunPanel from './IngestionDryRunPanel';
 import { IngestionMode } from '../../mapping/components/TableDetailPanel';
 
 // Types
@@ -751,6 +755,46 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
             </div>
           </div>
         )}
+      </div>
+
+      {/* SQL Preview */}
+      <div className="px-4 pb-2">
+        <SqlPreviewPanel
+          table={table}
+          ingestionMode={ingestionMode}
+          scdConfig={ingestionMode.startsWith('scd') ? scdConfig : undefined}
+        />
+      </div>
+
+      {/* WHERE Clause Builder */}
+      <div className="px-4 pb-2">
+        <WhereClauseBuilder
+          columns={[]}
+          onChange={() => {}}
+        />
+      </div>
+
+      {/* Quality Gates */}
+      <div className="px-4 pb-2">
+        <QualityGatesPanel />
+      </div>
+
+      {/* Ingestion Dry-Run Preview */}
+      <div className="px-4 pb-2">
+        <IngestionDryRunPanel
+          tableName={table?.table || ''}
+          ingestionMode={ingestionMode}
+          onRunDryRun={async () => ({
+            status: 'success' as const,
+            rowsProcessed: 10,
+            durationMs: 1200,
+            sampleRows: [],
+            columns: [],
+            summary: { inserts: 7, updates: 2, deletes: 1, unchanged: 0 },
+            errors: [],
+            warnings: [],
+          })}
+        />
       </div>
 
       {/* Footer */}

@@ -1535,3 +1535,220 @@ export interface RetailKpisParams {
 export interface SnapshotResponse {
   version_id: string;
 }
+
+// ============================================================================
+// PART 6 — Explore & Design: New Feature Endpoints
+// ============================================================================
+
+// --- Dry-Run ---
+
+export interface DryRunRequest {
+  warehouse?: string;
+  sample_rows?: number;
+}
+
+export interface DryRunSampleRow {
+  [column: string]: unknown;
+}
+
+export interface DryRunEventResult {
+  event_id: string;
+  ddl_sql: string;
+  status: 'SUCCESS' | 'FAILED';
+  sample_rows?: DryRunSampleRow[] | null;
+  error?: string;
+}
+
+export interface DryRunResult {
+  project_id: string;
+  clone_schema: string | null;
+  total_events: number;
+  passed: number;
+  failed: number;
+  results: DryRunEventResult[];
+  duration_ms: number;
+  message?: string;
+}
+
+// --- Post-Verify ---
+
+export interface PostVerifyRequest {
+  database: string;
+  schema_name: string;
+  deployment_id?: string;
+}
+
+export interface PostVerifyMismatch {
+  object_type: 'table' | 'column' | 'constraint' | 'index';
+  object_name: string;
+  expected: string;
+  actual: string;
+  severity: 'error' | 'warning';
+}
+
+export interface PostVerifyResult {
+  status: 'match' | 'drift' | 'error';
+  verified: boolean;
+  checked_at: string;
+  tables_checked: number;
+  columns_checked: number;
+  passed: number;
+  failed: number;
+  mismatches: PostVerifyMismatch[];
+  duration_ms: number;
+}
+
+// --- Impact Analysis ---
+
+export interface ImpactAnalysisRequest {
+  database: string;
+  schema_name: string;
+  table: string;
+  column?: string;
+}
+
+export interface ImpactItem {
+  object_type: 'view' | 'stream' | 'task' | 'dynamic_table' | 'procedure' | 'function';
+  object_name: string;
+  schema: string;
+  database: string;
+  risk_level: 'high' | 'medium' | 'low';
+  reason: string;
+}
+
+export interface ImpactAnalysisResult {
+  table: string;
+  column?: string;
+  total: number;
+  impacts: ImpactItem[];
+  high_risk_count: number;
+  medium_risk_count: number;
+  low_risk_count: number;
+}
+
+// --- Ingestion Dry-Run ---
+
+export interface IngestionDryRunRequest {
+  source_database: string;
+  source_schema: string;
+  source_table: string;
+  target_database: string;
+  target_schema: string;
+  target_table: string;
+  ingestion_mode: IngestionMode;
+  mappings?: ColumnMappingInput[];
+  config?: Record<string, unknown>;
+  sample_size?: number;
+}
+
+export interface IngestionDryRunRow {
+  action: 'INSERT' | 'UPDATE' | 'DELETE' | 'UNCHANGED';
+  data: Record<string, unknown>;
+}
+
+export interface IngestionDryRunResult {
+  status: 'success' | 'failed';
+  rows_processed: number;
+  duration_ms: number;
+  next_sync_from?: string;
+  sample_rows: IngestionDryRunRow[];
+  columns: string[];
+  summary: {
+    inserts: number;
+    updates: number;
+    deletes: number;
+    unchanged: number;
+  };
+  errors: string[];
+  warnings: string[];
+}
+
+// --- Quality Gates ---
+
+export interface QualityGateConfig {
+  gate_id: string;
+  gate_type: 'null_rate' | 'min_rows' | 'max_rows' | 'schema_match' | 'freshness' | 'unique_rate' | 'custom_sql';
+  column?: string;
+  threshold?: number;
+  expected_value?: string;
+  custom_sql?: string;
+  block_on_fail?: boolean;
+}
+
+export interface QualityGatesRunRequest {
+  database: string;
+  schema_name: string;
+  table: string;
+  gates: QualityGateConfig[];
+}
+
+export interface QualityGateResult {
+  gate_id: string;
+  gate_type: string;
+  status: 'passed' | 'failed' | 'error';
+  actual_value?: number | string;
+  threshold?: number | string;
+  message?: string;
+}
+
+export interface QualityGatesRunResult {
+  table: string;
+  gates_run: number;
+  passed: number;
+  failed: number;
+  blocked: boolean;
+  results: QualityGateResult[];
+  duration_ms: number;
+}
+
+// --- Ingestion Runs ---
+
+export interface IngestionRun {
+  run_id: string;
+  project_id: string;
+  source_table: string;
+  target_table: string;
+  ingestion_mode: IngestionMode;
+  status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+  started_at: string;
+  completed_at?: string;
+  duration_ms?: number;
+  rows_inserted: number;
+  rows_updated: number;
+  rows_deleted: number;
+  rows_failed: number;
+  error_message?: string;
+  triggered_by: string;
+}
+
+export interface IngestionRunsResponse {
+  runs: IngestionRun[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+// --- Conflict Check ---
+
+export interface ConflictCheckRequest {
+  event_ids?: string[];
+}
+
+export interface EventConflict {
+  event_id: string;
+  event_type: string;
+  object_name: string;
+  conflict_type: 'duplicate' | 'contradictory' | 'circular';
+  conflicting_event_id?: string;
+  message: string;
+  severity: 'error' | 'warning';
+}
+
+export interface ConflictCheckResult {
+  has_conflicts: boolean;
+  conflicts: EventConflict[];
+  total_checked: number;
+  duplicates: number;
+  contradictions: number;
+  circular_deps: number;
+}

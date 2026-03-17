@@ -11,7 +11,8 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer
+  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
+  BookTemplate
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -35,6 +36,7 @@ import ModelingCanvas from './components/ModelingCanvas';
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
+import SelfServeIngestionModal from './components/SelfServeIngestionModal';
 import ProjectSelector from './components/ProjectSelector';
 import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
@@ -65,6 +67,19 @@ import EventTableModal from './components/EventTableModal';
 import HybridTableModal from './components/HybridTableModal';
 import PolicyAssignmentPanel from './components/PolicyAssignmentPanel';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
+import TemplateLibrary from './components/TemplateLibrary';
+import SqlDiffViewer from './components/SqlDiffViewer';
+import IngestionResultsPanel from './components/IngestionResultsPanel';
+import DagViewer from './components/DagViewer';
+import CascadeConfirmModal from './components/CascadeConfirmModal';
+import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
+// PreCheckGate, DryRunPanel, PostVerifyBanner are now integrated inside DeploymentValidation's step flow
+import WhereClauseBuilder from './components/WhereClauseBuilder';
+import QualityGatesPanel from './components/QualityGatesPanel';
+import IngestionDryRunPanel from './components/IngestionDryRunPanel';
+import ConflictResolutionModal from './components/ConflictResolutionModal';
+import AiFeatureToggle from './components/AiFeatureToggle';
+import { useAiAnalysis } from './hooks/useAiAnalysis';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -594,6 +609,8 @@ export default function ExploreDesignPage() {
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [showIngestionModal, setShowIngestionModal] = useState(false);
+  const [showScaleTest, setShowScaleTest] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [showRelationshipModal, setShowRelationshipModal] = useState(false);
   const [showCreateMenuCatalog, setShowCreateMenuCatalog] = useState(false);
@@ -632,6 +649,7 @@ export default function ExploreDesignPage() {
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
   // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
   const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
@@ -652,6 +670,14 @@ export default function ExploreDesignPage() {
   const [showCatalogPolicyPanel, setShowCatalogPolicyPanel] = useState(false);
   const [showIngestionPanel, setShowIngestionPanel] = useState(false);
   const [catalogIngestionMode, setCatalogIngestionMode] = useState<IngestionMode>('full_refresh');
+
+  // Phase 2-6 panels
+  const [showDagViewer, setShowDagViewer] = useState(false);
+  const [showImpactAnalysis, setShowImpactAnalysis] = useState(false);
+  const [showDryRun, setShowDryRun] = useState(false);
+  const [showPreChecks, setShowPreChecks] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [showIngestionResults, setShowIngestionResults] = useState(false);
 
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
@@ -681,6 +707,9 @@ export default function ExploreDesignPage() {
     getEventsByProject,
     updateEventStatus
   } = useEventStore(selectedProjectId);
+
+  // AI analysis — runs analyzers against events when toggles/events change
+  useAiAnalysis(events);
 
   // Read-only guard: returns true (blocked) if user is a viewer
   const readOnlyGuard = useCallback(() => {
@@ -2089,6 +2118,66 @@ export default function ExploreDesignPage() {
               </Button>
             </Tooltip>
 
+            {/* Event Templates */}
+            <Tooltip content="Event Templates — save & reuse patterns">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTemplateLibrary(true)}
+                className="p-1.5"
+              >
+                <BookTemplate className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+
+            {/* DAG Viewer */}
+            <Tooltip content="Dependency Graph (DAG)">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowDagViewer(!showDagViewer)}
+                className={cn('p-1.5', showDagViewer && 'bg-violet-100 dark:bg-violet-900/30')}
+              >
+                <Workflow className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+
+            {/* Impact Analysis */}
+            <Tooltip content="Impact Analysis">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowImpactAnalysis(!showImpactAnalysis)}
+                className={cn('p-1.5', showImpactAnalysis && 'bg-amber-100 dark:bg-amber-900/30')}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+
+            {/* Ingestion Results */}
+            <Tooltip content="Ingestion Runs">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowIngestionResults(!showIngestionResults)}
+                className={cn('p-1.5', showIngestionResults && 'bg-teal-100 dark:bg-teal-900/30')}
+              >
+                <BarChart3 className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+
+            {/* AI Intelligence */}
+            <Tooltip content="AI Intelligence">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowAiPanel(!showAiPanel)}
+                className={cn('p-1.5', showAiPanel && 'bg-purple-100 dark:bg-purple-900/30')}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
+
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
 
             {/* Refresh Data Button */}
@@ -2148,6 +2237,19 @@ export default function ExploreDesignPage() {
               {displayablePendingEvents.length > 0 && (
                 <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{displayablePendingEvents.length}</Badge>
               )}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-2.5 py-1"
+              onClick={() => {
+                if (readOnlyGuard()) return;
+                setShowIngestionModal(true);
+              }}
+              disabled={isReadOnly}
+            >
+              <Columns3 className="h-3.5 w-3.5" />
+              <span className="text-xs">Ingestion</span>
             </Button>
           </div>
         </div>
@@ -3135,6 +3237,36 @@ export default function ExploreDesignPage() {
         )}
       </div>
 
+      {/* ── Phase 2-6 Panels ──────────────────────────────────────── */}
+
+      {/* DAG Dependency Graph */}
+      {showDagViewer && selectedProjectId && (
+        <div className="border-t dark:border-slate-800">
+          <DagViewer projectId={selectedProjectId} className="m-3" />
+        </div>
+      )}
+
+      {/* Impact Analysis */}
+      {showImpactAnalysis && selectedProjectId && (
+        <div className="border-t dark:border-slate-800">
+          <ImpactAnalysisPanel projectId={selectedProjectId} className="m-3" />
+        </div>
+      )}
+
+      {/* Ingestion Results */}
+      {showIngestionResults && selectedProjectId && (
+        <div className="border-t dark:border-slate-800">
+          <IngestionResultsPanel projectId={selectedProjectId} className="m-3" />
+        </div>
+      )}
+
+      {/* AI Intelligence Panel */}
+      {showAiPanel && (
+        <div className="border-t dark:border-slate-800 p-3">
+          <AiFeatureToggle />
+        </div>
+      )}
+
       {/* Bulk Actions Bar */}
       <BulkActionsBar
         selectedCount={selectedTables.size}
@@ -3254,7 +3386,7 @@ export default function ExploreDesignPage() {
         </div>
       </Modal>
 
-      {/* Deployment Modal */}
+      {/* Deployment Modal — B1-B5 pipeline is now inside DeploymentValidation */}
       <Modal
         isOpen={showDeploymentModal}
         onClose={() => setShowDeploymentModal(false)}
@@ -3267,6 +3399,13 @@ export default function ExploreDesignPage() {
           projectId={selectedProjectId!}
         />
       </Modal>
+
+      {/* Self-Serve Ingestion Modal */}
+      <SelfServeIngestionModal
+        isOpen={showIngestionModal}
+        onClose={() => setShowIngestionModal(false)}
+        projectId={selectedProjectId}
+      />
 
       {/* Column Preview Modal */}
       {columnPreviewModal.column && selectedTable && (
@@ -3553,6 +3692,15 @@ export default function ExploreDesignPage() {
             }
           }
         }}
+      />
+
+      {/* Event Template Library */}
+      <TemplateLibrary
+        isOpen={showTemplateLibrary}
+        onClose={() => setShowTemplateLibrary(false)}
+        projectId={selectedProjectId}
+        currentDatabase={dwhTargetDatabase || undefined}
+        currentSchema={dwhTargetSchema || undefined}
       />
 
       {/* DWH Location Picker Modal */}

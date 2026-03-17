@@ -21,6 +21,7 @@ import {
   PiChatCircleDuotone,
   PiChartLineDuotone,
   PiFolderDuotone,
+  PiPresentationChartDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -230,6 +231,22 @@ export const carbonMenuItems: MenuItemsType[] = [
         description: 'Metadata, tables, colonnes date, cache & refresh',
         href: routes.data360Config.view,
         icon: PiCubeDuotone,
+      },
+    ],
+  },
+  // Demo Showcase
+  {
+    id: 99,
+    name: 'Demo Showcase',
+    title: 'Demo Showcase',
+    icon: PiPresentationChartDuotone,
+    color: 'indigo',
+    menuItems: [
+      {
+        name: 'Scale DWH Demo',
+        description: 'Platform overview, roadmap & improvements',
+        href: routes.demoShowcase.view,
+        icon: PiPresentationChartDuotone,
       },
     ],
   },

@@ -8,7 +8,6 @@ interface S3FormData {
   integration_name: string;
   bucket_name: string;
   aws_role_arn: string;
-  external_id: string;
   stage_name: string;
 }
 

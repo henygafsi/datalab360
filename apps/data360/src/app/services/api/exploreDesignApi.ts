@@ -78,6 +78,20 @@ import type {
   ScheduleListResponse,
   // Versions
   VersionListResponse,
+  // New Feature Endpoints
+  DryRunRequest,
+  DryRunResult,
+  PostVerifyRequest,
+  PostVerifyResult,
+  ImpactAnalysisRequest,
+  ImpactAnalysisResult,
+  IngestionDryRunRequest,
+  IngestionDryRunResult,
+  QualityGatesRunRequest,
+  QualityGatesRunResult,
+  IngestionRunsResponse,
+  ConflictCheckRequest,
+  ConflictCheckResult,
 } from './types';
 
 const PREFIX = '/api/v1/explore-design';
@@ -569,6 +583,111 @@ export async function listExploreVersions(
   const { data } = await apiClient.get<VersionListResponse>(
     `${PREFIX}/${projectId}/versions`,
     { params },
+  );
+  return data;
+}
+
+// ============================================================================
+// Dry-Run (DDL on cloned schema)
+// ============================================================================
+
+export async function dryRunDeployment(
+  projectId: string,
+  body?: DryRunRequest,
+) {
+  const { data } = await apiClient.post<DryRunResult>(
+    `${PREFIX}/${projectId}/dry-run`,
+    body ?? {},
+  );
+  return data;
+}
+
+// ============================================================================
+// Post-Verify (schema comparison after deploy)
+// ============================================================================
+
+export async function postVerifyDeployment(
+  projectId: string,
+  body: PostVerifyRequest,
+) {
+  const { data } = await apiClient.post<PostVerifyResult>(
+    `${PREFIX}/${projectId}/post-verify`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Impact Analysis (downstream dependencies)
+// ============================================================================
+
+export async function analyzeImpact(
+  projectId: string,
+  body: ImpactAnalysisRequest,
+) {
+  const { data } = await apiClient.post<ImpactAnalysisResult>(
+    `${PREFIX}/${projectId}/impact-analysis`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Ingestion Dry-Run (preview sample rows with actions)
+// ============================================================================
+
+export async function dryRunIngestion(
+  projectId: string,
+  body: IngestionDryRunRequest,
+) {
+  const { data } = await apiClient.post<IngestionDryRunResult>(
+    `${PREFIX}/${projectId}/ingestion/dry-run`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Quality Gates (run configurable checks)
+// ============================================================================
+
+export async function runQualityGates(
+  projectId: string,
+  body: QualityGatesRunRequest,
+) {
+  const { data } = await apiClient.post<QualityGatesRunResult>(
+    `${PREFIX}/${projectId}/quality-gates/run`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Ingestion Runs (history)
+// ============================================================================
+
+export async function listIngestionRuns(
+  projectId: string,
+  params?: { limit?: number; offset?: number; status?: string },
+) {
+  const { data } = await apiClient.get<IngestionRunsResponse>(
+    `${PREFIX}/${projectId}/ingestion/runs`,
+    { params },
+  );
+  return data;
+}
+
+// ============================================================================
+// Conflict Check (event conflicts)
+// ============================================================================
+
+export async function checkConflicts(
+  projectId: string,
+  body?: ConflictCheckRequest,
+) {
+  const { data } = await apiClient.post<ConflictCheckResult>(
+    `${PREFIX}/${projectId}/conflict-check`,
+    body ?? {},
   );
   return data;
 }

@@ -8,7 +8,7 @@
 
 // Environment-based configuration with secure defaults
 const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
-const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
 
 /**
  * Database Configuration Constants
