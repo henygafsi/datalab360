@@ -15,7 +15,7 @@ import {
   Info,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { requestDeployment, executeDeployment } from '@/app/services/api/workflowApi';
 import type { WorkflowStep, WorkflowDeploymentType } from '@/app/services/api/types';
 
@@ -59,7 +59,7 @@ const DeploymentScheduler: React.FC<DeploymentSchedulerProps> = ({
   onClose,
   onDeploymentCreated,
 }) => {
-  const { data: session } = useSession();
+  const { username } = useAuth();
   const [deploymentType, setDeploymentType] = useState<DeploymentType>('approval');
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('08:00');
@@ -67,7 +67,7 @@ const DeploymentScheduler: React.FC<DeploymentSchedulerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  const currentUser = (session?.user as any)?.name || (session?.user as any)?.email || 'system';
+  const currentUser = username || 'system';
 
   const handleSubmit = async () => {
     setIsSubmitting(true);

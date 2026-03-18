@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import { Button, Badge, Tooltip } from 'rizzui';
 import {
   X, Table2, Edit2, Plus, Copy, Key, Link2, Shield, Lock, Eye,
-  Tag, Database, ArrowRight, Trash2, ChevronDown, ChevronRight
+  Tag, Database, ArrowRight, Trash2, ChevronDown, ChevronRight,
+  RefreshCw, Upload, GitMerge
 } from 'lucide-react';
 import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
 
@@ -28,11 +29,36 @@ export type TableOptionAction =
   | 'event_table'
   | 'hybrid_table';
 
+// Ingestion configuration
+export type IngestionMode =
+  | 'full_refresh'
+  | 'incremental'
+  | 'scd_type1'
+  | 'scd_type2'
+  | 'scd_type3'
+  | 'snapshot';
+
+export interface IngestionConfig {
+  mode: IngestionMode;
+  source?: string;       // e.g. "Snowpipe (ORDERS_PIPE)"
+  mergeKeys?: string[];   // e.g. ["ORDER_ID"]
+}
+
+const INGESTION_MODE_LABELS: Record<IngestionMode, string> = {
+  full_refresh: 'Full Refresh',
+  incremental: 'Incremental',
+  scd_type1: 'SCD Type 1',
+  scd_type2: 'SCD Type 2',
+  scd_type3: 'SCD Type 3',
+  snapshot: 'Snapshot',
+};
+
 interface TableOptionsSidebarProps {
   table: TableItem | null;
   columns: ColumnInfo[];
   onClose: () => void;
   onAction: (action: TableOptionAction) => void;
+  ingestionConfig?: IngestionConfig | null;
   className?: string;
 }
 
@@ -100,6 +126,7 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
   columns,
   onClose,
   onAction,
+  ingestionConfig,
   className,
 }) => {
   if (!table) return null;
@@ -136,7 +163,7 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
         </div>
 
         {/* Quick stats */}
-        <div className="flex items-center gap-2 mt-3">
+        <div className="flex items-center gap-2 mt-3 flex-wrap">
           <Badge variant="outline" className="text-xs">
             {columns.length} columns
           </Badge>
@@ -152,6 +179,55 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
               {sensitiveCount}
             </Badge>
           )}
+        </div>
+
+        {/* Ingestion stats */}
+        <div className="mt-3 space-y-1.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <RefreshCw className="h-3 w-3" />
+              Ingestion
+            </span>
+            {ingestionConfig ? (
+              <span className="font-medium text-slate-800 dark:text-slate-200">
+                {INGESTION_MODE_LABELS[ingestionConfig.mode]}
+              </span>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 italic">
+                Not Configured
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <Upload className="h-3 w-3" />
+              Source
+            </span>
+            {ingestionConfig?.source ? (
+              <span className="font-medium text-slate-800 dark:text-slate-200 truncate ml-2 max-w-[140px]" title={ingestionConfig.source}>
+                {ingestionConfig.source}
+              </span>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 italic">
+                Not Configured
+              </span>
+            )}
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+              <GitMerge className="h-3 w-3" />
+              Merge Keys
+            </span>
+            {ingestionConfig?.mergeKeys && ingestionConfig.mergeKeys.length > 0 ? (
+              <span className="font-medium font-mono text-slate-800 dark:text-slate-200 truncate ml-2 max-w-[140px]" title={ingestionConfig.mergeKeys.join(', ')}>
+                {ingestionConfig.mergeKeys.join(', ')}
+              </span>
+            ) : (
+              <span className="text-slate-400 dark:text-slate-500 italic">
+                Not Configured
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

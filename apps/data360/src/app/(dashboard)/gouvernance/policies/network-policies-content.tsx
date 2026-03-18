@@ -137,9 +137,9 @@ export default function NetworkPoliciesContent() {
     try {
       const requestData = {
         policy_name: policyName,
-        allowed_ip_list: allowedIPs,
-        blocked_ip_list: blockedIPs,
-        comment,
+        allowed_ip_list: allowedIPs.trim() || undefined,
+        blocked_ip_list: blockedIPs.trim() || undefined,
+        comment: comment.trim() || undefined,
         expiration_date: expirationDate || undefined,
       };
       console.log('[Network Create] Sending request:', requestData);

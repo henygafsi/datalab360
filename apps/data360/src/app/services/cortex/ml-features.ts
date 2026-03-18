@@ -1,7 +1,8 @@
 import { getAuthSession } from '@/lib/auth';
 import axios from 'axios';
+import { API_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 // ============================================
 // AUTH HELPER

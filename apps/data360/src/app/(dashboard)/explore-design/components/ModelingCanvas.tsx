@@ -1107,10 +1107,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         connectionMode={ConnectionMode.Loose}
+        onlyRenderVisibleElements
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.1}
         maxZoom={2}
+        nodeExtent={[[-5000, -5000], [10000, 10000]]}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: true,
@@ -1489,12 +1491,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 };
 
 // Main component with provider
-const ModelingCanvas: React.FC<ModelingCanvasProps> = (props) => {
+const ModelingCanvas: React.FC<ModelingCanvasProps> = React.memo((props) => {
   return (
     <ReactFlowProvider>
       <ModelingCanvasInner {...props} />
     </ReactFlowProvider>
   );
-};
+});
+
+ModelingCanvas.displayName = 'ModelingCanvas';
 
 export default ModelingCanvas;

@@ -15,7 +15,7 @@ import type { Project as ApiProject } from '@/app/services/api/types';
 import { getUsers } from '@/app/services/gouvernance/fetch_users';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 
 interface Project {
   project_id: string;
@@ -60,8 +60,7 @@ export default function ProjectSelector({
   className,
   autoSelectProjectId,
 }: ProjectSelectorProps) {
-  const { data: session } = useSession();
-  const currentUsername = (session?.user as any)?.username || '';
+  const { username: currentUsername } = useAuth();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);

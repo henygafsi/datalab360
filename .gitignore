@@ -43,3 +43,4 @@ dist/
 
 .vercel
 .vscode
+apps/data360/e2e/screenshots/

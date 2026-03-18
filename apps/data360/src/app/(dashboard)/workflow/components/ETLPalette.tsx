@@ -25,6 +25,18 @@ const PaletteItem: React.FC<{
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData('application/reactflow', block.type);
     e.dataTransfer.effectAllowed = 'move';
+
+    // Custom drag preview
+    const preview = document.createElement('div');
+    preview.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 14px;background:white;border-radius:10px;border:2px solid #3b82f6;box-shadow:0 4px 16px rgba(0,0,0,0.15);font-size:13px;font-weight:600;color:#1e293b;position:absolute;top:-9999px;left:-9999px;';
+    preview.textContent = block.label;
+    document.body.appendChild(preview);
+    e.dataTransfer.setDragImage(preview, 50, 20);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (document.body.contains(preview)) document.body.removeChild(preview);
+      }, 0);
+    });
   };
 
   return (
@@ -124,7 +136,9 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
   // Categorized blocks
   const sourceBlocks = useMemo(() => getBlocksByCategory('source'), []);
   const transformBlocks = useMemo(() => getBlocksByCategory('transform'), []);
+  const transformAdvancedBlocks = useMemo(() => getBlocksByCategory('transform_advanced'), []);
   const destinationBlocks = useMemo(() => getBlocksByCategory('destination'), []);
+  const pythonBlocks = useMemo(() => getBlocksByCategory('python'), []);
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
@@ -186,7 +200,9 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
           <>
             <CategorySection category="source" blocks={sourceBlocks} />
             <CategorySection category="transform" blocks={transformBlocks} />
+            <CategorySection category="transform_advanced" blocks={transformAdvancedBlocks} defaultOpen={false} />
             <CategorySection category="destination" blocks={destinationBlocks} />
+            <CategorySection category="python" blocks={pythonBlocks} defaultOpen={false} />
           </>
         )}
       </div>

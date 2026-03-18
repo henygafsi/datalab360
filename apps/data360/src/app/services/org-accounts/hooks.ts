@@ -524,9 +524,9 @@ export async function getShareDetail(shareName: string): Promise<ShareDetailResp
 // ACCOUNT OVERVIEW - ENHANCED TABS
 // =============================================================================
 
-export async function getSecurityOverview(days = 30): Promise<SecurityOverviewResponse> {
+export async function getSecurityOverview(days = 30, filters?: Partial<CommandCenterFilters>): Promise<SecurityOverviewResponse> {
   const { data } = await apiClient.get<SecurityOverviewResponse>(
-    `${BASE_URL}/security-overview`, { params: { days }, timeout: 60000 }
+    `${BASE_URL}/security-overview`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }
@@ -552,16 +552,16 @@ export async function getAutomationOverview(days = 30): Promise<AutomationOvervi
   return data;
 }
 
-export async function getPerformanceOverview(days = 7): Promise<PerformanceOverviewResponse> {
+export async function getPerformanceOverview(days = 7, filters?: Partial<CommandCenterFilters>): Promise<PerformanceOverviewResponse> {
   const { data } = await apiClient.get<PerformanceOverviewResponse>(
-    `${BASE_URL}/performance-overview`, { params: { days }, timeout: 60000 }
+    `${BASE_URL}/performance-overview`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }
 
-export async function getCortexCosts(days = 30): Promise<CortexCostsResponse> {
+export async function getCortexCosts(days = 30, filters?: Partial<CommandCenterFilters>): Promise<CortexCostsResponse> {
   const { data } = await apiClient.get<CortexCostsResponse>(
-    `${BASE_URL}/cortex-costs`, { params: { days }, timeout: 60000 }
+    `${BASE_URL}/cortex-costs`, { params: { days, ...filters }, timeout: 60000 }
   );
   return data;
 }

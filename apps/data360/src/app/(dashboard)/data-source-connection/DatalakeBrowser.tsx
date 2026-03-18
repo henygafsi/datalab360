@@ -26,6 +26,7 @@ import {
 } from './connectionServices';
 
 type Provider = 'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
+type Provider = 'snowflake' | 'azure' | 'aws' | 'gcp' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'salesforce' | 'sap' | 'oracle' | 'hubspot' | 'servicenow' | 'custom_api';
 type ViewMode = 'grid' | 'table';
 
 const BROWSER_ONLY_PROVIDERS: Provider[] = ['snowflake', 'azure', 'aws', 'gcs'];
@@ -183,6 +184,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     fetchPreview(currentStage, previewFile.name, previewPageSize, offset)
       .then(() => setPreviewPage(newPage))
       .catch((e: any) => toast.error(e.message))
+      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
       .finally(() => setPreviewLoading(false));
   };
 
@@ -192,7 +194,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     setGrantsLoading(true);
     try {
       const res = await getStageGrants(currentStage);
-      setGrants(res.grants || []);
+      setGrants(Array.isArray(res?.grants) ? res.grants : []);
     } catch (e: any) {
       toast.error(e?.message || 'Failed to load grants');
       setGrants([]);
@@ -568,14 +570,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               <div className="flex items-center bg-slate-100 dark:bg-slate-700 rounded-lg p-1">
                 <button
                   onClick={() => setViewMode('table')}
-                  className={`p-2 rounded ${viewMode === 'table' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}
+                  className={`p-2 rounded ${viewMode === 'table' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500 dark:text-slate-400'}`}
                   title="Table view"
                 >
                   <HiViewList className="h-4 w-4" />
                 </button>
                 <button
                   onClick={() => setViewMode('grid')}
-                  className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500'}`}
+                  className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white dark:bg-slate-600 shadow' : 'text-slate-500 dark:text-slate-400'}`}
                   title="Grid view"
                 >
                   <HiViewGrid className="h-4 w-4" />
@@ -999,22 +1001,22 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent" />
             </div>
           ) : grants.length === 0 ? (
-            <Text className="text-slate-500">No grants returned for this stage.</Text>
+            <Text className="text-slate-500 dark:text-slate-400">No grants returned for this stage.</Text>
           ) : (
             <table className="w-full text-sm">
               <thead className="bg-slate-50 dark:bg-slate-800">
                 <tr>
-                  <th className="px-2 py-2 text-left font-medium">Privilege</th>
-                  <th className="px-2 py-2 text-left font-medium">Granted To</th>
-                  <th className="px-2 py-2 text-left font-medium">Grantee</th>
+                  <th className="px-2 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Privilege</th>
+                  <th className="px-2 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Granted To</th>
+                  <th className="px-2 py-2 text-left font-medium text-slate-700 dark:text-slate-300">Grantee</th>
                 </tr>
               </thead>
               <tbody>
                 {grants.map((g, i) => (
                   <tr key={i} className="border-b dark:border-slate-700">
-                    <td className="px-2 py-2">{g.PRIVILEGE ?? g.privilege ?? '—'}</td>
-                    <td className="px-2 py-2">{g.GRANTED_TO ?? g.granted_to ?? '—'}</td>
-                    <td className="px-2 py-2">{g.GRANTEE_NAME ?? g.grantee_name ?? '—'}</td>
+                    <td className="px-2 py-2 text-slate-900 dark:text-slate-200">{g.PRIVILEGE ?? g.privilege ?? '—'}</td>
+                    <td className="px-2 py-2 text-slate-900 dark:text-slate-200">{g.GRANTED_TO ?? g.granted_to ?? '—'}</td>
+                    <td className="px-2 py-2 text-slate-900 dark:text-slate-200">{g.GRANTEE_NAME ?? g.grantee_name ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

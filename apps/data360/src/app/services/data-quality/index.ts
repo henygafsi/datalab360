@@ -127,6 +127,13 @@ export async function getCompletenessMetrics(database: string, days?: number): P
   return data?.data || data || [];
 }
 
+export async function getUniquenessMetrics(database: string): Promise<MetricRow[]> {
+  const { data } = await apiClient.get(`${PREFIX}/uniqueness-metrics`, {
+    params: { database },
+  });
+  return data?.rows || data?.data || data || [];
+}
+
 export async function getFreshnessMetrics(database: string, days?: number): Promise<MetricRow[]> {
   const { data } = await apiClient.get(`${PREFIX}/freshness-metrics`, {
     params: { database, days: days || 30 },

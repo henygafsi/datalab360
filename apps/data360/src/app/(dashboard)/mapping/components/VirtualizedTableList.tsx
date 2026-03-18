@@ -4,8 +4,26 @@ import React, { useRef, useMemo, useCallback } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui';
-import { ChevronRight, ChevronDown, Database, Table2, Key, AlertTriangle, Columns3 } from 'lucide-react';
+import {
+  ChevronRight, ChevronDown, Database, Table2, Key, AlertTriangle, Columns3,
+  Zap, GitBranch, RefreshCw, Timer, ExternalLink, Activity, Upload,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { IngestionMode } from './TableDetailPanel';
+
+export type DetectedSourceType =
+  | 'SNOWPIPE'
+  | 'CDC_STREAM'
+  | 'DYNAMIC_TABLE'
+  | 'SCHEDULED_TASK'
+  | 'EXTERNAL_TABLE'
+  | 'EVENT_TABLE'
+  | 'MANUAL';
+
+export interface DetectedSource {
+  type: DetectedSourceType;
+  name?: string;
+}
 
 export interface TableItem {
   id: string;
@@ -17,6 +35,8 @@ export interface TableItem {
   status: 'configured' | 'pending' | 'warning';
   sensitiveColumns?: number;
   columns?: ColumnInfo[];
+  ingestionMode?: IngestionMode;
+  detectedSource?: DetectedSource;
 }
 
 export interface ColumnInfo {
@@ -58,6 +78,85 @@ const STATUS_CONFIG = {
     dot: 'bg-red-500',
     text: 'text-red-600 dark:text-red-400',
     label: 'warning',
+  },
+};
+
+const MODE_BADGE_CONFIG: Record<IngestionMode | '_none', { bg: string; text: string; darkBg: string; darkText: string; label: string }> = {
+  full_refresh: {
+    bg: 'bg-red-100', text: 'text-red-700',
+    darkBg: 'dark:bg-red-900/30', darkText: 'dark:text-red-400',
+    label: 'Full Refresh',
+  },
+  incremental: {
+    bg: 'bg-blue-100', text: 'text-blue-700',
+    darkBg: 'dark:bg-blue-900/30', darkText: 'dark:text-blue-400',
+    label: 'Incremental',
+  },
+  snapshot: {
+    bg: 'bg-amber-100', text: 'text-amber-700',
+    darkBg: 'dark:bg-amber-900/30', darkText: 'dark:text-amber-400',
+    label: 'Snapshot',
+  },
+  scd_type1: {
+    bg: 'bg-green-100', text: 'text-green-700',
+    darkBg: 'dark:bg-green-900/30', darkText: 'dark:text-green-400',
+    label: 'SCD Type 1',
+  },
+  scd_type2: {
+    bg: 'bg-purple-100', text: 'text-purple-700',
+    darkBg: 'dark:bg-purple-900/30', darkText: 'dark:text-purple-400',
+    label: 'SCD Type 2',
+  },
+  scd_type3: {
+    bg: 'bg-indigo-100', text: 'text-indigo-700',
+    darkBg: 'dark:bg-indigo-900/30', darkText: 'dark:text-indigo-400',
+    label: 'SCD Type 3',
+  },
+  _none: {
+    bg: 'bg-slate-100', text: 'text-slate-500',
+    darkBg: 'dark:bg-slate-800', darkText: 'dark:text-slate-400',
+    label: 'Not Set',
+  },
+};
+
+const SOURCE_BADGE_CONFIG: Record<DetectedSourceType, {
+  bg: string; text: string; darkBg: string; darkText: string;
+  icon: React.ElementType; tooltipPrefix: string;
+}> = {
+  SNOWPIPE: {
+    bg: 'bg-blue-100', text: 'text-blue-700',
+    darkBg: 'dark:bg-blue-900/30', darkText: 'dark:text-blue-400',
+    icon: Zap, tooltipPrefix: 'Pipe',
+  },
+  CDC_STREAM: {
+    bg: 'bg-cyan-100', text: 'text-cyan-700',
+    darkBg: 'dark:bg-cyan-900/30', darkText: 'dark:text-cyan-400',
+    icon: GitBranch, tooltipPrefix: 'Stream',
+  },
+  DYNAMIC_TABLE: {
+    bg: 'bg-teal-100', text: 'text-teal-700',
+    darkBg: 'dark:bg-teal-900/30', darkText: 'dark:text-teal-400',
+    icon: RefreshCw, tooltipPrefix: 'Dynamic table',
+  },
+  SCHEDULED_TASK: {
+    bg: 'bg-purple-100', text: 'text-purple-700',
+    darkBg: 'dark:bg-purple-900/30', darkText: 'dark:text-purple-400',
+    icon: Timer, tooltipPrefix: 'Task',
+  },
+  EXTERNAL_TABLE: {
+    bg: 'bg-amber-100', text: 'text-amber-700',
+    darkBg: 'dark:bg-amber-900/30', darkText: 'dark:text-amber-400',
+    icon: ExternalLink, tooltipPrefix: 'External table',
+  },
+  EVENT_TABLE: {
+    bg: 'bg-pink-100', text: 'text-pink-700',
+    darkBg: 'dark:bg-pink-900/30', darkText: 'dark:text-pink-400',
+    icon: Activity, tooltipPrefix: 'Event table',
+  },
+  MANUAL: {
+    bg: 'bg-slate-100', text: 'text-slate-500',
+    darkBg: 'dark:bg-slate-800', darkText: 'dark:text-slate-400',
+    icon: Upload, tooltipPrefix: 'No automated source',
   },
 };
 
@@ -120,7 +219,7 @@ const TableRow: React.FC<{
         </div>
 
         {/* Metadata row */}
-        <div className="flex items-center gap-2 mt-0.5 ml-5">
+        <div className="flex items-center gap-1.5 mt-0.5 ml-5 flex-wrap">
           {table.columnCount > 0 && (
             <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-400">
               <Columns3 className="h-2.5 w-2.5" />
@@ -143,6 +242,51 @@ const TableRow: React.FC<{
             <span className={cn('h-1.5 w-1.5 rounded-full', status.dot)} />
             {status.label}
           </span>
+
+          {/* Ingestion mode badge */}
+          {(() => {
+            const modeKey = table.ingestionMode || '_none';
+            const modeCfg = MODE_BADGE_CONFIG[modeKey] || MODE_BADGE_CONFIG._none;
+            return (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                  modeCfg.bg, modeCfg.text, modeCfg.darkBg, modeCfg.darkText,
+                )}
+                title={`Ingestion mode: ${modeCfg.label}`}
+              >
+                {modeCfg.label}
+              </span>
+            );
+          })()}
+
+          {/* Detected source badge */}
+          {table.detectedSource && (() => {
+            const srcCfg = SOURCE_BADGE_CONFIG[table.detectedSource.type];
+            if (!srcCfg) return null;
+            const IconComponent = srcCfg.icon;
+            const tooltip = table.detectedSource.name
+              ? `${srcCfg.tooltipPrefix}: ${table.detectedSource.name}`
+              : srcCfg.tooltipPrefix;
+            return (
+              <span
+                className={cn(
+                  'inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full',
+                  srcCfg.bg, srcCfg.text, srcCfg.darkBg, srcCfg.darkText,
+                )}
+                title={tooltip}
+              >
+                <IconComponent className="h-2.5 w-2.5" />
+                {table.detectedSource.type === 'SNOWPIPE' ? 'Snowpipe' :
+                 table.detectedSource.type === 'CDC_STREAM' ? 'CDC Stream' :
+                 table.detectedSource.type === 'DYNAMIC_TABLE' ? 'Dynamic' :
+                 table.detectedSource.type === 'SCHEDULED_TASK' ? 'Task' :
+                 table.detectedSource.type === 'EXTERNAL_TABLE' ? 'External' :
+                 table.detectedSource.type === 'EVENT_TABLE' ? 'Event' :
+                 'Manual'}
+              </span>
+            );
+          })()}
         </div>
       </div>
     </div>
@@ -274,7 +418,7 @@ export const VirtualizedTableList: React.FC<VirtualizedTableListProps> = ({
     count: flatItems.length,
     getScrollElement: () => parentRef.current,
     estimateSize: useCallback((index: number) => {
-      return flatItems[index]?.type === 'schema' ? 48 : 48;
+      return flatItems[index]?.type === 'schema' ? 48 : 56;
     }, [flatItems]),
     overscan: 10,
   });

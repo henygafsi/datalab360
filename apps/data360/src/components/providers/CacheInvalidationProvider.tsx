@@ -175,12 +175,8 @@ function SSEIndicator({ isConnected, error }: { isConnected: boolean; error: str
     );
   }
 
-  return (
-    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400 px-3 py-1.5 rounded-full text-xs font-medium shadow-lg border border-amber-200 dark:border-amber-800">
-      <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-      Connecting...
-    </div>
-  );
+  // Not yet connected and no error: hide indicator silently (avoids "Connecting..." badge on every page load)
+  return null;
 }
 
 // Re-export cache keys for convenience

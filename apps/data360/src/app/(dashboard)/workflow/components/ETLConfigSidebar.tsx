@@ -2046,6 +2046,2173 @@ const ContainerServiceConfigForm: React.FC<{
 };
 
 // ============================================
+// WINDOW FUNCTION CONFIG FORMS
+// ============================================
+
+// Window Rank Config
+const WindowRankConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Assigns a rank to each row within a partition. RANK leaves gaps after ties, DENSE_RANK does not, ROW_NUMBER assigns unique sequential numbers.
+        </p>
+      </div>
+
+      <FormField label="Window Function" required>
+        <Select
+          value={config.window_function || 'RANK'}
+          onChange={(v) => updateConfig({ window_function: v })}
+          options={[
+            { value: 'RANK', label: 'RANK' },
+            { value: 'DENSE_RANK', label: 'DENSE_RANK' },
+            { value: 'ROW_NUMBER', label: 'ROW_NUMBER' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Partition By" hint="Columns to partition the window by">
+        <MultiSelect
+          values={config.partition_by || []}
+          onChange={(v) => updateConfig({ partition_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order By" required error={errors.order_by} hint="Columns to order by within each partition">
+        <MultiSelect
+          values={config.order_by || []}
+          onChange={(v) => updateConfig({ order_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order Direction">
+        <Select
+          value={config.order_direction || 'ASC'}
+          onChange={(v) => updateConfig({ order_direction: v })}
+          options={[
+            { value: 'ASC', label: 'Ascending' },
+            { value: 'DESC', label: 'Descending' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || 'rank_num'}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="rank_num"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Window Lag/Lead Config
+const WindowLagLeadConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Access a value from a previous row (LAG) or a subsequent row (LEAD) within a partition, useful for calculating differences between rows.
+        </p>
+      </div>
+
+      <FormField label="Function" required>
+        <Select
+          value={config.window_function || 'LAG'}
+          onChange={(v) => updateConfig({ window_function: v })}
+          options={[
+            { value: 'LAG', label: 'LAG (previous row)' },
+            { value: 'LEAD', label: 'LEAD (next row)' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Offset" hint="Number of rows to look back/ahead">
+        <Input
+          type="number"
+          value={config.offset ?? 1}
+          onChange={(v) => updateConfig({ offset: parseInt(v) || 1 })}
+          placeholder="1"
+        />
+      </FormField>
+
+      <FormField label="Default Value" hint="Value when no row exists at the offset (optional)">
+        <Input
+          value={config.default_value || ''}
+          onChange={(v) => updateConfig({ default_value: v })}
+          placeholder="NULL"
+        />
+      </FormField>
+
+      <FormField label="Partition By" hint="Columns to partition the window by">
+        <MultiSelect
+          values={config.partition_by || []}
+          onChange={(v) => updateConfig({ partition_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order By" required error={errors.order_by}>
+        <MultiSelect
+          values={config.order_by || []}
+          onChange={(v) => updateConfig({ order_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order Direction">
+        <Select
+          value={config.order_direction || 'ASC'}
+          onChange={(v) => updateConfig({ order_direction: v })}
+          options={[
+            { value: 'ASC', label: 'Ascending' },
+            { value: 'DESC', label: 'Descending' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., prev_value"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Window Aggregate Config
+const WindowAggregateConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Compute aggregate functions (SUM, AVG, etc.) over a window frame, allowing running totals, moving averages, and similar calculations.
+        </p>
+      </div>
+
+      <FormField label="Aggregate Function" required>
+        <Select
+          value={config.agg_function || 'SUM'}
+          onChange={(v) => updateConfig({ agg_function: v })}
+          options={[
+            { value: 'SUM', label: 'SUM' },
+            { value: 'AVG', label: 'AVG' },
+            { value: 'COUNT', label: 'COUNT' },
+            { value: 'MIN', label: 'MIN' },
+            { value: 'MAX', label: 'MAX' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Partition By" hint="Columns to partition the window by">
+        <MultiSelect
+          values={config.partition_by || []}
+          onChange={(v) => updateConfig({ partition_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order By" hint="Columns to order by within each partition">
+        <MultiSelect
+          values={config.order_by || []}
+          onChange={(v) => updateConfig({ order_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Frame Clause" hint="Defines the window frame boundaries">
+        <Select
+          value={config.frame_clause || 'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW'}
+          onChange={(v) => updateConfig({ frame_clause: v })}
+          options={[
+            { value: 'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW', label: 'Running total (unbounded preceding to current)' },
+            { value: 'ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING', label: 'Moving window (1 preceding to 1 following)' },
+            { value: 'ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING', label: 'Entire partition' },
+            { value: 'RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW', label: 'Range: unbounded preceding to current' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., running_total"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Window NTILE Config
+const WindowNtileConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          Divides an ordered partition into a specified number of roughly equal buckets (quantiles), assigning a bucket number to each row.
+        </p>
+      </div>
+
+      <FormField label="Number of Buckets" required error={errors.buckets}>
+        <Input
+          type="number"
+          value={config.buckets ?? 4}
+          onChange={(v) => updateConfig({ buckets: parseInt(v) || 4 })}
+          placeholder="4"
+          error={!!errors.buckets}
+        />
+      </FormField>
+
+      <FormField label="Partition By" hint="Columns to partition the window by">
+        <MultiSelect
+          values={config.partition_by || []}
+          onChange={(v) => updateConfig({ partition_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Order By" required error={errors.order_by}>
+        <MultiSelect
+          values={config.order_by || []}
+          onChange={(v) => updateConfig({ order_by: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || 'ntile_bucket'}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="ntile_bucket"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// JSON CONFIG FORMS
+// ============================================
+
+// JSON Flatten Config
+const JsonFlattenConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+        <p className="text-xs text-violet-700 dark:text-violet-300">
+          Flattens a VARIANT, OBJECT, or ARRAY column into separate rows using Snowflake FLATTEN. Useful for expanding nested JSON data.
+        </p>
+      </div>
+
+      <FormField label="Input Column" required error={errors.input_column}>
+        <Select
+          value={config.input_column || ''}
+          onChange={(v) => updateConfig({ input_column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select VARIANT column..."
+          error={!!errors.input_column}
+        />
+      </FormField>
+
+      <FormField label="JSON Path" hint="Optional path within the JSON (e.g., 'data.items')">
+        <Input
+          value={config.json_path || ''}
+          onChange={(v) => updateConfig({ json_path: v })}
+          placeholder="e.g., data.items"
+        />
+      </FormField>
+
+      <FormField label="Recursive" hint="Recursively flatten nested structures">
+        <Select
+          value={config.recursive ? 'true' : 'false'}
+          onChange={(v) => updateConfig({ recursive: v === 'true' })}
+          options={[
+            { value: 'false', label: 'No' },
+            { value: 'true', label: 'Yes' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Flatten Mode" hint="Type of elements to flatten">
+        <Select
+          value={config.flatten_mode || 'BOTH'}
+          onChange={(v) => updateConfig({ flatten_mode: v })}
+          options={[
+            { value: 'BOTH', label: 'BOTH (objects and arrays)' },
+            { value: 'OBJECT', label: 'OBJECT only' },
+            { value: 'ARRAY', label: 'ARRAY only' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// JSON Extract Config
+const JsonExtractConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const extractPaths: Array<{ path: string; type: string; output: string }> = config.extract_paths || [];
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addPath = () => {
+    updateConfig({ extract_paths: [...extractPaths, { path: '', type: 'VARCHAR', output: '' }] });
+  };
+
+  const removePath = (index: number) => {
+    updateConfig({ extract_paths: extractPaths.filter((_, i) => i !== index) });
+  };
+
+  const updatePath = (index: number, updates: Partial<{ path: string; type: string; output: string }>) => {
+    const newPaths = [...extractPaths];
+    newPaths[index] = { ...newPaths[index], ...updates };
+    updateConfig({ extract_paths: newPaths });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+        <p className="text-xs text-violet-700 dark:text-violet-300">
+          Extract specific values from a JSON/VARIANT column using dot-notation paths, casting each to a desired data type.
+        </p>
+      </div>
+
+      <FormField label="Input Column" required error={errors.input_column}>
+        <Select
+          value={config.input_column || ''}
+          onChange={(v) => updateConfig({ input_column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select VARIANT column..."
+          error={!!errors.input_column}
+        />
+      </FormField>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Extract Paths</label>
+          <button
+            onClick={addPath}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+
+        {extractPaths.map((ep, i) => (
+          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+            <div className="flex items-center gap-2">
+              <Input
+                value={ep.path}
+                onChange={(v) => updatePath(i, { path: v })}
+                placeholder="JSON path (e.g., user.name)"
+              />
+              <button
+                onClick={() => removePath(i)}
+                className="p-1 text-red-500 hover:bg-red-100 rounded"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Select
+                value={ep.type}
+                onChange={(v) => updatePath(i, { type: v })}
+                options={[
+                  { value: 'VARCHAR', label: 'VARCHAR' },
+                  { value: 'NUMBER', label: 'NUMBER' },
+                  { value: 'FLOAT', label: 'FLOAT' },
+                  { value: 'BOOLEAN', label: 'BOOLEAN' },
+                  { value: 'DATE', label: 'DATE' },
+                  { value: 'TIMESTAMP', label: 'TIMESTAMP' },
+                  { value: 'VARIANT', label: 'VARIANT' },
+                ]}
+              />
+              <Input
+                value={ep.output}
+                onChange={(v) => updatePath(i, { output: v })}
+                placeholder="Output column name"
+              />
+            </div>
+          </div>
+        ))}
+
+        {extractPaths.length === 0 && (
+          <p className="text-xs text-slate-500 text-center py-2">No extract paths added</p>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// JSON Construct Config
+const JsonConstructConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+        <p className="text-xs text-violet-700 dark:text-violet-300">
+          Constructs a JSON object from selected columns using OBJECT_CONSTRUCT, outputting a single VARIANT column.
+        </p>
+      </div>
+
+      <FormField label="Columns to Include" required error={errors.columns} hint="Select columns to combine into a JSON object">
+        <MultiSelect
+          values={config.columns || []}
+          onChange={(v) => updateConfig({ columns: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || 'json_data'}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="json_data"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// PIVOT / UNPIVOT CONFIG FORMS
+// ============================================
+
+// Pivot Config
+const PivotConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800">
+        <p className="text-xs text-teal-700 dark:text-teal-300">
+          Rotates rows into columns. Aggregates values from one column and creates new columns based on distinct values in another column.
+        </p>
+      </div>
+
+      <FormField label="Value Column" required error={errors.value_column} hint="Column containing values to aggregate">
+        <Select
+          value={config.value_column || ''}
+          onChange={(v) => updateConfig({ value_column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+          error={!!errors.value_column}
+        />
+      </FormField>
+
+      <FormField label="Pivot Column" required error={errors.pivot_column} hint="Column whose values become new column headers">
+        <Select
+          value={config.pivot_column || ''}
+          onChange={(v) => updateConfig({ pivot_column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+          error={!!errors.pivot_column}
+        />
+      </FormField>
+
+      <FormField label="Pivot Values" required error={errors.pivot_values} hint="Comma-separated list of values to pivot on">
+        <Input
+          value={config.pivot_values || ''}
+          onChange={(v) => updateConfig({ pivot_values: v })}
+          placeholder="e.g., Q1, Q2, Q3, Q4"
+          error={!!errors.pivot_values}
+        />
+      </FormField>
+
+      <FormField label="Aggregate Function" required>
+        <Select
+          value={config.agg_function || 'SUM'}
+          onChange={(v) => updateConfig({ agg_function: v })}
+          options={[
+            { value: 'SUM', label: 'SUM' },
+            { value: 'COUNT', label: 'COUNT' },
+            { value: 'AVG', label: 'AVG' },
+            { value: 'MIN', label: 'MIN' },
+            { value: 'MAX', label: 'MAX' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Unpivot Config
+const UnpivotConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-teal-50 dark:bg-teal-900/20 border border-teal-200 dark:border-teal-800">
+        <p className="text-xs text-teal-700 dark:text-teal-300">
+          Rotates columns into rows. Transforms multiple columns into name-value pairs, normalizing wide tables into tall format.
+        </p>
+      </div>
+
+      <FormField label="Value Column Name" hint="Name for the column holding values">
+        <Input
+          value={config.value_column_name || 'VALUE'}
+          onChange={(v) => updateConfig({ value_column_name: v })}
+          placeholder="VALUE"
+        />
+      </FormField>
+
+      <FormField label="Name Column Name" hint="Name for the column holding attribute names">
+        <Input
+          value={config.name_column_name || 'ATTRIBUTE'}
+          onChange={(v) => updateConfig({ name_column_name: v })}
+          placeholder="ATTRIBUTE"
+        />
+      </FormField>
+
+      <FormField label="Columns to Unpivot" required error={errors.unpivot_columns} hint="Select columns to rotate into rows">
+        <MultiSelect
+          values={config.unpivot_columns || []}
+          onChange={(v) => updateConfig({ unpivot_columns: v })}
+          options={availableColumns}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// DATE/TIME CONFIG FORMS
+// ============================================
+
+// Date Transform Config
+const DateTransformConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-xs text-blue-700 dark:text-blue-300">
+          Perform date/time operations: add intervals, calculate differences, truncate dates, or extract date parts.
+        </p>
+      </div>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select date column..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Operation" required>
+        <Select
+          value={config.operation || 'DATEADD'}
+          onChange={(v) => updateConfig({ operation: v })}
+          options={[
+            { value: 'DATEADD', label: 'DATEADD (add interval)' },
+            { value: 'DATEDIFF', label: 'DATEDIFF (difference)' },
+            { value: 'DATE_TRUNC', label: 'DATE_TRUNC (truncate)' },
+            { value: 'DATE_PART', label: 'DATE_PART (extract part)' },
+            { value: 'LAST_DAY', label: 'LAST_DAY (last day of period)' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Date Part" required>
+        <Select
+          value={config.date_part || 'DAY'}
+          onChange={(v) => updateConfig({ date_part: v })}
+          options={[
+            { value: 'YEAR', label: 'YEAR' },
+            { value: 'MONTH', label: 'MONTH' },
+            { value: 'DAY', label: 'DAY' },
+            { value: 'HOUR', label: 'HOUR' },
+            { value: 'MINUTE', label: 'MINUTE' },
+            { value: 'SECOND', label: 'SECOND' },
+          ]}
+        />
+      </FormField>
+
+      {(config.operation === 'DATEADD' || config.operation === 'DATEDIFF') && (
+        <FormField label="Interval" hint="Number of date parts to add or measure">
+          <Input
+            type="number"
+            value={config.interval ?? ''}
+            onChange={(v) => updateConfig({ interval: parseInt(v) || 0 })}
+            placeholder="e.g., 7"
+          />
+        </FormField>
+      )}
+
+      {config.operation === 'DATEDIFF' && (
+        <FormField label="Second Column" required error={errors.second_column} hint="End date column for DATEDIFF">
+          <Select
+            value={config.second_column || ''}
+            onChange={(v) => updateConfig({ second_column: v })}
+            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            placeholder="Select end date column..."
+            error={!!errors.second_column}
+          />
+        </FormField>
+      )}
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., date_result"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Time Slice Config
+const TimeSliceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-xs text-blue-700 dark:text-blue-300">
+          Groups timestamps into fixed-size time intervals using TIME_SLICE, useful for time-series bucketing and aggregation.
+        </p>
+      </div>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select timestamp column..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Slice Length" required error={errors.slice_length}>
+        <Input
+          type="number"
+          value={config.slice_length ?? 1}
+          onChange={(v) => updateConfig({ slice_length: parseInt(v) || 1 })}
+          placeholder="1"
+          error={!!errors.slice_length}
+        />
+      </FormField>
+
+      <FormField label="Slice Unit" required>
+        <Select
+          value={config.slice_unit || 'HOUR'}
+          onChange={(v) => updateConfig({ slice_unit: v })}
+          options={[
+            { value: 'SECOND', label: 'SECOND' },
+            { value: 'MINUTE', label: 'MINUTE' },
+            { value: 'HOUR', label: 'HOUR' },
+            { value: 'DAY', label: 'DAY' },
+            { value: 'MONTH', label: 'MONTH' },
+            { value: 'YEAR', label: 'YEAR' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., time_bucket"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// DATA CLEANING CONFIG FORMS
+// ============================================
+
+// Fill Nulls Config
+const FillNullsConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+          Replace NULL values in a column using a chosen strategy: a fixed value, forward/backward fill, or statistical imputation (mean/median).
+        </p>
+      </div>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Strategy" required>
+        <Select
+          value={config.strategy || 'VALUE'}
+          onChange={(v) => updateConfig({ strategy: v })}
+          options={[
+            { value: 'VALUE', label: 'Fixed Value' },
+            { value: 'FORWARD_FILL', label: 'Forward Fill (previous row)' },
+            { value: 'BACKWARD_FILL', label: 'Backward Fill (next row)' },
+            { value: 'MEAN', label: 'Mean (average)' },
+            { value: 'MEDIAN', label: 'Median' },
+          ]}
+        />
+      </FormField>
+
+      {config.strategy === 'VALUE' && (
+        <FormField label="Fill Value" required error={errors.fill_value}>
+          <Input
+            value={config.fill_value || ''}
+            onChange={(v) => updateConfig({ fill_value: v })}
+            placeholder="e.g., 0 or N/A"
+            error={!!errors.fill_value}
+          />
+        </FormField>
+      )}
+
+      {(config.strategy === 'FORWARD_FILL' || config.strategy === 'BACKWARD_FILL') && (
+        <FormField label="Order Column" required error={errors.order_column} hint="Column that defines row ordering for fill direction">
+          <Select
+            value={config.order_column || ''}
+            onChange={(v) => updateConfig({ order_column: v })}
+            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            placeholder="Select order column..."
+            error={!!errors.order_column}
+          />
+        </FormField>
+      )}
+    </div>
+  );
+};
+
+// Case When Config
+const CaseWhenConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const conditions: Array<{ when: string; then: string }> = config.conditions || [];
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addCondition = () => {
+    updateConfig({ conditions: [...conditions, { when: '', then: '' }] });
+  };
+
+  const removeCondition = (index: number) => {
+    updateConfig({ conditions: conditions.filter((_, i) => i !== index) });
+  };
+
+  const updateCondition = (index: number, updates: Partial<{ when: string; then: string }>) => {
+    const newConditions = [...conditions];
+    newConditions[index] = { ...newConditions[index], ...updates };
+    updateConfig({ conditions: newConditions });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+          Create conditional logic using CASE WHEN expressions. Define multiple conditions and their output values, plus an optional ELSE default.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Conditions</label>
+          <button
+            onClick={addCondition}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+
+        {conditions.map((cond, i) => (
+          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 whitespace-nowrap">WHEN</span>
+              <Input
+                value={cond.when}
+                onChange={(v) => updateCondition(i, { when: v })}
+                placeholder="e.g., status = 'active'"
+              />
+              <button
+                onClick={() => removeCondition(i)}
+                className="p-1 text-red-500 hover:bg-red-100 rounded"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-500 whitespace-nowrap">THEN</span>
+              <Input
+                value={cond.then}
+                onChange={(v) => updateCondition(i, { then: v })}
+                placeholder="e.g., 'Active User'"
+              />
+            </div>
+          </div>
+        ))}
+
+        {conditions.length === 0 && (
+          <p className="text-xs text-slate-500 text-center py-2">No conditions added</p>
+        )}
+      </div>
+
+      <FormField label="ELSE Value" hint="Default value when no conditions match">
+        <Input
+          value={config.else_value || ''}
+          onChange={(v) => updateConfig({ else_value: v })}
+          placeholder="e.g., 'Unknown'"
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., user_category"
+          error={!!errors.output_column}
+        />
+      </FormField>
+
+      <div className="text-xs text-slate-500 p-2 bg-slate-100 dark:bg-slate-800 rounded">
+        Available columns: {availableColumns.join(', ') || 'Connect an input first'}
+      </div>
+    </div>
+  );
+};
+
+// Split Column Config
+const SplitColumnConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const outputColumns: string[] = config.output_columns || ['', ''];
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addOutputColumn = () => {
+    updateConfig({ output_columns: [...outputColumns, ''] });
+  };
+
+  const removeOutputColumn = (index: number) => {
+    if (outputColumns.length <= 2) return;
+    updateConfig({ output_columns: outputColumns.filter((_, i) => i !== index) });
+  };
+
+  const updateOutputColumn = (index: number, value: string) => {
+    const newCols = [...outputColumns];
+    newCols[index] = value;
+    updateConfig({ output_columns: newCols });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+          Split a string column into multiple columns using a delimiter. For example, split &quot;first_last&quot; by &quot;_&quot; into two separate columns.
+        </p>
+      </div>
+
+      <FormField label="Column" required error={errors.column}>
+        <Select
+          value={config.column || ''}
+          onChange={(v) => updateConfig({ column: v })}
+          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          placeholder="Select column to split..."
+          error={!!errors.column}
+        />
+      </FormField>
+
+      <FormField label="Delimiter" required error={errors.delimiter}>
+        <Input
+          value={config.delimiter ?? ','}
+          onChange={(v) => updateConfig({ delimiter: v })}
+          placeholder=","
+          error={!!errors.delimiter}
+        />
+      </FormField>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Output Columns</label>
+          <button
+            onClick={addOutputColumn}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+
+        {outputColumns.map((col, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs text-slate-500 whitespace-nowrap">Part {i + 1}:</span>
+            <Input
+              value={col}
+              onChange={(v) => updateOutputColumn(i, v)}
+              placeholder={`e.g., part_${i + 1}`}
+            />
+            {outputColumns.length > 2 && (
+              <button
+                onClick={() => removeOutputColumn(i)}
+                className="p-1 text-red-500 hover:bg-red-100 rounded"
+              >
+                <Minus className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ============================================
+// CLOUD SOURCE CONFIG FORMS
+// ============================================
+
+// S3 Source Config
+const S3SourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800">
+        <p className="text-xs text-orange-700 dark:text-orange-300">
+          Load data from an Amazon S3 external stage into Snowflake. Configure the stage, file path, and format.
+        </p>
+      </div>
+
+      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to S3">
+        <Input
+          value={config.stage_name || ''}
+          onChange={(v) => updateConfig({ stage_name: v })}
+          placeholder="e.g., @MY_S3_STAGE"
+          error={!!errors.stage_name}
+        />
+      </FormField>
+
+      <FormField label="File Path" required error={errors.file_path} hint="Path within the stage (e.g., data/2024/)">
+        <Input
+          value={config.file_path || ''}
+          onChange={(v) => updateConfig({ file_path: v })}
+          placeholder="e.g., data/sales/"
+          error={!!errors.file_path}
+        />
+      </FormField>
+
+      <FormField label="File Format" required>
+        <Select
+          value={config.file_format || 'PARQUET'}
+          onChange={(v) => updateConfig({ file_format: v })}
+          options={[
+            { value: 'CSV', label: 'CSV' },
+            { value: 'JSON', label: 'JSON' },
+            { value: 'PARQUET', label: 'PARQUET' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Azure Source Config
+const AzureSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-xs text-blue-700 dark:text-blue-300">
+          Load data from an Azure Blob Storage external stage into Snowflake. Configure the stage, file path, and format.
+        </p>
+      </div>
+
+      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to Azure Blob">
+        <Input
+          value={config.stage_name || ''}
+          onChange={(v) => updateConfig({ stage_name: v })}
+          placeholder="e.g., @MY_AZURE_STAGE"
+          error={!!errors.stage_name}
+        />
+      </FormField>
+
+      <FormField label="File Path" required error={errors.file_path}>
+        <Input
+          value={config.file_path || ''}
+          onChange={(v) => updateConfig({ file_path: v })}
+          placeholder="e.g., container/data/"
+          error={!!errors.file_path}
+        />
+      </FormField>
+
+      <FormField label="File Format" required>
+        <Select
+          value={config.file_format || 'PARQUET'}
+          onChange={(v) => updateConfig({ file_format: v })}
+          options={[
+            { value: 'CSV', label: 'CSV' },
+            { value: 'JSON', label: 'JSON' },
+            { value: 'PARQUET', label: 'PARQUET' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// GCS Source Config
+const GCSSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+        <p className="text-xs text-green-700 dark:text-green-300">
+          Load data from a Google Cloud Storage external stage into Snowflake. Configure the stage, file path, and format.
+        </p>
+      </div>
+
+      <FormField label="Stage Name" required error={errors.stage_name} hint="Snowflake external stage pointing to GCS">
+        <Input
+          value={config.stage_name || ''}
+          onChange={(v) => updateConfig({ stage_name: v })}
+          placeholder="e.g., @MY_GCS_STAGE"
+          error={!!errors.stage_name}
+        />
+      </FormField>
+
+      <FormField label="File Path" required error={errors.file_path}>
+        <Input
+          value={config.file_path || ''}
+          onChange={(v) => updateConfig({ file_path: v })}
+          placeholder="e.g., bucket/data/"
+          error={!!errors.file_path}
+        />
+      </FormField>
+
+      <FormField label="File Format" required>
+        <Select
+          value={config.file_format || 'PARQUET'}
+          onChange={(v) => updateConfig({ file_format: v })}
+          options={[
+            { value: 'CSV', label: 'CSV' },
+            { value: 'JSON', label: 'JSON' },
+            { value: 'PARQUET', label: 'PARQUET' },
+          ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// DB SOURCE CONFIG FORMS
+// ============================================
+
+// Postgres Source Config
+const PostgresSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+        <p className="text-xs text-indigo-700 dark:text-indigo-300">
+          Ingest data from a PostgreSQL database via Snowflake connector. Specify the connection and target location in Snowflake.
+        </p>
+      </div>
+
+      <FormField label="Connection Name" required error={errors.connection_name} hint="Name of the configured PostgreSQL connection">
+        <Input
+          value={config.connection_name || ''}
+          onChange={(v) => updateConfig({ connection_name: v })}
+          placeholder="e.g., my_postgres_conn"
+          error={!!errors.connection_name}
+        />
+      </FormField>
+
+      <FormField label="Source Table" required error={errors.source_table} hint="Table name in PostgreSQL (schema.table)">
+        <Input
+          value={config.source_table || ''}
+          onChange={(v) => updateConfig({ source_table: v })}
+          placeholder="e.g., public.orders"
+          error={!!errors.source_table}
+        />
+      </FormField>
+
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input
+          value={config.target_database || ''}
+          onChange={(v) => updateConfig({ target_database: v })}
+          placeholder="e.g., RAW_DATA"
+          error={!!errors.target_database}
+        />
+      </FormField>
+
+      <FormField label="Target Schema" required error={errors.target_schema}>
+        <Input
+          value={config.target_schema || ''}
+          onChange={(v) => updateConfig({ target_schema: v })}
+          placeholder="e.g., POSTGRES_INGEST"
+          error={!!errors.target_schema}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// MySQL Source Config
+const MySQLSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+        <p className="text-xs text-indigo-700 dark:text-indigo-300">
+          Ingest data from a MySQL database via Snowflake connector. Specify the connection and target location in Snowflake.
+        </p>
+      </div>
+
+      <FormField label="Connection Name" required error={errors.connection_name} hint="Name of the configured MySQL connection">
+        <Input
+          value={config.connection_name || ''}
+          onChange={(v) => updateConfig({ connection_name: v })}
+          placeholder="e.g., my_mysql_conn"
+          error={!!errors.connection_name}
+        />
+      </FormField>
+
+      <FormField label="Source Table" required error={errors.source_table} hint="Table name in MySQL (database.table)">
+        <Input
+          value={config.source_table || ''}
+          onChange={(v) => updateConfig({ source_table: v })}
+          placeholder="e.g., mydb.customers"
+          error={!!errors.source_table}
+        />
+      </FormField>
+
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input
+          value={config.target_database || ''}
+          onChange={(v) => updateConfig({ target_database: v })}
+          placeholder="e.g., RAW_DATA"
+          error={!!errors.target_database}
+        />
+      </FormField>
+
+      <FormField label="Target Schema" required error={errors.target_schema}>
+        <Input
+          value={config.target_schema || ''}
+          onChange={(v) => updateConfig({ target_schema: v })}
+          placeholder="e.g., MYSQL_INGEST"
+          error={!!errors.target_schema}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// SALESFORCE SOURCE CONFIG
+// ============================================
+const SalesforceSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Object Name" required error={errors.object_name}>
+        <Input value={config.object_name || ''} onChange={(v) => updateConfig({ object_name: v })} placeholder="Account, Contact, Opportunity..." error={!!errors.object_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// SAP SOURCE CONFIG
+// ============================================
+const SapSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input value={config.table_name || ''} onChange={(v) => updateConfig({ table_name: v })} placeholder="MARA, BKPF, VBAK..." error={!!errors.table_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// ORACLE SOURCE CONFIG
+// ============================================
+const OracleSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input value={config.table_name || ''} onChange={(v) => updateConfig({ table_name: v })} placeholder="EMPLOYEES, ORDERS..." error={!!errors.table_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// HUBSPOT SOURCE CONFIG
+// ============================================
+const HubspotSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Object Name" required error={errors.object_name}>
+        <Input value={config.object_name || ''} onChange={(v) => updateConfig({ object_name: v })} placeholder="contacts, companies, deals..." error={!!errors.object_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// SERVICENOW SOURCE CONFIG
+// ============================================
+const ServicenowSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input value={config.table_name || ''} onChange={(v) => updateConfig({ table_name: v })} placeholder="incident, cmdb_ci, change_request..." error={!!errors.table_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// REST API SOURCE CONFIG
+// ============================================
+const ApiSourceConfigForm: React.FC<{ data: any; onChange: (data: any) => void; errors: Record<string, string> }> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+  return (
+    <div className="space-y-4">
+      <FormField label="Target Database" required error={errors.target_database}>
+        <Input value={config.target_database || ''} onChange={(v) => updateConfig({ target_database: v })} placeholder="CP_DATA360" error={!!errors.target_database} />
+      </FormField>
+      <FormField label="Schema Name" required error={errors.schema_name}>
+        <Input value={config.schema_name || ''} onChange={(v) => updateConfig({ schema_name: v })} placeholder="CUSTOM_API" error={!!errors.schema_name} />
+      </FormField>
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input value={config.table_name || ''} onChange={(v) => updateConfig({ table_name: v })} placeholder="API_DATA" error={!!errors.table_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// OTHER SOURCE CONFIG FORMS
+// ============================================
+
+// External Table Source Config
+const ExternalTableSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">
+          Read data from a Snowflake external table. External tables reference data stored in external stages (S3, Azure, GCS).
+        </p>
+      </div>
+
+      <FormField label="Database" required error={errors.database_name}>
+        <Input
+          value={config.database_name || ''}
+          onChange={(v) => updateConfig({ database_name: v })}
+          placeholder="e.g., MY_DATABASE"
+          error={!!errors.database_name}
+        />
+      </FormField>
+
+      <FormField label="Schema" required error={errors.schema_name}>
+        <Input
+          value={config.schema_name || ''}
+          onChange={(v) => updateConfig({ schema_name: v })}
+          placeholder="e.g., PUBLIC"
+          error={!!errors.schema_name}
+        />
+      </FormField>
+
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input
+          value={config.table_name || ''}
+          onChange={(v) => updateConfig({ table_name: v })}
+          placeholder="e.g., EXT_SALES_DATA"
+          error={!!errors.table_name}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Dynamic Table Source Config
+const DynamicTableSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">
+          Read data from a Snowflake dynamic table. Dynamic tables automatically refresh based on a target lag and underlying query.
+        </p>
+      </div>
+
+      <FormField label="Database" required error={errors.database_name}>
+        <Input
+          value={config.database_name || ''}
+          onChange={(v) => updateConfig({ database_name: v })}
+          placeholder="e.g., MY_DATABASE"
+          error={!!errors.database_name}
+        />
+      </FormField>
+
+      <FormField label="Schema" required error={errors.schema_name}>
+        <Input
+          value={config.schema_name || ''}
+          onChange={(v) => updateConfig({ schema_name: v })}
+          placeholder="e.g., PUBLIC"
+          error={!!errors.schema_name}
+        />
+      </FormField>
+
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input
+          value={config.table_name || ''}
+          onChange={(v) => updateConfig({ table_name: v })}
+          placeholder="e.g., DYN_CUSTOMER_360"
+          error={!!errors.table_name}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Shared Data Source Config
+const SharedDataSourceConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+        <p className="text-xs text-purple-700 dark:text-purple-300">
+          Read data from a Snowflake Data Sharing database. Access shared tables from other Snowflake accounts without copying data.
+        </p>
+      </div>
+
+      <FormField label="Shared Database" required error={errors.share_database} hint="Database created from the shared data">
+        <Input
+          value={config.share_database || ''}
+          onChange={(v) => updateConfig({ share_database: v })}
+          placeholder="e.g., SHARED_WEATHER_DB"
+          error={!!errors.share_database}
+        />
+      </FormField>
+
+      <FormField label="Schema" required error={errors.schema_name}>
+        <Input
+          value={config.schema_name || ''}
+          onChange={(v) => updateConfig({ schema_name: v })}
+          placeholder="e.g., PUBLIC"
+          error={!!errors.schema_name}
+        />
+      </FormField>
+
+      <FormField label="Table Name" required error={errors.table_name}>
+        <Input
+          value={config.table_name || ''}
+          onChange={(v) => updateConfig({ table_name: v })}
+          placeholder="e.g., DAILY_WEATHER"
+          error={!!errors.table_name}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// PYTHON UDF/PROCEDURE CONFIG FORMS
+// ============================================
+
+// Create UDF Config
+const CreateUDFConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const parameters: Array<{ name: string; type: string }> = config.parameters || [];
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addParameter = () => {
+    updateConfig({ parameters: [...parameters, { name: '', type: 'VARCHAR' }] });
+  };
+
+  const removeParameter = (index: number) => {
+    updateConfig({ parameters: parameters.filter((_, i) => i !== index) });
+  };
+
+  const updateParameter = (index: number, updates: Partial<{ name: string; type: string }>) => {
+    const newParams = [...parameters];
+    newParams[index] = { ...newParams[index], ...updates };
+    updateConfig({ parameters: newParams });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+        <p className="text-xs text-yellow-700 dark:text-yellow-300">
+          Create a User-Defined Function (UDF) in Snowflake. The function can be written in Python, SQL, or Java and used in SQL queries.
+        </p>
+      </div>
+
+      <FormField label="Function Name" required error={errors.function_name}>
+        <Input
+          value={config.function_name || ''}
+          onChange={(v) => updateConfig({ function_name: v })}
+          placeholder="e.g., CALCULATE_SCORE"
+          error={!!errors.function_name}
+        />
+      </FormField>
+
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Database" required error={errors.database_name}>
+          <Input
+            value={config.database_name || ''}
+            onChange={(v) => updateConfig({ database_name: v })}
+            placeholder="e.g., MY_DB"
+            error={!!errors.database_name}
+          />
+        </FormField>
+
+        <FormField label="Schema" required error={errors.schema_name}>
+          <Input
+            value={config.schema_name || ''}
+            onChange={(v) => updateConfig({ schema_name: v })}
+            placeholder="e.g., PUBLIC"
+            error={!!errors.schema_name}
+          />
+        </FormField>
+      </div>
+
+      <FormField label="Language" required>
+        <Select
+          value={config.language || 'PYTHON'}
+          onChange={(v) => updateConfig({ language: v })}
+          options={[
+            { value: 'PYTHON', label: 'Python' },
+            { value: 'SQL', label: 'SQL' },
+            { value: 'JAVA', label: 'Java' },
+          ]}
+        />
+      </FormField>
+
+      <FormField label="Return Type" required>
+        <Select
+          value={config.return_type || 'VARCHAR'}
+          onChange={(v) => updateConfig({ return_type: v })}
+          options={[
+            { value: 'VARCHAR', label: 'VARCHAR' },
+            { value: 'NUMBER', label: 'NUMBER' },
+            { value: 'FLOAT', label: 'FLOAT' },
+            { value: 'BOOLEAN', label: 'BOOLEAN' },
+            { value: 'VARIANT', label: 'VARIANT' },
+          ]}
+        />
+      </FormField>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Parameters</label>
+          <button
+            onClick={addParameter}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+
+        {parameters.map((param, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Input
+              value={param.name}
+              onChange={(v) => updateParameter(i, { name: v })}
+              placeholder="Param name"
+            />
+            <Select
+              value={param.type}
+              onChange={(v) => updateParameter(i, { type: v })}
+              options={[
+                { value: 'VARCHAR', label: 'VARCHAR' },
+                { value: 'NUMBER', label: 'NUMBER' },
+                { value: 'FLOAT', label: 'FLOAT' },
+                { value: 'BOOLEAN', label: 'BOOLEAN' },
+                { value: 'VARIANT', label: 'VARIANT' },
+              ]}
+            />
+            <button
+              onClick={() => removeParameter(i)}
+              className="p-1 text-red-500 hover:bg-red-100 rounded"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+
+        {parameters.length === 0 && (
+          <p className="text-xs text-slate-500 text-center py-2">No parameters added</p>
+        )}
+      </div>
+
+      <FormField label="Function Body" required error={errors.function_body}>
+        <Textarea
+          value={config.function_body || ''}
+          onChange={(v) => updateConfig({ function_body: v })}
+          placeholder={config.language === 'PYTHON' ? 'def handler(arg1):\n    return result' : 'SELECT ...'}
+          rows={8}
+          className="font-mono text-sm"
+          error={!!errors.function_body}
+        />
+      </FormField>
+
+      {config.language === 'PYTHON' && (
+        <FormField label="Packages" hint="Comma-separated Python packages">
+          <Input
+            value={config.packages || ''}
+            onChange={(v) => updateConfig({ packages: v })}
+            placeholder="e.g., pandas, numpy"
+          />
+        </FormField>
+      )}
+    </div>
+  );
+};
+
+// Create Procedure Config
+const CreateProcedureConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const parameters: Array<{ name: string; type: string }> = config.parameters || [];
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  const addParameter = () => {
+    updateConfig({ parameters: [...parameters, { name: '', type: 'VARCHAR' }] });
+  };
+
+  const removeParameter = (index: number) => {
+    updateConfig({ parameters: parameters.filter((_, i) => i !== index) });
+  };
+
+  const updateParameter = (index: number, updates: Partial<{ name: string; type: string }>) => {
+    const newParams = [...parameters];
+    newParams[index] = { ...newParams[index], ...updates };
+    updateConfig({ parameters: newParams });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+        <p className="text-xs text-yellow-700 dark:text-yellow-300">
+          Create a Stored Procedure in Snowflake. Procedures can execute complex logic, multiple SQL statements, and return results.
+        </p>
+      </div>
+
+      <FormField label="Procedure Name" required error={errors.procedure_name}>
+        <Input
+          value={config.procedure_name || ''}
+          onChange={(v) => updateConfig({ procedure_name: v })}
+          placeholder="e.g., PROCESS_ORDERS"
+          error={!!errors.procedure_name}
+        />
+      </FormField>
+
+      <div className="grid grid-cols-2 gap-3">
+        <FormField label="Database" required error={errors.database_name}>
+          <Input
+            value={config.database_name || ''}
+            onChange={(v) => updateConfig({ database_name: v })}
+            placeholder="e.g., MY_DB"
+            error={!!errors.database_name}
+          />
+        </FormField>
+
+        <FormField label="Schema" required error={errors.schema_name}>
+          <Input
+            value={config.schema_name || ''}
+            onChange={(v) => updateConfig({ schema_name: v })}
+            placeholder="e.g., PUBLIC"
+            error={!!errors.schema_name}
+          />
+        </FormField>
+      </div>
+
+      <FormField label="Return Type" required>
+        <Select
+          value={config.return_type || 'VARCHAR'}
+          onChange={(v) => updateConfig({ return_type: v })}
+          options={[
+            { value: 'VARCHAR', label: 'VARCHAR' },
+            { value: 'NUMBER', label: 'NUMBER' },
+            { value: 'FLOAT', label: 'FLOAT' },
+            { value: 'BOOLEAN', label: 'BOOLEAN' },
+            { value: 'VARIANT', label: 'VARIANT' },
+          ]}
+        />
+      </FormField>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Parameters</label>
+          <button
+            onClick={addParameter}
+            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
+          >
+            <Plus className="h-3 w-3" /> Add
+          </button>
+        </div>
+
+        {parameters.map((param, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <Input
+              value={param.name}
+              onChange={(v) => updateParameter(i, { name: v })}
+              placeholder="Param name"
+            />
+            <Select
+              value={param.type}
+              onChange={(v) => updateParameter(i, { type: v })}
+              options={[
+                { value: 'VARCHAR', label: 'VARCHAR' },
+                { value: 'NUMBER', label: 'NUMBER' },
+                { value: 'FLOAT', label: 'FLOAT' },
+                { value: 'BOOLEAN', label: 'BOOLEAN' },
+                { value: 'VARIANT', label: 'VARIANT' },
+              ]}
+            />
+            <button
+              onClick={() => removeParameter(i)}
+              className="p-1 text-red-500 hover:bg-red-100 rounded"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+
+        {parameters.length === 0 && (
+          <p className="text-xs text-slate-500 text-center py-2">No parameters added</p>
+        )}
+      </div>
+
+      <FormField label="Procedure Body" required error={errors.procedure_body}>
+        <Textarea
+          value={config.procedure_body || ''}
+          onChange={(v) => updateConfig({ procedure_body: v })}
+          placeholder="BEGIN\n  -- procedure logic\nEND;"
+          rows={10}
+          className="font-mono text-sm"
+          error={!!errors.procedure_body}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// Apply UDF Config
+const ApplyUDFConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+  availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+        <p className="text-xs text-yellow-700 dark:text-yellow-300">
+          Apply an existing User-Defined Function (UDF) to columns in the current dataset. The function is called for each row.
+        </p>
+      </div>
+
+      <FormField label="Function Name" required error={errors.function_name} hint="Fully qualified name (e.g., DB.SCHEMA.MY_UDF)">
+        <Input
+          value={config.function_name || ''}
+          onChange={(v) => updateConfig({ function_name: v })}
+          placeholder="e.g., MY_DB.PUBLIC.CALCULATE_SCORE"
+          error={!!errors.function_name}
+        />
+      </FormField>
+
+      <FormField label="Input Columns" required error={errors.input_columns} hint="Columns to pass as arguments to the function">
+        <MultiSelect
+          values={config.input_columns || []}
+          onChange={(v) => updateConfig({ input_columns: v })}
+          options={availableColumns}
+        />
+      </FormField>
+
+      <FormField label="Output Column" required error={errors.output_column}>
+        <Input
+          value={config.output_column || ''}
+          onChange={(v) => updateConfig({ output_column: v })}
+          placeholder="e.g., score_result"
+          error={!!errors.output_column}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// AI BLOCK CONFIG FORMS
+// ============================================
+
+const AI_MODEL_OPTIONS = [
+  { value: 'mistral-large2', label: 'Mistral Large 2' },
+  { value: 'llama3.1-70b', label: 'Llama 3.1 70B' },
+  { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
+  { value: 'snowflake-arctic', label: 'Snowflake Arctic' },
+];
+
+const AIClassifyConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+        <p className="text-xs text-purple-700 dark:text-purple-300">Classify text into categories using Cortex AI_CLASSIFY.</p>
+      </div>
+      <FormField label="Model" error={errors.model}>
+        <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
+      </FormField>
+      <FormField label="Input Column" required error={errors.input_column}>
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.input_column} />
+      </FormField>
+      <FormField label="Categories" required error={errors.categories} hint="One category per line">
+        <Textarea value={config.categories || ''} onChange={(v) => updateConfig({ categories: v })} placeholder="positive\nnegative\nneutral" rows={4} error={!!errors.categories} />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'classified_label'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+const AISentimentConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+        <p className="text-xs text-green-700 dark:text-green-300">Analyze sentiment of text using Cortex AI_SENTIMENT. Returns a score from -1 (negative) to 1 (positive).</p>
+      </div>
+      <FormField label="Text Column" required error={errors.text_column}>
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.text_column} />
+      </FormField>
+      <FormField label="Model" error={errors.model}>
+        <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'sentiment_score'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+const AITranslateConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  const langOptions = [
+    { value: 'en', label: 'English' }, { value: 'fr', label: 'French' }, { value: 'es', label: 'Spanish' },
+    { value: 'de', label: 'German' }, { value: 'it', label: 'Italian' }, { value: 'pt', label: 'Portuguese' },
+    { value: 'ja', label: 'Japanese' }, { value: 'zh', label: 'Chinese' }, { value: 'ko', label: 'Korean' },
+    { value: 'ar', label: 'Arabic' },
+  ];
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-xs text-blue-700 dark:text-blue-300">Translate text between languages using Cortex AI_TRANSLATE.</p>
+      </div>
+      <FormField label="Text Column" required error={errors.text_column}>
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.text_column} />
+      </FormField>
+      <FormField label="Source Language" error={errors.source_lang} hint="Leave empty for auto-detect">
+        <Select value={config.source_lang || ''} onChange={(v) => updateConfig({ source_lang: v })} options={langOptions} placeholder="Auto-detect" />
+      </FormField>
+      <FormField label="Target Language" required error={errors.target_lang}>
+        <Select value={config.target_lang || ''} onChange={(v) => updateConfig({ target_lang: v })} options={langOptions} placeholder="Select language" error={!!errors.target_lang} />
+      </FormField>
+      <FormField label="Model" error={errors.model}>
+        <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'translated_text'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+const AICompleteConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">Generate text completions using Cortex AI_COMPLETE. Use {'{{column_name}}'} placeholders in your prompt template.</p>
+      </div>
+      <FormField label="Prompt Template" required error={errors.prompt_template} hint="Use {{column}} to reference row values">
+        <Textarea value={config.prompt_template || ''} onChange={(v) => updateConfig({ prompt_template: v })} placeholder="Summarize the following text: {{description}}" rows={4} error={!!errors.prompt_template} />
+      </FormField>
+      <FormField label="Model" error={errors.model}>
+        <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
+      </FormField>
+      <FormField label="Max Tokens" error={errors.max_tokens} hint="Maximum tokens in the response">
+        <Input value={config.max_tokens || 256} onChange={(v) => updateConfig({ max_tokens: parseInt(v) || 256 })} type="number" />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'ai_response'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+const MLForecastConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+        <p className="text-xs text-indigo-700 dark:text-indigo-300">Time-series forecasting using Snowflake ML. Predicts future values based on historical data.</p>
+      </div>
+      <FormField label="Timestamp Column" required error={errors.timestamp_column}>
+        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.timestamp_column} />
+      </FormField>
+      <FormField label="Value Column" required error={errors.value_column}>
+        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.value_column} />
+      </FormField>
+      <FormField label="Forecast Periods" required error={errors.forecast_periods} hint="Number of future periods to predict">
+        <Input value={config.forecast_periods || 30} onChange={(v) => updateConfig({ forecast_periods: parseInt(v) || 30 })} type="number" error={!!errors.forecast_periods} />
+      </FormField>
+      <FormField label="Model Name" error={errors.model_name} hint="Auto-generated if empty">
+        <Input value={config.model_name || ''} onChange={(v) => updateConfig({ model_name: v })} placeholder="forecast_model_1" />
+      </FormField>
+    </div>
+  );
+};
+
+const MLAnomalyConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+        <p className="text-xs text-red-700 dark:text-red-300">Detect anomalies in time-series data using Snowflake ML. Flags outlier data points.</p>
+      </div>
+      <FormField label="Timestamp Column" required error={errors.timestamp_column}>
+        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.timestamp_column} />
+      </FormField>
+      <FormField label="Value Column" required error={errors.value_column}>
+        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.value_column} />
+      </FormField>
+      <FormField label="Contamination" error={errors.contamination} hint="Expected proportion of anomalies (0.01 = 1%, 0.1 = 10%)">
+        <Input value={config.contamination || 0.05} onChange={(v) => updateConfig({ contamination: parseFloat(v) || 0.05 })} type="number" />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'is_anomaly'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
 // MAIN SIDEBAR COMPONENT
 // ============================================
 
@@ -2175,6 +4342,183 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         if (!config.stage) newErrors.stage = 'Stage is required';
         if (!config.spec_file) newErrors.spec_file = 'Spec file is required';
         break;
+      // Window Functions
+      case 'window_rank':
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_lag_lead':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_aggregate':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_ntile':
+        if (!config.buckets || config.buckets <= 0) newErrors.buckets = 'Number of buckets must be greater than 0';
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // JSON
+      case 'json_flatten':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        break;
+      case 'json_extract':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.extract_paths || config.extract_paths.length === 0) newErrors.extract_paths = 'At least one extract path is required';
+        break;
+      // AI Blocks validation
+      case 'ai_classify':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.categories) newErrors.categories = 'Categories are required';
+        break;
+      case 'ai_sentiment':
+        if (!config.text_column) newErrors.text_column = 'Text column is required';
+        break;
+      case 'ai_translate':
+        if (!config.text_column) newErrors.text_column = 'Text column is required';
+        if (!config.target_lang) newErrors.target_lang = 'Target language is required';
+        break;
+      case 'ai_complete':
+        if (!config.prompt_template) newErrors.prompt_template = 'Prompt template is required';
+        break;
+      case 'ml_forecast':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        if (!config.forecast_periods || config.forecast_periods <= 0) newErrors.forecast_periods = 'Forecast periods must be greater than 0';
+        break;
+      case 'ml_anomaly':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'json_construct':
+        if (!config.columns || config.columns.length === 0) newErrors.columns = 'Select at least one column';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // Pivot/Unpivot
+      case 'pivot':
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        if (!config.pivot_column) newErrors.pivot_column = 'Pivot column is required';
+        if (!config.pivot_values) newErrors.pivot_values = 'Pivot values are required';
+        break;
+      case 'unpivot':
+        if (!config.unpivot_columns || config.unpivot_columns.length === 0) newErrors.unpivot_columns = 'Select at least one column to unpivot';
+        break;
+      // Date/Time
+      case 'date_transform':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        if (config.operation === 'DATEDIFF' && !config.second_column) newErrors.second_column = 'Second column is required for DATEDIFF';
+        break;
+      case 'time_slice':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.slice_length || config.slice_length <= 0) newErrors.slice_length = 'Slice length must be greater than 0';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // Data Cleaning
+      case 'fill_nulls':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (config.strategy === 'VALUE' && !config.fill_value) newErrors.fill_value = 'Fill value is required when strategy is VALUE';
+        if ((config.strategy === 'FORWARD_FILL' || config.strategy === 'BACKWARD_FILL') && !config.order_column) {
+          newErrors.order_column = 'Order column is required for forward/backward fill';
+        }
+        break;
+      case 'case_when':
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        if (!config.conditions || config.conditions.length === 0) newErrors.conditions = 'At least one condition is required';
+        break;
+      case 'split_column':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.delimiter) newErrors.delimiter = 'Delimiter is required';
+        break;
+      // Cloud Sources
+      case 's3_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'azure_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'gcs_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      // DB Sources
+      case 'postgres_source':
+        if (!config.connection_name) newErrors.connection_name = 'Connection name is required';
+        if (!config.source_table) newErrors.source_table = 'Source table is required';
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.target_schema) newErrors.target_schema = 'Target schema is required';
+        break;
+      case 'mysql_source':
+        if (!config.connection_name) newErrors.connection_name = 'Connection name is required';
+        if (!config.source_table) newErrors.source_table = 'Source table is required';
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.target_schema) newErrors.target_schema = 'Target schema is required';
+        break;
+      // CRM/ERP Sources
+      case 'salesforce_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.object_name) newErrors.object_name = 'Object name is required';
+        break;
+      case 'sap_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'oracle_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'hubspot_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.object_name) newErrors.object_name = 'Object name is required';
+        break;
+      case 'servicenow_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'api_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema name is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      // Other Sources
+      case 'external_table_source':
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'dynamic_table_source':
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'shared_data_source':
+        if (!config.share_database) newErrors.share_database = 'Shared database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      // Python UDF/Procedure
+      case 'create_udf':
+        if (!config.function_name) newErrors.function_name = 'Function name is required';
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.function_body) newErrors.function_body = 'Function body is required';
+        break;
+      case 'create_procedure':
+        if (!config.procedure_name) newErrors.procedure_name = 'Procedure name is required';
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.procedure_body) newErrors.procedure_body = 'Procedure body is required';
+        break;
+      case 'apply_udf':
+        if (!config.function_name) newErrors.function_name = 'Function name is required';
+        if (!config.input_columns || config.input_columns.length === 0) newErrors.input_columns = 'At least one input column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
     }
 
     setErrors(newErrors);
@@ -2261,6 +4605,91 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <ComputePoolConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'container_service':
         return <ContainerServiceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Window Functions
+      case 'window_rank':
+        return <WindowRankConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'window_lag_lead':
+        return <WindowLagLeadConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'window_aggregate':
+        return <WindowAggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'window_ntile':
+        return <WindowNtileConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // JSON
+      case 'json_flatten':
+        return <JsonFlattenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'json_extract':
+        return <JsonExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'json_construct':
+        return <JsonConstructConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // Pivot/Unpivot
+      case 'pivot':
+        return <PivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'unpivot':
+        return <UnpivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // Date/Time
+      case 'date_transform':
+        return <DateTransformConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'time_slice':
+        return <TimeSliceConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // Data Cleaning
+      case 'fill_nulls':
+        return <FillNullsConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'case_when':
+        return <CaseWhenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'split_column':
+        return <SplitColumnConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // Cloud Sources
+      case 's3_source':
+        return <S3SourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'azure_source':
+        return <AzureSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'gcs_source':
+        return <GCSSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // DB Sources
+      case 'postgres_source':
+        return <PostgresSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'mysql_source':
+        return <MySQLSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // CRM/ERP Sources
+      case 'salesforce_source':
+        return <SalesforceSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'sap_source':
+        return <SapSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'oracle_source':
+        return <OracleSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'hubspot_source':
+        return <HubspotSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'servicenow_source':
+        return <ServicenowSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'api_source':
+        return <ApiSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Other Sources
+      case 'external_table_source':
+        return <ExternalTableSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'dynamic_table_source':
+        return <DynamicTableSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'shared_data_source':
+        return <SharedDataSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Python UDF/Procedure
+      case 'create_udf':
+        return <CreateUDFConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'create_procedure':
+        return <CreateProcedureConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'apply_udf':
+        return <ApplyUDFConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // AI Blocks
+      case 'ai_classify':
+        return <AIClassifyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ai_sentiment':
+        return <AISentimentConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ai_translate':
+        return <AITranslateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ai_complete':
+        return <AICompleteConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'ml_forecast':
+        return <MLForecastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ml_anomaly':
+        return <MLAnomalyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }

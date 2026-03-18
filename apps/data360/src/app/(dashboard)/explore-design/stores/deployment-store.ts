@@ -5,6 +5,7 @@
 
 import { atom, useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
+import apiClient from '@/lib/api-client';
 
 // Deployment Types
 export type DeploymentType = 'immediate' | 'scheduled' | 'conditional' | 'staged';
@@ -348,8 +349,6 @@ export const executeDeploymentAtom = atom(null, async (get, set, deployment_id: 
     isLoading: true,
   });
 
-  // In real implementation, this would call the backend API
-  // Simulating deployment execution
   const executionLog: ExecutionLog[] = [];
   let succeeded = 0;
   let failed = 0;
@@ -363,19 +362,24 @@ export const executeDeploymentAtom = atom(null, async (get, set, deployment_id: 
     };
     executionLog.push(log);
 
-    // Simulate async execution
-    await new Promise((resolve) => setTimeout(resolve, 100 + Math.random() * 200));
-
-    // 95% success rate
-    const success = Math.random() > 0.05;
-    log.status = success ? 'completed' : 'failed';
-    log.duration_ms = Math.floor(100 + Math.random() * 200);
-
-    if (success) {
-      succeeded++;
-    } else {
+    try {
+      const response = await apiClient.post(
+        `/api/v1/explore-design/${deployment.project_id}/deployments/${deployment_id}/execute`
+      );
+      const result = response.data;
+      log.status = result.status === 'completed' ? 'completed' : 'failed';
+      log.duration_ms = result.execution_time_ms || 0;
+      if (result.status !== 'completed') {
+        log.error = result.error || result.detail || 'Deployment execution failed';
+        failed++;
+      } else {
+        succeeded++;
+      }
+    } catch (err: any) {
+      log.status = 'failed';
+      log.error = err?.response?.data?.detail || err.message || 'Deployment execution failed';
+      log.duration_ms = Date.now() - new Date(log.timestamp).getTime();
       failed++;
-      log.error = 'Simulated error: Target object not found';
     }
   }
 

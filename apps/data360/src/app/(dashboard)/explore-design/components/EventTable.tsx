@@ -52,6 +52,16 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   EVENT_TABLE_CREATED: { icon: Clock, label: 'Event Table Created', color: 'bg-violet-100 text-violet-600' },
   HYBRID_TABLE_CREATED: { icon: Layers, label: 'Hybrid Table Created', color: 'bg-indigo-100 text-indigo-600' },
   ALERT_CREATED: { icon: AlertTriangle, label: 'Alert Created', color: 'bg-amber-100 text-amber-600' },
+  // AI-assisted events
+  AI_CLASSIFICATION_APPLIED: { icon: Layers, label: 'AI Classification', color: 'bg-violet-100 text-violet-600' },
+  AI_TYPE_CHANGE_APPLIED: { icon: Table2, label: 'AI Type Change', color: 'bg-violet-100 text-violet-600' },
+  AI_RELATION_ACCEPTED: { icon: Link2, label: 'AI Relation', color: 'bg-violet-100 text-violet-600' },
+  AI_TEMPLATE_APPLIED: { icon: Layers, label: 'AI Template', color: 'bg-violet-100 text-violet-600' },
+  AI_COLUMNS_ADDED: { icon: Plus, label: 'AI Columns Added', color: 'bg-violet-100 text-violet-600' },
+  // Advanced configuration events
+  SCD_CONFIG_SET: { icon: History, label: 'SCD Config', color: 'bg-indigo-100 text-indigo-600' },
+  WHERE_CLAUSE_SET: { icon: Filter, label: 'Where Clause', color: 'bg-slate-100 text-slate-600' },
+  QUALITY_GATE_SET: { icon: Shield, label: 'Quality Gate', color: 'bg-emerald-100 text-emerald-600' },
 };
 
 // Event display priority — same order as deployment execution
@@ -197,11 +207,21 @@ const EventRow: React.FC<{
             <pre className="text-xs text-slate-600 dark:text-slate-400 overflow-auto">
               {JSON.stringify(event.payload, null, 2)}
             </pre>
-            {event.error && (
-              <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-red-600 dark:text-red-400 text-xs">
-                <strong>Error:</strong> {event.error}
-              </div>
-            )}
+            {event.error && (() => {
+              // Parse "message (code NNN) | Fix: suggestion" format written by DeploymentValidation
+              const raw = typeof event.error === 'string' ? event.error : JSON.stringify(event.error);
+              const fixMatch = raw.match(/\|\s*Fix:\s*(.+)$/);
+              const mainMsg = fixMatch ? raw.slice(0, raw.indexOf(' | Fix:')).trim() : raw;
+              const suggestedFix = fixMatch ? fixMatch[1].trim() : null;
+              return (
+                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs space-y-1">
+                  <p className="text-red-600 dark:text-red-400"><strong>Error:</strong> {mainMsg}</p>
+                  {suggestedFix && (
+                    <p className="text-amber-600 dark:text-amber-400"><strong>Fix:</strong> {suggestedFix}</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -591,9 +611,11 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                     {/* Show error message for failed events even when collapsed */}
                     {event.status === 'failed' && event.error && !isExpanded && (
                       <div className="ml-7 mt-1 text-[10px] text-red-500 dark:text-red-400 truncate">
-                        ⚠️ {typeof event.error === 'string'
-                          ? event.error
-                          : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error)}
+                        ⚠️ {(() => {
+                          const raw = typeof event.error === 'string' ? event.error : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error);
+                          // Strip " | Fix: ..." suffix for the collapsed single-line preview
+                          return raw.replace(/\s*\|\s*Fix:\s*.+$/, '');
+                        })()}
                       </div>
                     )}
                   </div>
@@ -618,13 +640,20 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                         {renderEventDetails(event)}
 
                         {/* Error message if failed */}
-                        {event.status === 'failed' && event.error && (
-                          <div className="mt-1 p-1.5 bg-red-50 dark:bg-red-900/20 rounded text-[10px] text-red-600 dark:text-red-400">
-                            {typeof event.error === 'string'
-                              ? event.error
-                              : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error)}
-                          </div>
-                        )}
+                        {event.status === 'failed' && event.error && (() => {
+                          const raw = typeof event.error === 'string' ? event.error : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error);
+                          const fixMatch = raw.match(/\|\s*Fix:\s*(.+)$/);
+                          const mainMsg = fixMatch ? raw.slice(0, raw.indexOf(' | Fix:')).trim() : raw;
+                          const suggestedFix = fixMatch ? fixMatch[1].trim() : null;
+                          return (
+                            <div className="mt-1 p-1.5 bg-red-50 dark:bg-red-900/20 rounded text-[10px] space-y-0.5">
+                              <p className="text-red-600 dark:text-red-400">{mainMsg}</p>
+                              {suggestedFix && (
+                                <p className="text-amber-600 dark:text-amber-400">Fix: {suggestedFix}</p>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Action buttons - only remove, no execute */}
                         <div className="flex items-center gap-1 pt-1">

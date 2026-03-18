@@ -9,7 +9,7 @@ import { ChartDataResponse, ChartRequest } from './types';
 function normalizeChartRequest(request: ChartRequest): Record<string, unknown> {
   const body: Record<string, unknown> = {
     database: request.database ?? 'CP_DATA360',
-    schema: request.schema ?? 'EVENT_STORE',
+    schema: request.schema ?? 'RETAIL_DW',
     table: request.table ?? '',
   };
 

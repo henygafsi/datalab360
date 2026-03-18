@@ -42,7 +42,7 @@ export default function CostOverviewCard({
 }: CostOverviewCardProps) {
   if (isLoading) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <div className="animate-pulse">
           <div className="h-6 w-40 rounded bg-gray-200 dark:bg-gray-700" />
           <div className="mt-4 grid grid-cols-2 gap-4">
@@ -70,7 +70,7 @@ export default function CostOverviewCard({
   const computeCost = warehouseData?.estimated_cost_usd ?? warehouseData?.total_cost_estimate ?? 0;
 
   return (
-    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
       <div className="flex items-center justify-between">
         <Title as="h3" className="text-base font-semibold">Cost Overview</Title>
         {warehouseData?.period_days && (

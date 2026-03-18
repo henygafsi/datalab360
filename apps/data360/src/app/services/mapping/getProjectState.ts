@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
+import { API_CONFIG } from '@/config/database.config';
 
 /**
  * Helper to get authentication headers with Snowflake account context
@@ -51,7 +52,7 @@ export interface MappingState {
   groups?: Array<{ sources: TableSelection[]; target: TableSelection | null }>;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 /**
  * Fetch full mapping state for a project from backend.

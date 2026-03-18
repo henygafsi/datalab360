@@ -146,9 +146,9 @@ export const MODULES: ModuleConfig[] = [
   { 
     id: 9, 
     name: 'Observability', 
-    apiName: 'observability', 
-    description: 'System monitoring',
-    visible: false
+    apiName: 'observability',
+    description: 'System monitoring & cross-module lineage',
+    visible: true
   },
 ];
 

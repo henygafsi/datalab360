@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useTheme } from 'next-themes';
 import {
   ResponsiveContainer,
   BarChart, Bar,
@@ -51,9 +52,12 @@ interface DynamicChartProps {
  *
  * Supports: bar, line, area, pie, donut, scatter, stacked_bar, stacked_area,
  * combo, radar, treemap, funnel, heatmap, waterfall, histogram, gauge,
- * bubble, candlestick.
+ * radial_bar, bubble, candlestick.
  */
 export function DynamicChart({ config }: DynamicChartProps) {
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
+
   const data = config.prefetched?.data;
   const chartType = config.chartType || 'bar';
   const xKey = config.x || undefined;
@@ -101,27 +105,33 @@ export function DynamicChart({ config }: DynamicChartProps) {
     );
   }
 
+  const gridStroke = isDark ? '#374151' : '#e2e8f0';
+  const axisStroke = isDark ? '#4B5563' : '#e2e8f0';
+  const tickFill = isDark ? '#9CA3AF' : undefined;
+  const labelFill = isDark ? '#D1D5DB' : '#374151';
+
   const commonMargin = { top: 10, right: 10, bottom: 30, left: 10 };
   const commonXAxis = {
     dataKey: effectiveXKey,
-    tick: { fontSize: 10 },
+    tick: { fontSize: 10, fill: tickFill },
     tickLine: false,
-    axisLine: { stroke: '#e2e8f0' },
+    axisLine: { stroke: axisStroke },
     angle: -35,
     textAnchor: 'end' as const,
     interval: 'preserveStartEnd' as const,
     height: 50,
   };
   const commonYAxis = {
-    tick: { fontSize: 11 },
+    tick: { fontSize: 11, fill: tickFill },
     tickLine: false,
-    axisLine: { stroke: '#e2e8f0' },
+    axisLine: { stroke: axisStroke },
   };
   const commonTooltipStyle = {
-    backgroundColor: 'white',
-    border: '1px solid #e2e8f0',
+    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+    border: isDark ? '1px solid #374151' : '1px solid #e2e8f0',
     borderRadius: '8px',
     fontSize: '12px',
+    color: isDark ? '#F3F4F6' : undefined,
   };
 
   // ── Pie / Donut ──
@@ -164,10 +174,10 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11 }} />
-          <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11 }} />
-          <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+          <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11, fill: tickFill }} />
+          <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11, fill: tickFill }} />
+          <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={commonTooltipStyle} />
           <Scatter data={cleanData as any[]} fill={COLORS[0]} />
         </ScatterChart>
       </ResponsiveContainer>
@@ -181,11 +191,11 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <ScatterChart margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-          <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11 }} />
-          <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11 }} />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+          <XAxis dataKey={effectiveXKey} name={effectiveXKey} tick={{ fontSize: 11, fill: tickFill }} />
+          <YAxis dataKey={yKey} name={yKey} tick={{ fontSize: 11, fill: tickFill }} />
           <ZAxis dataKey={zKey} range={[40, 400]} name={zKey} />
-          <Tooltip cursor={{ strokeDasharray: '3 3' }} />
+          <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={commonTooltipStyle} />
           <Legend />
           <Scatter data={cleanData as any[]} fill={COLORS[0]} fillOpacity={0.6} />
         </ScatterChart>
@@ -198,9 +208,9 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <RadarChart data={cleanData as any[]} cx="50%" cy="50%" outerRadius="75%">
-          <PolarGrid stroke="#e2e8f0" />
-          <PolarAngleAxis dataKey={effectiveXKey} tick={{ fontSize: 10 }} />
-          <PolarRadiusAxis tick={{ fontSize: 9 }} />
+          <PolarGrid stroke={gridStroke} />
+          <PolarAngleAxis dataKey={effectiveXKey} tick={{ fontSize: 10, fill: tickFill }} />
+          <PolarRadiusAxis tick={{ fontSize: 9, fill: tickFill }} />
           {dataKeys.map((key, i) => (
             <Radar
               key={key}
@@ -234,7 +244,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
           dataKey="size"
           nameKey="name"
           aspectRatio={4 / 3}
-          stroke="#fff"
+          stroke={isDark ? '#1F2937' : '#fff'}
         >
           {treemapData.map((entry, i) => (
             <Cell key={i} fill={entry.fill} />
@@ -261,7 +271,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
         <FunnelChart>
           <Tooltip contentStyle={commonTooltipStyle} />
           <Funnel dataKey="value" data={funnelData} isAnimationActive>
-            <LabelList position="right" fill="#374151" stroke="none" dataKey="name" fontSize={11} />
+            <LabelList position="right" fill={labelFill} stroke="none" dataKey="name" fontSize={11} />
             {funnelData.map((entry, i) => (
               <Cell key={i} fill={entry.fill} />
             ))}
@@ -294,7 +304,39 @@ export function DynamicChart({ config }: DynamicChartProps) {
             background
             dataKey="value"
             cornerRadius={6}
-            label={{ fill: '#374151', fontSize: 11, position: 'insideStart' }}
+            label={{ fill: labelFill, fontSize: 11, position: 'insideStart' }}
+          />
+          <Tooltip contentStyle={commonTooltipStyle} />
+          <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
+        </RadialBarChart>
+      </ResponsiveContainer>
+    );
+  }
+
+  // ── Radial Bar (full 360° progress display) ──
+  if (chartType === 'radial_bar') {
+    const valueKey = dataKeys[0] || '';
+    const radialData = cleanData.slice(0, 8).map((row, i) => ({
+      name: String(row[effectiveXKey] || `Item ${i + 1}`),
+      value: Number(row[valueKey]) || 0,
+      fill: COLORS[i % COLORS.length],
+    }));
+    return (
+      <ResponsiveContainer width="100%" height="100%">
+        <RadialBarChart
+          innerRadius="20%"
+          outerRadius="90%"
+          data={radialData}
+          startAngle={90}
+          endAngle={-270}
+          cx="50%"
+          cy="50%"
+        >
+          <RadialBar
+            background={{ fill: isDark ? '#1F2937' : '#F1F5F9' }}
+            dataKey="value"
+            cornerRadius={8}
+            label={{ fill: labelFill, fontSize: 11, position: 'insideStart' }}
           />
           <Tooltip contentStyle={commonTooltipStyle} />
           <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
@@ -363,7 +405,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={waterfallData} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} />
           <Tooltip contentStyle={commonTooltipStyle} formatter={(v: any, name: string) => name === 'base' ? null : v} />
@@ -384,7 +426,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={cleanData as any[]} margin={commonMargin} barCategoryGap={0} barGap={0}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} />
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -418,7 +460,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={candleData as any[]} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} domain={['auto', 'auto']} />
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -437,7 +479,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={cleanData as any[]} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} />
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -468,7 +510,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={cleanData as any[]} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} />
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -492,7 +534,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return (
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={cleanData as any[]} margin={commonMargin}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
           <XAxis {...commonXAxis} />
           <YAxis {...commonYAxis} />
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -520,7 +562,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
   return (
     <ResponsiveContainer width="100%" height="100%">
       <ChartContainer data={cleanData as any[]} margin={commonMargin}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+        <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
         <XAxis {...commonXAxis} />
         <YAxis {...commonYAxis} />
         <Tooltip contentStyle={commonTooltipStyle} />

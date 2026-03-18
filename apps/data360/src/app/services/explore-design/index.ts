@@ -1546,6 +1546,97 @@ export async function executeIngestion(
 }
 
 // ============================================
+// INGESTION OPERATIONS (versioned, approvable, rollback-enabled)
+// ============================================
+
+export interface IngestionOperation {
+  operation_id: string;
+  project_id: string;
+  version_id?: string;
+  deployment_id?: string;
+  source: { database: string; schema: string; table: string };
+  target: { database: string; schema: string; table: string };
+  ingestion_mode: string;
+  status: 'PENDING' | 'APPROVED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+  rows_affected: number;
+  created_by: string;
+  created_at: string;
+  executed_at?: string;
+  rolled_back_at?: string;
+  error_message?: string;
+}
+
+export interface IngestionOperationsResponse {
+  operations: IngestionOperation[];
+  total: number;
+}
+
+/**
+ * Create an ingestion operation for approval workflow
+ * Registers the operation without executing — goes through approve → execute flow
+ */
+export async function createIngestionOperation(
+  projectId: string,
+  config: IngestionTableConfig
+): Promise<{ operation_id: string; status: string; ingestion_mode: string }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations`,
+    {
+      source_database: config.source_database,
+      source_schema: config.source_schema,
+      source_table: config.source_table,
+      target_database: config.target_database,
+      target_schema: config.target_schema,
+      target_table: config.target_table,
+      ingestion_mode: config.ingestion_mode,
+      mappings: config.column_mappings,
+      config: config.config,
+    },
+  );
+  return data;
+}
+
+/**
+ * List ingestion operations for a project
+ */
+export async function listIngestionOperations(
+  projectId: string,
+  status?: string
+): Promise<IngestionOperationsResponse> {
+  const { data } = await apiClient.get<IngestionOperationsResponse>(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations`,
+    { params: status ? { status } : undefined },
+  );
+  return data;
+}
+
+/**
+ * Execute a pending/approved ingestion operation with rollback tracking
+ */
+export async function executeIngestionOperation(
+  projectId: string,
+  operationId: string
+): Promise<{ operation_id: string; status: string; rows_affected: number }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations/${operationId}/execute`,
+  );
+  return data;
+}
+
+/**
+ * Rollback a completed ingestion operation using Time Travel or stored rollback SQL
+ */
+export async function rollbackIngestionOperation(
+  projectId: string,
+  operationId: string
+): Promise<{ operation_id: string; status: string; rows_restored: number }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations/${operationId}/rollback`,
+  );
+  return data;
+}
+
+// ============================================
 // SCHEMA VERSIONING APIs
 // ============================================
 
@@ -4072,6 +4163,18 @@ export interface ManageTableRequest {
 
 
 /**
+ * Generic table management helper (rename, add/drop column, change type, FK, etc.)
+ */
+async function manageTable(payload: ManageTableRequest): Promise<any> {
+  const headers = await getAuthHeaders();
+  const response = await axios.get(
+    `${EXPLORE_DESIGN_BASE}/guided/manage_table`,
+    { headers, params: payload }
+  );
+  return response.data;
+}
+
+/**
  * Rename a table
  */
 export async function renameTable(
@@ -5231,3 +5334,212 @@ export type {
   SaveStateRequest as V1SaveStateRequest,
   ConfigTemplate as V1ConfigTemplate,
 } from '@/app/services/api/types';
+
+// === Deployment Pipeline (14 endpoints) ===
+
+export async function dryRunDDL(projectId: string, data: { database: string; schema: string; actions: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/dry-run`, data);
+  return res.data;
+}
+
+export async function batchAddDDLActions(projectId: string, data: { actions: Array<{ ddl_sql: string; ddl_type?: string; priority?: number; target_table?: string; description?: string }> }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/batch`, data);
+  return res.data;
+}
+
+export async function preCheckDeployment(projectId: string, data: { database: string; schema: string; warehouse?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/pre-check`, data);
+  return res.data;
+}
+
+export async function verifyDeployment(projectId: string, deploymentId: string, data: { database: string; schema: string; expected_tables?: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/verify`, data);
+  return res.data;
+}
+
+export async function checkTypeCompatibility(projectId: string, params: { database: string; schema: string; source_table: string; source_column: string; target_table: string; target_column: string }) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/validate/type-compatibility`, { params });
+  return res.data;
+}
+
+export async function analyzeImpact(projectId: string, data: { database: string; schema: string; targets: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/validate/impact-analysis`, data);
+  return res.data;
+}
+
+export async function runQualityCheck(projectId: string, data: { source_table: string; gates: any[]; where_clause?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/quality-check`, data);
+  return res.data;
+}
+
+export async function previewIngestionSQL(projectId: string, data: { source_table: string; target_table: string; mode: string; column_mappings?: any[]; where_clause?: string; scd_config?: any }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/preview-sql`, data);
+  return res.data;
+}
+
+export async function dryRunIngestion(projectId: string, data: { source_table: string; target_table: string; mode: string; column_mappings?: any[]; where_clause?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/dry-run`, data);
+  return res.data;
+}
+
+export async function getWatermark(projectId: string, table: string, column: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ingestion/watermark`, { params: { table, column } });
+  return res.data;
+}
+
+export async function resetWatermark(projectId: string, data: { table: string; column: string; reset_to?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/watermark/reset`, data);
+  return res.data;
+}
+
+export async function getEventConflicts(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/events/conflicts`);
+  return res.data;
+}
+
+export async function saveEventTemplate(projectId: string, data: { name: string; description: string; events: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/event-templates`, data);
+  return res.data;
+}
+
+export async function listEventTemplates(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/event-templates`);
+  return res.data;
+}
+
+export async function applyEventTemplate(projectId: string, templateId: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/event-templates/${templateId}/apply`);
+  return res.data;
+}
+
+// === AI Intelligence (15 endpoints) ===
+
+export async function getColumnClassification(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/column-classification`);
+  return res.data;
+}
+
+export async function discoverRelationships(projectId: string, data: { tables: any[]; existing_relations?: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/discover-relationships`, data);
+  return res.data;
+}
+
+export async function getSchemaHealth(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ai/schema-health`);
+  return res.data;
+}
+
+export async function suggestColumns(projectId: string, data: { table_name: string; existing_tables?: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/suggest-columns`, data);
+  return res.data;
+}
+
+export async function checkNaming(projectId: string, data: { names: string[]; object_type?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/check-naming`, data);
+  return res.data;
+}
+
+export async function getTypeOptimization(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/type-optimization`);
+  return res.data;
+}
+
+export async function getSCDRecommendation(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/scd-recommendation`);
+  return res.data;
+}
+
+export async function getWarehouseSizing(warehouse?: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/warehouse-sizing`, { params: warehouse ? { warehouse } : {} });
+  return res.data;
+}
+
+export async function getClusteringSuggestion(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/clustering-suggestion`);
+  return res.data;
+}
+
+export async function getMaterializationStrategy(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/materialization-strategy`);
+  return res.data;
+}
+
+export async function getIngestionRecommendation(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/ingestion-recommendation`);
+  return res.data;
+}
+
+export async function scoreDeploymentRisk(projectId: string, data: { pending_events: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/deployment-risk`, data);
+  return res.data;
+}
+
+export async function getOptimalSchedule(warehouse?: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/optimal-schedule`, { params: warehouse ? { warehouse } : {} });
+  return res.data;
+}
+
+export async function submitAIFeedback(data: { suggestion_id: string; suggestion_type: string; accepted: boolean }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/ai/feedback`, data);
+  return res.data;
+}
+
+export async function getAISavingsSummary() {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/savings-summary`);
+  return res.data;
+}
+
+// === Data Engineering Actions ===
+
+// Dynamic Tables
+export async function listDynamicTables(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/dynamic-tables`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function suspendDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/suspend`, { database, schema });
+  return res.data;
+}
+
+export async function resumeDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/resume`, { database, schema });
+  return res.data;
+}
+
+export async function refreshDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/refresh`, { database, schema });
+  return res.data;
+}
+
+export async function dropDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/dynamic-tables/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// Streams
+export async function listStreams(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/streams`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function getStreamData(name: string, database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/streams/${name}/data`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function dropStream(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/streams/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// Alerts
+export async function listAlerts(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/alerts`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function dropAlert(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/alerts/${name}`, { params: { database, schema } });
+  return res.data;
+}

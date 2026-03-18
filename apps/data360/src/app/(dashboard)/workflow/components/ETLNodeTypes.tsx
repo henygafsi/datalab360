@@ -2,9 +2,44 @@
 
 import React, { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
+import { ChevronUp, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
 import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
+
+// Utility: resolve a Tailwind color class to a hex value
+const resolveHandleColor = (colorClass: string): string => {
+  const colorMap: Record<string, string> = {
+    'green': '#22c55e', 'amber': '#f59e0b', 'orange': '#f97316',
+    'purple': '#a855f7', 'blue': '#3b82f6', 'teal': '#14b8a6',
+    'rose': '#f43f5e', 'violet': '#8b5cf6', 'indigo': '#6366f1',
+    'cyan': '#06b6d4', 'pink': '#ec4899', 'slate': '#64748b',
+    'emerald': '#10b981', 'sky': '#0ea5e9', 'fuchsia': '#d946ef',
+    'lime': '#84cc16', 'red': '#ef4444', 'yellow': '#eab308',
+  };
+  for (const [key, value] of Object.entries(colorMap)) {
+    if (colorClass.includes(key)) return value;
+  }
+  return '#64748b';
+};
+
+// Compact parameter badge for node content
+const ParamBadge: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-700/50">
+    <span className="text-slate-400 dark:text-slate-500">{label}</span>
+    <span className="text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{value}</span>
+  </span>
+);
+
+// Compute node configuration status
+const getConfigStatus = (data: any, blockType: string): 'configured' | 'partial' | 'empty' => {
+  const config = data?.config || data || {};
+  const values = Object.entries(config).filter(([k, v]) =>
+    k !== 'name' && v !== null && v !== undefined && v !== '' && k !== 'config'
+  );
+  if (values.length === 0) return 'empty';
+  return values.length >= 2 ? 'configured' : 'partial';
+};
 
 // Base ETL Node wrapper component
 interface ETLNodeWrapperProps {
@@ -16,6 +51,7 @@ interface ETLNodeWrapperProps {
 
 const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, children }) => {
   const blockDef = getBlockByType(type);
+  const [expanded, setExpanded] = React.useState(true);
 
   if (!blockDef) {
     return (
@@ -27,27 +63,32 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
 
   const Icon = blockDef.icon;
   const displayName = data?.name || blockDef.label;
+  const status = getConfigStatus(data, type);
 
   // Determine handle positions for multi-input nodes
   const renderInputHandles = () => {
     if (!blockDef.hasInput) return null;
 
     if (blockDef.maxInputs === 2) {
-      // Join node - 2 input handles
+      // Join node - 2 input handles with L/R labels
       return (
         <>
+          <div className="absolute text-[8px] font-bold text-amber-500/70 pointer-events-none select-none"
+               style={{ top: '26%', left: '-14px' }}>L</div>
           <Handle
             type="target"
             position={Position.Left}
             id="input1"
-            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-slate-900"
+            className="!w-[10px] !h-[10px] !bg-amber-500 !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
             style={{ top: '30%' }}
           />
+          <div className="absolute text-[8px] font-bold text-amber-500/70 pointer-events-none select-none"
+               style={{ top: '66%', left: '-14px' }}>R</div>
           <Handle
             type="target"
             position={Position.Left}
             id="input2"
-            className="!w-3 !h-3 !bg-amber-500 !border-2 !border-white dark:!border-slate-900"
+            className="!w-[10px] !h-[10px] !bg-amber-500 !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
             style={{ top: '70%' }}
           />
         </>
@@ -55,19 +96,23 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
     }
 
     if (blockDef.maxInputs > 2) {
-      // Union node - multiple input handles
+      // Union node - multiple input handles with A/B/C/D labels
+      const labels = ['A', 'B', 'C', 'D'];
       const handles = [];
       for (let i = 0; i < Math.min(blockDef.maxInputs, 4); i++) {
         const topPercent = 20 + (i * 60) / (Math.min(blockDef.maxInputs, 4) - 1);
         handles.push(
-          <Handle
-            key={`input${i + 1}`}
-            type="target"
-            position={Position.Left}
-            id={`input${i + 1}`}
-            className="!w-3 !h-3 !bg-cyan-500 !border-2 !border-white dark:!border-slate-900"
-            style={{ top: `${topPercent}%` }}
-          />
+          <React.Fragment key={`input${i + 1}`}>
+            <div className="absolute text-[8px] font-bold text-cyan-500/70 pointer-events-none select-none"
+                 style={{ top: `${topPercent - 4}%`, left: '-14px' }}>{labels[i]}</div>
+            <Handle
+              type="target"
+              position={Position.Left}
+              id={`input${i + 1}`}
+              className="!w-[10px] !h-[10px] !bg-cyan-500 !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
+              style={{ top: `${topPercent}%` }}
+            />
+          </React.Fragment>
         );
       }
       return <>{handles}</>;
@@ -78,24 +123,8 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
       <Handle
         type="target"
         position={Position.Left}
-        className="!w-3 !h-3 !border-2 !border-white dark:!border-slate-900"
-        style={{ backgroundColor: blockDef.color.replace('text-', '').includes('green') ? '#22c55e' :
-                 blockDef.color.includes('amber') ? '#f59e0b' :
-                 blockDef.color.includes('orange') ? '#f97316' :
-                 blockDef.color.includes('purple') ? '#a855f7' :
-                 blockDef.color.includes('blue') ? '#3b82f6' :
-                 blockDef.color.includes('teal') ? '#14b8a6' :
-                 blockDef.color.includes('rose') ? '#f43f5e' :
-                 blockDef.color.includes('violet') ? '#8b5cf6' :
-                 blockDef.color.includes('indigo') ? '#6366f1' :
-                 blockDef.color.includes('cyan') ? '#06b6d4' :
-                 blockDef.color.includes('pink') ? '#ec4899' :
-                 blockDef.color.includes('slate') ? '#64748b' :
-                 blockDef.color.includes('emerald') ? '#10b981' :
-                 blockDef.color.includes('sky') ? '#0ea5e9' :
-                 blockDef.color.includes('fuchsia') ? '#d946ef' :
-                 blockDef.color.includes('lime') ? '#84cc16' :
-                 '#64748b' }}
+        className="!w-[10px] !h-[10px] !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
+        style={{ backgroundColor: resolveHandleColor(blockDef.color) }}
       />
     );
   };
@@ -103,11 +132,17 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
   return (
     <div
       className={cn(
-        'min-w-[180px] max-w-[220px] rounded-xl border-2 shadow-lg transition-all bg-white dark:bg-slate-800',
+        'relative min-w-[180px] max-w-[220px] rounded-xl border-2 shadow-lg transition-all bg-white dark:bg-slate-800',
         blockDef.borderColor,
         selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
       )}
     >
+      {/* Status indicator dot */}
+      <div className={cn(
+        'absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-800 z-10',
+        status === 'configured' ? 'bg-green-500' : status === 'partial' ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'
+      )} />
+
       {/* Header */}
       <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2', blockDef.bgColor)}>
         <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', blockDef.color)}>
@@ -116,12 +151,20 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
           {displayName}
         </span>
+        <button
+          onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
+          className="ml-auto p-0.5 rounded hover:bg-white/20 transition-colors"
+        >
+          {expanded ? <ChevronUp className="h-3 w-3 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-3 w-3 text-slate-500 dark:text-slate-400" />}
+        </button>
       </div>
 
-      {/* Content */}
-      <div className="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
-        {children}
-      </div>
+      {/* Content (collapsible) */}
+      {expanded && children && (
+        <div className="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">
+          {children}
+        </div>
+      )}
 
       {/* Handles */}
       {renderInputHandles()}
@@ -129,22 +172,8 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-3 !h-3 !border-2 !border-white dark:!border-slate-900"
-          style={{ backgroundColor: blockDef.color.replace('text-', '').includes('green') ? '#22c55e' :
-                   blockDef.color.includes('amber') ? '#f59e0b' :
-                   blockDef.color.includes('orange') ? '#f97316' :
-                   blockDef.color.includes('purple') ? '#a855f7' :
-                   blockDef.color.includes('blue') ? '#3b82f6' :
-                   blockDef.color.includes('teal') ? '#14b8a6' :
-                   blockDef.color.includes('rose') ? '#f43f5e' :
-                   blockDef.color.includes('violet') ? '#8b5cf6' :
-                   blockDef.color.includes('indigo') ? '#6366f1' :
-                   blockDef.color.includes('cyan') ? '#06b6d4' :
-                   blockDef.color.includes('pink') ? '#ec4899' :
-                   blockDef.color.includes('slate') ? '#64748b' :
-                   blockDef.color.includes('emerald') ? '#10b981' :
-                   blockDef.color.includes('sky') ? '#0ea5e9' :
-                   '#64748b' }}
+          className="!w-[10px] !h-[10px] !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
+          style={{ backgroundColor: resolveHandleColor(blockDef.color) }}
         />
       )}
     </div>
@@ -169,24 +198,12 @@ const truncate = (text: string, maxLength: number = 20): string => {
 // ============================================
 export const SourceNode = memo(({ data, selected }: NodeProps) => (
   <ETLNodeWrapper data={data} selected={selected} type="source">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">DB:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Schema:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Table:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.table || data.table)}</span>
-      </div>
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.database || data.database)} />
+      <ParamBadge label="Schema" value={displayValue(data.config?.schema || data.schema)} />
+      <ParamBadge label="Table" value={displayValue(data.config?.table || data.table)} />
       {(data.config?.columns || data.columns) && (
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Cols:</span>
-          <span className="font-medium">{Array.isArray(data.config?.columns || data.columns) ? (data.config?.columns || data.columns).length : 'All'}</span>
-        </div>
+        <ParamBadge label="Cols" value={Array.isArray(data.config?.columns || data.columns) ? String((data.config?.columns || data.columns).length) : 'All'} />
       )}
     </div>
   </ETLNodeWrapper>
@@ -198,19 +215,10 @@ SourceNode.displayName = 'SourceNode';
 // ============================================
 export const JoinNode = memo(({ data, selected }: NodeProps) => (
   <ETLNodeWrapper data={data} selected={selected} type="join">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Type:</span>
-        <span className="font-medium">{displayValue(data.config?.join_type || data.join_type, 'INNER')}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">L-Key:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.left_key || data.left_key)}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">R-Key:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.right_key || data.right_key)}</span>
-      </div>
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="Type" value={displayValue(data.config?.join_type || data.join_type, 'INNER')} />
+      <ParamBadge label="L-Key" value={displayValue(data.config?.left_key || data.left_key)} />
+      <ParamBadge label="R-Key" value={displayValue(data.config?.right_key || data.right_key)} />
     </div>
   </ETLNodeWrapper>
 ));
@@ -225,21 +233,15 @@ export const FilterNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="filter">
-      <div className="space-y-1">
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Logic:</span>
-          <span className="font-medium">{logic}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Conditions:</span>
-          <span className="font-medium">{conditions.length}</span>
-        </div>
-        {conditions.length > 0 && conditions[0] && (
-          <div className="text-slate-500 truncate text-[10px]">
-            {conditions[0].column} {conditions[0].operator} {conditions[0].value}
-          </div>
-        )}
+      <div className="flex flex-wrap gap-1">
+        <ParamBadge label="Logic" value={logic} />
+        <ParamBadge label="Rules" value={String(conditions.length)} />
       </div>
+      {conditions.length > 0 && conditions[0] && (
+        <div className="text-slate-500 truncate text-[10px] mt-1">
+          {conditions[0].column} {conditions[0].operator} {conditions[0].value}
+        </div>
+      )}
     </ETLNodeWrapper>
   );
 });
@@ -254,21 +256,15 @@ export const AggregateNode = memo(({ data, selected }: NodeProps) => {
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="aggregate">
-      <div className="space-y-1">
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Group By:</span>
-          <span className="font-medium truncate">{groupBy.length > 0 ? truncate(groupBy.join(', '), 15) : 'None'}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400">Aggs:</span>
-          <span className="font-medium">{aggregations.length}</span>
-        </div>
-        {aggregations.length > 0 && aggregations[0] && (
-          <div className="text-slate-500 truncate text-[10px]">
-            {aggregations[0].function}({aggregations[0].column}) as {aggregations[0].alias}
-          </div>
-        )}
+      <div className="flex flex-wrap gap-1">
+        <ParamBadge label="Group" value={groupBy.length > 0 ? truncate(groupBy.join(', '), 15) : 'None'} />
+        <ParamBadge label="Aggs" value={String(aggregations.length)} />
       </div>
+      {aggregations.length > 0 && aggregations[0] && (
+        <div className="text-slate-500 truncate text-[10px] mt-1">
+          {aggregations[0].function}({aggregations[0].column}) as {aggregations[0].alias}
+        </div>
+      )}
     </ETLNodeWrapper>
   );
 });
@@ -772,6 +768,640 @@ export const ContainerServiceNode = memo(({ data, selected }: NodeProps) => (
 ContainerServiceNode.displayName = 'ContainerServiceNode';
 
 // ============================================
+// WINDOW RANK NODE
+// ============================================
+export const WindowRankNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="window_rank">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Function:</span>
+        <span className="font-medium">{displayValue(data.config?.function || data.function, 'RANK')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Partition:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.partition_by || data.partition_by)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+WindowRankNode.displayName = 'WindowRankNode';
+
+// ============================================
+// WINDOW LAG/LEAD NODE
+// ============================================
+export const WindowLagLeadNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="window_lag_lead">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Function:</span>
+        <span className="font-medium">{displayValue(data.config?.function || data.function, 'LAG')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Offset:</span>
+        <span className="font-medium">{displayValue(data.config?.offset || data.offset, '1')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+WindowLagLeadNode.displayName = 'WindowLagLeadNode';
+
+// ============================================
+// WINDOW AGGREGATE NODE
+// ============================================
+export const WindowAggregateNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="window_aggregate">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Agg:</span>
+        <span className="font-medium">{displayValue(data.config?.agg_function || data.agg_function, 'SUM')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+WindowAggregateNode.displayName = 'WindowAggregateNode';
+
+// ============================================
+// WINDOW NTILE NODE
+// ============================================
+export const WindowNtileNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="window_ntile">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Buckets:</span>
+        <span className="font-medium">{displayValue(data.config?.buckets || data.buckets)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Partition:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.partition_by || data.partition_by)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+WindowNtileNode.displayName = 'WindowNtileNode';
+
+// ============================================
+// JSON FLATTEN NODE
+// ============================================
+export const JsonFlattenNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="json_flatten">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Input:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.input_column || data.input_column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Path:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.json_path || data.json_path)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Mode:</span>
+        <span className="font-medium">{displayValue(data.config?.flatten_mode || data.flatten_mode, 'OUTER')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+JsonFlattenNode.displayName = 'JsonFlattenNode';
+
+// ============================================
+// JSON EXTRACT NODE
+// ============================================
+export const JsonExtractNode = memo(({ data, selected }: NodeProps) => {
+  const paths = data.config?.extract_paths || data.extract_paths || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="json_extract">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Input:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.input_column || data.input_column)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Paths:</span>
+          <span className="font-medium">{paths.length}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+JsonExtractNode.displayName = 'JsonExtractNode';
+
+// ============================================
+// JSON CONSTRUCT NODE
+// ============================================
+export const JsonConstructNode = memo(({ data, selected }: NodeProps) => {
+  const columns = data.config?.columns || data.columns || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="json_construct">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Columns:</span>
+          <span className="font-medium">{Array.isArray(columns) ? columns.length : 0}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Output:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+JsonConstructNode.displayName = 'JsonConstructNode';
+
+// ============================================
+// PIVOT NODE
+// ============================================
+export const PivotNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="pivot">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Pivot:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.pivot_column || data.pivot_column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Value:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.value_column || data.value_column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Agg:</span>
+        <span className="font-medium">{displayValue(data.config?.agg_function || data.agg_function, 'SUM')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+PivotNode.displayName = 'PivotNode';
+
+// ============================================
+// UNPIVOT NODE
+// ============================================
+export const UnpivotNode = memo(({ data, selected }: NodeProps) => {
+  const columns = data.config?.columns || data.columns || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="unpivot">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Value Col:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.value_column_name || data.value_column_name)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Name Col:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.name_column_name || data.name_column_name)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Columns:</span>
+          <span className="font-medium">{Array.isArray(columns) ? columns.length : 0}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+UnpivotNode.displayName = 'UnpivotNode';
+
+// ============================================
+// DATE TRANSFORM NODE
+// ============================================
+export const DateTransformNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="date_transform">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Op:</span>
+        <span className="font-medium">{displayValue(data.config?.operation || data.operation, 'DATEADD')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+DateTransformNode.displayName = 'DateTransformNode';
+
+// ============================================
+// TIME SLICE NODE
+// ============================================
+export const TimeSliceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="time_slice">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Slice:</span>
+        <span className="font-medium">{displayValue(data.config?.slice_length || data.slice_length, '1')} {displayValue(data.config?.slice_unit || data.slice_unit, 'HOUR')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+TimeSliceNode.displayName = 'TimeSliceNode';
+
+// ============================================
+// FILL NULLS NODE
+// ============================================
+export const FillNullsNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="fill_nulls">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Column:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Strategy:</span>
+        <span className="font-medium">{displayValue(data.config?.strategy || data.strategy, 'VALUE')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+FillNullsNode.displayName = 'FillNullsNode';
+
+// ============================================
+// CASE WHEN NODE
+// ============================================
+export const CaseWhenNode = memo(({ data, selected }: NodeProps) => {
+  const conditions = data.config?.conditions || data.conditions || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="case_when">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Conditions:</span>
+          <span className="font-medium">{conditions.length}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Output:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+CaseWhenNode.displayName = 'CaseWhenNode';
+
+// ============================================
+// SPLIT COLUMN NODE
+// ============================================
+export const SplitColumnNode = memo(({ data, selected }: NodeProps) => {
+  const outputColumns = data.config?.output_columns || data.output_columns || [];
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="split_column">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Column:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.column || data.column)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Delimiter:</span>
+          <span className="font-medium">{displayValue(data.config?.delimiter || data.delimiter, ',')}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Outputs:</span>
+          <span className="font-medium">{Array.isArray(outputColumns) ? outputColumns.length : 0}</span>
+        </div>
+      </div>
+    </ETLNodeWrapper>
+  );
+});
+SplitColumnNode.displayName = 'SplitColumnNode';
+
+// ============================================
+// S3 SOURCE NODE
+// ============================================
+export const S3SourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="s3_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Stage:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.stage_name || data.stage_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Format:</span>
+        <span className="font-medium">{displayValue(data.config?.file_format || data.file_format, 'CSV')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+S3SourceNode.displayName = 'S3SourceNode';
+
+// ============================================
+// AZURE SOURCE NODE
+// ============================================
+export const AzureSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="azure_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Stage:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.stage_name || data.stage_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Format:</span>
+        <span className="font-medium">{displayValue(data.config?.file_format || data.file_format, 'CSV')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+AzureSourceNode.displayName = 'AzureSourceNode';
+
+// ============================================
+// GCS SOURCE NODE
+// ============================================
+export const GcsSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="gcs_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Stage:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.stage_name || data.stage_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Format:</span>
+        <span className="font-medium">{displayValue(data.config?.file_format || data.file_format, 'CSV')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+GcsSourceNode.displayName = 'GcsSourceNode';
+
+// ============================================
+// POSTGRES SOURCE NODE
+// ============================================
+export const PostgresSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="postgres_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Connection:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.connection_name || data.connection_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Table:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.source_table || data.source_table)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+PostgresSourceNode.displayName = 'PostgresSourceNode';
+
+// ============================================
+// MYSQL SOURCE NODE
+// ============================================
+export const MysqlSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="mysql_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Connection:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.connection_name || data.connection_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Table:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.source_table || data.source_table)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+MysqlSourceNode.displayName = 'MysqlSourceNode';
+
+// ============================================
+// EXTERNAL TABLE SOURCE NODE
+// ============================================
+export const ExternalTableSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="external_table_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">DB:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Schema:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Table:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table_name || data.table_name)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+ExternalTableSourceNode.displayName = 'ExternalTableSourceNode';
+
+// ============================================
+// DYNAMIC TABLE SOURCE NODE
+// ============================================
+export const DynamicTableSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="dynamic_table_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">DB:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Schema:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Table:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table_name || data.table_name)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+DynamicTableSourceNode.displayName = 'DynamicTableSourceNode';
+
+// ============================================
+// SHARED DATA SOURCE NODE
+// ============================================
+export const SharedDataSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="shared_data_source">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Share DB:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.share_database || data.share_database)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Schema:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Table:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.table_name || data.table_name)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+SharedDataSourceNode.displayName = 'SharedDataSourceNode';
+
+// ============================================
+// SALESFORCE SOURCE NODE
+// ============================================
+export const SalesforceSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="salesforce_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Object" value={displayValue(data.config?.object_name || data.object_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+SalesforceSourceNode.displayName = 'SalesforceSourceNode';
+
+// ============================================
+// SAP SOURCE NODE
+// ============================================
+export const SapSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="sap_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Table" value={displayValue(data.config?.table_name || data.table_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+SapSourceNode.displayName = 'SapSourceNode';
+
+// ============================================
+// ORACLE SOURCE NODE
+// ============================================
+export const OracleSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="oracle_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Table" value={displayValue(data.config?.table_name || data.table_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+OracleSourceNode.displayName = 'OracleSourceNode';
+
+// ============================================
+// HUBSPOT SOURCE NODE
+// ============================================
+export const HubspotSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="hubspot_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Object" value={displayValue(data.config?.object_name || data.object_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+HubspotSourceNode.displayName = 'HubspotSourceNode';
+
+// ============================================
+// SERVICENOW SOURCE NODE
+// ============================================
+export const ServicenowSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="servicenow_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Table" value={displayValue(data.config?.table_name || data.table_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+ServicenowSourceNode.displayName = 'ServicenowSourceNode';
+
+// ============================================
+// REST API SOURCE NODE
+// ============================================
+export const ApiSourceNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="api_source">
+    <div className="flex flex-wrap gap-1">
+      <ParamBadge label="DB" value={displayValue(data.config?.target_database || data.target_database)} />
+      <ParamBadge label="Schema" value={displayValue(data.config?.schema_name || data.schema_name)} />
+      <ParamBadge label="Table" value={displayValue(data.config?.table_name || data.table_name)} />
+    </div>
+  </ETLNodeWrapper>
+));
+ApiSourceNode.displayName = 'ApiSourceNode';
+
+// ============================================
+// CREATE UDF NODE
+// ============================================
+export const CreateUdfNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="create_udf">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Function:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.function_name || data.function_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Language:</span>
+        <span className="font-medium">{displayValue(data.config?.language || data.language, 'PYTHON')}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Returns:</span>
+        <span className="font-medium">{displayValue(data.config?.return_type || data.return_type, 'VARCHAR')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+CreateUdfNode.displayName = 'CreateUdfNode';
+
+// ============================================
+// CREATE PROCEDURE NODE
+// ============================================
+export const CreateProcedureNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="create_procedure">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Procedure:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.procedure_name || data.procedure_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Returns:</span>
+        <span className="font-medium">{displayValue(data.config?.return_type || data.return_type, 'VARCHAR')}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+CreateProcedureNode.displayName = 'CreateProcedureNode';
+
+// ============================================
+// APPLY UDF NODE
+// ============================================
+export const ApplyUdfNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="apply_udf">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Function:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.function_name || data.function_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Output:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.output_column || data.output_column)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+ApplyUdfNode.displayName = 'ApplyUdfNode';
+
+// ============================================
 // EXPORT NODE TYPES MAP
 // ============================================
 export const etlNodeTypes = {
@@ -803,6 +1433,57 @@ export const etlNodeTypes = {
   dynamic_table: DynamicTableNode,
   compute_pool: ComputePoolNode,
   container_service: ContainerServiceNode,
+
+  // Window function blocks
+  window_rank: WindowRankNode,
+  window_lag_lead: WindowLagLeadNode,
+  window_aggregate: WindowAggregateNode,
+  window_ntile: WindowNtileNode,
+
+  // JSON blocks
+  json_flatten: JsonFlattenNode,
+  json_extract: JsonExtractNode,
+  json_construct: JsonConstructNode,
+
+  // Pivot/Unpivot blocks
+  pivot: PivotNode,
+  unpivot: UnpivotNode,
+
+  // Date/Time blocks
+  date_transform: DateTransformNode,
+  time_slice: TimeSliceNode,
+
+  // Data cleaning blocks
+  fill_nulls: FillNullsNode,
+  case_when: CaseWhenNode,
+  split_column: SplitColumnNode,
+
+  // Cloud source blocks
+  s3_source: S3SourceNode,
+  azure_source: AzureSourceNode,
+  gcs_source: GcsSourceNode,
+
+  // DB source blocks
+  postgres_source: PostgresSourceNode,
+  mysql_source: MysqlSourceNode,
+
+  // Other source blocks
+  external_table_source: ExternalTableSourceNode,
+  dynamic_table_source: DynamicTableSourceNode,
+  shared_data_source: SharedDataSourceNode,
+
+  // CRM/ERP/SaaS source blocks
+  salesforce_source: SalesforceSourceNode,
+  sap_source: SapSourceNode,
+  oracle_source: OracleSourceNode,
+  hubspot_source: HubspotSourceNode,
+  servicenow_source: ServicenowSourceNode,
+  api_source: ApiSourceNode,
+
+  // Python blocks
+  create_udf: CreateUdfNode,
+  create_procedure: CreateProcedureNode,
+  apply_udf: ApplyUdfNode,
 
   // Legacy mappings for backward compatibility
   src: SourceNode, // Legacy source

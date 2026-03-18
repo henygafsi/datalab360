@@ -148,6 +148,21 @@ export async function getAccessPatterns(days: number = 30): Promise<AccessPatter
   return apiCall<AccessPatternsResponse>(`/observability/lineage/access-patterns?days=${days}`);
 }
 
+/**
+ * Get cross-module lineage: objects → roles → policies
+ * GET /observability/lineage/cross-module
+ */
+export async function getCrossModuleLineage(params?: {
+  days?: number;
+  database?: string;
+}): Promise<any> {
+  const searchParams = new URLSearchParams();
+  if (params?.days) searchParams.append('days', params.days.toString());
+  if (params?.database) searchParams.append('database', params.database);
+  const qs = searchParams.toString();
+  return apiCall<any>(qs ? `/observability/lineage/cross-module?${qs}` : '/observability/lineage/cross-module');
+}
+
 // =============================================================================
 // USER ACTIVITY ENDPOINTS
 // =============================================================================
@@ -348,6 +363,33 @@ export async function getTrustCenterFindings(): Promise<any> {
  */
 export async function getTrustCenterSummary(): Promise<any> {
   return apiCall<any>('/observability/trust-center/summary');
+}
+
+// =============================================================================
+// TASK-ENRICHED LINEAGE
+// =============================================================================
+
+/**
+ * Get intelligent lineage with tasks merged into graph
+ * GET /observability/lineage/with-tasks
+ */
+export async function getLineageWithTasks(params?: {
+  database?: string;
+  days?: number;
+}): Promise<any> {
+  const searchParams = new URLSearchParams();
+  if (params?.database) searchParams.append('database', params.database);
+  if (params?.days) searchParams.append('days', params.days.toString());
+  const qs = searchParams.toString();
+  return apiCall<any>(qs ? `/observability/lineage/with-tasks?${qs}` : '/observability/lineage/with-tasks');
+}
+
+/**
+ * Get importable tasks (for workflow import)
+ * GET /observability/tasks/importable
+ */
+export async function getImportableTasks(state: string = 'suspended'): Promise<any> {
+  return apiCall<any>(`/observability/tasks/importable?state=${state}`);
 }
 
 // Re-export types for convenience

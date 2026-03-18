@@ -159,14 +159,14 @@ export default function TableConfigModal({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={selectAll}
-                    className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
                   >
                     Select All
                   </button>
-                  <span className="text-slate-300">|</span>
+                  <span className="text-slate-300 dark:text-slate-600">|</span>
                   <button
                     onClick={deselectAll}
-                    className="text-xs text-slate-500 hover:text-slate-700 font-medium"
+                    className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 font-medium"
                   >
                     Deselect All
                   </button>
@@ -189,7 +189,7 @@ export default function TableConfigModal({
                 ))}
               </div>
               {selectedColumns.length === 0 && (
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-slate-400 dark:text-slate-500">
                   No columns selected — all columns will be shown.
                 </p>
               )}

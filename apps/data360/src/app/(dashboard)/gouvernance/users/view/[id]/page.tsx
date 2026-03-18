@@ -34,7 +34,8 @@ export default function ViewUserPage() {
         setUserData(data);
       } catch (err: any) {
         console.error('Error fetching user:', err);
-        setError(err.message || 'Failed to fetch user details');
+        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch user details';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -60,7 +61,7 @@ export default function ViewUserPage() {
           subtitle="Loading user details..."
           color="blue"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <TableSkeleton />
         </div>
       </div>
@@ -76,7 +77,7 @@ export default function ViewUserPage() {
           subtitle="Error loading user"
           color="blue"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <ErrorDisplay
             error={error || 'User not found'}
             onRetry={() => window.location.reload()}
@@ -127,75 +128,75 @@ export default function ViewUserPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Personal Information Card */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4">Personal Information</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Username
               </label>
               <Input
                 value={userData.id}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Display Name
               </label>
               <Input
                 value={userData.name || 'N/A'}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 First Name
               </label>
               <Input
                 value={userData.firstName || 'N/A'}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Last Name
               </label>
               <Input
                 value={userData.lastName || 'N/A'}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Email
               </label>
               <Input
                 value={userData.email || 'N/A'}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
           </div>
         </div>
 
         {/* Account Information Card */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4">Account Information</h3>
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Status
               </label>
-              <div className="p-3 bg-gray-50 rounded-md border border-gray-200">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">
                 <Badge
                   className={`${
                     userData.status === 'Active'
@@ -209,21 +210,21 @@ export default function ViewUserPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Created On
               </label>
               <Input
                 value={userData.createdOn ? new Date(userData.createdOn).toLocaleString() : 'N/A'}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Assigned Roles
               </label>
-              <div className="p-3 bg-gray-50 rounded-md border border-gray-200 min-h-[100px]">
+              <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700 min-h-[100px]">
                 {userData.roles.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {userData.roles.map((role, index) => (
@@ -237,7 +238,7 @@ export default function ViewUserPage() {
                     ))}
                   </div>
                 ) : (
-                  <Text className="text-gray-500 text-sm">
+                  <Text className="text-gray-500 dark:text-gray-400 text-sm">
                     No roles assigned
                   </Text>
                 )}
@@ -245,13 +246,13 @@ export default function ViewUserPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Number of Roles
               </label>
               <Input
                 value={userData.roles.length.toString()}
                 disabled
-                className="bg-gray-50"
+                className="bg-gray-50 dark:bg-gray-800"
               />
             </div>
           </div>
@@ -259,25 +260,25 @@ export default function ViewUserPage() {
       </div>
 
       {/* Additional Information Section */}
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         <h3 className="text-lg font-semibold mb-4">Security & Access</h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <Text className="text-sm text-gray-600 mb-1">Account Status</Text>
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-1">Account Status</Text>
             <Text className="text-lg font-semibold">
               {userData.status === 'Active' ? '🟢 Active' : '🔴 Disabled'}
             </Text>
           </div>
 
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <Text className="text-sm text-gray-600 mb-1">Total Roles</Text>
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Roles</Text>
             <Text className="text-lg font-semibold">
               {userData.roles.length}
             </Text>
           </div>
 
-          <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <Text className="text-sm text-gray-600 mb-1">Account Age</Text>
+          <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+            <Text className="text-sm text-gray-600 dark:text-gray-400 mb-1">Account Age</Text>
             <Text className="text-lg font-semibold">
               {userData.createdOn
                 ? Math.floor(

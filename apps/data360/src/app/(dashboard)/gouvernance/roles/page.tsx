@@ -37,7 +37,7 @@ export default function RolesManagementPage() {
       />
 
       {/* Main Content */}
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         <RolesTable key={refreshKey} />
       </div>
     </div>

@@ -272,7 +272,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
             <div className="flex items-center gap-2">
               <Rows3 className="h-4 w-4 text-slate-400" />
               <span className="text-slate-500">Total Rows:</span>
-              <span className="font-medium">{profileData.row_count.toLocaleString()}</span>
+              <span className="font-medium">{(profileData.row_count ?? 0).toLocaleString()}</span>
             </div>
             <div className="flex items-center gap-2">
               <Columns3 className="h-4 w-4 text-slate-400" />
@@ -403,13 +403,13 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
 
                       {col.has_nulls && (
                         <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[10px]">
-                          {col.null_percentage.toFixed(1)}% NULL
+                          {(col.null_percentage ?? 0).toFixed(1)}% NULL
                         </Badge>
                       )}
 
                       <div className="ml-auto flex items-center gap-3">
                         <span className="text-xs text-slate-500">
-                          {col.distinct_count.toLocaleString()} distinct
+                          {(col.distinct_count ?? 0).toLocaleString()} distinct
                         </span>
                         <div className={cn("flex items-center gap-1 px-2 py-1 rounded text-xs font-medium", getQualityColor(col.data_quality_score))}>
                           {getQualityIcon(col.data_quality_score)}
@@ -425,19 +425,19 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                           {/* Row Stats */}
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Total Rows</p>
-                            <p className="text-lg font-bold">{col.total_rows.toLocaleString()}</p>
+                            <p className="text-lg font-bold">{(col.total_rows ?? 0).toLocaleString()}</p>
                           </div>
 
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Null Count</p>
-                            <p className="text-lg font-bold text-orange-600">{col.null_count.toLocaleString()}</p>
-                            <p className="text-xs text-slate-400">{col.null_percentage.toFixed(2)}%</p>
+                            <p className="text-lg font-bold text-orange-600">{(col.null_count ?? 0).toLocaleString()}</p>
+                            <p className="text-xs text-slate-400">{(col.null_percentage ?? 0).toFixed(2)}%</p>
                           </div>
 
                           <div className="space-y-1">
                             <p className="text-xs text-slate-500 uppercase tracking-wide">Distinct Values</p>
-                            <p className="text-lg font-bold text-blue-600">{col.distinct_count.toLocaleString()}</p>
-                            <p className="text-xs text-slate-400">{col.distinct_percentage.toFixed(2)}%</p>
+                            <p className="text-lg font-bold text-blue-600">{(col.distinct_count ?? 0).toLocaleString()}</p>
+                            <p className="text-xs text-slate-400">{(col.distinct_percentage ?? 0).toFixed(2)}%</p>
                           </div>
 
                           <div className="space-y-1">
@@ -513,7 +513,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                                     {freq.value === null ? 'NULL' : String(freq.value)}
                                   </span>
                                   <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">
-                                    {freq.count.toLocaleString()} ({freq.percentage}%)
+                                    {(freq.count ?? 0).toLocaleString()} ({freq.percentage ?? 0}%)
                                   </Badge>
                                 </div>
                               ))}

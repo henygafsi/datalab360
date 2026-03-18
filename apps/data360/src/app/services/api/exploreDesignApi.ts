@@ -396,6 +396,25 @@ export async function addDDLAction(projectId: string, body: CreateDDLActionReque
   return data;
 }
 
+export async function batchAddDDLActions(
+  projectId: string,
+  body: {
+    actions: Array<{
+      ddl_sql: string;
+      ddl_type?: string;
+      priority?: number;
+      target_table?: string;
+      description?: string;
+    }>;
+  },
+) {
+  const { data } = await apiClient.post(
+    `${PREFIX}/${projectId}/ddl-actions/batch`,
+    body,
+  );
+  return data;
+}
+
 export async function listDDLActions(
   projectId: string,
   params?: { status?: DDLActionStatus },

@@ -129,7 +129,7 @@ export default function FilterBar({
             className="w-24 h-7 text-xs"
           />
           <select
-            className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs px-1"
+            className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs px-1"
             value={operator}
             onChange={(e) => setOperator(e.target.value)}
           >
@@ -145,7 +145,7 @@ export default function FilterBar({
             className="w-20 h-7 text-xs"
           />
           <select
-            className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs px-1"
+            className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs px-1"
             value={scope}
             onChange={(e) => setScope(e.target.value as FilterScope)}
           >
@@ -173,7 +173,7 @@ export default function FilterBar({
       )}
 
       {visibleFilters.length === 0 && !showAddForm && (
-        <span className="text-[11px] text-slate-400">No active filters</span>
+        <span className="text-[11px] text-slate-400 dark:text-slate-500">No active filters</span>
       )}
     </div>
   );

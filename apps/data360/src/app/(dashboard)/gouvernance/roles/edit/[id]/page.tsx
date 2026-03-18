@@ -38,7 +38,8 @@ export default function EditRolePage() {
         setComment(data.comment || '');
       } catch (err: any) {
         console.error('Error fetching role:', err);
-        setError(err.message || 'Failed to fetch role details');
+        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch role details';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -77,7 +78,7 @@ export default function EditRolePage() {
           subtitle="Loading role details..."
           color="emerald"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <TableSkeleton />
         </div>
       </div>
@@ -93,7 +94,7 @@ export default function EditRolePage() {
           subtitle="Error loading role"
           color="emerald"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <ErrorDisplay
             error={error || 'Role not found'}
             onRetry={() => window.location.reload()}
@@ -112,50 +113,50 @@ export default function EditRolePage() {
         color="emerald"
       />
 
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         <div className="max-w-2xl space-y-6">
           {/* Role Name (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Role Name
             </label>
             <Input
               value={roleData.role}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Role name cannot be changed
             </p>
           </div>
 
           {/* Number of Grants (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Number of Grants
             </label>
             <Input
               value={roleData.numberOfGrants.toString()}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
           </div>
 
           {/* Created On (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Created On
             </label>
             <Input
               value={roleData.createdOn ? new Date(roleData.createdOn).toLocaleString() : 'N/A'}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
           </div>
 
           {/* Comment (Editable) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Comment
             </label>
             <Textarea

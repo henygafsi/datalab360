@@ -10,6 +10,7 @@ import { PiWarningCircleBold } from 'react-icons/pi';
 export default function BiDashboardPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState('');
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,8 +26,8 @@ export default function BiDashboardPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+      <div className="flex justify-center items-center min-h-[400px]">
+        <Loader size="xl" />
       </div>
     );
   }
@@ -88,14 +89,17 @@ export default function BiDashboardPage() {
           projectName={selectedProjectName}
         />
       ) : (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <LayoutDashboard className="h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" />
-          <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">
-            No Dashboard Selected
-          </h2>
-          <p className="text-slate-500 dark:text-slate-400 max-w-md">
-            Create a new dashboard or select an existing one from the selector above to start building.
-          </p>
+        <div className="space-y-8">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <LayoutDashboard className="h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" />
+            <h2 className="text-xl font-semibold text-slate-700 dark:text-slate-300 mb-2">
+              No Dashboard Selected
+            </h2>
+            <p className="text-slate-500 dark:text-slate-400 max-w-md">
+              Create a new dashboard or select an existing one from the selector above to start building.
+            </p>
+          </div>
+
         </div>
       )}
     </div>

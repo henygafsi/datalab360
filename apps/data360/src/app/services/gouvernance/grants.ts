@@ -18,7 +18,7 @@ export type RoleGrantData = {
  */
 export const getRoles = async (): Promise<RoleGrantData[]> => {
   const response = await apiClient.get('/gouvernance/grants');
-  return response.data as RoleGrantData[];
+  return Array.isArray(response.data) ? (response.data as RoleGrantData[]) : [];
 };
 
 /**

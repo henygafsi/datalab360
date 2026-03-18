@@ -21,6 +21,7 @@ import toast, { Toaster } from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 
 import { etlNodeTypes } from './ETLNodeTypes';
+import { getBlockByType } from './etl-blocks';
 import ETLConfigSidebar from './ETLConfigSidebar';
 
 let id = 0;
@@ -118,13 +119,33 @@ const WorkflowBuilderInner: React.FC<WorkflowBuilderProps> = ({
     if (setParentEdges) setParentEdges(edges);
   }, [edges, setParentEdges]);
 
-  // Connect handler
+  // Connect handler with validation
   const onConnect: OnConnect = useCallback(
     (params: Edge | Connection) => {
+      if (params.source && params.target) {
+        const sourceNode = nodes.find(n => n.id === params.source);
+        const targetNode = nodes.find(n => n.id === params.target);
+        if (sourceNode && targetNode) {
+          const sourceBlock = getBlockByType(sourceNode.type || '');
+          const targetBlock = getBlockByType(targetNode.type || '');
+          if (sourceBlock && !sourceBlock.hasOutput) {
+            toast.error(`${sourceBlock.label} has no output`);
+            return;
+          }
+          if (targetBlock && !targetBlock.hasInput) {
+            toast.error(`${targetBlock.label} accepts no input`);
+            return;
+          }
+          if (sourceBlock?.category === 'source' && targetBlock?.category === 'source') {
+            toast.error('Cannot connect two source blocks');
+            return;
+          }
+        }
+      }
       setIsWorkflowSaved(false);
       setEdges((eds) => addEdge(params, eds));
     },
-    [setEdges, setIsWorkflowSaved]
+    [setEdges, setIsWorkflowSaved, nodes]
   );
 
   // Get output columns of a node (for column propagation)

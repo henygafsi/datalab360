@@ -60,7 +60,7 @@ export default function KpiCategoryCard({
   return (
     <div
       className={cn(
-        'rounded-xl border bg-gray-0 p-5 dark:bg-gray-50',
+        'rounded-xl border bg-gray-0 p-5 dark:bg-gray-800',
         colors.border,
         className
       )}

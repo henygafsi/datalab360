@@ -319,3 +319,106 @@ export async function cancelDeployment(workflowId: string, deploymentId: string)
   );
   return data;
 }
+
+// ============================================================================
+// Snowflake Task Discovery & Import
+// ============================================================================
+
+export interface DiscoveredTask {
+  name: string;
+  database_name: string;
+  schema_name: string;
+  fqn: string;
+  state: string;
+  schedule: string;
+  warehouse: string;
+  definition: string;
+  predecessors: string[];
+  owner: string;
+  created_on: string;
+  is_root: boolean;
+}
+
+export interface TaskGraph {
+  root_task: string;
+  task_count: number;
+  tasks: DiscoveredTask[];
+  state: string;
+  schedule: string;
+}
+
+export interface DiscoverTasksResponse {
+  tasks: DiscoveredTask[];
+  graphs: TaskGraph[];
+  total: number;
+  root_tasks: number;
+}
+
+export interface ImportTaskResponse {
+  project_id: string;
+  project_name: string;
+  steps_created: number;
+  steps: Array<{
+    step_id: string;
+    step_name: string;
+    step_type: string;
+    sql_statement: string;
+    depends_on: string[];
+    warehouse: string;
+    metadata: Record<string, string>;
+  }>;
+  source_task: string;
+}
+
+export interface TaskStatusRun {
+  NAME: string;
+  STATE: string;
+  SCHEDULED_TIME: string;
+  COMPLETED_TIME: string;
+  DURATION_SECONDS: number;
+  ERROR_CODE: string | null;
+  ERROR_MESSAGE: string | null;
+}
+
+export interface TaskStatusResponse {
+  workflow_id: string;
+  task_name: string;
+  task_info: Record<string, unknown> | null;
+  runs: TaskStatusRun[];
+  stats: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    success_rate: number;
+  };
+}
+
+export async function discoverTasks(params?: {
+  database?: string;
+  state?: string;
+}) {
+  const { data } = await apiClient.get<DiscoverTasksResponse>(
+    `${PREFIX}/tasks/discover`,
+    { params },
+  );
+  return data;
+}
+
+export async function importTaskGraph(rootTaskFqn: string) {
+  const { data } = await apiClient.post<ImportTaskResponse>(
+    `${PREFIX}/tasks/import`,
+    { root_task_fqn: rootTaskFqn },
+  );
+  return data;
+}
+
+export async function getTaskStatus(
+  workflowId: string,
+  params?: { days?: number },
+) {
+  const { data } = await apiClient.get<TaskStatusResponse>(
+    `${PREFIX}/${workflowId}/task-status`,
+    { params },
+  );
+  return data;
+}

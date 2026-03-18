@@ -77,7 +77,7 @@ export default function ComplianceCard({
 
   if (isLoading) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <div className="animate-pulse">
           <div className="h-6 w-32 rounded bg-gray-200 dark:bg-gray-700" />
           <div className="mt-4 h-20 rounded bg-gray-200 dark:bg-gray-700" />
@@ -93,7 +93,7 @@ export default function ComplianceCard({
 
   if (!report) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <Title as="h3" className="text-base font-semibold">{title}</Title>
         <Text className="mt-1 text-sm text-gray-500">{description}</Text>
         <div className="mt-6 flex flex-col items-center justify-center py-8 text-center">
@@ -123,7 +123,7 @@ export default function ComplianceCard({
       ];
 
   return (
-    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
       <div className="flex items-start justify-between">
         <div>
           <Title as="h3" className="text-base font-semibold">{title}</Title>

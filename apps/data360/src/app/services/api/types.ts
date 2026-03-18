@@ -1320,7 +1320,8 @@ export type DashboardChartType =
   | 'bar' | 'line' | 'pie' | 'donut' | 'area'
   | 'scatter' | 'heatmap' | 'funnel' | 'gauge' | 'treemap'
   | 'radar' | 'waterfall' | 'stacked_bar' | 'stacked_area'
-  | 'histogram' | 'combo' | 'candlestick' | 'bubble';
+  | 'histogram' | 'combo' | 'candlestick' | 'bubble'
+  | 'radial_bar';
 
 // --- Dashboard CRUD ---
 

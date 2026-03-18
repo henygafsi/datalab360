@@ -5,30 +5,46 @@ import { fetchChartData } from '@/app/services/charts/fetchChartData';
 import type { DashboardWidget } from '@/app/services/api/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 import toast from 'react-hot-toast';
+import type { TimeRange } from '../components/TimeIntelligenceBar';
 
 interface WidgetDataResult {
   data: Record<string, unknown>[];
   query?: string;
 }
 
+/**
+ * Build time range filters to inject into each request.
+ * NOTE: Returns empty array because _TIME_RANGE_FROM/_TIME_RANGE_TO are sentinel
+ * column names that do not exist in real Snowflake tables and cause SQL compilation
+ * errors (invalid identifier). Time intelligence filtering is handled at the UI level.
+ * When a widget's chart_config explicitly defines a date/timestamp column in its filters,
+ * those are applied directly.
+ */
+function buildTimeFilters(_timeRange?: TimeRange): any[] {
+  return [];
+}
+
 /** Build a fetchChartData-compatible request from a widget's chart_config */
-function buildRequest(widget: DashboardWidget) {
+function buildRequest(widget: DashboardWidget, timeRange?: TimeRange) {
   const cfg = widget.chart_config!;
+  const timeFilters = buildTimeFilters(timeRange);
 
   // Table widgets use raw mode with columns array
   if (widget.widget_type === 'table' || cfg.mode === 'raw') {
+    const existingFilters = Array.isArray(cfg.filters) ? cfg.filters : [];
     return {
       database: cfg.database,
       schema: cfg.schema,
       table: cfg.table,
       mode: 'raw' as const,
       columns: cfg.columns || [],
-      filters: cfg.filters as any,
+      filters: [...existingFilters, ...timeFilters] as any,
       limit: cfg.limit || 100,
     };
   }
 
   // Chart / KPI widgets use aggregate mode (default)
+  const existingFilters = Array.isArray(cfg.filters) ? cfg.filters : [];
   return {
     database: cfg.database,
     schema: cfg.schema,
@@ -39,7 +55,7 @@ function buildRequest(widget: DashboardWidget) {
       aggregator: (m.aggregator || undefined) as any,
       seuils: m.seuils as any,
     })),
-    filters: cfg.filters as any,
+    filters: [...existingFilters, ...timeFilters] as any,
     groupBy: cfg.groupBy,
     limit: cfg.limit || undefined,
   };
@@ -49,13 +65,19 @@ export function useExecuteDashboard() {
   const [executing, setExecuting] = useState(false);
   const [executingWidgetId, setExecutingWidgetId] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, WidgetDataResult>>({});
+  const [previousResults, setPreviousResults] = useState<Record<string, WidgetDataResult>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   /**
    * Execute all data widgets on the current page.
    * For each widget with chart_config, POST /charts/data individually.
+   * Optionally pass a timeRange to inject date filters, and previousTimeRange for comparison.
    */
-  const executeAll = useCallback(async (widgets: DashboardWidget[]) => {
+  const executeAll = useCallback(async (
+    widgets: DashboardWidget[],
+    timeRange?: TimeRange,
+    previousTimeRange?: TimeRange | null,
+  ) => {
     const dataWidgets = widgets.filter(
       (w) => w.chart_config && ['chart', 'kpi_card', 'table'].includes(w.widget_type)
     );
@@ -65,13 +87,21 @@ export function useExecuteDashboard() {
     setErrors({});
 
     console.log('[BI] executeAll — fetching data for', dataWidgets.length, 'widgets');
+    // Pair each settled result with its widget so rejections can map back to a widget ID.
     const settled = await Promise.allSettled(
       dataWidgets.map(async (w) => {
-        const req = buildRequest(w);
+        const req = buildRequest(w, timeRange);
         console.log('[BI] fetchChartData request for', w.widget_id, w.widget_type, ':', req);
-        const response = await fetchChartData(req);
-        console.log('[BI] fetchChartData response for', w.widget_id, ':', response.data?.length, 'rows');
-        return { widgetId: w.widget_id, result: { data: response.data } };
+        try {
+          const response = await fetchChartData(req);
+          console.log('[BI] fetchChartData response for', w.widget_id, ':', response.data?.length, 'rows');
+          return { widgetId: w.widget_id, result: { data: response.data }, error: null };
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Failed to load data';
+          console.error('[BI] Widget fetch failed for', w.widget_id, ':', msg);
+          // Return a sentinel so the widget resolves (no infinite spinner)
+          return { widgetId: w.widget_id, result: { data: [] }, error: msg };
+        }
       })
     );
 
@@ -83,9 +113,15 @@ export function useExecuteDashboard() {
     for (const s of settled) {
       if (s.status === 'fulfilled') {
         newResults[s.value.widgetId] = s.value.result;
-        successCount++;
+        if (s.value.error) {
+          newErrors[s.value.widgetId] = s.value.error;
+          failCount++;
+        } else {
+          successCount++;
+        }
       } else {
-        console.error('[BI] Widget fetch failed:', s.reason);
+        // Promise itself rejected (shouldn't happen with inner try-catch, but guard anyway)
+        console.error('[BI] Unexpected Promise rejection:', s.reason);
         failCount++;
       }
     }
@@ -99,17 +135,37 @@ export function useExecuteDashboard() {
       toast.success(`Loaded data for ${successCount} widget(s)`);
     }
 
+    // Fetch comparison data for previous period if requested
+    if (previousTimeRange) {
+      const prevSettled = await Promise.allSettled(
+        dataWidgets.map(async (w) => {
+          const req = buildRequest(w, previousTimeRange);
+          const response = await fetchChartData(req);
+          return { widgetId: w.widget_id, result: { data: response.data } };
+        })
+      );
+      const prevResults: Record<string, WidgetDataResult> = {};
+      for (const s of prevSettled) {
+        if (s.status === 'fulfilled') {
+          prevResults[s.value.widgetId] = s.value.result;
+        }
+      }
+      setPreviousResults(prevResults);
+    } else {
+      setPreviousResults({});
+    }
+
     setExecuting(false);
   }, []);
 
   /**
    * Execute a single widget's chart data.
    */
-  const executeSingle = useCallback(async (widget: DashboardWidget) => {
+  const executeSingle = useCallback(async (widget: DashboardWidget, timeRange?: TimeRange) => {
     if (!widget.chart_config) return;
     setExecutingWidgetId(widget.widget_id);
     try {
-      const response = await fetchChartData(buildRequest(widget));
+      const response = await fetchChartData(buildRequest(widget, timeRange));
       setResults((prev) => ({
         ...prev,
         [widget.widget_id]: { data: response.data },
@@ -128,6 +184,7 @@ export function useExecuteDashboard() {
 
   const clearResults = useCallback(() => {
     setResults({});
+    setPreviousResults({});
     setErrors({});
   }, []);
 
@@ -143,6 +200,7 @@ export function useExecuteDashboard() {
     executing,
     executingWidgetId,
     results,
+    previousResults,
     errors,
     executeAll,
     executeSingle,

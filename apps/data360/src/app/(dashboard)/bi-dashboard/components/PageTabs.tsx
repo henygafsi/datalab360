@@ -183,7 +183,7 @@ export default function PageTabs({
       ) : (
         <Tooltip content="Add page">
           <button
-            className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-400 hover:text-blue-500 transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-xs text-slate-400 dark:text-slate-500 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
             onClick={() => setIsAdding(true)}
           >
             <Plus className="h-3.5 w-3.5" />

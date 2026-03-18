@@ -14,6 +14,7 @@ import {
   PiSparkle,
   PiRocketLaunch,
   PiGear,
+  PiChartLineUp,
 } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
@@ -23,8 +24,9 @@ import SemanticModelsContent from './semantic-models-content';
 import CortexChatContent from './cortex-chat-content';
 import MLFeaturesContent from './ml-features-content';
 import AdvancedMLContent from './advanced-ml-content';
+import QueryAnalyticsContent from './query-analytics-content';
 
-type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml';
+type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics';
 
 const TABS = [
   {
@@ -59,6 +61,14 @@ const TABS = [
     badge: 'Pro',
     badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
   },
+  {
+    id: 'query-analytics' as TabType,
+    name: 'Query Analytics',
+    icon: PiChartLineUp,
+    description: 'AI-powered query analysis & optimization',
+    badge: 'Cortex',
+    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
+  },
 ];
 
 function formatKpiValue(value: number | null | undefined, format: 'number' | 'percent' | 'seconds'): string {
@@ -72,12 +82,13 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
   const [kpis, setKpis] = useState<CortexKpis | null>(null);
   const [kpisLoading, setKpisLoading] = useState(true);
+  const [kpisError, setKpisError] = useState<string | null>(null);
 
   useEffect(() => {
     setActiveTab(tabFromUrl);
@@ -85,10 +96,14 @@ export default function IntelligentPage() {
 
   const loadKpis = async () => {
     setKpisLoading(true);
+    setKpisError(null);
     try {
       const data = await getCortexKpis();
       setKpis(data);
-    } catch {
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to load KPIs';
+      console.error('[Intelligent] KPI fetch failed:', msg);
+      setKpisError(msg);
       setKpis(null);
     } finally {
       setKpisLoading(false);
@@ -130,6 +145,13 @@ export default function IntelligentPage() {
       </div>
 
       {/* KPI Stats Grid - from GET /cortex/kpis (no static data) */}
+      {kpisError && !kpisLoading && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+          <PiLightning className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+          <p className="text-sm text-amber-700 dark:text-amber-300">{kpisError}</p>
+          <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadKpis}>Retry</Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <KPICard
           title="Models Active"
@@ -166,9 +188,9 @@ export default function IntelligentPage() {
       </div>
 
       {/* Main Content Card with Tabs */}
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted shadow-sm overflow-hidden">
+      <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
         {/* Tabs */}
-        <div className="flex gap-2 p-4 border-b border-muted bg-gray-50/50 dark:bg-gray-100/50">
+        <div className="flex gap-2 p-4 border-b border-muted dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -180,7 +202,7 @@ export default function IntelligentPage() {
                 className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
                   isActive
                     ? 'border-purple bg-purple-lighter/50 text-purple'
-                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-200/50'
+                    : 'border-transparent text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700/50'
                 }`}
               >
                 <Icon className="w-5 h-5" />
@@ -206,43 +228,44 @@ export default function IntelligentPage() {
           {activeTab === 'cortex-chat' && <CortexChatContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
           {activeTab === 'advanced-ml' && <AdvancedMLContent />}
+          {activeTab === 'query-analytics' && <QueryAnalyticsContent />}
         </div>
       </div>
 
       {/* Feature Highlights */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="border border-muted bg-gray-0 dark:bg-gray-50 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
+        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-purple-lighter/70 mb-4">
             <PiSparkle className="w-5 h-5 text-purple" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-700 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
             Natural Language Processing
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Ask questions in plain English and get instant SQL-powered answers from your data warehouse.
           </p>
         </div>
 
-        <div className="border border-muted bg-gray-0 dark:bg-gray-50 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
+        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-blue-lighter/70 mb-4">
             <PiRocketLaunch className="w-5 h-5 text-blue" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-700 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
             Intelligent Context
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Semantic models provide business context, synonyms, and relationships for accurate query generation.
           </p>
         </div>
 
-        <div className="border border-muted bg-gray-0 dark:bg-gray-50 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
+        <div className="border border-muted dark:border-gray-700 bg-white dark:bg-gray-900 p-6 rounded-xl transition-all duration-200 hover:shadow-md">
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-orange-lighter/70 mb-4">
             <PiGear className="w-5 h-5 text-orange" />
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-700 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
             Enterprise Ready
           </h3>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
             Built on Snowflake Cortex with enterprise security, scalability, and governance built-in.
           </p>
         </div>

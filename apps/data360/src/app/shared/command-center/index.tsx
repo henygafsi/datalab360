@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useTransition, useMemo, useDeferredValue, memo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useTransition, useMemo, useDeferredValue, useRef, memo, lazy, Suspense } from 'react';
 import { Loader, Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
@@ -11,6 +11,7 @@ import {
   Cpu, Box, Brain, BarChart3, Zap, Upload, Clock, Gauge,
   Lock, FileText, Layers, Rocket, ChevronUp, ChevronDown,
   Download, Search, X, Filter, ArrowUpDown, Check, XCircle,
+  Calendar, Timer,
 } from 'lucide-react';
 import {
   ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -36,6 +37,11 @@ import {
   getPlatformActivityFiltered, getFilterOptions,
 } from '@/app/services/org-accounts/hooks';
 import { approveDeployment, rejectDeployment } from '@/app/services/api/projectsApi';
+import apiClient from '@/lib/api-client';
+
+// Lazy-loaded new tabs
+const ModulesTab = lazy(() => import('./modules-tab'));
+const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 import type {
   SecurityOverviewResponse, PerformanceOverviewResponse, CortexCostsResponse,
   PlatformActivityResponse, AccountHealthScoreResponse,
@@ -66,41 +72,100 @@ interface TabItem {
 }
 
 const tabs: TabItem[] = [
-  { id: 'overview',          label: 'Overview',              icon: LayoutDashboard },
-  { id: 'projects',          label: 'Projects & Deployments', icon: Rocket },
-  { id: 'security-adv',      label: 'Security',              icon: Lock },
-  { id: 'governance-grants', label: 'Governance & Grants',   icon: Shield },
-  { id: 'data-ops',          label: 'Data Operations',       icon: Upload },
-  { id: 'performance',       label: 'Performance',           icon: Gauge },
-  { id: 'cost',              label: 'Cost & Billing',        icon: DollarSign },
-  { id: 'compute',           label: 'Compute & Infra',       icon: Server },
+  { id: 'overview',          label: 'Dashboard',             icon: LayoutDashboard },
+  { id: 'modules',           label: 'Modules',               icon: Box },
+  { id: 'projects',          label: 'Projects & AI',         icon: Rocket },
+  { id: 'snowflake-explorer', label: 'Snowflake Explorer',   icon: Database },
+  { id: 'security-adv',      label: 'Security & Audit',     icon: Lock },
+  { id: 'cost',              label: 'Cost & Performance',    icon: DollarSign },
   { id: 'platform-activity', label: 'Platform Activity',     icon: Layers },
+  // Legacy tabs kept for backward compat but hidden from main nav
+  // { id: 'governance-grants', label: 'Governance & Grants', icon: Shield },
+  // { id: 'data-ops',          label: 'Data Operations',     icon: Upload },
+  // { id: 'performance',       label: 'Performance',         icon: Gauge },
+  // { id: 'compute',           label: 'Compute & Infra',     icon: Server },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/**
+ * Safe cell renderer for AuditTable columns without a custom render function.
+ * Prevents "Objects are not valid as React child" crashes when API returns
+ * an object (e.g. {error_code, message}) instead of a primitive value.
+ */
+function safeCellValue(value: unknown): React.ReactNode {
+  if (value === null || value === undefined) return '-';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  if (typeof value === 'object') {
+    // Gracefully stringify unexpected objects (e.g. Snowflake error payloads)
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '[object]';
+    }
+  }
+  return String(value);
+}
+
+/**
+ * Guard: detect API error objects returned as 200 OK (e.g. {error_code, message}).
+ * These bypass HTTP error handling and cause "Objects are not valid as React child" if rendered.
+ */
+function isApiError(data: unknown): boolean {
+  if (data === null || data === undefined) return false;
+  if (typeof data !== 'object' || Array.isArray(data)) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    ('error_code' in d && 'message' in d) ||
+    ('success' in d && d.success === false && 'error_code' in d)
+  );
+}
+
+/** Safe string coercion for dynamic JSX text — prevents object-as-child crashes. */
+function safeStr(value: unknown, fallback = ''): string {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return fallback;
+}
+
 const KpiCard = memo(function KpiCard({
-  label, value, icon: Icon, trend, color = 'blue', suffix,
+  label, value, icon: Icon, trend, color = 'blue', suffix, previousValue, invertTrend,
 }: {
   label: string; value: string | number; icon: React.ElementType;
   trend?: number; color?: string; suffix?: string;
+  previousValue?: number; invertTrend?: boolean;
 }) {
+  // Compute delta from previous period if provided
+  const delta = useMemo(() => {
+    if (trend !== undefined) return trend;
+    if (previousValue !== undefined && previousValue !== 0 && typeof value === 'number') {
+      return Math.round(((value - previousValue) / previousValue) * 100);
+    }
+    return undefined;
+  }, [trend, previousValue, value]);
+
+  const isPositiveGood = invertTrend ? (delta ?? 0) < 0 : (delta ?? 0) > 0;
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
       <div className="flex items-center justify-between">
         <div className={`rounded-lg bg-${color}-100 dark:bg-${color}-900/30 p-2`}>
           <Icon className={`h-5 w-5 text-${color}-600 dark:text-${color}-400`} />
         </div>
-        {trend !== undefined && trend !== 0 && (
+        {delta !== undefined && delta !== 0 && (
           <span className={cn('flex items-center gap-1 text-xs font-medium',
-            trend > 0 ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
-            {trend > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {Math.abs(trend)}%
+            isPositiveGood ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
+            {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+            {delta > 0 ? '+' : ''}{Math.abs(delta)}%
+            <span className="text-gray-400 dark:text-gray-500 font-normal ml-0.5">vs prev</span>
           </span>
         )}
       </div>
       <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">
-        {value}{suffix}
+        {typeof value === 'object' && value !== null ? JSON.stringify(value) : value}{suffix}
       </p>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{label}</p>
     </div>
@@ -159,6 +224,37 @@ const ChartTooltip = memo(function ChartTooltip({ active, payload, label }: any)
   );
 });
 
+// ─── Time Intelligence Presets ────────────────────────────────────────────────
+
+interface TimePreset {
+  label: string;
+  days: number;
+  getRange: () => { start_date: string; end_date: string };
+}
+
+function formatDate(d: Date): string {
+  return d.toISOString().split('T')[0];
+}
+
+const TIME_PRESETS: TimePreset[] = [
+  { label: 'Last 24h', days: 1, getRange: () => {
+    const end = new Date(); const start = new Date(end.getTime() - 86400000);
+    return { start_date: formatDate(start), end_date: formatDate(end) };
+  }},
+  { label: 'Last 7d', days: 7, getRange: () => {
+    const end = new Date(); const start = new Date(end.getTime() - 7 * 86400000);
+    return { start_date: formatDate(start), end_date: formatDate(end) };
+  }},
+  { label: 'Last 30d', days: 30, getRange: () => {
+    const end = new Date(); const start = new Date(end.getTime() - 30 * 86400000);
+    return { start_date: formatDate(start), end_date: formatDate(end) };
+  }},
+  { label: 'Last 90d', days: 90, getRange: () => {
+    const end = new Date(); const start = new Date(end.getTime() - 90 * 86400000);
+    return { start_date: formatDate(start), end_date: formatDate(end) };
+  }},
+];
+
 // ─── Global Filter Bar ───────────────────────────────────────────────────────
 
 const FilterSelect = memo(function FilterSelect({ label, value, options, onChange, icon: Icon }: {
@@ -179,42 +275,157 @@ const FilterSelect = memo(function FilterSelect({ label, value, options, onChang
   );
 });
 
-const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, options }: {
+const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, options, lastUpdated, autoRefreshCountdown }: {
   filters: CommandCenterFilters;
   setFilters: (f: CommandCenterFilters) => void;
   options: FilterOptionsResponse | null;
+  lastUpdated: Date | null;
+  autoRefreshCountdown: number;
 }) {
+  const [showCustomRange, setShowCustomRange] = useState(false);
+  const [customStart, setCustomStart] = useState(filters.start_date || '');
+  const [customEnd, setCustomEnd] = useState(filters.end_date || '');
+
+  const activePreset = TIME_PRESETS.find(p => p.days === filters.days && !filters.start_date);
+  const isCustom = !!filters.start_date;
+
   const hasFilters = filters.project_type || filters.username || filters.status
-    || filters.environment || filters.module_name || filters.days !== 180;
+    || filters.environment || filters.module_name || filters.days !== 30 || filters.start_date;
+
+  const handlePresetClick = useCallback((preset: TimePreset) => {
+    // Preset = only set `days`. Clear custom start_date/end_date so activePreset highlights correctly.
+    const { start_date: _s, end_date: _e, ...rest } = filters;
+    setFilters({ ...rest, days: preset.days });
+    setShowCustomRange(false);
+  }, [filters, setFilters]);
+
+  const handleCustomApply = useCallback(() => {
+    if (customStart && customEnd) {
+      const startD = new Date(customStart);
+      const endD = new Date(customEnd);
+      const diffDays = Math.ceil((endD.getTime() - startD.getTime()) / 86400000);
+      setFilters({ ...filters, days: Math.max(diffDays, 1), start_date: customStart, end_date: customEnd });
+      setShowCustomRange(false);
+    }
+  }, [customStart, customEnd, filters, setFilters]);
 
   return (
-    <div className="mb-5 flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2.5">
-      <div className="flex items-center gap-1.5 mr-1">
-        <Filter className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-        <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Filters</span>
-      </div>
-      <FilterSelect label="Period" value={String(filters.days)} options={['7', '30', '90', '180', '365']}
-        onChange={(v) => setFilters({ ...filters, days: Number(v) || 180 })} icon={Clock} />
-      <FilterSelect label="Project Type" value={filters.project_type || ''} options={options?.project_types || ['explore_design', 'workflow', 'bi_dashboard']}
-        onChange={(v) => setFilters({ ...filters, project_type: v || undefined })} icon={Rocket} />
-      <FilterSelect label="User" value={filters.username || ''} options={options?.usernames || []}
-        onChange={(v) => setFilters({ ...filters, username: v || undefined })} icon={Users} />
-      <FilterSelect label="Role" value={filters.role_name || ''} options={options?.roles || []}
-        onChange={(v) => setFilters({ ...filters, role_name: v || undefined })} icon={Shield} />
-      <FilterSelect label="Environment" value={filters.environment || ''} options={options?.environments || ['production', 'staging', 'dev']}
-        onChange={(v) => setFilters({ ...filters, environment: v || undefined })} icon={Server} />
-      <FilterSelect label="Status" value={filters.status || ''} options={options?.deployment_statuses || ['active', 'draft', 'archived', 'deployed', 'failed']}
-        onChange={(v) => setFilters({ ...filters, status: v || undefined })} icon={CheckCircle} />
-      <FilterSelect label="Module" value={filters.module_name || ''} options={options?.modules || []}
-        onChange={(v) => setFilters({ ...filters, module_name: v || undefined })} icon={Layers} />
-      {hasFilters && (
+    <div className="mb-5 space-y-2.5">
+      {/* Time Intelligence Row */}
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2.5">
+        <div className="flex items-center gap-1.5 mr-1">
+          <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Time Range</span>
+        </div>
+        {/* Preset buttons */}
+        {TIME_PRESETS.map(preset => (
+          <button
+            key={preset.label}
+            onClick={() => handlePresetClick(preset)}
+            className={cn(
+              'rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+              activePreset?.days === preset.days && !isCustom
+                ? 'bg-primary text-white shadow-sm'
+                : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+            )}
+          >
+            {preset.label}
+          </button>
+        ))}
         <button
-          onClick={() => setFilters({ days: 180 })}
-          className="ml-auto flex items-center gap-1 rounded-lg bg-red-50 dark:bg-red-900/30 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+          onClick={() => setShowCustomRange(!showCustomRange)}
+          className={cn(
+            'rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+            isCustom
+              ? 'bg-primary text-white shadow-sm'
+              : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+          )}
         >
-          <X className="h-3 w-3" /> Clear
+          Custom
         </button>
+
+        {/* Date display */}
+        {filters.start_date && filters.end_date && (
+          <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
+            {filters.start_date} to {filters.end_date}
+          </span>
+        )}
+
+        {/* Last updated + auto-refresh indicator */}
+        <div className="ml-auto flex items-center gap-3">
+          {lastUpdated && (
+            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
+              <Timer className="h-3 w-3" />
+              Updated {relativeTime(lastUpdated.toISOString())}
+            </span>
+          )}
+          {autoRefreshCountdown > 0 && (
+            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 tabular-nums">
+              <RefreshCw className="h-3 w-3 animate-spin" style={{ animationDuration: '3s' }} />
+              {Math.floor(autoRefreshCountdown / 60)}:{String(autoRefreshCountdown % 60).padStart(2, '0')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Custom Date Range Picker (expandable) */}
+      {showCustomRange && (
+        <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2.5">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400">From</label>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 dark:text-gray-400">To</label>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <button
+            onClick={handleCustomApply}
+            disabled={!customStart || !customEnd}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Apply
+          </button>
+        </div>
       )}
+
+      {/* Data Filters Row */}
+      <div className="flex flex-wrap items-center gap-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-3 py-2.5">
+        <div className="flex items-center gap-1.5 mr-1">
+          <Filter className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+          <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Filters</span>
+        </div>
+        <FilterSelect label="Project Type" value={filters.project_type || ''} options={options?.project_types || ['explore_design', 'workflow', 'bi_dashboard']}
+          onChange={(v) => setFilters({ ...filters, project_type: v || undefined })} icon={Rocket} />
+        <FilterSelect label="User" value={filters.username || ''} options={options?.usernames || []}
+          onChange={(v) => setFilters({ ...filters, username: v || undefined })} icon={Users} />
+        <FilterSelect label="Role" value={filters.role_name || ''} options={options?.roles || []}
+          onChange={(v) => setFilters({ ...filters, role_name: v || undefined })} icon={Shield} />
+        <FilterSelect label="Environment" value={filters.environment || ''} options={options?.environments || ['production', 'staging', 'dev']}
+          onChange={(v) => setFilters({ ...filters, environment: v || undefined })} icon={Server} />
+        <FilterSelect label="Status" value={filters.status || ''} options={options?.deployment_statuses || ['active', 'draft', 'archived', 'deployed', 'failed']}
+          onChange={(v) => setFilters({ ...filters, status: v || undefined })} icon={CheckCircle} />
+        <FilterSelect label="Module" value={filters.module_name || ''} options={options?.modules || []}
+          onChange={(v) => setFilters({ ...filters, module_name: v || undefined })} icon={Layers} />
+        {hasFilters && (
+          <button
+            onClick={() => setFilters({ days: 30 })}
+            className="ml-auto flex items-center gap-1 rounded-lg bg-red-50 dark:bg-red-900/30 px-2.5 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/50 transition-colors"
+          >
+            <X className="h-3 w-3" /> Clear All
+          </button>
+        )}
+      </div>
     </div>
   );
 });
@@ -352,7 +563,7 @@ function AuditTable<T extends Record<string, any>>({
                 {columns.map(col => (
                   <td key={col.key} className={cn('py-2 px-3', col.align === 'right' ? 'text-right' : 'text-left',
                     !col.render && 'text-gray-700 dark:text-gray-300')}>
-                    {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '-')}
+                    {col.render ? col.render(row[col.key], row) : safeCellValue(row[col.key])}
                   </td>
                 ))}
               </tr>
@@ -408,11 +619,17 @@ function statusBadgeColor(s: string | null): 'success' | 'danger' | 'warning' | 
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export default function CommandCenterDashboard() {
+function CommandCenterDashboardInner() {
   const [activeTab, setActiveTab] = useState('overview');
   const [isTabTransitioning, startTabTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Client-side tab data cache — prevents re-fetching on every tab switch
+  const tabDataCache = useRef<Record<string, { data: any; timestamp: number }>>({});
+  const CACHE_TTL_MS = 120_000; // 2 minutes client-side cache
+
+  // Note: render-level crash protection is handled by CommandCenterErrorBoundary (class component below).
 
   // Data states per tab
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
@@ -431,9 +648,18 @@ export default function CommandCenterDashboard() {
   const [platformData, setPlatformData] = useState<PlatformActivityResponse | null>(null);
   const [healthScore, setHealthScore] = useState<AccountHealthScoreResponse | null>(null);
 
-  // Global filters
-  const [filters, setFilters] = useState<CommandCenterFilters>({ days: 180 });
+  // Global filters — default to Last 30d (no start_date/end_date so preset button highlights)
+  const [filters, setFilters] = useState<CommandCenterFilters>({
+    days: 30,
+  });
   const [filterOptions, setFilterOptions] = useState<FilterOptionsResponse | null>(null);
+
+  // Auto-refresh state (every 5 minutes)
+  const AUTO_REFRESH_INTERVAL = 300; // seconds
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState(AUTO_REFRESH_INTERVAL);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true, projects: false, 'security-adv': false,
@@ -447,12 +673,17 @@ export default function CommandCenterDashboard() {
     setTabLoading(p => ({ ...p, overview: true }));
     setError(null);
     try {
+      const filterParams = { days: filters.days, start_date: filters.start_date, end_date: filters.end_date };
       const [s, mh, af] = await Promise.all([
-        getSummary(), getModuleHealth(), getActivityFeed(10),
+        getSummary(filterParams),
+        getModuleHealth({ days: filters.days }),
+        getActivityFeed(10, { days: filters.days, module_name: filters.module_name, username: filters.username }),
       ]);
-      setSummary(s);
-      setModuleHealth(mh);
-      setActivityFeed(af);
+      if (!isApiError(s)) setSummary(s);
+      if (!isApiError(mh)) setModuleHealth(mh);
+      if (!isApiError(af)) setActivityFeed(af);
+      setLastUpdated(new Date());
+      tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
       // Also fetch observability scores + health score (non-blocking)
       getIntelligentKpis().then(setObsKpis).catch(() => {});
       getAccountHealthScore().then(setHealthScore).catch(() => {});
@@ -464,13 +695,16 @@ export default function CommandCenterDashboard() {
       setTabLoading(p => ({ ...p, overview: false }));
       setIsLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   const fetchProjects = useCallback(async () => {
     setTabLoading(p => ({ ...p, projects: true }));
     try {
       const data = await getProjectsOverview(filters);
+      if (isApiError(data)) { console.warn('[CommandCenter] projects-overview returned error:', data); return; }
       setProjectsData(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['projects'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load projects data');
     } finally {
@@ -481,8 +715,11 @@ export default function CommandCenterDashboard() {
   const fetchSecurityAdv = useCallback(async () => {
     setTabLoading(p => ({ ...p, 'security-adv': true }));
     try {
-      const data = await getSecurityOverview(filters.days);
+      const data = await getSecurityOverview(filters.days, filters);
+      if (isApiError(data)) { console.warn('[CommandCenter] security-overview returned error:', data); return; }
       setSecurityData(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['security-adv'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load security data');
     } finally {
@@ -494,7 +731,10 @@ export default function CommandCenterDashboard() {
     setTabLoading(p => ({ ...p, 'governance-grants': true }));
     try {
       const data = await getGovernanceGrantsOverview(filters);
+      if (isApiError(data)) { console.warn('[CommandCenter] governance-grants returned error:', data); return; }
       setGovGrantsData(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['governance-grants'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load governance & grants data');
     } finally {
@@ -506,7 +746,10 @@ export default function CommandCenterDashboard() {
     setTabLoading(p => ({ ...p, 'data-ops': true }));
     try {
       const data = await getDataOperationsOverview(filters);
+      if (isApiError(data)) { console.warn('[CommandCenter] data-ops returned error:', data); return; }
       setDataOpsData(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['data-ops'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load data operations overview');
     } finally {
@@ -517,8 +760,12 @@ export default function CommandCenterDashboard() {
   const fetchPerformance = useCallback(async () => {
     setTabLoading(p => ({ ...p, performance: true }));
     try {
-      const data = await getPerformanceOverview(filters.days > 30 ? 7 : filters.days);
+      const perfDays = filters.days > 30 ? 7 : filters.days;
+      const data = await getPerformanceOverview(perfDays, filters);
+      if (isApiError(data)) { console.warn('[CommandCenter] performance returned error:', data); return; }
       setPerformanceData(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['performance'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load performance data');
     } finally {
@@ -529,36 +776,48 @@ export default function CommandCenterDashboard() {
   const fetchCost = useCallback(async () => {
     setTabLoading(p => ({ ...p, cost: true }));
     try {
-      const [cost] = await Promise.all([getCostBreakdown(30), getCortexCosts(30)]);
+      // getCortexCosts is fire-and-forget (its result is unused here)
+      const [cost] = await Promise.all([
+        getCostBreakdown(filters.days, { start_date: filters.start_date, end_date: filters.end_date }),
+        getCortexCosts(filters.days, filters).catch(() => null),
+      ]);
+      if (isApiError(cost)) { console.warn('[CommandCenter] cost-breakdown returned error:', cost); return; }
       setCostData(cost);
+      setLastUpdated(new Date());
+      tabDataCache.current['cost'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
       setTabLoading(p => ({ ...p, cost: false }));
     }
-  }, []);
+  }, [filters]);
 
   const fetchCompute = useCallback(async () => {
     setTabLoading(p => ({ ...p, compute: true }));
     try {
-      const data = await getInfrastructure();
+      const data = await getInfrastructure({ days: filters.days });
+      if (isApiError(data)) { console.warn('[CommandCenter] infrastructure returned error:', data); return; }
       setInfra(data);
+      setLastUpdated(new Date());
+      tabDataCache.current['compute'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load compute data');
     } finally {
       setTabLoading(p => ({ ...p, compute: false }));
     }
-  }, []);
+  }, [filters]);
 
   const fetchPlatformActivity = useCallback(async () => {
     setTabLoading(p => ({ ...p, 'platform-activity': true }));
     try {
       const [plat, af] = await Promise.all([
         getPlatformActivityFiltered(filters),
-        getActivityFeed(100),
+        getActivityFeed(100, { days: filters.days, module_name: filters.module_name, username: filters.username }),
       ]);
-      setPlatformData(plat);
-      setActivityFeed(af);
+      if (!isApiError(plat)) setPlatformData(plat);
+      if (!isApiError(af)) setActivityFeed(af);
+      setLastUpdated(new Date());
+      tabDataCache.current['platform-activity'] = { data: true, timestamp: Date.now() };
     } catch (err) {
       toast.error('Failed to load platform activity');
     } finally {
@@ -571,9 +830,15 @@ export default function CommandCenterDashboard() {
   useEffect(() => { fetchOverview(); }, [fetchOverview]);
   useEffect(() => { getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
 
-  // Re-fetch active tab when filters change
+  // Re-fetch active tab when filters or activeTab change (skip if cached within TTL)
   useEffect(() => {
+    const cached = tabDataCache.current[activeTab];
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+      // Data still fresh — skip re-fetch, no loading spinner
+      return;
+    }
     switch (activeTab) {
+      case 'overview': fetchOverview(); break;
       case 'projects': fetchProjects(); break;
       case 'security-adv': fetchSecurityAdv(); break;
       case 'governance-grants': fetchGovGrants(); break;
@@ -583,18 +848,73 @@ export default function CommandCenterDashboard() {
       case 'compute': fetchCompute(); break;
       case 'platform-activity': fetchPlatformActivity(); break;
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, filters]);
 
+  // Auto-refresh every 5 minutes
+  useEffect(() => {
+    // Reset countdown when data is fetched
+    setAutoRefreshCountdown(AUTO_REFRESH_INTERVAL);
+
+    // Countdown timer
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    countdownRef.current = setInterval(() => {
+      setAutoRefreshCountdown(prev => {
+        if (prev <= 1) return AUTO_REFRESH_INTERVAL;
+        return prev - 1;
+      });
+    }, 1000);
+
+    // Auto-refresh timer
+    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+    autoRefreshRef.current = setInterval(() => {
+      // Silently re-fetch the active tab
+      switch (activeTab) {
+        case 'overview': fetchOverview(); break;
+        case 'projects': fetchProjects(); break;
+        case 'security-adv': fetchSecurityAdv(); break;
+        case 'governance-grants': fetchGovGrants(); break;
+        case 'data-ops': fetchDataOps(); break;
+        case 'performance': fetchPerformance(); break;
+        case 'cost': fetchCost(); break;
+        case 'compute': fetchCompute(); break;
+        case 'platform-activity': fetchPlatformActivity(); break;
+      }
+    }, AUTO_REFRESH_INTERVAL * 1000);
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
   const handleRefresh = useCallback(() => {
+    // Invalidate client-side tab cache on manual refresh
+    tabDataCache.current = {};
     setSummary(null); setModuleHealth(null); setActivityFeed(null);
     setObsKpis(null); setInfra(null); setPipelines(null); setCostData(null);
     setSecurityData(null); setProjectsData(null); setGovGrantsData(null);
     setDataOpsData(null); setPerformanceData(null);
     setPlatformData(null); setHealthScore(null);
-    fetchOverview();
-  }, [fetchOverview]);
+    setAutoRefreshCountdown(AUTO_REFRESH_INTERVAL);
+    // Re-fetch current active tab
+    switch (activeTab) {
+      case 'overview': fetchOverview(); break;
+      case 'projects': fetchProjects(); break;
+      case 'security-adv': fetchSecurityAdv(); break;
+      case 'governance-grants': fetchGovGrants(); break;
+      case 'data-ops': fetchDataOps(); break;
+      case 'performance': fetchPerformance(); break;
+      case 'cost': fetchCost(); break;
+      case 'compute': fetchCompute(); break;
+      case 'platform-activity': fetchPlatformActivity(); break;
+      default: fetchOverview(); break;
+    }
+  }, [activeTab, fetchOverview, fetchProjects, fetchSecurityAdv, fetchGovGrants, fetchDataOps, fetchPerformance, fetchCost, fetchCompute, fetchPlatformActivity]);
 
   // ── Loading state ────────────────────────────────────────────────────────
+
 
   if (isLoading) {
     return (
@@ -661,12 +981,22 @@ export default function CommandCenterDashboard() {
       </div>
 
       {/* ── Global Filter Bar ──────────────────────────────────────── */}
-      <GlobalFilterBar filters={filters} setFilters={setFilters} options={filterOptions} />
+      <GlobalFilterBar filters={filters} setFilters={setFilters} options={filterOptions} lastUpdated={lastUpdated} autoRefreshCountdown={autoRefreshCountdown} />
 
       {/* ── Tab Content ───────────────────────────────────────────── */}
       <div className="space-y-6">
         {activeTab === 'overview' && <OverviewTab summary={summary} moduleHealth={moduleHealth} activityFeed={activityFeed} obsKpis={obsKpis} healthScore={healthScore} loading={tabLoading.overview} />}
+        {activeTab === 'modules' && (
+          <Suspense fallback={<LoadingSection />}>
+            <ModulesTab />
+          </Suspense>
+        )}
         {activeTab === 'projects' && <ProjectsTab data={projectsData} loading={tabLoading.projects} onRefresh={fetchProjects} />}
+        {activeTab === 'snowflake-explorer' && (
+          <Suspense fallback={<LoadingSection />}>
+            <SnowflakeExplorerTab />
+          </Suspense>
+        )}
         {activeTab === 'security-adv' && <SecurityAdvTab data={securityData} loading={tabLoading['security-adv']} />}
         {activeTab === 'governance-grants' && <GovernanceGrantsTab data={govGrantsData} loading={tabLoading['governance-grants']} />}
         {activeTab === 'data-ops' && <DataOperationsTab data={dataOpsData} loading={tabLoading['data-ops']} />}
@@ -674,6 +1004,42 @@ export default function CommandCenterDashboard() {
         {activeTab === 'cost' && <CostTab data={costData} loading={tabLoading.cost} />}
         {activeTab === 'compute' && <ComputeTab data={infra} loading={tabLoading.compute} />}
         {activeTab === 'platform-activity' && <PlatformActivityTab platformData={platformData} activityFeed={activityFeed} summary={summary} loading={tabLoading['platform-activity']} />}
+      </div>
+    </div>
+  );
+}
+
+// ── Tasks Quick Widget (used in Overview tab) ──
+
+function TasksQuickWidget() {
+  const [taskData, setTaskData] = useState<any>(null);
+
+  useEffect(() => {
+    apiClient.get('/observability/lineage-with-tasks', { params: { days: 7 } })
+      .then((res) => setTaskData(res.data))
+      .catch(() => {}); // non-blocking — widget is optional
+  }, []);
+
+  const active = taskData?.summary?.active_tasks ?? 0;
+  const suspended = taskData?.summary?.suspended_tasks ?? 0;
+  const succeeded = taskData?.task_stats?.succeeded ?? 0;
+  const failed = taskData?.task_stats?.failed ?? 0;
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <Clock className="h-4 w-4 text-blue-500" /> Snowflake Tasks
+        </h3>
+        <a href="/observability" className="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400">
+          View All &rarr;
+        </a>
+      </div>
+      <div className="grid grid-cols-4 gap-2 text-center">
+        <div><p className="text-lg font-bold text-green-600">{active}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p></div>
+        <div><p className="text-lg font-bold text-amber-600">{suspended}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p></div>
+        <div><p className="text-lg font-bold text-blue-600">{succeeded}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p></div>
+        <div><p className="text-lg font-bold text-red-600">{failed}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p></div>
       </div>
     </div>
   );
@@ -705,16 +1071,16 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
     <>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Active Users (7d)" value={summary.platform.active_users_7d} icon={Users} color="blue" />
-        <KpiCard label="Projects" value={summary.platform.total_projects} icon={Box} color="violet" />
-        <KpiCard label="Quality Score" value={`${summary.quality.health_score}%`} icon={CheckCircle} color="green" />
-        <KpiCard label="Credits (30d)" value={summary.cost.credits_30d.toLocaleString()} icon={DollarSign} color="amber" trend={summary.cost.credit_trend_pct} />
-        <KpiCard label="MFA Coverage" value={`${summary.security.mfa_coverage_pct}%`} icon={Shield} color="rose" />
-        <KpiCard label="AI Models" value={summary.ai.semantic_models} icon={Brain} color="purple" />
+        <KpiCard label="Active Users (7d)" value={summary?.platform?.active_users_7d ?? 0} icon={Users} color="blue" />
+        <KpiCard label="Projects" value={summary?.platform?.total_projects ?? 0} icon={Box} color="violet" />
+        <KpiCard label="Quality Score" value={`${summary?.quality?.health_score ?? 0}%`} icon={CheckCircle} color="green" />
+        <KpiCard label="Credits (30d)" value={(summary?.cost?.credits_30d ?? 0).toLocaleString()} icon={DollarSign} color="amber" trend={summary?.cost?.credit_trend_pct} />
+        <KpiCard label="MFA Coverage" value={`${summary?.security?.mfa_coverage_pct ?? 0}%`} icon={Shield} color="rose" />
+        <KpiCard label="AI Models" value={summary?.ai?.semantic_models ?? 0} icon={Brain} color="purple" />
       </div>
 
       {/* Module Health Grid */}
-      {moduleHealth && (
+      {moduleHealth && Array.isArray(moduleHealth.modules) && (
         <SectionCard title="Module Health">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {moduleHealth.modules.map((m) => (
@@ -724,13 +1090,16 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
                 <div className={cn('h-2.5 w-2.5 rounded-full', STATUS_BG[m.status])} />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{m.module}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">{m.key_metric}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{typeof m.key_metric === 'object' && m.key_metric !== null ? '' : (m.key_metric ?? '')}</p>
                 </div>
               </div>
             ))}
           </div>
         </SectionCard>
       )}
+
+      {/* Snowflake Tasks Quick View */}
+      <TasksQuickWidget />
 
       {/* Radar + Activity Feed */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -753,7 +1122,7 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
         {/* Recent Activity */}
         <SectionCard title="Recent Activity">
           <div className="max-h-64 overflow-y-auto space-y-2">
-            {activityFeed?.events.slice(0, 10).map((evt, i) => (
+            {(Array.isArray(activityFeed?.events) ? activityFeed.events : []).slice(0, 10).map((evt, i) => (
               <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <Badge size="sm" variant="flat" color={evt.status === 'SUCCESS' ? 'success' : 'danger'} className="shrink-0">
@@ -764,7 +1133,7 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
                 <span className="text-xs text-gray-400 whitespace-nowrap">{relativeTime(evt.timestamp)}</span>
               </div>
             ))}
-            {(!activityFeed || activityFeed.events.length === 0) && (
+            {(!activityFeed || !Array.isArray(activityFeed.events) || activityFeed.events.length === 0) && (
               <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
             )}
           </div>
@@ -819,12 +1188,12 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
 
   const summary = data.summary || {} as any;
   const byType = summary.by_type || {};
-  const deploymentStatus = data.deployment_status || [];
-  const recentDeployments = data.recent_deployments || [];
-  const pendingApprovals = data.pending_approvals || [];
-  const executionDaily = data.execution_daily || [];
-  const memberRoles = data.member_roles || [];
-  const topContributors = data.top_contributors || [];
+  const deploymentStatus = Array.isArray(data.deployment_status) ? data.deployment_status : [];
+  const recentDeployments = Array.isArray(data.recent_deployments) ? data.recent_deployments : [];
+  const pendingApprovals = Array.isArray(data.pending_approvals) ? data.pending_approvals : [];
+  const executionDaily = Array.isArray(data.execution_daily) ? data.execution_daily : [];
+  const memberRoles = Array.isArray(data.member_roles) ? data.member_roles : [];
+  const topContributors = Array.isArray(data.top_contributors) ? data.top_contributors : [];
 
   const typePieData = Object.entries(byType)
     .filter(([_, v]) => (v as number) > 0)
@@ -950,34 +1319,62 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
       {/* Pending Approvals + Members */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Pending Approvals */}
-        <SectionCard title="Pending Approvals">
+        <SectionCard title={`Pending Approvals (${pendingApprovals.length})`}>
           {pendingApprovals.length > 0 ? (
-            <div className="space-y-2 max-h-64 overflow-y-auto">
+            <div className="space-y-3 max-h-80 overflow-y-auto">
               {pendingApprovals.map((p: any, i: number) => (
-                <div key={i} className="rounded-lg bg-amber-50 dark:bg-amber-900/20 p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">{p.project_name}</span>
-                    <div className="flex items-center gap-2">
-                      <Badge size="sm" variant="flat" color="warning">{p.environment}</Badge>
+                <div key={i} className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3">
+                  {/* Header: project name + actions */}
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white truncate">{safeStr(p.project_name)}</span>
+                      <Badge size="sm" variant="flat" color="warning">{safeStr(p.environment, 'production')}</Badge>
+                      <Badge size="sm" variant="flat" color="info">{safeStr(p.project_type, '').replace(/_/g, ' ')}</Badge>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
                       <button
                         onClick={() => handleApprove(p.project_id, p.deployment_id, p.project_name)}
                         disabled={actionLoading === p.deployment_id}
-                        className="rounded-md bg-green-100 dark:bg-green-900/30 px-2 py-1 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
+                        className="rounded-md bg-green-100 dark:bg-green-900/30 px-2.5 py-1 text-xs font-medium text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
                       >
                         {actionLoading === p.deployment_id ? '...' : 'Approve'}
                       </button>
                       <button
                         onClick={() => setRejectModal({ projectId: p.project_id, deploymentId: p.deployment_id, projectName: p.project_name })}
                         disabled={actionLoading === p.deployment_id}
-                        className="rounded-md bg-red-100 dark:bg-red-900/30 px-2 py-1 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"
+                        className="rounded-md bg-red-100 dark:bg-red-900/30 px-2.5 py-1 text-xs font-medium text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"
                       >
                         Reject
                       </button>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {p.project_type?.replace(/_/g, ' ')} | Requested by {p.requested_by} — {relativeTime(p.requested_at)}
-                  </p>
+                  {/* Detail section: what's being approved */}
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-400">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        Requested by <span className="font-medium text-gray-800 dark:text-gray-200">{safeStr(p.requested_by)}</span>
+                        {' '}— {relativeTime(p.requested_at)}
+                      </span>
+                      {p.deployment_id && (
+                        <span className="font-mono text-gray-400 dark:text-gray-500">{safeStr(p.deployment_id)}</span>
+                      )}
+                    </div>
+                    {p.deployment_type && (
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <span>Deployment type:</span>
+                        <Badge size="sm" variant="flat" color="secondary">{safeStr(p.deployment_type).replace(/_/g, ' ')}</Badge>
+                      </div>
+                    )}
+                    {/* Show number of objects in deployment if available */}
+                    {(p.event_count != null || p.step_count != null || p.ddl_count != null) && (
+                      <div className="flex items-center gap-3 text-xs text-amber-700 dark:text-amber-400 font-medium">
+                        {p.event_count != null && <span>{p.event_count} events</span>}
+                        {p.step_count != null && <span>{p.step_count} steps</span>}
+                        {p.ddl_count != null && <span>{p.ddl_count} DDL actions</span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -998,8 +1395,8 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
             </div>
             {memberRoles.slice(0, 2).map((r: any, i: number) => (
               <div key={i} className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3 text-center">
-                <p className="text-xl font-bold text-gray-900 dark:text-white">{r.user_count}</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">{r.role}</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{safeStr(r.user_count, '0')}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{safeStr(r.role)}</p>
               </div>
             ))}
           </div>
@@ -1007,10 +1404,10 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
             {topContributors.slice(0, 10).map((c: any, i: number) => (
               <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
                 <div>
-                  <span className="text-sm text-gray-900 dark:text-white">{c.username}</span>
-                  <Badge size="sm" variant="flat" className="ml-2">{c.role}</Badge>
+                  <span className="text-sm text-gray-900 dark:text-white">{safeStr(c.username)}</span>
+                  <Badge size="sm" variant="flat" className="ml-2">{safeStr(c.role)}</Badge>
                 </div>
-                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{c.project_count} projects</span>
+                <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{safeStr(c.project_count, '0')} projects</span>
               </div>
             ))}
             {topContributors.length === 0 && (
@@ -1080,8 +1477,8 @@ const CostTab = memo(function CostTab({ data, loading }: {
     { name: 'Failsafe', value: storage.failsafe_tb ?? 0 },
   ].filter(d => d.value > 0);
 
-  const dailyTrend = data.daily_trend || [];
-  const topWarehouses = data.top_warehouses || [];
+  const dailyTrend = Array.isArray(data.daily_trend) ? data.daily_trend : [];
+  const topWarehouses = Array.isArray(data.top_warehouses) ? data.top_warehouses : [];
 
   const dailyAvg = dailyTrend.length > 0
     ? Math.round(dailyTrend.reduce((s: number, d: any) => s + d.credits, 0) / dailyTrend.length * 100) / 100
@@ -1091,8 +1488,8 @@ const CostTab = memo(function CostTab({ data, loading }: {
     <>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <KpiCard label="Credits (30d)" value={data.total_credits.toLocaleString()} icon={DollarSign} color="amber" trend={data.credit_trend_pct} />
-        <KpiCard label="Trend" value={`${data.credit_trend_pct > 0 ? '+' : ''}${data.credit_trend_pct}%`} icon={data.credit_trend_pct >= 0 ? TrendingUp : TrendingDown} color={data.credit_trend_pct >= 0 ? 'red' : 'green'} />
+        <KpiCard label="Credits (30d)" value={(data?.total_credits ?? 0).toLocaleString()} icon={DollarSign} color="amber" trend={data?.credit_trend_pct} />
+        <KpiCard label="Trend" value={`${(data?.credit_trend_pct ?? 0) > 0 ? '+' : ''}${data?.credit_trend_pct ?? 0}%`} icon={(data?.credit_trend_pct ?? 0) >= 0 ? TrendingUp : TrendingDown} color={(data?.credit_trend_pct ?? 0) >= 0 ? 'red' : 'green'} />
         <KpiCard label="Storage (TB)" value={((storage.database_tb ?? 0) + (storage.stage_tb ?? 0) + (storage.failsafe_tb ?? 0)).toFixed(3)} icon={Database} color="blue" />
         <KpiCard label="Balance" value={(balance.capacity ?? 0).toLocaleString()} icon={DollarSign} color="green" />
         <KpiCard label="Daily Average" value={dailyAvg.toLocaleString()} icon={BarChart3} color="violet" />
@@ -1198,11 +1595,11 @@ const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
 }) {
   if (loading || !data) return <LoadingSection />;
 
-  const loginSummary = data.login_summary || [];
-  const loginTrend = data.login_trend || [];
-  const clientTypes = data.client_types || [];
-  const failedLogins = data.failed_logins || [];
-  const mfaCoverage = data.mfa_coverage || {} as any;
+  const loginSummary = Array.isArray(data.login_summary) ? data.login_summary : [];
+  const loginTrend = Array.isArray(data.login_trend) ? data.login_trend : [];
+  const clientTypes = Array.isArray(data.client_types) ? data.client_types : [];
+  const failedLogins = Array.isArray(data.failed_logins) ? data.failed_logins : [];
+  const mfaCoverage = data.mfa_coverage && typeof data.mfa_coverage === 'object' && !Array.isArray(data.mfa_coverage) ? data.mfa_coverage : {} as any;
 
   const totalLogins = loginSummary.reduce((s: number, r: any) => s + r.event_count, 0);
   const successLogins = loginSummary.filter((r: any) => r.is_success === 'YES').reduce((s: number, r: any) => s + r.event_count, 0);
@@ -1214,7 +1611,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
         <KpiCard label="Total Logins" value={totalLogins.toLocaleString()} icon={Users} color="blue" />
         <KpiCard label="Success Rate" value={`${totalLogins > 0 ? Math.round(successLogins / totalLogins * 100) : 0}%`} icon={CheckCircle} color="green" />
-        <KpiCard label="Failed Attempts" value={failedLogins.toLocaleString()} icon={AlertTriangle} color="red" />
+        <KpiCard label="Failed Attempts" value={failedLoginCount.toLocaleString()} icon={AlertTriangle} color="red" />
         <KpiCard label="MFA Coverage" value={`${mfaCoverage.mfa_percentage ?? 0}%`} icon={Lock} color="violet" />
         <KpiCard label="Network Policies" value={data.network_policy_count ?? 0} icon={Shield} color="amber" />
       </div>
@@ -1315,13 +1712,13 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({ data, loading }:
   if (loading || !data) return <LoadingSection />;
 
   const s = data.summary || {} as any;
-  const objectCoverage = data.object_coverage || [];
-  const roleGrantDist = data.role_grant_distribution || [];
-  const privilegeDist = data.privilege_distribution || [];
-  const policyCoverage = data.policy_coverage || [];
-  const userRoleDist = data.user_role_distribution || [];
-  const recentChanges = data.recent_changes || [];
-  const auditLog = data.audit_log || [];
+  const objectCoverage = Array.isArray(data.object_coverage) ? data.object_coverage : [];
+  const roleGrantDist = Array.isArray(data.role_grant_distribution) ? data.role_grant_distribution : [];
+  const privilegeDist = Array.isArray(data.privilege_distribution) ? data.privilege_distribution : [];
+  const policyCoverage = Array.isArray(data.policy_coverage) ? data.policy_coverage : [];
+  const userRoleDist = Array.isArray(data.user_role_distribution) ? data.user_role_distribution : [];
+  const recentChanges = Array.isArray(data.recent_changes) ? data.recent_changes : [];
+  const auditLog = Array.isArray(data.audit_log) ? data.audit_log : [];
 
   const policyPieData = [
     { name: 'Masking', value: s.masking_policies ?? 0 },
@@ -1415,7 +1812,7 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({ data, loading }:
             {policyCoverage.map((p: any, i: number) => (
               <div key={i} className="rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-gray-900 dark:text-white">{p.policy_kind}</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{safeStr(p.policy_kind)}</span>
                   <div className="flex items-center gap-2">
                     <Badge size="sm" variant="flat" color="primary">{p.unique_policies} policies</Badge>
                     <Badge size="sm" variant="flat" color="success">{p.objects_covered} objects</Badge>
@@ -1432,8 +1829,8 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({ data, loading }:
             {userRoleDist.slice(0, 15).map((u: any, i: number) => (
               <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">{u.user_name}</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.roles}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">{safeStr(u.user_name)}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{Array.isArray(u.roles) ? u.roles.join(', ') : safeStr(u.roles)}</p>
                 </div>
                 <Badge size="sm" variant="flat" color={u.role_count > 5 ? 'warning' : 'primary'}>{u.role_count} roles</Badge>
               </div>
@@ -1452,8 +1849,8 @@ const GovernanceGrantsTab = memo(function GovernanceGrantsTab({ data, loading }:
                 <Badge size="sm" variant="flat" color={c.action === 'GRANTED' ? 'success' : 'danger'}>{c.action}</Badge>
                 <span className="text-xs text-gray-500 dark:text-gray-400">{relativeTime(c.action === 'GRANTED' ? c.created_on : c.deleted_on)}</span>
               </div>
-              <p className="text-sm text-gray-900 dark:text-white">{c.privilege} on {c.object_type}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Role: {c.role_name} | Object: {c.object_name}</p>
+              <p className="text-sm text-gray-900 dark:text-white">{safeStr(c.privilege)} on {safeStr(c.object_type)}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Role: {safeStr(c.role_name)} | Object: {safeStr(c.object_name)}</p>
             </div>
           ))}
           {recentChanges.length === 0 && <p className="text-sm text-gray-400 text-center py-4">No recent changes</p>}
@@ -1493,13 +1890,13 @@ const DataOperationsTab = memo(function DataOperationsTab({ data, loading }: {
 
   const loadingSummary = (data as any).loading_summary || {};
   const automationSummary = (data as any).automation_summary || {};
-  const dailyVolume = (data as any).daily_volume || [];
-  const pipeActivity = (data as any).pipe_activity || [];
-  const loadingErrors = (data as any).loading_errors || [];
-  const taskDaily = (data as any).task_daily || [];
-  const activeTasks = (data as any).active_tasks || [];
-  const dynamicTables = (data as any).dynamic_tables || [];
-  const recentTasks = (data as any).recent_tasks || [];
+  const dailyVolume = Array.isArray((data as any).daily_volume) ? (data as any).daily_volume : [];
+  const pipeActivity = Array.isArray((data as any).pipe_activity) ? (data as any).pipe_activity : [];
+  const loadingErrors = Array.isArray((data as any).loading_errors) ? (data as any).loading_errors : [];
+  const taskDaily = Array.isArray((data as any).task_daily) ? (data as any).task_daily : [];
+  const activeTasks = Array.isArray((data as any).active_tasks) ? (data as any).active_tasks : [];
+  const dynamicTables = Array.isArray((data as any).dynamic_tables) ? (data as any).dynamic_tables : [];
+  const recentTasks = Array.isArray((data as any).recent_tasks) ? (data as any).recent_tasks : [];
 
   return (
     <>
@@ -1548,8 +1945,8 @@ const DataOperationsTab = memo(function DataOperationsTab({ data, loading }: {
               {pipeActivity.slice(0, 10).map((p: any, i: number) => (
                 <div key={i} className="flex items-center justify-between rounded-lg bg-gray-50 dark:bg-gray-800 p-3">
                   <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{p.pipe_name}</p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">{p.files_inserted} files, {(p.bytes_inserted / 1048576).toFixed(1)} MB</p>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{safeStr(p.pipe_name)}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">{safeStr(p.files_inserted, '0')} files, {((Number(p.bytes_inserted) || 0) / 1048576).toFixed(1)} MB</p>
                   </div>
                   <Badge size="sm" variant="flat" color="primary">{p.credits?.toFixed(2)} credits</Badge>
                 </div>
@@ -1565,10 +1962,10 @@ const DataOperationsTab = memo(function DataOperationsTab({ data, loading }: {
               {loadingErrors.slice(0, 10).map((e: any, i: number) => (
                 <div key={i} className="rounded-lg bg-red-50 dark:bg-red-900/20 p-3">
                   <div className="flex items-center justify-between mb-1">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white">{e.table}</p>
-                    <Badge size="sm" variant="flat" color="danger">{e.error_count} errors</Badge>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{safeStr(e.table)}</p>
+                    <Badge size="sm" variant="flat" color="danger">{safeStr(e.error_count, '0')} errors</Badge>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{e.error_message}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{safeStr(e.error_message)}</p>
                 </div>
               ))}
             </div>
@@ -1679,9 +2076,9 @@ const PerformanceTab = memo(function PerformanceTab({ data, loading }: {
 }) {
   if (loading || !data) return <LoadingSection />;
 
-  const queryPerf = data.query_performance || [];
-  const slowQueries = data.slow_queries || [];
-  const queryTypes = data.query_types || [];
+  const queryPerf = Array.isArray(data.query_performance) ? data.query_performance : [];
+  const slowQueries = Array.isArray(data.slow_queries) ? data.slow_queries : [];
+  const queryTypes = Array.isArray(data.query_types) ? data.query_types : [];
 
   const avgP50 = queryPerf.length > 0
     ? Math.round(queryPerf.reduce((s: number, r: any) => s + r.p50_ms, 0) / queryPerf.length)
@@ -1784,8 +2181,8 @@ const ComputeTab = memo(function ComputeTab({ data, loading }: {
 }) {
   if (loading || !data) return <LoadingSection />;
 
-  const warehouses = data.warehouses || [];
-  const replicationDbs = data.replication?.databases || [];
+  const warehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
+  const replicationDbs = Array.isArray(data.replication?.databases) ? data.replication.databases : [];
   const totalCredits = warehouses.reduce((s, w) => s + (w.total_credits || 0), 0);
   const sorted = [...warehouses].sort((a, b) => (b.total_credits || 0) - (a.total_credits || 0));
   const topWarehouse = sorted.length > 0 ? sorted[0] : null;
@@ -1889,21 +2286,25 @@ const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, ac
 }) {
   if (loading || (!platformData && !activityFeed)) return <LoadingSection />;
 
-  const totalEvents = platformData?.event_activity?.reduce((s, e) => s + e.count, 0) ?? 0;
-  const totalSessions = platformData?.user_sessions?.reduce((s, u) => s + u.sessions, 0) ?? 0;
-  const uniqueUsersTotal = platformData?.user_sessions && platformData.user_sessions.length > 0
-    ? Math.max(...platformData.user_sessions.map(u => u.unique_users))
+  const safeEventActivity = Array.isArray(platformData?.event_activity) ? platformData.event_activity : [];
+  const safeUserSessions = Array.isArray(platformData?.user_sessions) ? platformData.user_sessions : [];
+  const safeModuleUsage = Array.isArray(platformData?.module_usage) ? platformData.module_usage : [];
+  const totalEvents = safeEventActivity.reduce((s, e) => s + e.count, 0);
+  const totalSessions = safeUserSessions.reduce((s, u) => s + u.sessions, 0);
+  const uniqueUsersTotal = safeUserSessions.length > 0
+    ? Math.max(...safeUserSessions.map(u => u.unique_users))
     : 0;
 
   // Aggregate module usage for pie chart
   const moduleAgg: Record<string, number> = {};
-  platformData?.module_usage?.forEach(m => {
+  safeModuleUsage.forEach(m => {
     moduleAgg[m.module] = (moduleAgg[m.module] || 0) + m.count;
   });
   const modulePieData = Object.entries(moduleAgg).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
 
   // Activity feed as table data
-  const activityRows = (activityFeed?.events || []).map(evt => ({
+  const safeActivityEvents = Array.isArray(activityFeed?.events) ? activityFeed.events : [];
+  const activityRows = safeActivityEvents.map(evt => ({
     module: evt.module,
     event_type: evt.event_type,
     username: evt.username,
@@ -2016,3 +2417,51 @@ const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, ac
     </>
   );
 });
+
+
+// ─── Error Boundary wrapper ──────────────────────────────────────────────────
+// Catches "Objects are not valid as React child" crashes that occur before
+// inline isApiError() guards fire (e.g. from deeply nested unexpected API shapes).
+
+class CommandCenterErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; message: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { hasError: true, message: msg };
+  }
+  componentDidCatch(err: unknown, info: React.ErrorInfo) {
+    console.error('[CommandCenter] Render error:', err, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 text-center">
+          <div className="mx-auto h-10 w-10 text-red-400 mb-4 text-4xl">⚠</div>
+          <p className="text-red-500 font-medium">Dashboard encountered a rendering error.</p>
+          <p className="text-xs text-gray-400 mt-1 mb-4">{this.state.message}</p>
+          <button
+            onClick={() => { this.setState({ hasError: false, message: '' }); window.location.reload(); }}
+            className="px-4 py-2 rounded-lg bg-red-500 text-white text-sm hover:bg-red-600 transition-colors"
+          >
+            Reload Dashboard
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+export default function CommandCenterDashboard() {
+  return (
+    <CommandCenterErrorBoundary>
+      <CommandCenterDashboardInner />
+    </CommandCenterErrorBoundary>
+  );
+}

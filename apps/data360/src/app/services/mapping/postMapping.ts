@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
+import { API_CONFIG } from '@/config/database.config';
 
 /**
  * Helper to get authentication headers with Snowflake account context
@@ -55,7 +56,7 @@ export interface TestMappingResponse {
  */
 export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
     const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/test_mapping/`;
+    const url = `${API_CONFIG.BASE_URL}/explore-design/guided/test_mapping/`;
     try {
         const response = await axios.post<TestMappingResponse>(url, payload, { headers });
         return response.data;

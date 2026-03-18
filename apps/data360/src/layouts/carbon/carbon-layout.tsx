@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useSession } from 'next-auth/react';
 import Header from '@/layouts/carbon/carbon-header';
 import { CarbonSidebar } from './carbon-sidebar';
+import ChatSidebar from '@/app/shared/chat/ChatSidebar';
 import { useSidebarCollapsed } from '@/store/sidebar-store';
 import cn from '@core/utils/class-names';
 
@@ -105,6 +106,9 @@ export default function CarbonLayout({
           </div>
         </footer>
       </motion.div>
+
+      {/* Global Chat Sidebar — visible on all pages */}
+      <ChatSidebar />
     </div>
   );
 }

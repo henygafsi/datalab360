@@ -146,7 +146,7 @@ export interface NetworkPolicy {
 
 export interface CreateNetworkPolicyRequest {
   policy_name: string;
-  allowed_ip_list: string;
+  allowed_ip_list?: string;
   blocked_ip_list?: string;
   comment?: string;
   expiration_date?: string;
@@ -744,9 +744,11 @@ export async function getNetworkPolicies(): Promise<NetworkPolicy[]> {
 export async function createNetworkPolicy(data: CreateNetworkPolicyRequest): Promise<NetworkPolicy> {
   const params: Record<string, any> = {
     policy_name: data.policy_name,
-    allowed_ip_list: data.allowed_ip_list,
   };
 
+  if (data.allowed_ip_list) {
+    params.allowed_ip_list = data.allowed_ip_list;
+  }
   if (data.blocked_ip_list) {
     params.blocked_ip_list = data.blocked_ip_list;
   }

@@ -52,6 +52,7 @@ const WIDGET_TYPES = [
       { widgetType: 'chart' as WidgetType, chartType: 'gauge' as DashboardChartType, title: 'Gauge', icon: Gauge, color: 'from-emerald-400 to-green-500' },
       { widgetType: 'chart' as WidgetType, chartType: 'bubble' as DashboardChartType, title: 'Bubble', icon: Circle, color: 'from-pink-400 to-rose-500' },
       { widgetType: 'chart' as WidgetType, chartType: 'candlestick' as DashboardChartType, title: 'Candlestick', icon: CandlestickChart, color: 'from-yellow-400 to-amber-500' },
+      { widgetType: 'chart' as WidgetType, chartType: 'radial_bar' as DashboardChartType, title: 'Radial Bar', icon: CircleDot, color: 'from-teal-400 to-cyan-500' },
     ],
   },
   {
@@ -378,7 +379,7 @@ export default function AddWidgetPanel({
                 Content (supports Markdown)
               </label>
               <textarea
-                className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm min-h-[120px]"
+                className="w-full rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 px-3 py-2 text-sm min-h-[120px]"
                 value={textContent}
                 onChange={(e) => setTextContent(e.target.value)}
                 placeholder="## My Section&#10;Some description text..."
@@ -386,13 +387,13 @@ export default function AddWidgetPanel({
             </div>
             <div className="flex justify-end gap-2">
               <button
-                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg"
+                className="px-4 py-2 text-sm text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg"
                 onClick={resetAndClose}
               >
                 Cancel
               </button>
               <button
-                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-500 disabled:opacity-50"
                 onClick={handleTextSave}
                 disabled={saving}
               >

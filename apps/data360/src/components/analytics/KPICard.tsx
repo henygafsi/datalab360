@@ -68,7 +68,7 @@ export default function KPICard({
     return (
       <div
         className={cn(
-          'border border-muted bg-gray-0 p-5 dark:bg-gray-50 lg:p-6 rounded-xl',
+          'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6 rounded-xl',
           'animate-pulse',
           className
         )}
@@ -120,7 +120,7 @@ export default function KPICard({
   return (
     <div
       className={cn(
-        'border border-muted bg-gray-0 p-5 dark:bg-gray-50 lg:p-6 rounded-xl',
+        'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6 rounded-xl',
         'transition-all duration-200 hover:shadow-md',
         className
       )}

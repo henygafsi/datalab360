@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Tooltip } from 'rizzui';
 import {
-  Camera, Loader2, RefreshCw,
+  Camera, Download, Loader2, RefreshCw, XCircle,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -15,6 +15,13 @@ import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
 import FilterBar from './FilterBar';
 import AddWidgetPanel from './AddChartPanel';
+import DashboardTemplates from './DashboardTemplates';
+import type { DashboardTemplate } from './DashboardTemplates';
+import TimeIntelligenceBar, {
+  createDefaultTimeState,
+  computePreviousRange,
+} from './TimeIntelligenceBar';
+import type { TimeIntelligenceState } from './TimeIntelligenceBar';
 
 import {
   updateWidget,
@@ -84,8 +91,11 @@ function toChartConfig(cfg: ComponentConfig): BIDashboardChartConfig {
 export default function DashboardEditor({ projectId, projectName }: DashboardEditorProps) {
   const { data: dashboard, loading, error, refetch } = useDashboard(projectId);
   const {
-    executing, executingWidgetId, results, executeAll, executeSingle, clearResults, setWidgetResult,
+    executing, executingWidgetId, results, previousResults, errors, executeAll, executeSingle, clearResults, setWidgetResult,
   } = useExecuteDashboard();
+
+  // Time intelligence state
+  const [timeState, setTimeState] = useState<TimeIntelligenceState>(createDefaultTimeState);
 
   // Local state derived from dashboard data
   const [pages, setPages] = useState<FullDashboardPage[]>([]);
@@ -94,6 +104,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   const [showAddWidget, setShowAddWidget] = useState(false);
   const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
   const [snapshotting, setSaving] = useState(false);
+  const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
 
   // Sync from API data
   useEffect(() => {
@@ -129,21 +140,22 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     [pages]
   );
 
-  // Handle page switch — clear old results
+  // Handle page switch — clear old results and reset auto-fetch key
   const handlePageSelect = useCallback(
     (pageId: string) => {
       setActivePageId(pageId);
       clearResults();
+      autoFetchedKeyRef.current = null;
     },
     [clearResults]
   );
 
-  // Execute single widget
+  // Execute single widget with current time range
   const handleExecuteSingle = useCallback(
     (widget: DashboardWidget) => {
-      executeSingle(widget);
+      executeSingle(widget, timeState.range);
     },
-    [executeSingle]
+    [executeSingle, timeState.range]
   );
 
   // Delete widget
@@ -335,6 +347,51 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     }
   }, [activePageId]);
 
+  // Apply template — create placeholder widgets from template config
+  const handleApplyTemplate = useCallback(
+    (template: DashboardTemplate) => {
+      if (!activePageId) return;
+      const templateWidgets: DashboardWidget[] = template.widgets.map((tw, i) => {
+        const yOffset = i * 4; // stack vertically
+        return {
+          widget_id: `template-${template.id}-${i}-${Date.now()}`,
+          page_id: activePageId,
+          widget_type: tw.widgetType,
+          chart_type: tw.config.chartType || null,
+          title: tw.title,
+          chart_config: {
+            database: '',
+            schema: '',
+            table: '',
+            x: tw.config.suggestedDimension || null,
+            measures: (tw.config.suggestedMeasures || []).map((col) => ({
+              column: col,
+              aggregator: 'SUM',
+            })),
+            filters: [],
+            groupBy: [],
+            limit: null,
+          },
+          position_x: 0,
+          position_y: yOffset,
+          width: tw.width,
+          height: tw.height,
+        };
+      });
+
+      setPages((prev) =>
+        prev.map((p) =>
+          p.page_id === activePageId
+            ? { ...p, widgets: [...p.widgets, ...templateWidgets] }
+            : p
+        )
+      );
+
+      toast.success(`Applied "${template.name}" template with ${template.widgets.length} widgets. Configure each widget's data source.`);
+    },
+    [activePageId]
+  );
+
   // Snapshot
   const handleSnapshot = useCallback(async () => {
     setSaving(true);
@@ -348,27 +405,71 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
     }
   }, [projectId]);
 
-  // Track which page we already auto-fetched to avoid duplicate calls
-  const autoFetchedPageRef = useRef<string | null>(null);
+  // Cross-widget filter: when a chart element is clicked, filter other widgets
+  const handleCrossWidgetFilter = useCallback((filterKey: string, filterValue: string) => {
+    setCrossWidgetFilter(prev => {
+      // Toggle off if same value clicked again
+      if (prev[filterKey] === filterValue) {
+        const next = { ...prev };
+        delete next[filterKey];
+        return next;
+      }
+      return { ...prev, [filterKey]: filterValue };
+    });
+  }, []);
 
-  // Auto-fetch data for widgets when page loads
+  const clearCrossWidgetFilter = useCallback(() => {
+    setCrossWidgetFilter({});
+  }, []);
+
+  // Track which page+timeRange we already auto-fetched to avoid duplicate calls
+  const autoFetchedKeyRef = useRef<string | null>(null);
+
+  // Build a stable key from page + time range to detect changes
+  const fetchKey = useMemo(
+    () => `${activePageId}|${timeState.range.from}|${timeState.range.to}|${timeState.compareEnabled}`,
+    [activePageId, timeState.range.from, timeState.range.to, timeState.compareEnabled]
+  );
+
+  // Auto-fetch data for widgets when page loads or time range changes
   useEffect(() => {
     if (
       activePageId &&
       pageWidgets.length > 0 &&
       !executing &&
-      autoFetchedPageRef.current !== activePageId
+      autoFetchedKeyRef.current !== fetchKey
     ) {
-      autoFetchedPageRef.current = activePageId;
-      executeAll(pageWidgets);
+      autoFetchedKeyRef.current = fetchKey;
+      const prevRange = timeState.compareEnabled ? computePreviousRange(timeState.range) : null;
+      executeAll(pageWidgets, timeState.range, prevRange);
     }
-  }, [activePageId, pageWidgets.length, executing, executeAll]);
+  }, [fetchKey, pageWidgets.length, executing, executeAll, timeState]);
+
+  // Handle time state change — trigger re-fetch
+  const handleTimeStateChange = useCallback(
+    (newState: TimeIntelligenceState) => {
+      setTimeState(newState);
+      // Reset auto-fetch key so the effect will re-trigger
+      autoFetchedKeyRef.current = null;
+    },
+    []
+  );
+
+  // Handle manual refresh (for auto-refresh timer and refresh button)
+  const handleRefreshNow = useCallback(() => {
+    autoFetchedKeyRef.current = null;
+    clearResults();
+    if (pageWidgets.length > 0) {
+      const prevRange = timeState.compareEnabled ? computePreviousRange(timeState.range) : null;
+      executeAll(pageWidgets, timeState.range, prevRange);
+    }
+  }, [pageWidgets, timeState, clearResults, executeAll]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        <span className="ml-3 text-slate-500">Loading dashboard...</span>
+        <span className="ml-3 text-slate-500 dark:text-slate-400">Loading dashboard...</span>
       </div>
     );
   }
@@ -376,8 +477,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   if (error) {
     return (
       <div className="text-center py-16">
-        <p className="text-red-500 font-medium mb-2">Failed to load dashboard</p>
-        <p className="text-sm text-slate-500 mb-4">{error.message}</p>
+        <p className="text-red-500 dark:text-red-400 font-medium mb-2">Failed to load dashboard</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">{error.message}</p>
         <Button onClick={() => refetch()}>Retry</Button>
       </div>
     );
@@ -396,6 +497,21 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               {pages.length} pages
             </Badge>
           )}
+          {Object.keys(crossWidgetFilter).length > 0 && (
+            <div className="flex items-center gap-2">
+              {Object.entries(crossWidgetFilter).map(([col, val]) => (
+                <Badge key={col} size="sm" className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 gap-1">
+                  {col}: {val}
+                  <button onClick={() => setCrossWidgetFilter(prev => { const n = { ...prev }; delete n[col]; return n; })} className="ml-1 hover:text-purple-900 dark:hover:text-purple-200">
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                </Badge>
+              ))}
+              <Button variant="text" size="sm" onClick={clearCrossWidgetFilter} className="text-xs text-purple-600 dark:text-purple-400">
+                Clear All
+              </Button>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -405,9 +521,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               size="sm"
               onClick={() => {
                 refetch();
-                autoFetchedPageRef.current = null;
-                clearResults();
-                if (pageWidgets.length > 0) executeAll(pageWidgets);
+                handleRefreshNow();
               }}
               disabled={executing}
               className="gap-1.5"
@@ -433,8 +547,39 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               <><Camera className="h-3.5 w-3.5" /> Snapshot</>
             )}
           </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={async () => {
+              try {
+                const dashboardEl = document.querySelector('[data-dashboard-grid]') || document.querySelector('.react-grid-layout');
+                if (!dashboardEl) {
+                  toast.error('No dashboard content to export');
+                  return;
+                }
+                if (typeof window !== 'undefined') {
+                  window.print();
+                  toast.success('Print dialog opened — save as PDF');
+                }
+              } catch {
+                toast.error('Export failed');
+              }
+            }}
+          >
+            <Download className="h-3.5 w-3.5" /> Export
+          </Button>
         </div>
       </div>
+
+      {/* Time Intelligence Bar */}
+      <TimeIntelligenceBar
+        state={timeState}
+        onChange={handleTimeStateChange}
+        onRefreshNow={handleRefreshNow}
+        executing={executing}
+      />
 
       {/* Page Tabs */}
       <PageTabs
@@ -453,18 +598,32 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         onFiltersChange={handleFiltersChange}
       />
 
+      {/* Template Gallery (shown when page has no widgets) */}
+      {activePageId && pageWidgets.length === 0 && (
+        <div className="mt-4">
+          <DashboardTemplates onApplyTemplate={handleApplyTemplate} />
+        </div>
+      )}
+
       {/* Dashboard Grid */}
       {activePageId && (
-        <DashboardGrid
-          widgets={pageWidgets}
-          widgetResults={results}
-          executingWidgetId={executingWidgetId}
-          onConfigureWidget={handleConfigureWidget}
-          onDeleteWidget={handleDeleteWidget}
-          onExecuteSingleWidget={handleExecuteSingle}
-          onAddWidget={() => setShowAddWidget(true)}
-          onLayoutChange={handleLayoutChange}
-        />
+        <div data-dashboard-grid>
+          <DashboardGrid
+            widgets={pageWidgets}
+            widgetResults={results}
+            previousWidgetResults={timeState.compareEnabled ? previousResults : undefined}
+            widgetErrors={errors}
+            compareEnabled={timeState.compareEnabled}
+            executingWidgetId={executingWidgetId}
+            onConfigureWidget={handleConfigureWidget}
+            onDeleteWidget={handleDeleteWidget}
+            onExecuteSingleWidget={handleExecuteSingle}
+            onAddWidget={() => setShowAddWidget(true)}
+            onLayoutChange={handleLayoutChange}
+            crossWidgetFilter={crossWidgetFilter}
+            onCrossWidgetFilter={handleCrossWidgetFilter}
+          />
+        </div>
       )}
 
       {/* Add Widget Panel */}

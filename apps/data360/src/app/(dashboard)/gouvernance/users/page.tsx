@@ -36,7 +36,7 @@ export default function UsersManagementPage() {
       />
 
       {/* Main Content */}
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         <UsersTable
           key={refreshKey}
           onAddUserSuccess={handleAddUserSuccess}

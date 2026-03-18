@@ -65,7 +65,7 @@ export default function StageGrantsTable() {
     getStageGrants(selectedStage)
       .then((data) => {
         if (!cancelled) {
-          setGrants(Array.isArray(data?.grants) ? data.grants : []);
+          setGrants(Array.isArray(data?.grants) ? (data.grants as GrantRow[]) : []);
         }
       })
       .catch((e: any) => {

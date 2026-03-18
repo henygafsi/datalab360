@@ -13,8 +13,9 @@ export async function getRoles(): Promise<RoleTableDataType[]> {
   try {
     const response = await apiClient.get('/gouvernance/roles');
     const data = response.data;
+    const safeData = Array.isArray(data) ? data : [];
 
-    const roles: RoleTableDataType[] = data.map((role: any) => ({
+    const roles: RoleTableDataType[] = safeData.map((role: any) => ({
       id: role.name || crypto.randomUUID().toString(),
       role: role.name || 'N/A',
       numberOfGrants: role.granted_roles || 0,
@@ -52,7 +53,7 @@ export async function addRole(roleName: string): Promise<string> {
 export async function getRolesForUser(username: string): Promise<string[]> {
   try {
     const response = await apiClient.get(`/gouvernance/roles-for-user/${username}`);
-    return response.data as string[];
+    return Array.isArray(response.data) ? (response.data as string[]) : [];
   } catch (error) {
     console.error('Error fetching roles for user:', error);
     throw error;

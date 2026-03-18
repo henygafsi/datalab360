@@ -38,7 +38,7 @@ const DwhLocationPickerModal: React.FC<DwhLocationPickerModalProps> = ({
     setLoadingDbs(true);
     setDbError(null);
     getDatabases()
-      .then((dbs) => setDatabases(dbs))
+      .then((dbs) => setDatabases(Array.isArray(dbs) ? dbs : []))
       .catch(() => setDbError('Failed to load databases'))
       .finally(() => setLoadingDbs(false));
   }, [isOpen]);
@@ -98,7 +98,7 @@ const DwhLocationPickerModal: React.FC<DwhLocationPickerModalProps> = ({
                     setLoadingDbs(true);
                     setDbError(null);
                     getDatabases()
-                      .then((dbs) => setDatabases(dbs))
+                      .then((dbs) => setDatabases(Array.isArray(dbs) ? dbs : []))
                       .catch(() => setDbError('Failed to load databases'))
                       .finally(() => setLoadingDbs(false));
                   }}

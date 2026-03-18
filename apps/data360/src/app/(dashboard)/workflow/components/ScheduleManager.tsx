@@ -355,7 +355,7 @@ const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }
     const loadHistory = async () => {
       try {
         const response = await workflowApi.listRuns(workflowId, { limit: 20 });
-        setHistory(response.runs || []);
+        setHistory(Array.isArray(response?.runs) ? response.runs : []);
       } catch (error) {
         console.error('Failed to load schedule history:', error);
         setHistory([]);

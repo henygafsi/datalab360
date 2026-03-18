@@ -143,7 +143,7 @@ export default function UserEditPage() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Basic Information */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Basic Information
           </h3>
@@ -181,7 +181,7 @@ export default function UserEditPage() {
         </div>
 
         {/* Snowflake Configuration */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Snowflake Configuration
           </h3>
@@ -216,7 +216,7 @@ export default function UserEditPage() {
         </div>
 
         {/* Additional Settings */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Additional Settings
           </h3>

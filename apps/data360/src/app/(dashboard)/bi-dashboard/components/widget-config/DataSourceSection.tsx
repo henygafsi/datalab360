@@ -69,7 +69,7 @@ export default function DataSourceSection({
           <button
             onClick={handleQuickPreview}
             disabled={loadingPreview}
-            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium disabled:opacity-50"
+            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium disabled:opacity-50"
           >
             <Eye className="h-3 w-3" />
             {loadingPreview ? 'Loading...' : 'Preview 10 rows'}
@@ -116,7 +116,7 @@ export default function DataSourceSection({
         <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden">
           <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
             <Table2 className="h-3.5 w-3.5 text-slate-400" />
-            <span className="text-xs font-medium text-slate-500">Preview ({previewRows.length} rows)</span>
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Preview ({previewRows.length} rows)</span>
           </div>
           <div className="overflow-x-auto max-h-48">
             <table className="w-full text-xs">
@@ -137,7 +137,7 @@ export default function DataSourceSection({
                   <tr key={i} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     {Object.values(row).map((val, j) => (
                       <td key={j} className="px-2 py-1 text-slate-700 dark:text-slate-300 whitespace-nowrap max-w-[200px] truncate">
-                        {val === null ? <span className="text-slate-300 italic">null</span> : String(val)}
+                        {val === null ? <span className="text-slate-300 dark:text-slate-600 italic">null</span> : String(val)}
                       </td>
                     ))}
                   </tr>

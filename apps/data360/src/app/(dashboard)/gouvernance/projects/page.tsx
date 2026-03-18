@@ -9,7 +9,7 @@ import {
   UserPlus, Check, X, Search, Rocket, Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { formatDistanceToNow } from 'date-fns';
 import PageHeader from '@/components/layout/PageHeader';
 import {
@@ -337,8 +337,7 @@ function ProjectRow({
 // ---------------------------------------------------------------------------
 
 export default function ProjectsGovernancePage() {
-  const { data: session } = useSession();
-  const currentUsername = (session?.user as any)?.username || '';
+  const { username: currentUsername } = useAuth();
 
   const [projects, setProjects] = useState<ProjectWithMembers[]>([]);
   const [loading, setLoading] = useState(true);
@@ -475,7 +474,7 @@ export default function ProjectsGovernancePage() {
   const fetchPendingDeploys = useCallback(async () => {
     try {
       const overview = await getProjectsOverview({ days: 90 });
-      setPendingDeploys(overview?.pending_approvals || []);
+      setPendingDeploys(Array.isArray(overview?.pending_approvals) ? overview.pending_approvals : []);
     } catch {
       // Silently fail — non-critical
     }
@@ -638,7 +637,7 @@ export default function ProjectsGovernancePage() {
         </div>
       )}
 
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6 space-y-4">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6 space-y-4">
         {/* Tabs + Search */}
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-1 border-b border-slate-200 dark:border-slate-700">

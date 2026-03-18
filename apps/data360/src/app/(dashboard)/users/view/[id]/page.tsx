@@ -146,7 +146,7 @@ export default function UserViewPage() {
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Basic Information */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Basic Information
           </h3>
@@ -175,7 +175,7 @@ export default function UserViewPage() {
         </div>
 
         {/* Snowflake Configuration */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Snowflake Configuration
           </h3>
@@ -192,7 +192,7 @@ export default function UserViewPage() {
         </div>
 
         {/* Security & Authentication */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Security & Authentication
           </h3>
@@ -237,7 +237,7 @@ export default function UserViewPage() {
         </div>
 
         {/* Additional Information */}
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
             Additional Information
           </h3>

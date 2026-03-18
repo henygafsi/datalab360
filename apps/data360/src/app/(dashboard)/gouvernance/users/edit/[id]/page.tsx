@@ -48,7 +48,8 @@ export default function EditUserPage() {
         });
       } catch (err: any) {
         console.error('Error fetching user:', err);
-        setError(err.message || 'Failed to fetch user details');
+        const errorMessage = err.response?.data?.detail || err.message || 'Failed to fetch user details';
+        setError(errorMessage);
       } finally {
         setLoading(false);
       }
@@ -92,7 +93,7 @@ export default function EditUserPage() {
           subtitle="Loading user details..."
           color="blue"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <TableSkeleton />
         </div>
       </div>
@@ -108,7 +109,7 @@ export default function EditUserPage() {
           subtitle="Error loading user"
           color="blue"
         />
-        <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
           <ErrorDisplay
             error={error || 'User not found'}
             onRetry={() => window.location.reload()}
@@ -127,26 +128,26 @@ export default function EditUserPage() {
         color="blue"
       />
 
-      <div className="bg-white dark:bg-gray-50 rounded-xl border border-muted p-6">
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         <div className="max-w-2xl space-y-6">
           {/* Username (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Username
             </label>
             <Input
               value={userData.id}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Username cannot be changed
             </p>
           </div>
 
           {/* Email */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Email *
             </label>
             <Input
@@ -160,7 +161,7 @@ export default function EditUserPage() {
 
           {/* First Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               First Name
             </label>
             <Input
@@ -172,7 +173,7 @@ export default function EditUserPage() {
 
           {/* Last Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Last Name
             </label>
             <Input
@@ -184,7 +185,7 @@ export default function EditUserPage() {
 
           {/* Display Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Display Name
             </label>
             <Input
@@ -196,25 +197,25 @@ export default function EditUserPage() {
 
           {/* Status (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Status
             </label>
             <Input
               value={userData.status}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               Use the toggle button in the user list to enable/disable users
             </p>
           </div>
 
           {/* Roles (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Assigned Roles
             </label>
-            <div className="p-3 bg-gray-100 rounded-md border border-gray-200">
+            <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded-md border border-gray-200 dark:border-gray-700">
               {userData.roles.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {userData.roles.map((role, index) => (
@@ -227,20 +228,20 @@ export default function EditUserPage() {
                   ))}
                 </div>
               ) : (
-                <span className="text-gray-500 text-sm">No roles assigned</span>
+                <span className="text-gray-500 dark:text-gray-400 text-sm">No roles assigned</span>
               )}
             </div>
           </div>
 
           {/* Created On (Read-only) */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Created On
             </label>
             <Input
               value={userData.createdOn ? new Date(userData.createdOn).toLocaleString() : 'N/A'}
               disabled
-              className="bg-gray-100"
+              className="bg-gray-100 dark:bg-gray-700"
             />
           </div>
 

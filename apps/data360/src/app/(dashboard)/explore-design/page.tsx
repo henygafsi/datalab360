@@ -2,7 +2,7 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
+import { Button, Badge, Input, Modal, Text, Tooltip, Loader } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
@@ -23,11 +23,23 @@ import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
 import {
   getRecentDeploymentErrors,
-  TableRelationship
+  TableRelationship,
+  getColumnClassification,
+  discoverRelationships,
+  listDynamicTables,
+  suspendDynamicTable,
+  resumeDynamicTable,
+  refreshDynamicTable,
+  dropDynamicTable,
+  listStreams,
+  getStreamData,
+  dropStream,
+  listAlerts,
+  dropAlert,
 } from '@/app/services/explore-design';
 import { listDDLActions } from '@/app/services/api/exploreDesignApi';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors } from '@/app/services/api/projectsApi';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import type { ContributorRole } from '@/app/services/api/types';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
@@ -537,7 +549,7 @@ function RecentDeploymentErrorsSlot() {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  if (loading) return <div className="p-4 text-sm text-slate-500">Loading…</div>;
+  if (loading) return <div className="flex justify-center items-center min-h-[400px]"><Loader size="xl" /></div>;
   if (errors.length === 0) return <div className="p-4 text-sm text-slate-500">No recent deployment errors.</div>;
   return (
     <div className="p-4 space-y-2 max-h-[300px] overflow-auto">
@@ -557,8 +569,7 @@ function RecentDeploymentErrorsSlot() {
 export default function ExploreDesignPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data: session } = useSession();
-  const currentUsername = (session?.user as any)?.username || '';
+  const { username: currentUsername } = useAuth();
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
@@ -643,6 +654,19 @@ export default function ExploreDesignPage() {
   const [eventTableModal, setEventTableModal] = useState(false);
   const [hybridTableModal, setHybridTableModal] = useState(false);
 
+  // AI column classification
+  const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
+  const [isClassifying, setIsClassifying] = useState(false);
+
+  // Data engineering object listing modal
+  const [dataEngModal, setDataEngModal] = useState<{
+    isOpen: boolean;
+    type: 'dynamic_tables' | 'streams' | 'alerts';
+    schema: string;
+    items: any[];
+    loading: boolean;
+  }>({ isOpen: false, type: 'dynamic_tables', schema: '', items: [], loading: false });
+
   // Track excluded columns per table
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
 
@@ -670,6 +694,8 @@ export default function ExploreDesignPage() {
   const [showCatalogPolicyPanel, setShowCatalogPolicyPanel] = useState(false);
   const [showIngestionPanel, setShowIngestionPanel] = useState(false);
   const [catalogIngestionMode, setCatalogIngestionMode] = useState<IngestionMode>('full_refresh');
+  const [showModelingIngestionPanel, setShowModelingIngestionPanel] = useState(false);
+  const [modelingIngestionMode, setModelingIngestionMode] = useState<IngestionMode>('full_refresh');
 
   // Phase 2-6 panels
   const [showDagViewer, setShowDagViewer] = useState(false);
@@ -836,7 +862,7 @@ export default function ExploreDesignPage() {
       try {
         const dbList = await getDatabases();
         console.log('[Explore-Design] Databases loaded:', dbList);
-        setDatabases(dbList || []);
+        setDatabases(Array.isArray(dbList) ? dbList : []);
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
         // Check if it's an auth error
@@ -1935,6 +1961,128 @@ export default function ExploreDesignPage() {
     toast.success(`Column rename "${columnName}" → "${newName}" added to pending changes`);
   }, [addEvent, selectedProjectId]);
 
+  // AI Column Classification handler
+  const handleAIClassify = useCallback(async () => {
+    if (!selectedTable || !selectedProjectId) {
+      toast.error('Select a project and table first');
+      return;
+    }
+    setIsClassifying(true);
+    try {
+      const result = await getColumnClassification(
+        selectedProjectId,
+        selectedTable.database,
+        selectedTable.schema,
+        selectedTable.table
+      );
+      const classifications = result?.classifications || result?.data?.classifications || result || {};
+      setColumnClassifications(prev => {
+        const next = new Map(prev);
+        next.set(selectedTable.id, classifications);
+        return next;
+      });
+      toast.success(`AI classified ${Object.keys(classifications).length} columns`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'AI classification failed');
+    } finally {
+      setIsClassifying(false);
+    }
+  }, [selectedTable, selectedProjectId]);
+
+  // AI Discover Relationships handler
+  const handleDiscoverRelationships = useCallback(async () => {
+    if (!selectedProjectId || tables.length === 0) {
+      toast.error('Select a project with tables first');
+      return;
+    }
+    const toastId = toast.loading('Discovering relationships...');
+    try {
+      const result = await discoverRelationships(selectedProjectId, {
+        tables: tables.map(t => ({
+          database: t.database,
+          schema: t.schema,
+          table_name: t.table,
+        })),
+      });
+      toast.dismiss(toastId);
+      const count = result?.relationships?.length || 0;
+      toast.success(`Discovered ${count} potential relationships`);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || 'Relationship discovery failed');
+    }
+  }, [selectedProjectId, tables]);
+
+  // Load data engineering objects (dynamic tables, streams, alerts)
+  const handleListDataEngObjects = useCallback(async (schema: string, type: 'dynamic_tables' | 'streams' | 'alerts') => {
+    if (!selectedDatabase) {
+      toast.error('Select a database first');
+      return;
+    }
+    setDataEngModal({ isOpen: true, type, schema, items: [], loading: true });
+    try {
+      let result: any;
+      if (type === 'dynamic_tables') result = await listDynamicTables(selectedDatabase, schema);
+      else if (type === 'streams') result = await listStreams(selectedDatabase, schema);
+      else result = await listAlerts(selectedDatabase, schema);
+      const items = result?.data || result?.items || (Array.isArray(result) ? result : []);
+      setDataEngModal(prev => ({ ...prev, items, loading: false }));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || `Failed to list ${type.replace('_', ' ')}`);
+      setDataEngModal(prev => ({ ...prev, loading: false }));
+    }
+  }, [selectedDatabase]);
+
+  // Data engineering action handlers
+  const handleDataEngAction = useCallback(async (objectName: string, action: string) => {
+    if (!selectedDatabase || !dataEngModal.schema) return;
+    const db = selectedDatabase;
+    const schema = dataEngModal.schema;
+    const toastId = toast.loading(`${action} ${objectName}...`);
+    try {
+      if (dataEngModal.type === 'dynamic_tables') {
+        if (action === 'suspend') await suspendDynamicTable(objectName, db, schema);
+        else if (action === 'resume') await resumeDynamicTable(objectName, db, schema);
+        else if (action === 'refresh') await refreshDynamicTable(objectName, db, schema);
+        else if (action === 'drop') {
+          if (!confirm(`Drop dynamic table "${objectName}"? This cannot be undone.`)) {
+            toast.dismiss(toastId);
+            return;
+          }
+          await dropDynamicTable(objectName, db, schema);
+        }
+      } else if (dataEngModal.type === 'streams') {
+        if (action === 'view_data') {
+          const data = await getStreamData(objectName, db, schema);
+          toast.dismiss(toastId);
+          toast.success(`Stream has ${data?.rows?.length || 0} change records`);
+          return;
+        } else if (action === 'drop') {
+          if (!confirm(`Drop stream "${objectName}"? This cannot be undone.`)) {
+            toast.dismiss(toastId);
+            return;
+          }
+          await dropStream(objectName, db, schema);
+        }
+      } else if (dataEngModal.type === 'alerts') {
+        if (action === 'drop') {
+          if (!confirm(`Drop alert "${objectName}"? This cannot be undone.`)) {
+            toast.dismiss(toastId);
+            return;
+          }
+          await dropAlert(objectName, db, schema);
+        }
+      }
+      toast.dismiss(toastId);
+      toast.success(`${action} "${objectName}" completed`);
+      // Refresh list
+      handleListDataEngObjects(schema, dataEngModal.type);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || `${action} failed`);
+    }
+  }, [selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
+
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
     if (readOnlyGuard()) return;
@@ -1974,6 +2122,15 @@ export default function ExploreDesignPage() {
       case 'export_ddl':
         toast.success(`Exporting DDL for ${schema}...`);
         break;
+      case 'list_dynamic_tables':
+        handleListDataEngObjects(schema, 'dynamic_tables');
+        break;
+      case 'list_streams':
+        handleListDataEngObjects(schema, 'streams');
+        break;
+      case 'list_alerts':
+        handleListDataEngObjects(schema, 'alerts');
+        break;
       case 'drop_schema':
         if (confirm(`Are you sure you want to drop schema ${schema}? This action cannot be undone.`)) {
           toast.error(`Drop schema ${schema} - operation queued`);
@@ -1982,7 +2139,7 @@ export default function ExploreDesignPage() {
       default:
         toast.error(`Unknown action: ${action}`);
     }
-  }, []);
+  }, [handleListDataEngObjects]);
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
@@ -2037,6 +2194,17 @@ export default function ExploreDesignPage() {
       {/* Header - Compact (hidden in fullscreen) */}
       {!isFullscreen && (
       <div className="px-3 lg:px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
+        <nav className="flex items-center text-xs text-gray-500 dark:text-gray-400 gap-1 mb-1">
+          <span>Home</span>
+          <span>/</span>
+          <span>Explore &amp; Design</span>
+          {selectedProjectId && selectedProjectName && (
+            <>
+              <span>/</span>
+              <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">{selectedProjectName}</span>
+            </>
+          )}
+        </nav>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
           <div className="min-w-0 flex items-center gap-3">
             <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
@@ -2731,6 +2899,31 @@ export default function ExploreDesignPage() {
                           <span className="font-medium">{tableColumns.length} Columns</span>
                         </div>
                         <div className="flex items-center gap-2">
+                          <Tooltip content="AI-classify columns as PII, Measure, Dimension, etc.">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="gap-1 text-xs"
+                              disabled={isClassifying || !selectedProjectId}
+                              onClick={handleAIClassify}
+                            >
+                              {isClassifying ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3.5 w-3.5 text-purple-500" />
+                              )}
+                              AI Classify
+                            </Button>
+                          </Tooltip>
+                          <Tooltip content="Train a full ML classification model in Intelligence">
+                            <a
+                              href="/intelligent?tab=advanced-ml&subtab=classification"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              Train Model
+                            </a>
+                          </Tooltip>
                           <Button
                             variant="outline"
                             size="sm"
@@ -2821,6 +3014,18 @@ export default function ExploreDesignPage() {
                                     NOT NULL
                                   </Badge>
                                 )}
+                                {/* AI Classification Badges */}
+                                {(() => {
+                                  const cls = columnClassifications.get(selectedTable?.id || '')?.[col.name];
+                                  if (!cls) return null;
+                                  const upper = cls.toUpperCase();
+                                  if (upper === 'PII') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
+                                  if (upper === 'MEASURE') return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[9px] font-medium">Measure</Badge>;
+                                  if (upper === 'DIMENSION') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[9px] font-medium">Dimension</Badge>;
+                                  if (upper === 'DATE_KEY') return <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[9px] font-medium">Date</Badge>;
+                                  if (upper === 'IDENTIFIER') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">ID</Badge>;
+                                  return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px]">{cls}</Badge>;
+                                })()}
                               </div>
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {/* Preview & Profile Button */}
@@ -3043,6 +3248,24 @@ export default function ExploreDesignPage() {
                         </div>
                       )}
                     </div>
+                    <Tooltip content={isReadOnly ? 'View-only access' : "Ingestion Config"}>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (readOnlyGuard()) return;
+                          if (!selectedTable) {
+                            toast.error('Please select a table first');
+                            return;
+                          }
+                          setShowModelingIngestionPanel(true);
+                        }}
+                        disabled={!selectedTable || isReadOnly}
+                        className="gap-2"
+                      >
+                        <Upload className="h-4 w-4" />
+                      </Button>
+                    </Tooltip>
                     <Tooltip content={isReadOnly ? 'View-only access' : "Manage Relationships"}>
                       <Button
                         variant="outline"
@@ -3371,7 +3594,7 @@ export default function ExploreDesignPage() {
           <Button
             className="w-full gap-2"
             onClick={() => {
-              toast.success('Auto-detecting relations...');
+              handleDiscoverRelationships();
               setShowRelationsModal(false);
             }}
           >
@@ -3779,11 +4002,156 @@ export default function ExploreDesignPage() {
         <Modal isOpen onClose={() => setShowIngestionPanel(false)} size="xl">
           <IngestionConfigPanel
             table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
+            projectId={selectedProjectId ?? undefined}
+            columns={tableColumns}
             ingestionMode={catalogIngestionMode}
             onModeChange={setCatalogIngestionMode}
           />
         </Modal>
       )}
+
+      {/* Modeling Ingestion Config Panel */}
+      {showModelingIngestionPanel && selectedTable && (
+        <Modal isOpen onClose={() => setShowModelingIngestionPanel(false)} size="xl">
+          <IngestionConfigPanel
+            table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
+            projectId={selectedProjectId ?? undefined}
+            columns={tableColumns}
+            ingestionMode={modelingIngestionMode}
+            onModeChange={setModelingIngestionMode}
+          />
+        </Modal>
+      )}
+
+      {/* Data Engineering Objects Modal */}
+      <Modal
+        isOpen={dataEngModal.isOpen}
+        onClose={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))}
+        size="lg"
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              {dataEngModal.type === 'dynamic_tables' && <><RefreshCw className="h-5 w-5 text-blue-500" /> Dynamic Tables</>}
+              {dataEngModal.type === 'streams' && <><GitBranch className="h-5 w-5 text-green-500" /> Streams</>}
+              {dataEngModal.type === 'alerts' && <><AlertTriangle className="h-5 w-5 text-amber-500" /> Alerts</>}
+              <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs ml-2">
+                {selectedDatabase}.{dataEngModal.schema}
+              </Badge>
+            </h3>
+            <button onClick={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+              <X className="h-5 w-5 text-slate-400" />
+            </button>
+          </div>
+
+          {dataEngModal.loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader size="lg" />
+            </div>
+          ) : dataEngModal.items.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+              <p className="text-sm">No {dataEngModal.type.replace('_', ' ')} found in this schema</p>
+            </div>
+          ) : (
+            <div className="divide-y dark:divide-slate-700 border rounded-lg dark:border-slate-700">
+              {dataEngModal.items.map((item: any, idx: number) => {
+                const name = item.name || item.TABLE_NAME || item.STREAM_NAME || item.ALERT_NAME || `item-${idx}`;
+                return (
+                  <div key={name} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="font-mono text-sm text-slate-900 dark:text-white truncate">{name}</span>
+                      {item.scheduling_state && (
+                        <Badge className={cn(
+                          'text-[9px]',
+                          item.scheduling_state === 'RUNNING' || item.scheduling_state === 'ACTIVE'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        )}>
+                          {item.scheduling_state}
+                        </Badge>
+                      )}
+                      {item.stale_after && (
+                        <span className="text-[10px] text-slate-400">lag: {item.stale_after}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Dynamic Table actions */}
+                      {dataEngModal.type === 'dynamic_tables' && (
+                        <>
+                          <Tooltip content="Suspend">
+                            <button
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'suspend')}
+                            >
+                              <Square className="h-3.5 w-3.5 text-yellow-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Resume">
+                            <button
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'resume')}
+                            >
+                              <Play className="h-3.5 w-3.5 text-green-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Refresh Now">
+                            <button
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'refresh')}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5 text-blue-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Drop">
+                            <button
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              onClick={() => handleDataEngAction(name, 'drop')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
+                      {/* Stream actions */}
+                      {dataEngModal.type === 'streams' && (
+                        <>
+                          <Tooltip content="View Change Data">
+                            <button
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'view_data')}
+                            >
+                              <Eye className="h-3.5 w-3.5 text-blue-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Drop">
+                            <button
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              onClick={() => handleDataEngAction(name, 'drop')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
+                      {/* Alert actions */}
+                      {dataEngModal.type === 'alerts' && (
+                        <Tooltip content="Drop">
+                          <button
+                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                            onClick={() => handleDataEngAction(name, 'drop')}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Modal>
     </div>
   );
 }

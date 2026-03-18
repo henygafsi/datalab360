@@ -48,7 +48,17 @@ export type EventType =
   | 'STREAM_CREATED'
   | 'EVENT_TABLE_CREATED'
   | 'HYBRID_TABLE_CREATED'
-  | 'ALERT_CREATED';
+  | 'ALERT_CREATED'
+  // AI-assisted events
+  | 'AI_CLASSIFICATION_APPLIED'
+  | 'AI_TYPE_CHANGE_APPLIED'
+  | 'AI_RELATION_ACCEPTED'
+  | 'AI_TEMPLATE_APPLIED'
+  | 'AI_COLUMNS_ADDED'
+  // Advanced configuration events
+  | 'SCD_CONFIG_SET'
+  | 'WHERE_CLAUSE_SET'
+  | 'QUALITY_GATE_SET';
 
 // Event Status
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
@@ -569,9 +579,55 @@ export const addEventAtom = atom(
       timestamp: new Date(),
       status: 'pending',
     };
+
+    // Cascade logic: propagate side effects to existing pending events
+    let currentEvents = [...store.events];
+
+    if (newEvent.type === 'TABLE_RENAMED') {
+      const oldName = newEvent.payload?.oldName;
+      const newName = newEvent.payload?.newName;
+      if (oldName && newName) {
+        // Update all pending events that reference the old table name in their target
+        currentEvents = currentEvents.map(e => {
+          if (e.status === 'pending' && e.target.table === oldName &&
+              e.target.database === newEvent.target.database &&
+              e.target.schema === newEvent.target.schema) {
+            return { ...e, target: { ...e.target, table: newName } };
+          }
+          return e;
+        });
+        console.debug(`[EventStore] Cascade: updated pending events referencing table ${oldName} → ${newName}`);
+      }
+    }
+
+    if (newEvent.type === 'TABLE_REMOVED_FROM_MODELING' || newEvent.type === 'COLUMN_EXCLUDED') {
+      // Check if any pending FK events reference the removed table or excluded column
+      const removedTable = newEvent.target.table;
+      const removedColumn = newEvent.target.column;
+      const affectedFKEvents = currentEvents.filter(e => {
+        if (e.status !== 'pending') return false;
+        if (e.type !== 'FOREIGN_KEY_ADDED' && e.type !== 'RELATION_CREATED') return false;
+        const refTable = e.payload?.referencedTable?.table || e.payload?.targetTable?.table;
+        const refColumns = e.payload?.referencedColumns || (e.payload?.targetColumn ? [e.payload.targetColumn] : []);
+        if (newEvent.type === 'TABLE_REMOVED_FROM_MODELING' && refTable === removedTable) return true;
+        if (newEvent.type === 'COLUMN_EXCLUDED' && refTable === removedTable && removedColumn && refColumns.includes(removedColumn)) return true;
+        return false;
+      });
+      if (affectedFKEvents.length > 0) {
+        console.warn(`[EventStore] Warning: ${affectedFKEvents.length} pending FK/relation event(s) reference ${newEvent.type === 'TABLE_REMOVED_FROM_MODELING' ? 'removed table' : 'excluded column'} ${removedTable}${removedColumn ? '.' + removedColumn : ''}`);
+        // Add warning to affected events
+        currentEvents = currentEvents.map(e => {
+          if (affectedFKEvents.some(fk => fk.id === e.id)) {
+            return { ...e, error: `References ${newEvent.type === 'TABLE_REMOVED_FROM_MODELING' ? 'removed table' : 'excluded column'}: ${removedTable}${removedColumn ? '.' + removedColumn : ''}` };
+          }
+          return e;
+        });
+      }
+    }
+
     set(eventStoreAtom, {
       ...store,
-      events: [...store.events, newEvent],
+      events: [...currentEvents, newEvent],
       redoStack: [], // Clear redo stack on new action
     });
     console.debug(`[EventStore] Event added: ${event.type} (${newEvent.id})`);

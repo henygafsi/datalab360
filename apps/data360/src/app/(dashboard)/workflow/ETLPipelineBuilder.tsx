@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import ReactFlow, {
   Node,
   Edge,
@@ -21,14 +21,16 @@ import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
-  Loader2, History, AlertCircle, CheckCircle,
-  Eye, Code, Calendar, Sparkles, Users, X
+  Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
+  Eye, Code, Calendar, Sparkles, Users, X, Clock
 } from 'lucide-react';
+import { Loader, Button } from 'rizzui';
 
 // Components
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
+import TasksPanel from './components/TasksPanel';
 import ETLExecutionHistory from './components/ETLExecutionHistory';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
@@ -153,8 +155,8 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
 // ============================================
 
 const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) => {
-  const { data: session } = useSession();
-  const accessToken = (session as any)?.user?.access_token || (session as any)?.accessToken;
+  const { isAuthenticated } = useAuth();
+  const accessToken = typeof window !== 'undefined' ? (localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '') : '';
 
   // ReactFlow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -169,18 +171,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [pipelineName, setPipelineName] = useState('New Pipeline');
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
 
   // UI state
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'tasks'>('runs');
   const [showMembers, setShowMembers] = useState(false);
+  const [showRightPanel, setShowRightPanel] = useState(true);
 
   // Role-based access
-  const currentUsername = (session?.user as any)?.username || '';
+  const { username: currentUsername } = useAuth();
   const [userRole, setUserRole] = useState<ContributorRole | null>(null);
   const isReadOnly = userRole === 'viewer';
 
@@ -204,25 +208,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // ============================================
 
   // Load workflows on mount
-  useEffect(() => {
+  const loadWorkflows = useCallback(async () => {
     if (!accessToken) return;
-
-    const loadWorkflows = async () => {
-      setIsLoading(true);
-      try {
-        const response = await listProjects({ project_type: 'workflow', mine_only: true });
-        setWorkflows(
-          (response.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
-        );
-      } catch (error) {
-        console.error('Failed to load workflows:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadWorkflows();
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const response = await listProjects({ project_type: 'workflow', mine_only: true });
+      setWorkflows(
+        (response.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
+      );
+    } catch (error) {
+      console.error('Failed to load workflows:', error);
+      setLoadError(getApiErrorMessage(error) || 'Failed to load workflows');
+    } finally {
+      setIsLoading(false);
+    }
   }, [accessToken]);
+
+  useEffect(() => {
+    loadWorkflows();
+  }, [loadWorkflows]);
 
   // ============================================
   // DRAG AND DROP
@@ -780,8 +785,60 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   const joinInputColumns = getJoinInputColumns();
 
+  // Page-level loading state
+  if (isLoading && workflows.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader size="lg" />
+      </div>
+    );
+  }
+
+  // Page-level error state
+  if (loadError && workflows.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+        <AlertTriangle className="h-10 w-10 text-amber-500" />
+        <p className="text-sm text-gray-600 dark:text-gray-400">{loadError}</p>
+        <Button onClick={loadWorkflows} variant="outline">Retry</Button>
+      </div>
+    );
+  }
+
   return (
     <div className={cn('h-full flex flex-col bg-slate-100 dark:bg-slate-900', className)}>
+      {/* Breadcrumb Header */}
+      <div className="px-3 lg:px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center justify-between gap-3">
+        <nav className="flex items-center text-xs text-gray-500 dark:text-gray-400 gap-1">
+          <span>Home</span>
+          <span>/</span>
+          <span>Workflow</span>
+          {activeWorkflowId && (
+            <>
+              <span>/</span>
+              <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">
+                {pipelineName || 'New Pipeline'}
+              </span>
+            </>
+          )}
+        </nav>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setShowRightPanel(!showRightPanel)}
+            className={cn(
+              'px-2.5 py-1.5 text-xs font-medium rounded-md border flex items-center gap-1.5 transition-colors',
+              showRightPanel
+                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
+            )}
+            title={showRightPanel ? 'Hide side panel' : 'Show side panel'}
+          >
+            {showRightPanel ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+            Panel
+          </button>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
         {/* Row 1: Pipeline selector + name + badges */}
@@ -1002,8 +1059,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           </ReactFlow>
         </div>
 
-        {/* Right panel */}
-        <div className="w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
+        {/* Right panel — conditional, PUSHES canvas */}
+        {showRightPanel && (
+        <div className="w-80 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
           {/* Tabs */}
           <div className="flex border-b border-slate-200 dark:border-slate-700">
             {[
@@ -1011,6 +1069,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               { id: 'schedules', label: 'Schedules', icon: Calendar },
               { id: 'sql', label: 'SQL', icon: Code },
               { id: 'ai', label: 'AI', icon: Sparkles },
+              { id: 'tasks', label: 'Tasks', icon: Clock },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1125,8 +1184,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </div>
             )}
 
+            {activeTab === 'tasks' && (
+              <TasksPanel
+                workflowId={activeWorkflowId}
+                onImported={() => {
+                  // Refresh workflow list after import
+                  loadWorkflows();
+                }}
+              />
+            )}
+
           </div>
         </div>
+        )}
 
         {/* Config sidebar */}
         {showSidebar && selectedNode && (
@@ -1148,8 +1218,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       {/* Loading overlay */}
       {isLoading && (
-        <div className="absolute inset-0 bg-white/80 dark:bg-slate-900/80 flex items-center justify-center z-50">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-50">
+          <Loader size="lg" />
         </div>
       )}
     </div>

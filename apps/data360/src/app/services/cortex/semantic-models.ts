@@ -1,7 +1,8 @@
 import { getAuthSession } from '@/lib/auth';
 import axios from 'axios';
+import { API_CONFIG } from '@/config/database.config';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_BASE_URL = API_CONFIG.BASE_URL;
 
 // ============================================
 // TYPES & INTERFACES
@@ -45,6 +46,8 @@ export interface SemanticModelGenerateResponse {
   tables_count: number;
   database: string;
   schema: string;
+  stage_path?: string;
+  saved?: boolean;
 }
 
 export interface StandardResponse<T = any> {
@@ -296,6 +299,31 @@ export async function generateSemanticModel(
 }
 
 /**
+ * Generate a semantic model and save it directly to SEMANTIC_STAGE
+ * One-step: picks schema → generates YAML → saves to stage
+ */
+export async function generateAndSaveSemanticModel(
+  request: SemanticModelGenerateRequest
+): Promise<SemanticModelGenerateResponse> {
+  try {
+    const headers = await getAuthHeaders();
+    const response = await axios.post<StandardResponse<SemanticModelGenerateResponse>>(
+      `${API_BASE_URL}/cortex/semantic-models/generate-and-save`,
+      request,
+      { headers }
+    );
+    const data = response.data?.data || response.data;
+    return data as SemanticModelGenerateResponse;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to generate and save semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * Delete a semantic model from the Snowflake stage
  * @param modelName - Name of the model to delete
  * @returns Success response
@@ -314,6 +342,27 @@ export async function deleteSemanticModel(modelName: string): Promise<any> {
     if (axios.isAxiosError(error)) {
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Failed to delete semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Update an existing semantic model YAML content
+ */
+export async function updateSemanticModel(modelName: string, yamlContent: string): Promise<any> {
+  try {
+    const headers = await getAuthHeaders();
+    const response = await axios.put<StandardResponse>(
+      `${API_BASE_URL}/cortex/semantic-models/${encodeURIComponent(modelName)}`,
+      { name: modelName, yaml_content: yamlContent },
+      { headers }
+    );
+    return response.data;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to update semantic model: ${message}`);
     }
     throw error;
   }

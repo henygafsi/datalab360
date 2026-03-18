@@ -19,12 +19,17 @@ interface WidgetDataResult {
 interface DashboardGridProps {
   widgets: DashboardWidget[];
   widgetResults: Record<string, WidgetDataResult>;
+  previousWidgetResults?: Record<string, WidgetDataResult>;
+  widgetErrors?: Record<string, string>;
+  compareEnabled?: boolean;
   executingWidgetId?: string | null;
   onConfigureWidget: (widget: DashboardWidget) => void;
   onDeleteWidget: (widgetId: string) => void;
   onExecuteSingleWidget: (widget: DashboardWidget) => void;
   onAddWidget: () => void;
   onLayoutChange: (updates: { widget_id: string; x: number; y: number; w: number; h: number }[]) => void;
+  crossWidgetFilter?: Record<string, string>;
+  onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
 }
 
 /** Minimum sizes per widget type */
@@ -38,12 +43,17 @@ const MIN_SIZE: Record<string, { minW: number; minH: number }> = {
 export default function DashboardGrid({
   widgets,
   widgetResults,
+  previousWidgetResults,
+  widgetErrors,
+  compareEnabled,
   executingWidgetId,
   onConfigureWidget,
   onDeleteWidget,
   onExecuteSingleWidget,
   onAddWidget,
   onLayoutChange,
+  crossWidgetFilter,
+  onCrossWidgetFilter,
 }: DashboardGridProps) {
   // Build layout from widget positions
   const layout = useMemo(
@@ -136,10 +146,15 @@ export default function DashboardGrid({
             <WidgetCard
               widget={widget}
               executionData={widgetResults[widget.widget_id]}
+              previousExecutionData={previousWidgetResults?.[widget.widget_id]}
+              fetchError={widgetErrors?.[widget.widget_id]}
+              compareEnabled={compareEnabled}
               executing={executingWidgetId === widget.widget_id}
               onConfigure={onConfigureWidget}
               onDelete={onDeleteWidget}
               onExecuteSingle={onExecuteSingleWidget}
+              crossWidgetFilter={crossWidgetFilter}
+              onCrossWidgetFilter={onCrossWidgetFilter}
             />
           </div>
         ))}
@@ -148,7 +163,7 @@ export default function DashboardGrid({
       {/* Floating Add Button */}
       <button
         onClick={onAddWidget}
-        className="fixed bottom-8 right-8 p-3 bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/30 hover:bg-blue-700 hover:scale-105 transition-all z-10"
+        className="fixed bottom-8 right-8 p-3 bg-blue-600 text-white rounded-full shadow-lg shadow-blue-500/30 dark:shadow-blue-900/40 hover:bg-blue-700 dark:hover:bg-blue-500 hover:scale-105 transition-all z-10"
         title="Add widget"
       >
         <Plus className="h-6 w-6" />

@@ -2,17 +2,23 @@
 
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { Badge, Tooltip } from 'rizzui';
-import { Settings, Trash2, Play, Loader2, GripVertical } from 'lucide-react';
+import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle } from 'lucide-react';
 import { DynamicChart } from './DynamicChart';
+import { DeltaBadge } from './TimeIntelligenceBar';
 import type { DashboardWidget } from '@/app/services/api/types';
 
 interface WidgetCardProps {
   widget: DashboardWidget;
   executionData?: { data: Record<string, unknown>[]; query?: string };
+  previousExecutionData?: { data: Record<string, unknown>[]; query?: string };
+  fetchError?: string;
+  compareEnabled?: boolean;
   executing?: boolean;
   onConfigure: (widget: DashboardWidget) => void;
   onDelete: (widgetId: string) => void;
   onExecuteSingle: (widget: DashboardWidget) => void;
+  crossWidgetFilter?: Record<string, string>;
+  onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
 }
 
 // ─── Number Formatting ──────────────────────────────────────────────
@@ -78,9 +84,13 @@ function matchSeuil(seuils: Seuil[], numValue: number): Seuil | null {
 
 function KpiCardContent({
   data,
+  previousData,
+  compareEnabled,
   widget,
 }: {
   data?: Record<string, unknown>[];
+  previousData?: Record<string, unknown>[];
+  compareEnabled?: boolean;
   widget: DashboardWidget;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -103,7 +113,7 @@ function KpiCardContent({
 
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+      <div className="flex items-center justify-center h-full text-slate-400 dark:text-slate-500 text-sm">
         No data
       </div>
     );
@@ -161,6 +171,15 @@ function KpiCardContent({
           {seuilLabel}
         </span>
       )}
+      {compareEnabled && previousData && previousData.length > 0 && !isNaN(numValue) && (() => {
+        const prevRow = previousData[0];
+        const prevKeys = Object.keys(prevRow).filter((k) => !k.endsWith('_status'));
+        const prevValueKey = prevKeys[0];
+        const prevRaw = prevRow[prevValueKey];
+        const prevNum = typeof prevRaw === 'number' ? prevRaw : parseFloat(String(prevRaw));
+        if (isNaN(prevNum)) return null;
+        return <DeltaBadge currentValue={numValue} previousValue={prevNum} />;
+      })()}
     </div>
   );
 }
@@ -170,13 +189,15 @@ function KpiCardContent({
 function TableContent({
   data,
   selectedColumns,
+  onRowClick,
 }: {
   data?: Record<string, unknown>[];
   selectedColumns?: string[];
+  onRowClick?: (filterKey: string, filterValue: string) => void;
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+      <div className="flex items-center justify-center h-full text-slate-400 dark:text-slate-500 text-sm">
         No data
       </div>
     );
@@ -205,7 +226,15 @@ function TableContent({
           {data.slice(0, 200).map((row, i) => (
             <tr
               key={i}
-              className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"
+              className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${onRowClick ? 'cursor-pointer' : ''}`}
+              onClick={() => {
+                if (!onRowClick) return;
+                // Use the first string column as filter key/value
+                const firstStringCol = columns.find((c) => typeof row[c] === 'string' && row[c] != null);
+                if (firstStringCol) {
+                  onRowClick(firstStringCol, String(row[firstStringCol]));
+                }
+              }}
             >
               {columns.map((col) => (
                 <td
@@ -259,11 +288,34 @@ const WIDGET_TYPE_LABELS: Record<string, string> = {
 export default function WidgetCard({
   widget,
   executionData,
+  previousExecutionData,
+  fetchError,
+  compareEnabled,
   executing,
   onConfigure,
   onDelete,
   onExecuteSingle,
+  crossWidgetFilter,
+  onCrossWidgetFilter,
 }: WidgetCardProps) {
+  // Apply cross-widget filter to execution data (client-side)
+  const filteredExecutionData = useMemo(() => {
+    if (!executionData?.data || !crossWidgetFilter || Object.keys(crossWidgetFilter).length === 0) {
+      return executionData;
+    }
+    const filtered = executionData.data.filter((row) =>
+      Object.entries(crossWidgetFilter).every(([col, val]) => {
+        const cellVal = row[col];
+        return cellVal != null && String(cellVal) === val;
+      })
+    );
+    // Only apply if the filter column exists in this widget's data
+    const hasFilterColumn = executionData.data.length > 0 &&
+      Object.keys(crossWidgetFilter).some((col) => col in executionData.data[0]);
+    if (!hasFilterColumn) return executionData;
+    return { ...executionData, data: filtered };
+  }, [executionData, crossWidgetFilter]);
+
   const isDataWidget = ['chart', 'kpi_card', 'table'].includes(
     widget.widget_type
   );
@@ -286,7 +338,7 @@ export default function WidgetCard({
   }, [widget, executionData]);
 
   return (
-    <div className="group relative h-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm hover:shadow-md transition-shadow overflow-hidden flex flex-col">
+    <div className="group relative h-full bg-white dark:bg-slate-900 rounded-xl border border-slate-200/60 dark:border-slate-700/60 shadow-sm dark:shadow-gray-900/20 hover:shadow-md dark:hover:shadow-gray-900/30 transition-shadow overflow-hidden flex flex-col">
       {/* Title Bar */}
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
         <div className="flex items-center gap-2 min-w-0">
@@ -353,27 +405,47 @@ export default function WidgetCard({
         )}
 
         {widget.widget_type === 'kpi_card' && (
-          <KpiCardContent data={executionData?.data} widget={widget} />
+          <KpiCardContent
+            data={filteredExecutionData?.data}
+            previousData={previousExecutionData?.data}
+            compareEnabled={compareEnabled}
+            widget={widget}
+          />
         )}
 
         {widget.widget_type === 'table' && (
           <TableContent
-            data={executionData?.data}
+            data={filteredExecutionData?.data}
             selectedColumns={
               widget.chart_config?.columns || widget.chart_config?.groupBy
             }
+            onRowClick={onCrossWidgetFilter}
           />
         )}
 
-        {widget.widget_type === 'chart' && dynamicConfig && (
+        {widget.widget_type === 'chart' && dynamicConfig && filteredExecutionData && (
           <div className="h-full w-full">
-            <DynamicChart config={dynamicConfig} enabled={!executionData} />
+            <DynamicChart config={{ ...dynamicConfig, prefetched: filteredExecutionData ? { data: filteredExecutionData.data } : undefined }} enabled={!filteredExecutionData} />
           </div>
         )}
 
-        {/* Loading state for data widgets before execution */}
-        {isDataWidget && !executionData && widget.widget_type !== 'chart' && (
-          <div className="flex items-center justify-center h-full text-slate-400 text-sm gap-2">
+        {/* Error state — shown when data fetch failed (e.g. invalid column names in SQL) */}
+        {isDataWidget && fetchError && (
+          <div className="flex flex-col items-center justify-center h-full text-center gap-2 px-3">
+            <AlertTriangle className="h-5 w-5 text-amber-400 flex-shrink-0" />
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-snug line-clamp-3">{fetchError}</p>
+            <button
+              className="text-xs text-blue-500 hover:underline mt-1"
+              onClick={() => onExecuteSingle(widget)}
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Loading state for data widgets before execution (all types including chart) */}
+        {isDataWidget && !filteredExecutionData && !fetchError && (
+          <div className="flex items-center justify-center h-full text-slate-400 dark:text-slate-500 text-sm gap-2">
             <Loader2 className="h-4 w-4 animate-spin" />
             Loading...
           </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button, Input, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -41,6 +42,8 @@ const EXAMPLE_QUERIES = [
 ];
 
 export default function CortexChatContent() {
+  const searchParams = useSearchParams();
+  const modelFromUrl = searchParams.get('model') || '';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
@@ -48,12 +51,20 @@ export default function CortexChatContent() {
 
   // Semantic model selection
   const [models, setModels] = useState<SemanticModel[]>([]);
-  const [selectedModel, setSelectedModel] = useState('');
+  const [selectedModel, setSelectedModel] = useState(modelFromUrl);
   const [loadingModels, setLoadingModels] = useState(true);
 
   useEffect(() => {
     loadModels();
   }, []);
+
+  // If model param changes from URL (e.g. "Use in Chat" from semantic models)
+  useEffect(() => {
+    if (modelFromUrl && modelFromUrl !== selectedModel) {
+      setSelectedModel(modelFromUrl);
+      toast.success(`Model "${modelFromUrl}" selected for chat`);
+    }
+  }, [modelFromUrl]);
 
   const loadModels = async () => {
     setLoadingModels(true);
@@ -61,10 +72,11 @@ export default function CortexChatContent() {
       const data = await listSemanticModels();
       const modelsArray = Array.isArray(data) ? data : [];
       setModels(modelsArray);
-      if (modelsArray.length > 0 && !selectedModel) {
+      if (modelsArray.length > 0 && !selectedModel && !modelFromUrl) {
         setSelectedModel(modelsArray[0].name.replace('.yaml', ''));
       }
-    } catch {
+    } catch (err: any) {
+      console.error('[CortexChat] Failed to load models:', err?.message);
       setModels([]);
     } finally {
       setLoadingModels(false);

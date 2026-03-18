@@ -321,3 +321,83 @@ export async function listTopInsights() {
   const { data } = await apiClient.get(`${PREFIX}/ml/top-insights`);
   return data;
 }
+
+// =============================================================================
+// ML MODELS REGISTRY
+// =============================================================================
+
+export interface MLRegistryModel {
+  MODEL_ID: string;
+  MODEL_TYPE: string;
+  MODEL_NAME: string;
+  BASE_MODEL?: string;
+  TRAINING_DATA?: string;
+  STATUS: string;
+  CREATED_BY?: string;
+  CREATED_AT?: string;
+}
+
+/**
+ * List all ML models from the unified registry
+ * GET /cortex/ml/registry
+ */
+export async function getModelRegistry(modelType?: string) {
+  const params = modelType ? { model_type: modelType } : {};
+  const { data } = await apiClient.get(`${PREFIX}/ml/registry`, { params });
+  return data;
+}
+
+// =============================================================================
+// DOCUMENT AI — FILE UPLOAD & EXTRACTION
+// =============================================================================
+
+/**
+ * Upload a document (PDF/image) to Document AI stage
+ * POST /cortex/ml/document-ai/upload
+ */
+export async function uploadDocument(file: File) {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await apiClient.post(`${PREFIX}/ml/document-ai/upload`, formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+/**
+ * Extract data from a document and insert into a target table
+ * POST /cortex/ml/document-ai/extract-to-table
+ */
+export async function extractDocumentToTable(params: {
+  model_name: string;
+  stage: string;
+  file_path: string;
+  target_table: string;
+  database?: string;
+  schema?: string;
+}) {
+  const { data } = await apiClient.post(`${PREFIX}/ml/document-ai/extract-to-table`, params);
+  return data;
+}
+
+/**
+ * Get predefined document extraction templates
+ * GET /cortex/ml/document-ai/templates
+ */
+export async function getDocumentTemplates() {
+  const { data } = await apiClient.get(`${PREFIX}/ml/document-ai/templates`);
+  return data;
+}
+
+// =============================================================================
+// BI DASHBOARD AI INSIGHT
+// =============================================================================
+
+/**
+ * Get AI-powered insight for a BI chart
+ * POST /api/v1/bi-dashboard/charts/{chartId}/ai-insight
+ */
+export async function getChartAIInsight(chartId: string) {
+  const { data } = await apiClient.post(`/api/v1/bi-dashboard/charts/${encodeURIComponent(chartId)}/ai-insight`);
+  return data;
+}

@@ -58,3 +58,17 @@ export type {
   AnalyzeTopInsightsRequest,
   TopInsightsInstance,
 } from './ml-advanced';
+
+// Query Analytics (Cortex-powered query history analysis)
+export {
+  runQueryAnalysis,
+  getQueryAnalyticsResults,
+  getQueryAnalyticsSummary,
+  getRedundantGroups,
+} from './query-analytics';
+export type {
+  AnalyticsResult,
+  AnalyticsSummary,
+  RedundantGroup,
+  RunAnalysisResponse,
+} from './query-analytics';

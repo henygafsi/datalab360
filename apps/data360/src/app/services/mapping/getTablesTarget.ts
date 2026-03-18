@@ -3,6 +3,7 @@
 
 import axios from "axios";
 import { getSession } from "next-auth/react";
+import { API_CONFIG } from '@/config/database.config';
 
 interface TableObject {
     name: string;
@@ -48,7 +49,7 @@ function isTableObject(obj: unknown): obj is TableObject {
  */
 export const getTablesTarget = async (databaseName: string, schemaName: string): Promise<string[]> => {
     const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/common/tables/${databaseName}/${schemaName}`;
+    const url = `${API_CONFIG.BASE_URL}/common/tables/${databaseName}/${schemaName}`;
 
     try {
         const response = await axios.get(url, { headers });

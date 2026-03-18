@@ -13,8 +13,9 @@ export async function getUsers(): Promise<UserTableDataType[]> {
   try {
     const response = await apiClient.get('/gouvernance/users');
     const data = response.data;
+    const safeData = Array.isArray(data) ? data : [];
 
-    const users: UserTableDataType[] = data.map((user: any) => {
+    const users: UserTableDataType[] = safeData.map((user: any) => {
       let roles: string[] = [];
       if (user.default_role) {
         roles.push(user.default_role);

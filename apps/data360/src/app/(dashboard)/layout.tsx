@@ -12,7 +12,7 @@ type LayoutProps = {
 export default function DefaultLayout({ children }: LayoutProps) {
   return (
     <SessionGuard>
-      <CacheInvalidationProvider debug showIndicator>
+      <CacheInvalidationProvider showIndicator>
         <LayoutProvider>{children}</LayoutProvider>
       </CacheInvalidationProvider>
     </SessionGuard>

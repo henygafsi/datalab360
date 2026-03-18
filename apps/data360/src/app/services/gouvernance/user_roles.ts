@@ -215,8 +215,8 @@ export async function getUsersWithRolesAndModules(): Promise<
       apiClient.get('/gouvernance/grants')
     ]);
 
-    const users = usersResponse.data;
-    const roleGrants: { role_name: string; modules: string[] }[] = grantsResponse.data;
+    const users = Array.isArray(usersResponse.data) ? usersResponse.data : [];
+    const roleGrants: { role_name: string; modules: string[] }[] = Array.isArray(grantsResponse.data) ? (grantsResponse.data as { role_name: string; modules: string[] }[]) : [];
 
     console.log('[getUsersWithRolesAndModules] Fetched users with roles:', users.length);
 

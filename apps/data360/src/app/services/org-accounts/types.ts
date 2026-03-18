@@ -998,6 +998,8 @@ export interface DataOperationsOverviewResponse {
 
 export interface CommandCenterFilters {
   days: number;
+  start_date?: string;
+  end_date?: string;
   project_type?: string;
   username?: string;
   status?: string;

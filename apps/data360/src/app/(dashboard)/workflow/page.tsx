@@ -10,7 +10,8 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight } from 'lucide-react';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
+import { Loader, Button } from 'rizzui';
 import ETLPipelineBuilder from './ETLPipelineBuilder';
 import { ProjectContextPanel } from '@/app/shared/project-context';
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -81,9 +82,15 @@ const WorkflowHomePage: React.FC = () => {
 
   useEffect(() => {
     const fetchSessionAndWorkflows = async () => {
-      const session = await getSession();
-      if (session?.user?.access_token) {
-        const token = session.user.access_token as string;
+      // Try localStorage first (reliable), fall back to getSession
+      let token = localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '';
+      if (!token) {
+        try {
+          const session = await getSession();
+          token = (session?.user as any)?.access_token || '';
+        } catch { /* getSession may fail without SessionProvider */ }
+      }
+      if (token) {
         setAccessToken(token);
         await fetchWorkflowsRef.current?.(token);
       } else {
@@ -100,7 +107,7 @@ const WorkflowHomePage: React.FC = () => {
     try {
       // Fetch workflow projects via unified project API
       const projectsData = await listProjects({ project_type: 'workflow', mine_only: true });
-      const projectList = projectsData.projects || [];
+      const projectList = Array.isArray(projectsData?.projects) ? projectsData.projects : [];
 
       // For each project, fetch its steps to build BackendWorkflow objects
       const backendWorkflows: BackendWorkflow[] = await Promise.all(
@@ -688,21 +695,18 @@ const WorkflowHomePage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen text-xl bg-slate-50 dark:bg-slate-900">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-          <span className="text-slate-600 dark:text-slate-300">Loading workflows...</span>
-        </div>
+      <div className="flex justify-center items-center min-h-[400px] bg-slate-50 dark:bg-slate-900">
+        <Loader size="xl" />
       </div>
     );
   }
   if (error) {
     const errorText = typeof error === 'string' ? error : (error && typeof (error as any).message === 'string' ? (error as any).message : JSON.stringify(error));
     return (
-      <div className="flex justify-center items-center h-screen bg-slate-50 dark:bg-slate-900">
-        <div className="text-red-500 text-xl p-6 bg-white dark:bg-slate-800 rounded-lg shadow-lg">
-          Error: {errorText}
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-slate-50 dark:bg-slate-900">
+        <AlertTriangle className="h-10 w-10 text-amber-500" />
+        <p className="text-sm text-gray-600 dark:text-gray-400">{errorText}</p>
+        <Button onClick={() => fetchWorkflows()} variant="outline">Retry</Button>
       </div>
     );
   }
@@ -1112,7 +1116,7 @@ const WorkflowPageWithToggle: React.FC = () => {
   
 
   return (
-    <div className="flex flex-col h-screen">
+    <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
       <div className="flex-1 overflow-hidden">
         <ETLPipelineBuilder />
       </div>

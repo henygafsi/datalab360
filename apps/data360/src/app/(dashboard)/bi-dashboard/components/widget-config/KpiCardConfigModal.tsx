@@ -209,14 +209,14 @@ export default function KpiCardConfigModal({
               </div>
               <button
                 onClick={addSeuil}
-                className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 font-medium"
+                className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
               >
                 <Plus className="h-3 w-3" /> Add Threshold
               </button>
             </div>
 
             {seuils.length === 0 && (
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-400 dark:text-slate-500">
                 No thresholds set. KPI will display without status indicators.
               </p>
             )}
@@ -284,7 +284,7 @@ export default function KpiCardConfigModal({
                         type="color"
                         value={seuil.color}
                         onChange={(e) => updateSeuil(i, 'color', e.target.value)}
-                        className="w-8 h-8 rounded border border-slate-300 cursor-pointer"
+                        className="w-8 h-8 rounded border border-slate-300 dark:border-slate-600 cursor-pointer"
                       />
                     </div>
                     <button

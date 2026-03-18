@@ -207,33 +207,31 @@ export const API_CONTRACTS = {
   workflow: {
     createWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/create_workflow/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/create_workflow/`,
+      path: '/api/v1/workflows',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
     },
     getWorkflows: {
       method: 'GET' as const,
-      path: '/workflow/get_workflows/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/get_workflows/`,
+      path: '/api/v1/workflows',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
     },
     executeWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/execute_workflow/',
-      getUrl: (workflowName: string) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/workflow/execute_workflow/`);
-        url.searchParams.set('workflow_name', workflowName);
-        return url.toString();
-      },
+      path: '/api/v1/workflows/{workflow_id}/execute',
+      getUrl: (workflowId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/workflows/${encodeURIComponent(workflowId)}/execute`,
     },
     scheduleDeployment: {
       method: 'POST' as const,
-      path: '/workflow/deployments/schedule',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/deployments/schedule`,
+      path: '/api/v1/workflows/{workflow_id}/deployments',
+      getUrl: (workflowId: string) =>
+        `${API_CONFIG.BASE_URL}/api/v1/workflows/${encodeURIComponent(workflowId)}/deployments`,
     },
-    /** Backend: POST /workflow/rename_workflow/ */
+    /** Backend: POST /api/v1/workflows */
     renameWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/rename_workflow/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/rename_workflow/`,
+      path: '/api/v1/workflows',
+      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
     },
   },
   biRetail: {

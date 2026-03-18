@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 // v1 API — /api/v1/explore-design/* and /api/v1/projects/*
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
 import { rollbackVersion, bulkUpdateEvents } from '@/app/services/api/projectsApi';
@@ -86,6 +86,8 @@ import DryRunPanel from './DryRunPanel';
 import PostVerifyBanner, { type PostVerifyResult } from './PostVerifyBanner';
 import { analyzeDeploymentRisk as computeDeploymentRisk } from '../services/ai-analyzers';
 import type { DesignEvent as AiDesignEvent } from '../stores/event-store';
+import { verifyDeployment } from '@/app/services/explore-design';
+import type { ExploreDeployment } from '@/app/services/api/types';
 
 // Test result interface
 interface TestResult {
@@ -193,6 +195,17 @@ const EVENT_PRIORITY: Record<EventType, number> = {
   // Priority 9: Table renames (should be last to avoid breaking references)
   'TABLE_RENAMED': 9,
 
+  // AI-assisted events (metadata, no structural SQL needed)
+  'AI_CLASSIFICATION_APPLIED': 8,
+  'AI_TYPE_CHANGE_APPLIED': 8,
+  'AI_RELATION_ACCEPTED': 5,
+  'AI_TEMPLATE_APPLIED': 8,
+  'AI_COLUMNS_ADDED': 2,
+
+  // Advanced configuration events
+  'SCD_CONFIG_SET': 8,
+  'WHERE_CLAUSE_SET': 8,
+  'QUALITY_GATE_SET': 8,
 };
 
 /**
@@ -551,7 +564,7 @@ const generateSnowflakeSQL = (event: DesignEvent): { sql: string; rollbackSql?: 
       }).join(',\n');
 
       const primaryKeys = event.payload.primaryKeys || columns.filter((c: any) => c.primaryKey).map((c: any) => c.name);
-      let createSql = `CREATE TABLE ${tableRef} (\n${columnDefs}`;
+      let createSql = `CREATE TABLE IF NOT EXISTS ${tableRef} (\n${columnDefs}`;
       if (primaryKeys.length > 0) {
         createSql += `,\n  PRIMARY KEY (${primaryKeys.join(', ')})`;
       }
@@ -857,8 +870,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   schemas = [],
   projectId: projectIdProp
 }) => {
-  const { data: session } = useSession();
-  const currentUser = (session?.user as any)?.username || session?.user?.email || 'current_user';
+  const { username } = useAuth();
+  const currentUser = username || 'current_user';
 
   // Use provided projectId prop, or generate from database context as fallback
   // IMPORTANT: Calculate projectId BEFORE calling useEventStore so events are filtered correctly
@@ -933,6 +946,73 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
   // Per-table ingestion mode overrides: tableKey -> IngestionMode
   const [ingestionModeOverrides, setIngestionModeOverrides] = useState<Record<string, IngestionMode>>({});
+
+  // Backend deployment list state
+  const [backendDeployments, setBackendDeployments] = useState<ExploreDeployment[]>([]);
+  const [isLoadingDeployments, setIsLoadingDeployments] = useState(false);
+  const [deploymentActionLoading, setDeploymentActionLoading] = useState<string | null>(null);
+
+  // Load backend deployments
+  const loadBackendDeployments = useCallback(async () => {
+    if (!projectId) return;
+    setIsLoadingDeployments(true);
+    try {
+      const result = await exploreDesignApi.listDeployments(projectId);
+      setBackendDeployments(result.deployments || []);
+    } catch (err: any) {
+      console.error('[DeploymentValidation] Failed to load deployments:', err);
+    } finally {
+      setIsLoadingDeployments(false);
+    }
+  }, [projectId]);
+
+  // Load deployments on mount and when projectId changes
+  React.useEffect(() => {
+    loadBackendDeployments();
+  }, [loadBackendDeployments]);
+
+  // Deployment lifecycle action handlers
+  const handleDeploymentAction = useCallback(async (
+    action: 'approve' | 'reject' | 'execute' | 'cancel' | 'verify',
+    dep: ExploreDeployment
+  ) => {
+    if (!projectId) return;
+    setDeploymentActionLoading(dep.deployment_id);
+    try {
+      switch (action) {
+        case 'approve':
+          await exploreDesignApi.approveDeployment(projectId, dep.deployment_id);
+          toast.success(`Deployment ${dep.deployment_id.slice(0, 8)} approved`);
+          break;
+        case 'reject':
+          await exploreDesignApi.rejectDeployment(projectId, dep.deployment_id, { reason: 'Rejected by user' });
+          toast.success(`Deployment ${dep.deployment_id.slice(0, 8)} rejected`);
+          break;
+        case 'execute':
+          await exploreDesignApi.executeDeployment(projectId, dep.deployment_id);
+          toast.success(`Deployment ${dep.deployment_id.slice(0, 8)} execution started`);
+          break;
+        case 'cancel':
+          await exploreDesignApi.cancelDeployment(projectId, dep.deployment_id);
+          toast.success(`Deployment ${dep.deployment_id.slice(0, 8)} cancelled`);
+          break;
+        case 'verify':
+          await verifyDeployment(projectId, dep.deployment_id, {
+            database: database || '',
+            schema: schemas?.[0] || '',
+          });
+          toast.success(`Deployment ${dep.deployment_id.slice(0, 8)} verified`);
+          break;
+      }
+      // Refresh the list after any action
+      await loadBackendDeployments();
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err.message || `Failed to ${action} deployment`;
+      toast.error(msg);
+    } finally {
+      setDeploymentActionLoading(null);
+    }
+  }, [projectId, database, schemas, loadBackendDeployments]);
 
   // Load scheduled deployments from localStorage
   React.useEffect(() => {
@@ -1040,6 +1120,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
     'FOREIGN_KEY_ADDED', 'FOREIGN_KEY_REMOVED', 'RELATION_CREATED', 'RELATION_REMOVED',
     'MASKING_POLICY_APPLIED', 'MASKING_POLICY_REMOVED', 'RLS_POLICY_APPLIED', 'RLS_POLICY_REMOVED',
     'AGGREGATION_POLICY_APPLIED', 'AGGREGATION_POLICY_REMOVED',
+    'DYNAMIC_TABLE_CREATED', 'STREAM_CREATED', 'EVENT_TABLE_CREATED',
+    'HYBRID_TABLE_CREATED', 'ALERT_CREATED', 'AI_COLUMNS_ADDED', 'AI_RELATION_ACCEPTED',
   ];
 
   // Filter pending events to only DDL-relevant ones
@@ -1188,6 +1270,156 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         breakdown.push({ factor: `DROP PK on ${table}`, points: 15, reason: 'Integrity constraint removed' });
       } else if (ev.type === 'FOREIGN_KEY_REMOVED') {
         breakdown.push({ factor: `DROP FK on ${table}`, points: 10, reason: 'Referential integrity lost' });
+    toast.loading('Validating events...');
+
+    // Convert local events to API format
+    const apiEvents = pendingEvents.map(e => ({
+      event_id: e.id,
+      event_type: e.type,
+      target: e.target,
+      payload: e.payload,
+      status: e.status,
+      created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
+    }));
+
+    if (useBackend) {
+      try {
+        // Step 1: Register DDL events in a single batch call
+        toast.loading('Registering DDL actions...');
+
+        const actionsToRegister = pendingEvents
+          .map((event) => {
+            const { sql } = generateSnowflakeSQL(event);
+            if (!sql || sql.trim().startsWith('--')) return null;
+            return {
+              ddl_sql: sql,
+              ddl_type: inferDDLType(event.type),
+              target_table: `${event.target.database}.${event.target.schema}.${event.target.table}`,
+              description: `${event.type}: ${event.target.table}${event.target.column ? '.' + event.target.column : ''}`,
+            };
+          })
+          .filter((a): a is NonNullable<typeof a> => a !== null);
+
+        let registeredCount = 0;
+        if (actionsToRegister.length > 0) {
+          try {
+            const batchResult = await exploreDesignApi.batchAddDDLActions(projectId, { actions: actionsToRegister });
+            registeredCount = batchResult?.registered ?? actionsToRegister.length;
+          } catch (regErr: any) {
+            console.warn('[Validation] Batch DDL registration failed:', regErr);
+          }
+        }
+
+        toast.dismiss();
+        if (registeredCount > 0) {
+          toast.success(`Registered ${registeredCount} DDL actions`);
+        }
+
+        // Step 2: Execute/validate all pending DDL actions
+        toast.loading('Executing DDL actions for validation...');
+        const ddlResult = await exploreDesignApi.executeDDLActions(projectId);
+        toast.dismiss();
+
+        // Map DDL execution results to validation results
+        const ddlResultsArray = ddlResult.results || [];
+        let validCount = 0;
+        let invalidCount = 0;
+
+        for (const event of pendingEvents) {
+          const { sql } = generateSnowflakeSQL(event);
+          // Find matching DDL result by SQL content or by target table name
+          const matchingResult = ddlResultsArray.find(
+            (r: any) =>
+              (sql && r.ddl_sql && r.ddl_sql.trim() === sql.trim()) ||
+              r.target_table?.toLowerCase().includes(event.target.table.toLowerCase()) ||
+              r.event_id === event.id
+          );
+
+          const isValid = matchingResult
+            ? matchingResult.status === 'SUCCESS'
+            : (sql ? false : true); // Events without SQL are considered valid
+
+          // Build a rich error string from error_detail when available
+          const buildErrorMessage = (result: any): string => {
+            if (!result) return 'DDL execution failed — no matching DDL result found';
+            const detail = result.error_detail;
+            if (detail?.user_message) {
+              const fix = detail.suggested_fix ? ` | Fix: ${detail.suggested_fix}` : '';
+              const code = detail.error_code ? ` (code ${detail.error_code})` : '';
+              return `${detail.user_message}${code}${fix}`;
+            }
+            return result.error || 'DDL execution failed';
+          };
+
+          const errorMessage = isValid ? undefined : buildErrorMessage(matchingResult);
+
+          const testResult: TestResult = {
+            eventId: event.id,
+            success: isValid,
+            message: isValid ? 'DDL action executed successfully' : (errorMessage || 'DDL execution failed'),
+            sql: sql || undefined,
+            error: isValid ? undefined : (errorMessage || 'DDL execution failed'),
+            duration: 50,
+          };
+          results.set(event.id, testResult);
+          updateEventStatus({
+            eventId: event.id,
+            status: isValid ? 'validated' : 'failed',
+            error: errorMessage,
+          });
+
+          if (isValid) validCount++;
+          else invalidCount++;
+        }
+
+        if (invalidCount === 0) {
+          toast.success(`Validated ${validCount} events successfully (${ddlResult.executed} DDL executed)`);
+        } else {
+          toast.error(`${invalidCount} of ${pendingEvents.length} events failed validation (${ddlResult.failed} DDL failed)`);
+        }
+      } catch (error: any) {
+        console.error('Backend validation error:', error);
+        setBackendError(getApiErrorMessage(error) || error.message || 'Backend validation failed');
+        toast.dismiss();
+        toast.error('Backend unavailable, falling back to local validation');
+
+        // Fall back to local validation
+        for (const event of pendingEvents) {
+          const result = validateEventLocally_Internal(event);
+          results.set(event.id, result);
+          updateEventStatus({
+            eventId: event.id,
+            status: result.success ? 'validated' : 'failed',
+            error: result.error,
+          });
+        }
+      }
+    } else {
+      // Local-only validation
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      for (const event of pendingEvents) {
+        const result = validateEventLocally_Internal(event);
+        results.set(event.id, result);
+        setTestResults(new Map(results));
+
+        updateEventStatus({
+          eventId: event.id,
+          status: result.success ? 'validated' : 'failed',
+          error: result.error,
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      toast.dismiss();
+      const successCount = Array.from(results.values()).filter((r) => r.success).length;
+      const failCount = results.size - successCount;
+
+      if (failCount === 0) {
+        toast.success(`All ${successCount} events validated locally`);
+      } else {
+        toast.error(`${failCount} of ${results.size} events failed local validation`);
       }
     }
     const maskingEvents = events.filter(e => e.type === 'MASKING_POLICY_APPLIED');
@@ -1444,32 +1676,31 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           console.log('[Deployment] SQL statements to register:', sqlStatements.length);
 
           if (sqlStatements.length > 0) {
-            // Step 1: Register each SQL statement as a DDL action
+            // Step 1: Register all SQL statements as DDL actions in a single batch call
             toast.loading(`Phase 1: Registering ${sqlStatements.length} DDL actions...`);
-            let registeredCount = 0;
 
-            for (let i = 0; i < sqlStatements.length; i++) {
-              const stmt = sqlStatements[i];
-              // Find matching event for DDL type inference
+            const batchActions = sqlStatements.map((stmt, i) => {
               const matchingEvent = schemaEventsToExecute.find(e => {
                 const { sql } = generateSnowflakeSQL(e);
                 return sql === stmt.sql;
               });
+              return {
+                ddl_sql: stmt.sql,
+                ddl_type: matchingEvent ? inferDDLType(matchingEvent.type) : 'CREATE_TABLE',
+                priority: i + 1, // Maintain execution order
+                target_table: stmt.object_name || undefined,
+                description: stmt.object_type
+                  ? `${stmt.object_type}: ${stmt.object_name || 'unknown'}`
+                  : `DDL statement ${i + 1}`,
+              };
+            });
 
-              try {
-                await exploreDesignApi.addDDLAction(projectId, {
-                  ddl_sql: stmt.sql,
-                  ddl_type: matchingEvent ? inferDDLType(matchingEvent.type) : 'CREATE_TABLE',
-                  priority: i + 1, // Maintain execution order
-                  target_table: stmt.object_name || undefined,
-                  description: stmt.object_type
-                    ? `${stmt.object_type}: ${stmt.object_name || 'unknown'}`
-                    : `DDL statement ${i + 1}`,
-                });
-                registeredCount++;
-              } catch (regErr: any) {
-                console.warn(`[Deployment] Failed to register DDL action ${i + 1}:`, regErr);
-              }
+            let registeredCount = 0;
+            try {
+              const batchResult = await exploreDesignApi.batchAddDDLActions(projectId, { actions: batchActions });
+              registeredCount = batchResult?.registered ?? batchActions.length;
+            } catch (regErr: any) {
+              console.warn('[Deployment] Batch DDL registration failed:', regErr);
             }
 
             console.log('[Deployment] Registered DDL actions:', registeredCount, '/', sqlStatements.length);
@@ -3232,6 +3463,149 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 Done
               </Button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Deployment Lifecycle Panel */}
+      {backendDeployments.length > 0 && (
+        <div className="px-6 py-4 border-t dark:border-slate-700">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-2">
+              <Rocket className="h-4 w-4 text-indigo-500" />
+              Deployments ({backendDeployments.length})
+            </h4>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={loadBackendDeployments}
+              disabled={isLoadingDeployments}
+              className="gap-1.5"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', isLoadingDeployments && 'animate-spin')} />
+              Refresh
+            </Button>
+          </div>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {backendDeployments.map((dep) => {
+              const isActionLoading = deploymentActionLoading === dep.deployment_id;
+              const status = dep.status?.toLowerCase();
+              return (
+                <div
+                  key={dep.deployment_id}
+                  className={cn(
+                    'flex items-center justify-between px-3 py-2 rounded-lg border text-sm',
+                    'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                  )}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Badge
+                      className={cn(
+                        'text-xs whitespace-nowrap',
+                        status === 'pending_approval' && 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+                        status === 'approved' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+                        (status === 'executing' || status === 'deploying') && 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+                        (status === 'completed' || status === 'deployed') && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+                        status === 'failed' && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+                        (status === 'cancelled' || status === 'rejected') && 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+                        status === 'draft' && 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-400',
+                      )}
+                    >
+                      {dep.status}
+                    </Badge>
+                    <div className="truncate">
+                      <span className="font-mono text-xs text-slate-500 dark:text-slate-400">
+                        {dep.deployment_id.slice(0, 12)}
+                      </span>
+                      {dep.deployment_type && (
+                        <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
+                          {dep.deployment_type}
+                        </span>
+                      )}
+                      {dep.created_at && (
+                        <span className="ml-2 text-xs text-slate-400 dark:text-slate-500">
+                          {new Date(dep.created_at).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0 ml-3">
+                    {isActionLoading ? (
+                      <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+                    ) : (
+                      <>
+                        {status === 'pending_approval' && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="gap-1 bg-green-600 hover:bg-green-700 text-white text-xs px-2 py-1"
+                              onClick={() => handleDeploymentAction('approve', dep)}
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1 border-red-400 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 text-xs px-2 py-1"
+                              onClick={() => handleDeploymentAction('reject', dep)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Reject
+                            </Button>
+                          </>
+                        )}
+                        {status === 'approved' && (
+                          <>
+                            <Button
+                              size="sm"
+                              className="gap-1 bg-blue-600 hover:bg-blue-700 text-white text-xs px-2 py-1"
+                              onClick={() => handleDeploymentAction('execute', dep)}
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                              Execute
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1 border-slate-400 text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs px-2 py-1"
+                              onClick={() => handleDeploymentAction('cancel', dep)}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                              Cancel
+                            </Button>
+                          </>
+                        )}
+                        {(status === 'executing' || status === 'deploying') && (
+                          <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                        )}
+                        {(status === 'completed' || status === 'deployed') && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="gap-1 border-emerald-400 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 text-xs px-2 py-1"
+                            onClick={() => handleDeploymentAction('verify', dep)}
+                          >
+                            <Eye className="h-3.5 w-3.5" />
+                            Verify
+                          </Button>
+                        )}
+                        {status === 'failed' && (
+                          <Button
+                            size="sm"
+                            className="gap-1 bg-amber-600 hover:bg-amber-700 text-white text-xs px-2 py-1"
+                            onClick={() => handleDeploymentAction('execute', dep)}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                            Retry
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

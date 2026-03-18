@@ -8,7 +8,7 @@ import {
   X, Check, Loader2, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSession } from 'next-auth/react';
+import { useAuth } from '@/hooks/useAuth';
 import { formatDistanceToNow } from 'date-fns';
 import {
   listContributors,
@@ -176,8 +176,7 @@ interface AccessManagementSlotProps {
 }
 
 const AccessManagementSlot: React.FC<AccessManagementSlotProps> = ({ projectId }) => {
-  const { data: session } = useSession();
-  const currentUsername = (session?.user as any)?.username || '';
+  const { username: currentUsername } = useAuth();
 
   // Data state
   const [contributors, setContributors] = useState<Contributor[]>([]);
