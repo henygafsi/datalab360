@@ -642,6 +642,29 @@ export interface RollbackCloneResponse {
   target: string;
 }
 
+// --- WHERE Clause (shared) ---
+
+export type WhereOperator =
+  | '='
+  | '!='
+  | '>'
+  | '<'
+  | '>='
+  | '<='
+  | 'IN'
+  | 'BETWEEN'
+  | 'LIKE'
+  | 'IS NULL'
+  | 'IS NOT NULL';
+
+export interface WhereClauseCondition {
+  column: string;
+  operator: WhereOperator;
+  value?: string;
+  values?: string[];
+  value_end?: string;
+}
+
 // --- Ingestion ---
 
 export interface IngestionConfigRequest {
@@ -689,6 +712,7 @@ export interface ExecuteIngestionRequest {
   ingestion_mode: IngestionMode;
   mappings?: ColumnMappingInput[];
   config?: Record<string, unknown>;
+  where_clauses?: WhereClauseCondition[];
 }
 
 export interface ExecuteIngestionResponse {
@@ -1640,28 +1664,23 @@ export interface IngestionDryRunRequest {
   mappings?: ColumnMappingInput[];
   config?: Record<string, unknown>;
   sample_size?: number;
+  where_clauses?: WhereClauseCondition[];
 }
 
 export interface IngestionDryRunRow {
-  action: 'INSERT' | 'UPDATE' | 'DELETE' | 'UNCHANGED';
+  action: 'INSERT' | 'UPDATE' | 'DELETE' | 'UNCHANGED' | 'NO_CHANGE' | 'UNKNOWN';
   data: Record<string, unknown>;
 }
 
+/** Actual shape returned by the backend dry_run_ingestion function */
 export interface IngestionDryRunResult {
-  status: 'success' | 'failed';
-  rows_processed: number;
-  duration_ms: number;
-  next_sync_from?: string;
-  sample_rows: IngestionDryRunRow[];
   columns: string[];
-  summary: {
-    inserts: number;
-    updates: number;
-    deletes: number;
-    unchanged: number;
-  };
-  errors: string[];
-  warnings: string[];
+  rows: Record<string, unknown>[];
+  sample_size: number;
+  sql_preview: string;
+  source: string;
+  target: string;
+  ingestion_mode: string;
 }
 
 // --- Quality Gates ---
@@ -1752,4 +1771,681 @@ export interface ConflictCheckResult {
   duplicates: number;
   contradictions: number;
   circular_deps: number;
+}
+
+// ============================================================================
+// PART 7 — Phase A: Event Validation
+// ============================================================================
+
+export interface ValidateFkTypesRequest {
+  source_database: string;
+  source_schema: string;
+  source_table: string;
+  source_column: string;
+  target_database: string;
+  target_schema: string;
+  target_table: string;
+  target_column: string;
+}
+
+export interface ValidateFkTypesResult {
+  compatible: boolean;
+  source_type: string;
+  source_family: string;
+  target_type: string;
+  target_family: string;
+  message: string;
+}
+
+export interface CascadeRenameRequest {
+  old_table_name: string;
+  new_table_name: string;
+}
+
+export interface CascadeRenameResult {
+  project_id: string;
+  old_name: string;
+  new_name: string;
+  events_updated: number;
+  updated_event_ids: string[];
+}
+
+export interface CascadeDropRequest {
+  table_name: string;
+}
+
+export interface CascadeDropResult {
+  project_id: string;
+  table_name: string;
+  events_invalidated: number;
+  invalidated_event_ids: string[];
+}
+
+export interface EnhancedImpactDetail {
+  object_type: string;
+  object_name: string;
+  risk_level: 'HIGH' | 'MEDIUM' | 'LOW';
+  recommendation: string;
+  last_accessed: string | null;
+}
+
+export interface EnhancedImpactAnalysisRequest {
+  database: string;
+  schema: string;
+  table_name: string;
+  ddl_type: string;
+}
+
+export interface EnhancedImpactAnalysisResult {
+  table_name: string;
+  ddl_type: string;
+  risk_score: number;
+  safe_to_proceed: boolean;
+  impacts: EnhancedImpactDetail[];
+  summary: {
+    high_risk: number;
+    medium_risk: number;
+    low_risk: number;
+    total_score: number;
+  };
+}
+
+// ============================================================================
+// PART 8 — Phase B: Deployment Pipeline
+// ============================================================================
+
+export interface ExecuteDDLAtomicBody {
+  database?: string;
+  schema?: string;
+  atomic?: boolean;
+}
+
+export type PreDeployCheckType =
+  | 'warehouse'
+  | 'fk_types'
+  | 'circular_deps'
+  | 'naming'
+  | 'schema_drift';
+
+export interface PreDeployChecksRequest {
+  warehouse?: string;
+  check_types?: PreDeployCheckType[];
+}
+
+export interface PreDeployCheckItem {
+  check: string;
+  status: 'PASS' | 'FAIL' | 'WARN';
+  details: Record<string, unknown>;
+}
+
+export interface PreDeployChecksResult {
+  project_id: string;
+  all_passed: boolean;
+  checks: PreDeployCheckItem[];
+}
+
+export interface SqlDiffRequest {
+  database: string;
+  schema_name: string;
+  event_ids?: string[];
+}
+
+export interface SqlDiffChange {
+  type: string;
+  column: string;
+  data_type: string;
+}
+
+export interface SqlDiffItem {
+  event_id: string;
+  ddl_type: string;
+  target_table: string;
+  before: { columns: string[] };
+  after: { columns: string[] };
+  changes: SqlDiffChange[];
+}
+
+export interface SqlDiffResult {
+  project_id: string;
+  diffs: SqlDiffItem[];
+  total_events: number;
+}
+
+// ============================================================================
+// PART 9 — Phase C: Self-Serve Ingestion (new endpoints)
+// ============================================================================
+
+export interface SqlPreviewRequest {
+  source_database: string;
+  source_schema: string;
+  source_table: string;
+  target_database: string;
+  target_schema: string;
+  target_table: string;
+  ingestion_mode: IngestionMode;
+  mappings?: ColumnMappingInput[];
+  where_clauses?: WhereClauseCondition[];
+}
+
+export interface SqlPreviewResult {
+  sql: string;
+  ingestion_mode: string;
+  source: string;
+  target: string;
+  estimated_columns: number;
+  has_where_filter: boolean;
+}
+
+export interface Watermark {
+  watermark_id: string;
+  source_fqn: string;
+  watermark_column: string;
+  last_value: string;
+  rows_loaded: number;
+  last_run_at: string;
+  updated_by: string;
+}
+
+export interface WatermarkListResult {
+  project_id: string;
+  watermarks: Watermark[];
+  total: number;
+}
+
+// ============================================================================
+// PART 10 — Phase D: Event Lifecycle
+// ============================================================================
+
+export interface AuditTrailParams {
+  entity_type?: string;
+  entity_fqn?: string;
+  action?: string;
+  username?: string;
+  from_timestamp?: string;
+  to_timestamp?: string;
+  limit?: number;
+}
+
+export interface AuditEntry {
+  audit_id: string;
+  project_id: string;
+  event_id: string;
+  entity_type: string;
+  entity_fqn: string;
+  action: string;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  username: string;
+  timestamp: string;
+}
+
+export interface AuditTrailResult {
+  project_id: string;
+  entries: AuditEntry[];
+  total: number;
+  limit: number;
+}
+
+export interface EventTemplateEvent {
+  ddl_type: string;
+  ddl_sql: string;
+  target_table: string;
+  description: string;
+  priority: number;
+}
+
+export interface CreateEventTemplateRequest {
+  template_name: string;
+  description: string;
+  category: string;
+  events: EventTemplateEvent[];
+}
+
+export interface CreateEventTemplateResult {
+  template_id: string;
+  template_name: string;
+  category: string;
+  events_count: number;
+}
+
+export interface EventTemplate {
+  template_id: string;
+  template_name: string;
+  description: string;
+  category: string;
+  events: EventTemplateEvent[];
+  is_builtin: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ApplyEventTemplateRequest {
+  template_id: string;
+  target_database: string;
+  target_schema: string;
+  variable_overrides?: Record<string, string>;
+}
+
+export interface ApplyEventTemplateResult {
+  project_id: string;
+  template_id: string;
+  template_name: string;
+  events_created: number;
+  events: Array<{
+    event_id: string;
+    ddl_type: string;
+    target_table: string;
+    status: string;
+  }>;
+}
+
+// ============================================================================
+// PART 11 — AI Phase 1: Schema Intelligence
+// ============================================================================
+
+export type AiColumnCategory =
+  | 'PII'
+  | 'METRIC'
+  | 'DIMENSION'
+  | 'KEY'
+  | 'AUDIT'
+  | 'TECHNICAL'
+  | 'UNKNOWN';
+
+export interface AiColumnClassification {
+  column: string;
+  data_type: string;
+  category: AiColumnCategory;
+  sub_category: string;
+  confidence: number;
+  suggestion: string | null;
+}
+
+export interface ClassifyColumnsRequest {
+  database: string;
+  schema: string;
+  table: string;
+  profile_data?: Record<string, unknown>;
+}
+
+export interface ClassifyColumnsResult {
+  database: string;
+  schema: string;
+  table: string;
+  classifications: AiColumnClassification[];
+  cortex_credits: number;
+}
+
+export interface AiRelationship {
+  source_table: string;
+  source_column: string;
+  target_table: string;
+  target_column: string;
+  confidence: number;
+  discovery_method: string;
+  suggested_fk: string;
+}
+
+export interface DiscoverRelationshipsRequest {
+  database: string;
+  schema: string;
+  tables?: string[];
+}
+
+export interface DiscoverRelationshipsResult {
+  database: string;
+  schema: string;
+  relationships: AiRelationship[];
+  tables_analyzed: number;
+  cortex_credits: number;
+}
+
+export interface SchemaHealthRequest {
+  database: string;
+  schema: string;
+}
+
+export interface SchemaHealthResult {
+  database: string;
+  schema: string;
+  overall_score: number;
+  sub_scores: {
+    completeness: {
+      score: number;
+      details: Record<string, unknown>;
+    };
+    naming: {
+      score: number;
+      violations: Array<{ table: string; column: string; issue: string }>;
+    };
+    type_efficiency: {
+      score: number;
+      suggestions: Array<{
+        table: string;
+        column: string;
+        current: string;
+        suggested: string;
+        reason: string;
+      }>;
+    };
+  };
+  recommendations: string[];
+  cortex_credits: number;
+}
+
+// ============================================================================
+// PART 12 — AI Phase 2: Modeling Copilot
+// ============================================================================
+
+export interface SuggestColumnsRequest {
+  table_purpose: string;
+  domain?: string;
+  existing_tables?: string[];
+}
+
+export interface SuggestedColumn {
+  name: string;
+  type: string;
+  role: string;
+  nullable: boolean;
+  references?: string;
+}
+
+export interface SuggestColumnsResult {
+  table_purpose: string;
+  suggested_columns: SuggestedColumn[];
+  cortex_credits: number;
+}
+
+export type NamingConvention = 'UPPER_SNAKE' | 'lower_snake' | 'camelCase' | 'PascalCase';
+
+export type NamingEntityType = 'table' | 'column' | 'schema';
+
+export interface CheckNamingRequest {
+  names: string[];
+  entity_type: NamingEntityType;
+  convention: NamingConvention;
+}
+
+export interface NamingCheckItem {
+  name: string;
+  valid: boolean;
+  suggested: string | null;
+}
+
+export interface CheckNamingResult {
+  convention: NamingConvention;
+  entity_type: NamingEntityType;
+  total: number;
+  valid: number;
+  invalid: number;
+  results: NamingCheckItem[];
+  cortex_credits: number;
+}
+
+export interface OptimizeTypesRequest {
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface TypeOptimization {
+  column: string;
+  current_type: string;
+  suggested_type: string;
+  reason: string;
+  savings_estimate: string | null;
+}
+
+export interface OptimizeTypesResult {
+  database: string;
+  schema: string;
+  table: string;
+  optimizations: TypeOptimization[];
+  cortex_credits: number;
+}
+
+export interface RecommendScdRequest {
+  database: string;
+  schema: string;
+  table: string;
+  business_context?: string;
+}
+
+export interface ScdAlternative {
+  type: string;
+  fit_score: number;
+  reason: string;
+}
+
+export interface RecommendScdResult {
+  database: string;
+  schema: string;
+  table: string;
+  recommended_type: string;
+  confidence: number;
+  reasoning: string;
+  alternatives: ScdAlternative[];
+  implementation_hints: Record<string, unknown>;
+  cortex_credits: number;
+}
+
+// ============================================================================
+// PART 13 — AI Phase 3: Cost Optimizer
+// ============================================================================
+
+export interface WarehouseSizingRequest {
+  warehouse: string;
+  lookback_days?: number;
+}
+
+export interface WarehouseSizingResult {
+  warehouse: string;
+  current_size: string;
+  lookback_days: number;
+  analysis: {
+    total_queries: number;
+    avg_execution_time_ms: number;
+    p95_execution_time_ms: number;
+    avg_queue_time_ms: number;
+    peak_concurrency: number;
+    utilization_pct: number;
+  };
+  recommendation: {
+    suggested_size: string;
+    reason: string;
+    estimated_savings_pct: number;
+    estimated_savings_credits: number;
+  };
+  cortex_credits: number;
+}
+
+export interface ClusteringKeysRequest {
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface ClusteringKeySuggestion {
+  column: string;
+  where_frequency: number;
+  join_frequency: number;
+  relevance_score: number;
+}
+
+export interface ClusteringKeysResult {
+  table: string;
+  table_size_gb: number;
+  row_count: number;
+  suggestions: ClusteringKeySuggestion[];
+  recommended_cluster_by: string[];
+  estimated_scan_reduction_pct: number;
+  ddl: string;
+  execution_time_ms: number;
+}
+
+export interface MaterializationRequest {
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface MaterializationAlternativeInfo {
+  best_for: string;
+  target_lag?: string;
+}
+
+export interface MaterializationResult {
+  table: string;
+  recommendation: string;
+  rationale: string;
+  read_count_30d: number;
+  write_count_30d: number;
+  read_write_ratio: number;
+  ddl_hint: string | null;
+  alternatives: Record<string, MaterializationAlternativeInfo>;
+  execution_time_ms: number;
+}
+
+export interface IngestionModeOptimizerRequest {
+  database: string;
+  schema: string;
+  table: string;
+}
+
+export interface IngestionModeAlternative {
+  mode: string;
+  fit_score: number;
+  reason: string;
+}
+
+export interface IngestionModeOptimizerResult {
+  database: string;
+  schema: string;
+  table: string;
+  analysis: {
+    row_count: number;
+    has_timestamp_columns: boolean;
+    timestamp_columns: string[];
+    has_primary_key: boolean;
+    estimated_daily_inserts_pct: number;
+    estimated_daily_updates_pct: number;
+  };
+  recommendation: {
+    mode: string;
+    watermark_column: string;
+    reason: string;
+    estimated_scan_reduction_pct: number;
+  };
+  alternatives: IngestionModeAlternative[];
+  cortex_credits: number;
+}
+
+// ============================================================================
+// PART 14 — AI Phase 4: Deployment Intelligence
+// ============================================================================
+
+export interface DeploymentRiskAction {
+  ddl_type: string;
+  target_table: string;
+  ddl_sql: string;
+}
+
+// Backend now queries DDL actions internally — no body needed
+export type DeploymentRiskRequest = Record<string, never>;
+
+export interface DeploymentRiskActionResult {
+  ddl_type: string;
+  target_table: string;
+  risk_level: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  risk_score: number;
+  factors: string[];
+  mitigation: string | null;
+}
+
+export interface DeploymentRiskResult {
+  overall_risk: string;
+  risk_score: number;
+  max_score: number;
+  actions: DeploymentRiskActionResult[];
+  recommendation: string;
+  cortex_credits: number;
+}
+
+export interface DeployScheduleRequest {
+  warehouse: string;
+  preferred_window_hours?: number;
+}
+
+export interface DeployScheduleWindow {
+  day_of_week: string;
+  start_hour_utc: number;
+  end_hour_utc: number;
+  avg_utilization_pct: number;
+  avg_concurrent_queries: number;
+}
+
+export interface AvoidWindow {
+  day_of_week: string;
+  start_hour_utc: number;
+  end_hour_utc: number;
+  reason: string;
+}
+
+export interface DeployScheduleResult {
+  warehouse: string;
+  optimal_window: DeployScheduleWindow;
+  alternative_windows: DeployScheduleWindow[];
+  avoid_windows: AvoidWindow[];
+  cortex_credits: number;
+}
+
+// ============================================================================
+// PART 15 — AI Phase 5: Continuous Learning
+// ============================================================================
+
+export interface AiFeedbackRequest {
+  feature: string;
+  suggestion_id: string;
+  accepted: boolean;
+  reason?: string;
+}
+
+export interface AiFeedbackResponse {
+  feedback_id: string;
+  project_id: string;
+  feature: string;
+  suggestion_id: string;
+  accepted: boolean;
+  recorded_at: string;
+}
+
+export interface AiFeedbackStatItem {
+  feature: string;
+  total: number;
+  accepted: number;
+  rejected: number;
+  acceptance_rate: number;
+}
+
+export interface AiFeedbackStatsResponse {
+  project_id: string;
+  stats: AiFeedbackStatItem[];
+  overall_acceptance_rate: number;
+}
+
+export interface AiSavingsFeatureItem {
+  feature: string;
+  actions: number;
+  estimated_savings: number;
+  actual_savings: number;
+}
+
+export interface AiSavingsResponse {
+  project_id: string;
+  period_days: number;
+  total_estimated_savings_credits: number;
+  total_actual_savings_credits: number;
+  by_feature: AiSavingsFeatureItem[];
+  roi_multiplier: number;
 }

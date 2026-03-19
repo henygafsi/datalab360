@@ -8,6 +8,7 @@ import {
   Copy, Check, GripVertical, ArrowRight, Eye,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import type { WhereClauseCondition } from '@/app/services/api/types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -26,8 +27,33 @@ interface WhereCondition {
 interface WhereClauseBuilderProps {
   columns: Array<{ name: string; type: string }>;
   onChange: (sql: string) => void;
+  /** Emit API-spec conditions for backend consumption */
+  onConditionsChange?: (conditions: WhereClauseCondition[]) => void;
   initialConditions?: WhereCondition[];
+  totalRowCount?: number | null;
   className?: string;
+}
+
+// ── Map to API spec ─────────────────────────────────────────────────────────────
+
+function toApiConditions(conditions: WhereCondition[]): WhereClauseCondition[] {
+  return conditions
+    .filter((c) => c.column)
+    .map((c) => {
+      const base: WhereClauseCondition = {
+        column: c.column,
+        operator: c.operator === 'NOT LIKE' ? 'LIKE' : c.operator === 'NOT IN' ? 'IN' : c.operator as WhereClauseCondition['operator'],
+      };
+      if (c.operator === 'IN' || c.operator === 'NOT IN') {
+        base.values = c.value.split(',').map((v) => v.trim()).filter(Boolean);
+      } else if (c.operator === 'BETWEEN') {
+        base.value = c.value;
+        base.value_end = c.value2;
+      } else if (c.operator !== 'IS NULL' && c.operator !== 'IS NOT NULL') {
+        base.value = c.value;
+      }
+      return base;
+    });
 }
 
 // ── Operator Config ────────────────────────────────────────────────────────────
@@ -81,7 +107,9 @@ function buildWhereSQL(conditions: WhereCondition[]): string {
 const WhereClauseBuilder: React.FC<WhereClauseBuilderProps> = ({
   columns,
   onChange,
+  onConditionsChange,
   initialConditions = [],
+  totalRowCount,
   className,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -95,8 +123,9 @@ const WhereClauseBuilder: React.FC<WhereClauseBuilderProps> = ({
     (newConditions: WhereCondition[]) => {
       setConditions(newConditions);
       onChange(buildWhereSQL(newConditions));
+      onConditionsChange?.(toApiConditions(newConditions));
     },
-    [onChange],
+    [onChange, onConditionsChange],
   );
 
   const addCondition = useCallback(() => {
@@ -281,6 +310,12 @@ const WhereClauseBuilder: React.FC<WhereClauseBuilderProps> = ({
                   WHERE {generatedSql}
                 </pre>
               </div>
+              {totalRowCount && totalRowCount > 0 && (
+                <div className="mt-2 px-3 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-xs text-blue-700 dark:text-blue-300 flex items-center gap-1.5">
+                  <span>~{Math.round(totalRowCount * Math.pow(0.3, conditions.length)).toLocaleString()} rows estimated</span>
+                  <span className="text-blue-500">(&#8595; {Math.round((1 - Math.pow(0.3, conditions.length)) * 100)}% vs full scan of {totalRowCount.toLocaleString()})</span>
+                </div>
+              )}
             </div>
           )}
         </div>

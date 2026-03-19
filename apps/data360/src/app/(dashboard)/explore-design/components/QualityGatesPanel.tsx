@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button, Badge, Input, Tooltip } from 'rizzui';
 import {
@@ -147,13 +147,34 @@ const QualityGatesPanel: React.FC<QualityGatesPanelProps> = ({
     [onGatesChange],
   );
 
+  // Auto-populate column field on column-specific gates when columns are available
+  useEffect(() => {
+    if (columns.length === 0) return;
+    const firstCol = columns[0].name;
+    const needsUpdate = gates.some(
+      (g) => (g.type === 'null_percentage' || g.type === 'unique_percentage') && !g.column,
+    );
+    if (needsUpdate) {
+      updateGates(
+        gates.map((g) =>
+          (g.type === 'null_percentage' || g.type === 'unique_percentage') && !g.column
+            ? { ...g, column: firstCol }
+            : g,
+        ),
+      );
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns]);
+
   const addGate = useCallback(
     (type: GateType) => {
       const config = gateTypeConfig[type];
+      const needsColumn = type === 'null_percentage' || type === 'unique_percentage';
       const newGate: QualityGate = {
         id: `qg_${Date.now()}`,
         type,
         name: config.label,
+        column: needsColumn && columns.length > 0 ? columns[0].name : undefined,
         threshold: config.defaultThreshold,
         enabled: true,
         status: 'pending',

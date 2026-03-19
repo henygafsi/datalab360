@@ -1,19 +1,25 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Button, Badge, Input, Tooltip, Switch } from 'rizzui';
 import {
   Database, RefreshCw, Clock, History, Layers, Settings, Plus, Trash2,
   FileCode, Cloud, Timer, Play, Pause, Calendar, AlertTriangle, Info,
-  ChevronDown, ChevronRight, Workflow, Zap, Code2, FolderOpen
+  ChevronDown, ChevronRight, Workflow, Zap, Code2, FolderOpen, CheckCircle2,
+  Sparkles, Loader2
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { useEventStore, createIngestionModeEvent } from '../stores/event-store';
+import { useAiFeatures } from '../stores/ai-store';
+import { aiRecommendScd, aiIngestionMode } from '@/app/services/api/exploreDesignApi';
 import SqlPreviewPanel from './SqlPreviewPanel';
 import WhereClauseBuilder from './WhereClauseBuilder';
 import QualityGatesPanel from './QualityGatesPanel';
 import IngestionDryRunPanel from './IngestionDryRunPanel';
+import WatermarkDisplay from './WatermarkDisplay';
 import { IngestionMode } from '../../mapping/components/TableDetailPanel';
+import type { WhereClauseCondition } from '@/app/services/api/types';
 
 // Types
 interface TableReference {
@@ -67,10 +73,19 @@ interface BatchTaskConfig {
   conditions: ConditionConfig[];
 }
 
+interface ColumnDef {
+  name: string;
+  dataType: string;
+  isPrimaryKey?: boolean;
+  isNullable?: boolean;
+}
+
 interface IngestionConfigPanelProps {
   table: TableReference | null;
   ingestionMode: IngestionMode;
   onModeChange: (mode: IngestionMode) => void;
+  columns?: ColumnDef[];
+  projectId?: string | null;
   className?: string;
 }
 
@@ -81,19 +96,51 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
   table,
   ingestionMode,
   onModeChange,
+  columns = [],
+  projectId,
   className,
 }) => {
   const { addEvent } = useEventStore();
+  const { isEnabled } = useAiFeatures();
   const [activeTab, setActiveTab] = useState<TabType>('mode');
   const [expandedSection, setExpandedSection] = useState<string | null>('scd');
+  const [whereClauseSql, setWhereClauseSql] = useState('');
+  const [whereConditions, setWhereConditions] = useState<WhereClauseCondition[]>([]);
 
-  // SCD Type 2 Config
+  // AI suggest loading states
+  const [isLoadingModeSuggest, setIsLoadingModeSuggest] = useState(false);
+  const [isLoadingScdSuggest, setIsLoadingScdSuggest] = useState(false);
+
+  // Derived column lists for dropdowns
+  const allColumns = useMemo(() => columns.map(c => ({ name: c.name, type: c.dataType })), [columns]);
+  const dateColumns = useMemo(() => allColumns.filter(c => /TIMESTAMP|DATE|DATETIME/i.test(c.type)), [allColumns]);
+  const pkColumns = useMemo(() => columns.filter(c => c.isPrimaryKey), [columns]);
+
+  // SCD Config with business key
   const [scdConfig, setScdConfig] = useState({
+    businessKeyColumn: '',
     trackingColumns: [] as string[],
-    effectiveDateColumn: 'EFF_DATE',
-    expirationDateColumn: 'EXP_DATE',
-    currentFlagColumn: 'IS_CURRENT',
+    effectiveDateColumn: '',
+    expirationDateColumn: '',
+    currentFlagColumn: '',
   });
+
+  // Auto-populate SCD defaults from columns
+  useEffect(() => {
+    if (columns.length === 0) return;
+    setScdConfig(prev => {
+      const updates: Partial<typeof prev> = {};
+      if (!prev.businessKeyColumn) {
+        const pk = columns.find(c => c.isPrimaryKey);
+        if (pk) updates.businessKeyColumn = pk.name;
+      }
+      if (!prev.effectiveDateColumn) {
+        const tsCol = columns.find(c => /TIMESTAMP|DATE/i.test(c.dataType));
+        if (tsCol) updates.effectiveDateColumn = tsCol.name;
+      }
+      return Object.keys(updates).length > 0 ? { ...prev, ...updates } : prev;
+    });
+  }, [columns]);
 
   // Snowpipe Config
   const [snowpipeConfig, setSnowpipeConfig] = useState<SnowpipeConfig>({
@@ -167,6 +214,47 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
     setExpandedSection((prev) => (prev === section ? null : section));
   }, []);
 
+  // AI: Suggest ingestion mode
+  const handleSuggestMode = useCallback(async () => {
+    if (!projectId || !table) return;
+    setIsLoadingModeSuggest(true);
+    try {
+      const result = await aiIngestionMode(projectId, {
+        database: table.database,
+        schema: table.schema,
+        table: table.table,
+      });
+      const mode = result.recommendation.mode as IngestionMode;
+      handleModeChange(mode);
+      toast.success(`AI recommends "${mode}" — ${result.recommendation.reason}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to get AI suggestion');
+    } finally {
+      setIsLoadingModeSuggest(false);
+    }
+  }, [projectId, table, handleModeChange]);
+
+  // AI: Suggest SCD type
+  const handleSuggestScd = useCallback(async () => {
+    if (!projectId || !table) return;
+    setIsLoadingScdSuggest(true);
+    try {
+      const result = await aiRecommendScd(projectId, {
+        database: table.database,
+        schema: table.schema,
+        table: table.table,
+        business_context: `Table ${table.table} in schema ${table.schema}`,
+      });
+      const recommended = result.recommended_type as IngestionMode;
+      handleModeChange(recommended);
+      toast.success(`AI recommends "${recommended}" (${Math.round(result.confidence * 100)}% confidence) — ${result.reasoning}`);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to get SCD recommendation');
+    } finally {
+      setIsLoadingScdSuggest(false);
+    }
+  }, [projectId, table, handleModeChange]);
+
   if (!table) {
     return (
       <div className={cn('p-6 text-center text-slate-500', className)}>
@@ -220,7 +308,19 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
           <div className="space-y-4">
             {/* Ingestion Mode Selection */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Ingestion Mode</label>
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Ingestion Mode</label>
+                {isEnabled('ingestion_optimizer') && projectId && (
+                  <button
+                    onClick={handleSuggestMode}
+                    disabled={isLoadingModeSuggest}
+                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors disabled:opacity-50"
+                  >
+                    {isLoadingModeSuggest ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    Suggest Mode
+                  </button>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { value: 'full_refresh', label: 'Full Refresh', icon: RefreshCw, desc: 'Complete reload' },
@@ -256,64 +356,126 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
             {/* SCD Configuration (show for SCD modes) */}
             {ingestionMode.startsWith('scd') && (
               <div className="border dark:border-slate-700 rounded-lg overflow-hidden">
-                <button
-                  className="w-full px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  onClick={() => toggleSection('scd')}
-                >
-                  <span className="font-medium text-sm flex items-center gap-2">
-                    <History className="h-4 w-4" />
-                    SCD Configuration
-                  </span>
-                  {expandedSection === 'scd' ? (
-                    <ChevronDown className="h-4 w-4" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4" />
+                <div className="flex items-center justify-between px-4 py-3 bg-slate-50 dark:bg-slate-800/50">
+                  <button
+                    className="flex-1 flex items-center justify-between hover:bg-slate-100 dark:hover:bg-slate-800 -mx-4 -my-3 px-4 py-3"
+                    onClick={() => toggleSection('scd')}
+                  >
+                    <span className="font-medium text-sm flex items-center gap-2">
+                      <History className="h-4 w-4" />
+                      SCD Configuration
+                    </span>
+                    {expandedSection === 'scd' ? (
+                      <ChevronDown className="h-4 w-4" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4" />
+                    )}
+                  </button>
+                  {isEnabled('scd_recommender') && projectId && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleSuggestScd(); }}
+                      disabled={isLoadingScdSuggest}
+                      className="ml-2 inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20 rounded-md hover:bg-purple-100 dark:hover:bg-purple-900/40 transition-colors disabled:opacity-50 z-10"
+                    >
+                      {isLoadingScdSuggest ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                      Suggest SCD
+                    </button>
                   )}
-                </button>
+                </div>
 
                 {expandedSection === 'scd' && (
-                  <div className="p-4 space-y-4">
+                  <div className="p-4 space-y-4 animate-in fade-in duration-200">
+                    {/* Business Key Column — all SCD types */}
+                    <div>
+                      <label className="text-sm font-medium text-slate-600 dark:text-slate-400">Business Key Column</label>
+                      <select
+                        value={scdConfig.businessKeyColumn}
+                        onChange={(e) => setScdConfig((p) => ({ ...p, businessKeyColumn: e.target.value }))}
+                        className="w-full mt-1 p-2.5 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700 font-medium transition-colors focus:ring-2 focus:ring-blue-400"
+                      >
+                        <option value="">Select business key...</option>
+                        {allColumns.map(col => (
+                          <option key={col.name} value={col.name}>
+                            {col.name} ({col.type}){pkColumns.some(pk => pk.name === col.name) ? ' — PK' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* SCD Type Rationale */}
+                    <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-700 dark:text-blue-300 space-y-1">
+                      <p className="font-medium">SCD Type Rationale:</p>
+                      {ingestionMode === 'scd_type1' && <p>Overwrite mode — no history tracking. Best for dimensions that don&apos;t need audit trails.</p>}
+                      {ingestionMode === 'scd_type2' && <p>Full history tracking with versioned rows. Best for audit-critical dimensions with low change rates.</p>}
+                      {ingestionMode === 'scd_type3' && <p>Tracks previous/current value pairs. Best when only one attribute changes.</p>}
+                    </div>
+
                     {ingestionMode === 'scd_type2' && (
                       <>
                         <div>
-                          <label className="text-sm text-slate-500">Effective Date Column</label>
-                          <Input
+                          <label className="text-sm font-medium text-slate-600 dark:text-slate-400">Effective Date Column</label>
+                          <select
                             value={scdConfig.effectiveDateColumn}
                             onChange={(e) => setScdConfig((p) => ({ ...p, effectiveDateColumn: e.target.value }))}
-                            placeholder="EFF_DATE"
-                            className="mt-1"
-                          />
+                            className="w-full mt-1 p-2.5 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700 transition-colors focus:ring-2 focus:ring-blue-400"
+                          >
+                            <option value="">Select timestamp column...</option>
+                            {dateColumns.map(col => (
+                              <option key={col.name} value={col.name}>{col.name} ({col.type})</option>
+                            ))}
+                            {dateColumns.length === 0 && <option disabled>No timestamp/date columns found</option>}
+                          </select>
                         </div>
                         <div>
-                          <label className="text-sm text-slate-500">Expiration Date Column</label>
-                          <Input
+                          <label className="text-sm font-medium text-slate-600 dark:text-slate-400">Expiration Date Column</label>
+                          <select
                             value={scdConfig.expirationDateColumn}
                             onChange={(e) => setScdConfig((p) => ({ ...p, expirationDateColumn: e.target.value }))}
-                            placeholder="EXP_DATE"
-                            className="mt-1"
-                          />
+                            className="w-full mt-1 p-2.5 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700 transition-colors focus:ring-2 focus:ring-blue-400"
+                          >
+                            <option value="">Select timestamp column...</option>
+                            {dateColumns.map(col => (
+                              <option key={col.name} value={col.name}>{col.name} ({col.type})</option>
+                            ))}
+                          </select>
                         </div>
                         <div>
-                          <label className="text-sm text-slate-500">Current Flag Column</label>
-                          <Input
+                          <label className="text-sm font-medium text-slate-600 dark:text-slate-400">Current Flag Column</label>
+                          <select
                             value={scdConfig.currentFlagColumn}
                             onChange={(e) => setScdConfig((p) => ({ ...p, currentFlagColumn: e.target.value }))}
-                            placeholder="IS_CURRENT"
-                            className="mt-1"
-                          />
+                            className="w-full mt-1 p-2.5 border rounded-lg text-sm dark:bg-slate-800 dark:border-slate-700 transition-colors focus:ring-2 focus:ring-blue-400"
+                          >
+                            <option value="">Select flag column...</option>
+                            {allColumns.map(col => (
+                              <option key={col.name} value={col.name}>{col.name} ({col.type})</option>
+                            ))}
+                          </select>
                         </div>
                       </>
                     )}
                     {ingestionMode === 'scd_type3' && (
                       <div>
-                        <label className="text-sm text-slate-500">Previous Value Column Suffix</label>
-                        <Input
-                          placeholder="_PREV"
-                          className="mt-1"
-                        />
+                        <label className="text-sm font-medium text-slate-600 dark:text-slate-400">Previous Value Column Suffix</label>
+                        <Input placeholder="_PREV" className="mt-1" />
                         <p className="text-xs text-slate-400 mt-1">
                           Columns with changes will have a _PREV version added
                         </p>
+                      </div>
+                    )}
+
+                    {/* Validation Banner */}
+                    {scdConfig.businessKeyColumn && (
+                      ingestionMode === 'scd_type1' || (ingestionMode === 'scd_type2' && scdConfig.effectiveDateColumn) || ingestionMode === 'scd_type3'
+                    ) ? (
+                      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 text-xs font-medium transition-all duration-300">
+                        <CheckCircle2 className="h-4 w-4" />
+                        All selections validated against source schema
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-300 text-xs font-medium">
+                        <AlertTriangle className="h-4 w-4" />
+                        Select all required columns to continue
                       </div>
                     )}
                   </div>
@@ -757,43 +919,58 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
         )}
       </div>
 
-      {/* SQL Preview */}
+      {/* C5 — Watermark Display */}
+      {projectId && table && (
+        <div className="px-4 pb-2">
+          <WatermarkDisplay
+            projectId={projectId}
+            tableName={table.table}
+          />
+        </div>
+      )}
+
+      {/* C1 — WHERE Clause Builder */}
+      <div className="px-4 pb-2">
+        <WhereClauseBuilder
+          columns={allColumns}
+          onChange={setWhereClauseSql}
+          onConditionsChange={setWhereConditions}
+        />
+      </div>
+
+      {/* C3 — SQL Preview */}
       <div className="px-4 pb-2">
         <SqlPreviewPanel
           table={table}
           ingestionMode={ingestionMode}
           scdConfig={ingestionMode.startsWith('scd') ? scdConfig : undefined}
+          whereClause={whereClauseSql || undefined}
+          whereClauses={whereConditions.length > 0 ? whereConditions : undefined}
+          projectId={projectId}
         />
       </div>
 
-      {/* WHERE Clause Builder */}
+      {/* C2 — Quality Gates */}
       <div className="px-4 pb-2">
-        <WhereClauseBuilder
-          columns={[]}
-          onChange={() => {}}
+        <QualityGatesPanel
+          columns={allColumns}
+          projectId={projectId}
+          database={table?.database}
+          schemaName={table?.schema}
+          tableName={table?.table}
+          blockOnFail={true}
         />
       </div>
 
-      {/* Quality Gates */}
-      <div className="px-4 pb-2">
-        <QualityGatesPanel />
-      </div>
-
-      {/* Ingestion Dry-Run Preview */}
+      {/* C4 — Ingestion Dry-Run Preview */}
       <div className="px-4 pb-2">
         <IngestionDryRunPanel
           tableName={table?.table || ''}
           ingestionMode={ingestionMode}
-          onRunDryRun={async () => ({
-            status: 'success' as const,
-            rowsProcessed: 10,
-            durationMs: 1200,
-            sampleRows: [],
-            columns: [],
-            summary: { inserts: 7, updates: 2, deletes: 1, unchanged: 0 },
-            errors: [],
-            warnings: [],
-          })}
+          projectId={projectId}
+          sourceDatabase={table?.database}
+          sourceSchema={table?.schema}
+          whereClauses={whereConditions.length > 0 ? whereConditions : undefined}
         />
       </div>
 

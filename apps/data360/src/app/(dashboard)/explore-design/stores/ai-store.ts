@@ -5,6 +5,7 @@
 
 import { atom, useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
+import { aiRecordFeedback } from '@/app/services/api/exploreDesignApi';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -52,23 +53,23 @@ export interface AiSuggestion {
 // ── Default Feature Config ───────────────────────────────────────────────────
 
 export const DEFAULT_AI_FEATURES: AiFeatureConfig[] = [
-  // Catalog
-  { id: 'column_classification', name: 'Column Classification', description: 'Auto-detect PII, dates, IDs, measures, and dimensions', stage: 'catalog', costCredits: 0, enabled: true },
-  { id: 'relationship_discovery', name: 'Relationship Discovery', description: 'Suggest foreign key relationships based on column names and types', stage: 'catalog', costCredits: 0, enabled: true },
-  { id: 'schema_health_score', name: 'Schema Health Score', description: 'Score tables on naming, null%, type consistency, and documentation', stage: 'catalog', costCredits: 0, enabled: true },
-  { id: 'data_type_optimizer', name: 'Data Type Optimizer', description: 'Recommend optimal Snowflake types (e.g., VARCHAR(256) → VARCHAR(50))', stage: 'catalog', costCredits: 0, enabled: false },
-  // Modeling
-  { id: 'table_templates', name: 'Table Templates', description: 'Suggest common table patterns (SCD2, audit, bridge tables)', stage: 'modeling', costCredits: 0, enabled: true },
-  { id: 'naming_checker', name: 'Naming Checker', description: 'Flag naming violations against project conventions', stage: 'modeling', costCredits: 0, enabled: true },
-  { id: 'scd_recommender', name: 'SCD Recommender', description: 'Recommend SCD type based on table characteristics', stage: 'modeling', costCredits: 0.001, enabled: false },
-  // Ingestion
-  { id: 'warehouse_sizing', name: 'Warehouse Sizing', description: 'Recommend warehouse size based on data volume and complexity', stage: 'ingestion', costCredits: 0, enabled: false },
-  { id: 'clustering_keys', name: 'Clustering Keys', description: 'Suggest optimal clustering keys for query performance', stage: 'ingestion', costCredits: 0.001, enabled: false },
-  { id: 'materialization_strategy', name: 'Materialization Strategy', description: 'Recommend table vs. view vs. dynamic table vs. materialized view', stage: 'ingestion', costCredits: 0, enabled: false },
-  { id: 'ingestion_optimizer', name: 'Ingestion Optimizer', description: 'Detect full_refresh on large tables, missing timestamps', stage: 'ingestion', costCredits: 0, enabled: true },
-  // Deployment
-  { id: 'risk_scorer', name: 'Risk Scorer', description: 'Score deployment risk based on downstream impact and change type', stage: 'deployment', costCredits: 0, enabled: true },
-  { id: 'schedule_optimizer', name: 'Schedule Optimizer', description: 'Recommend optimal scheduling based on data freshness needs', stage: 'deployment', costCredits: 0.001, enabled: false },
+  // Catalog (AI Phase 1 — Schema Intelligence: ~0.009 credits/session)
+  { id: 'column_classification', name: 'Column Classification', description: 'Auto-detect PII, dates, IDs, measures, and dimensions via Cortex', stage: 'catalog', costCredits: 0.0001, enabled: true },
+  { id: 'relationship_discovery', name: 'Relationship Discovery', description: 'Suggest foreign key relationships using column similarity and embeddings', stage: 'catalog', costCredits: 0.003, enabled: true },
+  { id: 'schema_health_score', name: 'Schema Health Score', description: 'Composite health score: completeness, naming, type efficiency', stage: 'catalog', costCredits: 0.005, enabled: true },
+  { id: 'data_type_optimizer', name: 'Data Type Optimizer', description: 'Recommend optimal Snowflake types based on actual data patterns (zero cost)', stage: 'catalog', costCredits: 0, enabled: false },
+  // Modeling (AI Phase 2 — Modeling Copilot: ~0.0001 credits)
+  { id: 'table_templates', name: 'Table Column Suggestions', description: 'Suggest columns for new tables based on purpose description', stage: 'modeling', costCredits: 0.0001, enabled: true },
+  { id: 'naming_checker', name: 'Naming Checker', description: 'Flag naming violations against project conventions (zero cost)', stage: 'modeling', costCredits: 0, enabled: true },
+  { id: 'scd_recommender', name: 'SCD Recommender', description: 'Recommend SCD type based on table structure and business context', stage: 'modeling', costCredits: 0.0001, enabled: false },
+  // Ingestion (AI Phase 3 — Cost Optimizer: ~0.005 credits)
+  { id: 'warehouse_sizing', name: 'Warehouse Sizing', description: 'Analyze warehouse query history and recommend optimal sizing', stage: 'ingestion', costCredits: 0.002, enabled: false },
+  { id: 'clustering_keys', name: 'Clustering Keys', description: 'Suggest optimal clustering keys based on query patterns', stage: 'ingestion', costCredits: 0.001, enabled: false },
+  { id: 'materialization_strategy', name: 'Materialization Strategy', description: 'Recommend table vs. view vs. dynamic table vs. materialized view', stage: 'ingestion', costCredits: 0.001, enabled: false },
+  { id: 'ingestion_optimizer', name: 'Ingestion Mode Optimizer', description: 'Recommend optimal ingestion mode based on table characteristics', stage: 'ingestion', costCredits: 0.001, enabled: true },
+  // Deployment (AI Phase 4 — Deployment Intelligence: ~0.003 credits)
+  { id: 'risk_scorer', name: 'Deployment Risk Scorer', description: 'Score deployment risk based on DDL types and dependent objects', stage: 'deployment', costCredits: 0.002, enabled: true },
+  { id: 'schedule_optimizer', name: 'Schedule Optimizer', description: 'Find optimal deployment window based on warehouse usage patterns', stage: 'deployment', costCredits: 0.001, enabled: false },
 ];
 
 // ── Atoms ────────────────────────────────────────────────────────────────────
@@ -174,7 +175,7 @@ export function useAiFeatures() {
   return { features, toggle, isEnabled, enableAll, disableAll, stats };
 }
 
-export function useAiSuggestions() {
+export function useAiSuggestions(projectId?: string | null) {
   const [suggestions, setSuggestions] = useAtom(aiSuggestionsAtom);
   const activeSuggestions = useAtomValue(activeAiSuggestionsAtom);
   const [feedback, setFeedback] = useAtom(aiFeedbackAtom);
@@ -195,12 +196,30 @@ export function useAiSuggestions() {
     );
   };
 
+  /** Sync feedback to server (fire-and-forget) */
+  const syncFeedbackToServer = (
+    suggestion: AiSuggestion,
+    accepted: boolean,
+    reason?: string,
+  ) => {
+    if (!projectId) return;
+    aiRecordFeedback(projectId, {
+      feature: suggestion.featureId,
+      suggestion_id: suggestion.id,
+      accepted,
+      reason: reason || (accepted ? 'User accepted suggestion' : 'User rejected suggestion'),
+    }).catch(() => {
+      // Silently fail — local feedback is already persisted
+    });
+  };
+
   const acceptSuggestion = (suggestion: AiSuggestion) => {
     setFeedback((prev) => [
       ...prev,
       { suggestionId: suggestion.id, featureId: suggestion.featureId, action: 'accepted', title: suggestion.title, timestamp: Date.now() },
     ]);
     dismiss(suggestion.id);
+    syncFeedbackToServer(suggestion, true);
   };
 
   const rejectSuggestion = (suggestion: AiSuggestion) => {
@@ -209,6 +228,7 @@ export function useAiSuggestions() {
       { suggestionId: suggestion.id, featureId: suggestion.featureId, action: 'rejected', title: suggestion.title, timestamp: Date.now() },
     ]);
     dismiss(suggestion.id);
+    syncFeedbackToServer(suggestion, false);
   };
 
   const clearAll = () => setSuggestions([]);

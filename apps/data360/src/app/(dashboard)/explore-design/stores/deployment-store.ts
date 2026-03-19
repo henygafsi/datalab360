@@ -6,6 +6,10 @@
 import { atom, useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { atomWithStorage } from 'jotai/utils';
 import apiClient from '@/lib/api-client';
+import type {
+  PreDeployChecksResult,
+  DeploymentRiskResult,
+} from '@/app/services/api/types';
 
 // Deployment Types
 export type DeploymentType = 'immediate' | 'scheduled' | 'conditional' | 'staged';
@@ -158,6 +162,15 @@ export const pendingApprovalsAtom = atom((get) => {
   const store = get(deploymentStoreAtom);
   return store.approvalRequests.filter((a) => a.status === 'pending');
 });
+
+// Phase B2 — Atomic deployment toggle
+export const atomicDeploymentAtom = atom<boolean>(false);
+
+// Phase B3 — Pre-deploy checks result cache
+export const preDeployChecksResultAtom = atom<PreDeployChecksResult | null>(null);
+
+// Phase 4.1 — Deployment risk result cache
+export const deploymentRiskResultAtom = atom<DeploymentRiskResult | null>(null);
 
 // Actions
 export const createDeploymentAtom = atom(

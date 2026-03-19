@@ -13,7 +13,8 @@ import { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTable
 // Table action types
 export type TableOptionAction =
   | 'rename'
-  | 'add_column'
+  | 'add_new_column'
+  | 'add_computed_column'
   | 'duplicate'
   | 'pk_config'
   | 'fk_config'
@@ -241,8 +242,14 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
           />
           <ActionButton
             icon={Plus}
+            label="Add Column"
+            onClick={() => onAction('add_new_column')}
+            highlight
+          />
+          <ActionButton
+            icon={Plus}
             label="Add Computed Column"
-            onClick={() => onAction('add_column')}
+            onClick={() => onAction('add_computed_column')}
             highlight
           />
           <ActionButton

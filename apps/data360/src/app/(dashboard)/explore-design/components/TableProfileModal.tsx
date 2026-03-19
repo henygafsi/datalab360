@@ -18,14 +18,24 @@ import {
   Type,
   Calendar,
   Binary,
-  ChevronDown,
-  ChevronRight,
-  Shield,
   Key,
+  Sparkles,
+  Check,
+  Loader2,
+  ChevronDown,
+  Layers,
+  Copy,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
-import { tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import {
+  tableProfile as fetchTableProfile,
+  aiClassifyColumns,
+  aiOptimizeTypes,
+  aiClusteringKeys,
+} from '@/app/services/api/exploreDesignApi';
+import type { AiColumnCategory, ClusteringKeysResult } from '@/app/services/api/types';
+import { useAiFeatures } from '../stores/ai-store';
 
 // Adapted column profile shape for rendering (mapped from new API)
 interface ColumnProfile {
@@ -48,6 +58,194 @@ interface ColumnProfile {
   has_nulls: boolean;
 }
 
+// ── AI Column Classification & Optimization ─────────────────────────────────
+
+type AiClass =
+  | 'IDENTIFIER'
+  | 'PII_CANDIDATE'
+  | 'MEASURE'
+  | 'FLAG'
+  | 'DIMENSION'
+  | 'TIMESTAMP'
+  | 'FOREIGN_KEY'
+  | 'METADATA'
+  | 'TEXT_CONTENT'
+  | 'CATEGORICAL';
+
+interface ColumnAiResult {
+  aiClass: AiClass;
+  suggestion: string | null;
+  sql?: string;
+}
+
+const aiClassConfig: Record<AiClass, { color: string; bgColor: string }> = {
+  IDENTIFIER:    { color: 'text-indigo-700 dark:text-indigo-300', bgColor: 'bg-indigo-100 dark:bg-indigo-900/30' },
+  PII_CANDIDATE: { color: 'text-red-700 dark:text-red-300',      bgColor: 'bg-red-100 dark:bg-red-900/30' },
+  MEASURE:       { color: 'text-blue-700 dark:text-blue-300',     bgColor: 'bg-blue-100 dark:bg-blue-900/30' },
+  FLAG:          { color: 'text-amber-700 dark:text-amber-300',   bgColor: 'bg-amber-100 dark:bg-amber-900/30' },
+  DIMENSION:     { color: 'text-purple-700 dark:text-purple-300', bgColor: 'bg-purple-100 dark:bg-purple-900/30' },
+  TIMESTAMP:     { color: 'text-orange-700 dark:text-orange-300', bgColor: 'bg-orange-100 dark:bg-orange-900/30' },
+  FOREIGN_KEY:   { color: 'text-cyan-700 dark:text-cyan-300',     bgColor: 'bg-cyan-100 dark:bg-cyan-900/30' },
+  METADATA:      { color: 'text-slate-600 dark:text-slate-400',   bgColor: 'bg-slate-200 dark:bg-slate-700' },
+  TEXT_CONTENT:  { color: 'text-emerald-700 dark:text-emerald-300', bgColor: 'bg-emerald-100 dark:bg-emerald-900/30' },
+  CATEGORICAL:   { color: 'text-pink-700 dark:text-pink-300',     bgColor: 'bg-pink-100 dark:bg-pink-900/30' },
+};
+
+function classifyColumn(col: ColumnProfile, rowCount: number, tableName: string): ColumnAiResult {
+  const name = col.column.toUpperCase();
+  const dtype = col.data_type.toUpperCase();
+
+  // ── PII detection ─────────────────────────────────────────────────────
+  const piiPatterns = ['EMAIL', 'PHONE', 'SSN', 'PASSPORT', 'ADDRESS', 'FIRST_NAME', 'LAST_NAME',
+    'FULL_NAME', 'BIRTH', 'DOB', 'CREDIT_CARD', 'CARD_NUM', 'IBAN', 'ZIP_CODE', 'POSTAL'];
+  if (piiPatterns.some((p) => name.includes(p))) {
+    return {
+      aiClass: 'PII_CANDIDATE',
+      suggestion: 'Add masking policy',
+      sql: `ALTER TABLE ${tableName} ALTER COLUMN ${col.column} SET MASKING POLICY pii_mask;`,
+    };
+  }
+
+  // ── Identifier (unique + non-null, often PK or FK) ────────────────────
+  if (col.is_unique && !col.has_nulls && (name.includes('_ID') || name.endsWith('ID') || name === 'ID' || name.includes('_KEY') || name.includes('_CODE'))) {
+    return { aiClass: 'IDENTIFIER', suggestion: null };
+  }
+
+  // ── Foreign key pattern (ends with _ID but not unique) ────────────────
+  if (!col.is_unique && (name.endsWith('_ID') || name.endsWith('_KEY') || name.endsWith('_FK')) && !col.has_nulls) {
+    return { aiClass: 'FOREIGN_KEY', suggestion: null };
+  }
+
+  // ── Timestamp / date columns ──────────────────────────────────────────
+  if (dtype.includes('DATE') || dtype.includes('TIMESTAMP') || dtype.includes('TIME')) {
+    return { aiClass: 'TIMESTAMP', suggestion: null };
+  }
+  // Date stored as string
+  if ((dtype.includes('VARCHAR') || dtype.includes('STRING')) && col.min_value != null) {
+    const val = String(col.min_value);
+    if (/^\d{4}-\d{2}-\d{2}/.test(val) || /^\d{2}\/\d{2}\/\d{4}/.test(val)) {
+      const hasTime = /\d{2}:\d{2}/.test(val);
+      const target = hasTime ? 'TIMESTAMP_NTZ' : 'DATE';
+      return {
+        aiClass: 'TIMESTAMP',
+        suggestion: `Change to ${target}`,
+        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${col.column} SET DATA TYPE ${target};`,
+      };
+    }
+  }
+  if (name.includes('CREATED') || name.includes('UPDATED') || name.includes('_AT') || name.includes('_DATE') || name.includes('_TIME') || name === 'TIMESTAMP') {
+    return { aiClass: 'TIMESTAMP', suggestion: null };
+  }
+
+  // ── Flag / boolean ────────────────────────────────────────────────────
+  if (dtype.includes('BOOL')) {
+    return { aiClass: 'FLAG', suggestion: null };
+  }
+  if (name.startsWith('IS_') || name.startsWith('HAS_') || name.startsWith('CAN_') || name.includes('_FLAG') || name.includes('ACTIVE') || name.includes('ENABLED')) {
+    if ((dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('NUMBER')) && col.distinct_count <= 2) {
+      return {
+        aiClass: 'FLAG',
+        suggestion: 'Change to BOOLEAN',
+        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${col.column} SET DATA TYPE BOOLEAN;`,
+      };
+    }
+    return { aiClass: 'FLAG', suggestion: null };
+  }
+  // Generic 2-value detection
+  if (col.distinct_count === 2 && (dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('NUMBER'))) {
+    const minStr = String(col.min_value ?? '').toUpperCase();
+    const maxStr = String(col.max_value ?? '').toUpperCase();
+    const boolPairs = [['0', '1'], ['TRUE', 'FALSE'], ['YES', 'NO'], ['Y', 'N'], ['T', 'F']];
+    if (boolPairs.some(([a, b]) => (minStr === a && maxStr === b) || (minStr === b && maxStr === a))) {
+      return {
+        aiClass: 'FLAG',
+        suggestion: 'Change to BOOLEAN',
+        sql: `ALTER TABLE ${tableName} ALTER COLUMN ${col.column} SET DATA TYPE BOOLEAN;`,
+      };
+    }
+  }
+
+  // ── Measure (numeric, not an ID) ──────────────────────────────────────
+  if (
+    (dtype.includes('NUMBER') || dtype.includes('INT') || dtype.includes('FLOAT') || dtype.includes('DECIMAL') || dtype.includes('DOUBLE')) &&
+    !name.includes('_ID') && !name.endsWith('ID')
+  ) {
+    // Numeric stored as string
+    return { aiClass: 'MEASURE', suggestion: null };
+  }
+  // Numeric values in a VARCHAR
+  if (
+    (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
+    col.min_value != null && col.max_value != null &&
+    !isNaN(Number(col.min_value)) && !isNaN(Number(col.max_value)) &&
+    col.distinct_count > 2
+  ) {
+    const allInts = Number(col.min_value) === Math.floor(Number(col.min_value)) &&
+      Number(col.max_value) === Math.floor(Number(col.max_value));
+    const target = allInts ? 'NUMBER(38,0)' : 'FLOAT';
+    return {
+      aiClass: 'MEASURE',
+      suggestion: `Change to ${target}`,
+      sql: `ALTER TABLE ${tableName} ALTER COLUMN ${col.column} SET DATA TYPE ${target};`,
+    };
+  }
+
+  // ── Metadata columns ──────────────────────────────────────────────────
+  if (name.includes('CREATED_BY') || name.includes('UPDATED_BY') || name.includes('MODIFIED_BY') || name.includes('VERSION') || name.includes('ETL_') || name.includes('LOAD_')) {
+    return { aiClass: 'METADATA', suggestion: null };
+  }
+
+  // ── Categorical / dimension (string with low cardinality) ─────────────
+  if (
+    (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
+    col.distinct_count > 0 && col.distinct_count < 50 && rowCount > 0
+  ) {
+    return { aiClass: 'CATEGORICAL', suggestion: null };
+  }
+
+  // ── Dimension (string with moderate cardinality) ──────────────────────
+  if (
+    (dtype.includes('VARCHAR') || dtype.includes('STRING')) &&
+    col.distinct_count >= 50 && col.distinct_count < rowCount * 0.8
+  ) {
+    return { aiClass: 'DIMENSION', suggestion: null };
+  }
+
+  // ── Text content (high cardinality strings, likely free text) ─────────
+  if (
+    (dtype.includes('VARCHAR') || dtype.includes('STRING') || dtype.includes('TEXT')) &&
+    col.distinct_count >= rowCount * 0.8
+  ) {
+    return { aiClass: 'TEXT_CONTENT', suggestion: null };
+  }
+
+  // ── Default: unique identifier ────────────────────────────────────────
+  if (col.is_unique && !col.has_nulls) {
+    return { aiClass: 'IDENTIFIER', suggestion: null };
+  }
+
+  return { aiClass: 'DIMENSION', suggestion: null };
+}
+
+// Map backend AI categories to local UI AiClass
+const apiCategoryToAiClass: Record<AiColumnCategory, AiClass> = {
+  PII: 'PII_CANDIDATE',
+  METRIC: 'MEASURE',
+  DIMENSION: 'DIMENSION',
+  KEY: 'IDENTIFIER',
+  AUDIT: 'METADATA',
+  TECHNICAL: 'METADATA',
+  UNKNOWN: 'DIMENSION',
+};
+
+interface AiSuggestionEvent {
+  column: string;
+  aiClass: AiClass;
+  suggestion: string;
+  currentType: string;
+  sql?: string;
+}
+
 interface TableProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -55,6 +253,7 @@ interface TableProfileModalProps {
   database: string;
   schema: string;
   table: string;
+  onAcceptSuggestion?: (event: AiSuggestionEvent) => void;
 }
 
 const TableProfileModal: React.FC<TableProfileModalProps> = ({
@@ -64,6 +263,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
   database,
   schema,
   table,
+  onAcceptSuggestion,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,9 +274,17 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     columns: ColumnProfile[];
     overall_quality_score: number;
   } | null>(null);
-  const [expandedColumns, setExpandedColumns] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<'name' | 'quality' | 'nulls'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [aiResults, setAiResults] = useState<Record<string, ColumnAiResult>>({});
+  const [aiAccepted, setAiAccepted] = useState<Record<string, boolean>>({});
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [aiGenerated, setAiGenerated] = useState(false);
+
+  // Clustering keys state
+  const [clusteringResult, setClusteringResult] = useState<ClusteringKeysResult | null>(null);
+  const [isClusteringLoading, setIsClusteringLoading] = useState(false);
+  const [clusteringExpanded, setClusteringExpanded] = useState(true);
 
   const loadData = useCallback(async () => {
     if (!database || !schema || !table) return;
@@ -129,26 +337,158 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     }
   }, [isOpen, loadData]);
 
-  const toggleExpanded = (columnName: string) => {
-    setExpandedColumns(prev => {
-      const next = new Set(prev);
-      if (next.has(columnName)) {
-        next.delete(columnName);
-      } else {
-        next.add(columnName);
-      }
-      return next;
-    });
-  };
+  const { isEnabled } = useAiFeatures();
 
-  const expandAll = () => {
-    if (profileData) {
-      setExpandedColumns(new Set(profileData.columns.map(c => c.column)));
+  const handleGenerateAi = useCallback(async () => {
+    if (!profileData) return;
+    setIsGenerating(true);
+
+    const fqn = `${database}.${schema}.${table}`;
+    const results: Record<string, ColumnAiResult> = {};
+
+    try {
+      // Try server-side classification if enabled
+      if (isEnabled('column_classification') && projectId) {
+        const [classifyRes, optimizeRes] = await Promise.allSettled([
+          aiClassifyColumns(projectId, { database, schema, table }),
+          isEnabled('data_type_optimizer')
+            ? aiOptimizeTypes(projectId, { database, schema, table })
+            : Promise.resolve(null),
+        ]);
+
+        if (classifyRes.status === 'fulfilled' && classifyRes.value) {
+          for (const cls of classifyRes.value.classifications) {
+            const uiClass = apiCategoryToAiClass[cls.category] || 'DIMENSION';
+            results[cls.column] = {
+              aiClass: uiClass,
+              suggestion: cls.suggestion,
+            };
+          }
+        }
+
+        // Merge type optimization suggestions
+        if (optimizeRes.status === 'fulfilled' && optimizeRes.value) {
+          for (const opt of optimizeRes.value.optimizations) {
+            if (results[opt.column]) {
+              results[opt.column].suggestion = results[opt.column].suggestion || opt.reason;
+              results[opt.column].sql = `ALTER TABLE ${fqn} ALTER COLUMN ${opt.column} SET DATA TYPE ${opt.suggested_type};`;
+            } else {
+              results[opt.column] = {
+                aiClass: 'MEASURE',
+                suggestion: opt.reason,
+                sql: `ALTER TABLE ${fqn} ALTER COLUMN ${opt.column} SET DATA TYPE ${opt.suggested_type};`,
+              };
+            }
+          }
+        }
+
+        // If server returned results, use them
+        if (Object.keys(results).length > 0) {
+          // Fill any missing columns with client-side fallback
+          for (const col of profileData.columns) {
+            if (!results[col.column]) {
+              results[col.column] = classifyColumn(col, profileData.row_count, fqn);
+            }
+          }
+          setAiResults(results);
+          setAiAccepted({});
+          setAiGenerated(true);
+          const sugCount = Object.values(results).filter((r) => r.suggestion).length;
+          toast.success(
+            sugCount > 0
+              ? `AI classified ${profileData.columns.length} columns, ${sugCount} suggestion${sugCount > 1 ? 's' : ''}`
+              : `AI classified ${profileData.columns.length} columns — all types look good!`,
+          );
+          return;
+        }
+      }
+    } catch {
+      // Fallback to client-side classification
+    }
+
+    // Client-side fallback
+    for (const col of profileData.columns) {
+      results[col.column] = classifyColumn(col, profileData.row_count, fqn);
+    }
+    setAiResults(results);
+    setAiAccepted({});
+    setAiGenerated(true);
+    const sugCount = Object.values(results).filter((r) => r.suggestion).length;
+    toast.success(
+      sugCount > 0
+        ? `Classified ${profileData.columns.length} columns, ${sugCount} suggestion${sugCount > 1 ? 's' : ''}`
+        : `Classified ${profileData.columns.length} columns — all types look good!`,
+    );
+  }, [profileData, database, schema, table, projectId, isEnabled]);
+
+  // Wrap in useCallback to make it sync from the caller's perspective
+  const handleGenerateAiClick = useCallback(() => {
+    handleGenerateAi().finally(() => setIsGenerating(false));
+  }, [handleGenerateAi]);
+
+  const handleAcceptSuggestion = (colName: string) => {
+    setAiAccepted((prev) => ({ ...prev, [colName]: true }));
+    const r = aiResults[colName];
+    const colProfile = profileData?.columns.find((c) => c.column === colName);
+    if (r?.suggestion) {
+      onAcceptSuggestion?.({
+        column: colName,
+        aiClass: r.aiClass,
+        suggestion: r.suggestion,
+        currentType: colProfile?.data_type ?? '',
+        sql: r.sql,
+      });
+    }
+    if (r?.sql) {
+      navigator.clipboard.writeText(r.sql);
+      toast.success(`Accepted — DDL event created, SQL copied`);
+    } else {
+      toast.success('Accepted');
     }
   };
 
-  const collapseAll = () => {
-    setExpandedColumns(new Set());
+  const handleRejectSuggestion = (colName: string) => {
+    setAiResults((prev) => {
+      const next = { ...prev };
+      if (next[colName]) {
+        next[colName] = { ...next[colName], suggestion: null, sql: undefined };
+      }
+      return next;
+    });
+    toast.success('Dismissed');
+  };
+
+  // ── Clustering Keys ──────────────────────────────────────────────────────
+  const handleSuggestClustering = useCallback(async () => {
+    if (!profileData) return;
+    setIsClusteringLoading(true);
+    try {
+      const result = await aiClusteringKeys(projectId, {
+        database,
+        schema,
+        table: table,
+      });
+      setClusteringResult(result);
+      setClusteringExpanded(true);
+      if (result.suggestions.length > 0) {
+        toast.success(
+          `Found ${result.suggestions.length} clustering suggestion${result.suggestions.length > 1 ? 's' : ''}`,
+        );
+      } else {
+        toast.success('No clustering improvements suggested for this table');
+      }
+    } catch (err: any) {
+      console.error('Failed to get clustering suggestions:', err);
+      toast.error(err.message || 'Failed to get clustering key suggestions');
+    } finally {
+      setIsClusteringLoading(false);
+    }
+  }, [profileData, projectId, database, schema, table]);
+
+  const handleApplyClusteringSql = () => {
+    if (!clusteringResult?.ddl) return;
+    navigator.clipboard.writeText(clusteringResult.ddl);
+    toast.success('Clustering DDL copied to clipboard');
   };
 
   const getQualityColor = (score: number) => {
@@ -307,21 +647,43 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                 <Download className="h-4 w-4" />
                 Export
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleGenerateAiClick}
+                disabled={isGenerating || !profileData}
+                className="gap-1 border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
+              >
+                {isGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {isGenerating ? 'Analyzing...' : aiGenerated ? 'Re-analyze' : 'AI Optimize'}
+              </Button>
+              {isEnabled('clustering_keys') && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleSuggestClustering}
+                  disabled={isClusteringLoading || !profileData}
+                  className="gap-1 border-amber-300 text-amber-600 hover:bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:hover:bg-amber-900/20"
+                >
+                  {isClusteringLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Layers className="h-4 w-4" />
+                  )}
+                  {isClusteringLoading ? 'Analyzing...' : 'Suggest Clustering'}
+                </Button>
+              )}
             </div>
           </div>
         )}
 
         {/* Toolbar */}
         {profileData && (
-          <div className="px-6 py-2 border-b dark:border-slate-700 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button variant="text" size="sm" onClick={expandAll} className="text-xs">
-                Expand All
-              </Button>
-              <Button variant="text" size="sm" onClick={collapseAll} className="text-xs">
-                Collapse All
-              </Button>
-            </div>
+          <div className="px-6 py-2 border-b dark:border-slate-700 flex items-center justify-end">
             <div className="flex items-center gap-2 text-sm">
               <span className="text-slate-500">Sort by:</span>
               <select
@@ -344,7 +706,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
         )}
 
         {/* Content */}
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="flex flex-col items-center justify-center py-12">
               <RefreshCw className="h-8 w-8 animate-spin text-purple-500 mb-4" />
@@ -367,6 +729,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
               </Button>
             </div>
           ) : profileData ? (
+            <>
             <div className="space-y-2">
               {sortedColumns.map((col) => {
                 const isExpanded = expandedColumns.has(col.column);
@@ -526,6 +889,165 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                 );
               })}
             </div>
+
+            {/* AI-enhanced table view */}
+            <div className="overflow-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-100 dark:bg-slate-800 sticky top-0 z-10">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300 border-b dark:border-slate-700 whitespace-nowrap">
+                      COLUMN
+                    </th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300 border-b dark:border-slate-700 whitespace-nowrap">
+                      TYPE
+                    </th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300 border-b dark:border-slate-700 whitespace-nowrap">
+                      NULLS
+                    </th>
+                    <th className="px-4 py-2.5 text-left font-semibold text-slate-600 dark:text-slate-300 border-b dark:border-slate-700 whitespace-nowrap">
+                      DISTINCT
+                    </th>
+                    <th className="px-4 py-2.5 text-center font-semibold text-slate-600 dark:text-slate-300 border-b dark:border-slate-700 whitespace-nowrap">
+                      QUALITY
+                    </th>
+                    {aiGenerated && (
+                      <>
+                        <th className="px-4 py-2.5 text-left font-semibold text-purple-600 dark:text-purple-300 border-b dark:border-slate-700 whitespace-nowrap">
+                          <span className="flex items-center gap-1">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            AI CLASS
+                          </span>
+                        </th>
+                        <th className="px-4 py-2.5 text-left font-semibold text-purple-600 dark:text-purple-300 border-b dark:border-slate-700 whitespace-nowrap">
+                          SUGGESTION
+                        </th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-slate-700">
+                  {sortedColumns.map((col) => {
+                    const ai = aiResults[col.column];
+                    const accepted = aiAccepted[col.column];
+                    const classCfg = ai ? aiClassConfig[ai.aiClass] : null;
+
+                    return (
+                      <tr
+                        key={col.column}
+                        className={cn(
+                          'hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors',
+                          accepted && 'bg-green-50/50 dark:bg-green-900/10',
+                        )}
+                      >
+                        {/* COLUMN */}
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            {getDataTypeIcon(col.data_type)}
+                            <span className="font-mono font-medium text-slate-800 dark:text-slate-200">
+                              {col.column}
+                            </span>
+                            {col.is_unique && (
+                              <Key className="h-3 w-3 text-amber-500" />
+                            )}
+                          </div>
+                        </td>
+
+                        {/* TYPE */}
+                        <td className="px-4 py-2.5">
+                          <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
+                            {col.data_type}
+                          </span>
+                        </td>
+
+                        {/* NULLS */}
+                        <td className="px-4 py-2.5">
+                          {col.has_nulls ? (
+                            <span className={cn(
+                              'text-xs font-medium',
+                              col.null_percentage > 50 ? 'text-red-600' :
+                              col.null_percentage > 10 ? 'text-orange-600' : 'text-slate-500',
+                            )}>
+                              {col.null_percentage.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-xs text-green-600">0%</span>
+                          )}
+                        </td>
+
+                        {/* DISTINCT */}
+                        <td className="px-4 py-2.5">
+                          <span className="text-xs text-slate-600 dark:text-slate-400">
+                            {col.distinct_count.toLocaleString()}
+                          </span>
+                        </td>
+
+                        {/* QUALITY */}
+                        <td className="px-4 py-2.5 text-center">
+                          <div className={cn(
+                            'inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium',
+                            getQualityColor(col.data_quality_score),
+                          )}>
+                            {getQualityIcon(col.data_quality_score)}
+                            {col.data_quality_score}%
+                          </div>
+                        </td>
+
+                        {/* AI CLASS */}
+                        {aiGenerated && (
+                          <td className="px-4 py-2.5">
+                            {ai && classCfg && (
+                              <Badge
+                                size="sm"
+                                className={cn(classCfg.bgColor, classCfg.color, 'text-[10px] font-bold')}
+                              >
+                                {ai.aiClass}
+                              </Badge>
+                            )}
+                          </td>
+                        )}
+
+                        {/* SUGGESTION */}
+                        {aiGenerated && (
+                          <td className="px-4 py-2.5">
+                            {ai?.suggestion ? (
+                              accepted ? (
+                                <span className="flex items-center gap-1 text-xs text-green-600">
+                                  <CheckCircle2 className="h-3.5 w-3.5" />
+                                  Applied
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs text-sky-600 dark:text-sky-400 font-medium">
+                                    {ai.suggestion}
+                                  </span>
+                                  <button
+                                    onClick={() => handleAcceptSuggestion(col.column)}
+                                    className="p-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/30 text-green-600 transition-colors"
+                                    title="Accept suggestion"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleRejectSuggestion(col.column)}
+                                    className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors"
+                                    title="Dismiss suggestion"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              )
+                            ) : (
+                              <span className="text-xs text-slate-400">-</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            </>
           ) : (
             <div className="flex flex-col items-center justify-center py-12">
               <BarChart3 className="h-12 w-12 text-slate-300 mb-4" />
@@ -533,6 +1055,109 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
             </div>
           )}
         </div>
+
+        {/* Clustering Keys Results */}
+        {clusteringResult && clusteringResult.suggestions.length > 0 && (
+          <div className="border-t dark:border-slate-700">
+            <button
+              onClick={() => setClusteringExpanded((p) => !p)}
+              className="w-full px-6 py-3 flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+            >
+              <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+                <Layers className="h-4 w-4" />
+                AI Clustering Suggestions
+                <Badge size="sm" className="bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200 text-[10px]">
+                  {clusteringResult.suggestions.length}
+                </Badge>
+                <span className="text-xs text-slate-500 dark:text-slate-400 font-normal ml-2">
+                  {clusteringResult.table_size_gb}GB · {clusteringResult.row_count?.toLocaleString()} rows · ~{clusteringResult.estimated_scan_reduction_pct}% scan reduction
+                </span>
+              </div>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 text-amber-600 dark:text-amber-400 transition-transform',
+                  clusteringExpanded && 'rotate-180',
+                )}
+              />
+            </button>
+            {clusteringExpanded && (
+              <div className="px-6 py-4 space-y-3 bg-white dark:bg-slate-900 border-t dark:border-slate-700">
+                {/* Recommended cluster key */}
+                {clusteringResult.recommended_cluster_by?.length > 0 && (
+                  <div className="border dark:border-slate-700 rounded-lg p-3 bg-amber-50/50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                        Recommended Cluster Key:
+                      </span>
+                      <span className="font-mono text-sm text-amber-700 dark:text-amber-300 font-semibold">
+                        ({clusteringResult.recommended_cluster_by.join(', ')})
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Individual column analysis */}
+                <div className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  Column Analysis
+                </div>
+                {clusteringResult.suggestions.map((sug, idx) => (
+                  <div
+                    key={idx}
+                    className="border dark:border-slate-700 rounded-lg p-3 hover:border-amber-300 dark:hover:border-amber-700 transition-colors"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-sm font-medium text-slate-800 dark:text-slate-200">
+                          {sug.column}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={cn(
+                            'text-xs font-medium px-2 py-0.5 rounded',
+                            sug.relevance_score >= 8
+                              ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                              : sug.relevance_score >= 5
+                              ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300'
+                              : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400',
+                          )}
+                        >
+                          Relevance: {sug.relevance_score}/10
+                        </span>
+                        <span className="text-xs text-slate-500 dark:text-slate-400">
+                          WHERE: {sug.where_frequency}x · JOIN: {sug.join_frequency}x
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {/* DDL + Copy */}
+                {clusteringResult.ddl && (
+                  <div className="mt-3 border dark:border-slate-700 rounded-lg overflow-hidden">
+                    <div className="px-3 py-2 bg-slate-100 dark:bg-slate-800 flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                        DDL Statement
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleApplyClusteringSql}
+                        className="gap-1 h-7 text-xs"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy SQL
+                      </Button>
+                    </div>
+                    <pre className="px-3 py-2 text-xs font-mono text-slate-700 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/50 overflow-x-auto whitespace-pre-wrap">
+                      {clusteringResult.ddl}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Summary Footer */}
         {profileData && (

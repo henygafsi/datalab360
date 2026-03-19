@@ -92,6 +92,69 @@ import type {
   IngestionRunsResponse,
   ConflictCheckRequest,
   ConflictCheckResult,
+  // Phase A — Event Validation
+  ValidateFkTypesRequest,
+  ValidateFkTypesResult,
+  CascadeRenameRequest,
+  CascadeRenameResult,
+  CascadeDropRequest,
+  CascadeDropResult,
+  EnhancedImpactAnalysisRequest,
+  EnhancedImpactAnalysisResult,
+  // Phase B — Deployment Pipeline
+  ExecuteDDLAtomicBody,
+  PreDeployChecksRequest,
+  PreDeployChecksResult,
+  SqlDiffRequest,
+  SqlDiffResult,
+  // Phase C — Self-Serve Ingestion
+  SqlPreviewRequest,
+  SqlPreviewResult,
+  WatermarkListResult,
+  Watermark,
+  // Phase D — Event Lifecycle
+  AuditTrailParams,
+  AuditTrailResult,
+  CreateEventTemplateRequest,
+  CreateEventTemplateResult,
+  EventTemplate,
+  ApplyEventTemplateRequest,
+  ApplyEventTemplateResult,
+  // AI Phase 1 — Schema Intelligence
+  ClassifyColumnsRequest,
+  ClassifyColumnsResult,
+  DiscoverRelationshipsRequest,
+  DiscoverRelationshipsResult,
+  SchemaHealthRequest,
+  SchemaHealthResult,
+  // AI Phase 2 — Modeling Copilot
+  SuggestColumnsRequest,
+  SuggestColumnsResult,
+  CheckNamingRequest,
+  CheckNamingResult,
+  OptimizeTypesRequest,
+  OptimizeTypesResult,
+  RecommendScdRequest,
+  RecommendScdResult,
+  // AI Phase 3 — Cost Optimizer
+  WarehouseSizingRequest,
+  WarehouseSizingResult,
+  ClusteringKeysRequest,
+  ClusteringKeysResult,
+  MaterializationRequest,
+  MaterializationResult,
+  IngestionModeOptimizerRequest,
+  IngestionModeOptimizerResult,
+  // AI Phase 4 — Deployment Intelligence
+  DeploymentRiskRequest,
+  DeploymentRiskResult,
+  DeployScheduleRequest,
+  DeployScheduleResult,
+  // AI Phase 5 — Continuous Learning
+  AiFeedbackRequest,
+  AiFeedbackResponse,
+  AiFeedbackStatsResponse,
+  AiSavingsResponse,
 } from './types';
 
 const PREFIX = '/api/v1/explore-design';
@@ -426,9 +489,13 @@ export async function listDDLActions(
   return data;
 }
 
-export async function executeDDLActions(projectId: string) {
+export async function executeDDLActions(
+  projectId: string,
+  body?: ExecuteDDLAtomicBody,
+) {
   const { data } = await apiClient.post<ExecuteDDLResponse>(
     `${PREFIX}/${projectId}/ddl-actions/execute`,
+    body ?? {},
   );
   return data;
 }
@@ -436,6 +503,13 @@ export async function executeDDLActions(projectId: string) {
 export async function rollbackDDLAction(projectId: string, eventId: string) {
   const { data } = await apiClient.post<RollbackDDLResponse>(
     `${PREFIX}/${projectId}/ddl-actions/${eventId}/rollback`,
+  );
+  return data;
+}
+
+export async function removeDDLAction(projectId: string, eventId: string) {
+  const { data } = await apiClient.delete<{ status: string; event_id: string }>(
+    `${PREFIX}/${projectId}/ddl-actions/${eventId}`,
   );
   return data;
 }
@@ -707,6 +781,345 @@ export async function checkConflicts(
   const { data } = await apiClient.post<ConflictCheckResult>(
     `${PREFIX}/${projectId}/conflict-check`,
     body ?? {},
+  );
+  return data;
+}
+
+// ============================================================================
+// Phase A — Event Validation
+// ============================================================================
+
+export async function validateFkTypes(
+  projectId: string,
+  body: ValidateFkTypesRequest,
+) {
+  const { data } = await apiClient.post<ValidateFkTypesResult>(
+    `${PREFIX}/${projectId}/validate/fk-types`,
+    body,
+  );
+  return data;
+}
+
+export async function cascadeRename(
+  projectId: string,
+  body: CascadeRenameRequest,
+) {
+  const { data } = await apiClient.post<CascadeRenameResult>(
+    `${PREFIX}/${projectId}/cascade/rename`,
+    body,
+  );
+  return data;
+}
+
+export async function cascadeDrop(
+  projectId: string,
+  body: CascadeDropRequest,
+) {
+  const { data } = await apiClient.post<CascadeDropResult>(
+    `${PREFIX}/${projectId}/cascade/drop`,
+    body,
+  );
+  return data;
+}
+
+export async function enhancedImpactAnalysis(
+  projectId: string,
+  body: EnhancedImpactAnalysisRequest,
+) {
+  const { data } = await apiClient.post<EnhancedImpactAnalysisResult>(
+    `${PREFIX}/${projectId}/impact-analysis/enhanced`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Phase B — Deployment Pipeline (new endpoints)
+// ============================================================================
+
+export async function preDeployChecks(
+  projectId: string,
+  body?: PreDeployChecksRequest,
+) {
+  const { data } = await apiClient.post<PreDeployChecksResult>(
+    `${PREFIX}/${projectId}/pre-deploy-checks`,
+    body ?? {},
+  );
+  return data;
+}
+
+export async function sqlDiff(projectId: string, body: SqlDiffRequest) {
+  const { data } = await apiClient.post<SqlDiffResult>(
+    `${PREFIX}/${projectId}/sql-diff`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// Phase C — Self-Serve Ingestion (new endpoints)
+// ============================================================================
+
+export async function ingestionSqlPreview(
+  projectId: string,
+  body: SqlPreviewRequest,
+) {
+  const { data } = await apiClient.post<SqlPreviewResult>(
+    `${PREFIX}/${projectId}/ingestion/sql-preview`,
+    body,
+  );
+  return data;
+}
+
+export async function listWatermarks(projectId: string) {
+  const { data } = await apiClient.get<WatermarkListResult>(
+    `${PREFIX}/${projectId}/watermarks`,
+  );
+  return data;
+}
+
+export async function getWatermark(projectId: string, sourceTableFqn: string) {
+  const { data } = await apiClient.get<Watermark>(
+    `${PREFIX}/${projectId}/watermarks/${encodeURIComponent(sourceTableFqn)}`,
+  );
+  return data;
+}
+
+// ============================================================================
+// Phase D — Event Lifecycle
+// ============================================================================
+
+export async function getAuditTrail(
+  projectId: string,
+  params?: AuditTrailParams,
+) {
+  const { data } = await apiClient.get<AuditTrailResult>(
+    `${PREFIX}/${projectId}/audit-trail`,
+    { params },
+  );
+  return data;
+}
+
+export async function createEventTemplate(
+  body: CreateEventTemplateRequest,
+) {
+  const { data } = await apiClient.post<CreateEventTemplateResult>(
+    `${PREFIX}/event-templates`,
+    body,
+  );
+  return data;
+}
+
+export async function listEventTemplates(params?: { category?: string }) {
+  const { data } = await apiClient.get<EventTemplate[]>(
+    `${PREFIX}/event-templates`,
+    { params },
+  );
+  return data;
+}
+
+export async function applyEventTemplate(
+  projectId: string,
+  body: ApplyEventTemplateRequest,
+) {
+  const { data } = await apiClient.post<ApplyEventTemplateResult>(
+    `${PREFIX}/${projectId}/event-templates/apply`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// AI Phase 1 — Schema Intelligence
+// ============================================================================
+
+export async function aiClassifyColumns(
+  projectId: string,
+  body: ClassifyColumnsRequest,
+) {
+  const { data } = await apiClient.post<ClassifyColumnsResult>(
+    `${PREFIX}/${projectId}/ai/classify-columns`,
+    body,
+  );
+  return data;
+}
+
+export async function aiDiscoverRelationships(
+  projectId: string,
+  body: DiscoverRelationshipsRequest,
+) {
+  const { data } = await apiClient.post<DiscoverRelationshipsResult>(
+    `${PREFIX}/${projectId}/ai/discover-relationships`,
+    body,
+  );
+  return data;
+}
+
+export async function aiSchemaHealth(
+  projectId: string,
+  body: SchemaHealthRequest,
+) {
+  const { data } = await apiClient.post<SchemaHealthResult>(
+    `${PREFIX}/${projectId}/ai/schema-health`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// AI Phase 2 — Modeling Copilot
+// ============================================================================
+
+export async function aiSuggestColumns(
+  projectId: string,
+  body: SuggestColumnsRequest,
+) {
+  const { data } = await apiClient.post<SuggestColumnsResult>(
+    `${PREFIX}/${projectId}/ai/suggest-columns`,
+    body,
+  );
+  return data;
+}
+
+export async function aiCheckNaming(
+  projectId: string,
+  body: CheckNamingRequest,
+) {
+  const { data } = await apiClient.post<CheckNamingResult>(
+    `${PREFIX}/${projectId}/ai/check-naming`,
+    body,
+  );
+  return data;
+}
+
+export async function aiOptimizeTypes(
+  projectId: string,
+  body: OptimizeTypesRequest,
+) {
+  const { data } = await apiClient.post<OptimizeTypesResult>(
+    `${PREFIX}/${projectId}/ai/optimize-types`,
+    body,
+  );
+  return data;
+}
+
+export async function aiRecommendScd(
+  projectId: string,
+  body: RecommendScdRequest,
+) {
+  const { data } = await apiClient.post<RecommendScdResult>(
+    `${PREFIX}/${projectId}/ai/recommend-scd`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// AI Phase 3 — Cost Optimizer
+// ============================================================================
+
+export async function aiWarehouseSizing(
+  projectId: string,
+  body: WarehouseSizingRequest,
+) {
+  const { data } = await apiClient.post<WarehouseSizingResult>(
+    `${PREFIX}/${projectId}/ai/warehouse-sizing`,
+    body,
+  );
+  return data;
+}
+
+export async function aiClusteringKeys(
+  projectId: string,
+  body: ClusteringKeysRequest,
+) {
+  const { data } = await apiClient.post<ClusteringKeysResult>(
+    `${PREFIX}/${projectId}/ai/clustering-keys`,
+    body,
+  );
+  return data;
+}
+
+export async function aiMaterialization(
+  projectId: string,
+  body: MaterializationRequest,
+) {
+  const { data } = await apiClient.post<MaterializationResult>(
+    `${PREFIX}/${projectId}/ai/materialization`,
+    body,
+  );
+  return data;
+}
+
+export async function aiIngestionMode(
+  projectId: string,
+  body: IngestionModeOptimizerRequest,
+) {
+  const { data } = await apiClient.post<IngestionModeOptimizerResult>(
+    `${PREFIX}/${projectId}/ai/ingestion-mode`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// AI Phase 4 — Deployment Intelligence
+// ============================================================================
+
+export async function aiDeploymentRisk(
+  projectId: string,
+) {
+  const { data } = await apiClient.post<DeploymentRiskResult>(
+    `${PREFIX}/${projectId}/ai/deployment-risk`,
+    {},
+  );
+  return data;
+}
+
+export async function aiDeploySchedule(
+  projectId: string,
+  body: DeployScheduleRequest,
+) {
+  const { data } = await apiClient.post<DeployScheduleResult>(
+    `${PREFIX}/${projectId}/ai/deploy-schedule`,
+    body,
+  );
+  return data;
+}
+
+// ============================================================================
+// AI Phase 5 — Continuous Learning
+// ============================================================================
+
+export async function aiRecordFeedback(
+  projectId: string,
+  body: AiFeedbackRequest,
+) {
+  const { data } = await apiClient.post<AiFeedbackResponse>(
+    `${PREFIX}/${projectId}/ai/feedback`,
+    body,
+  );
+  return data;
+}
+
+export async function aiGetFeedbackStats(
+  projectId: string,
+  params?: { feature?: string },
+) {
+  const { data } = await apiClient.get<AiFeedbackStatsResponse>(
+    `${PREFIX}/${projectId}/ai/feedback/stats`,
+    { params },
+  );
+  return data;
+}
+
+export async function aiGetSavings(
+  projectId: string,
+  params?: { days?: number },
+) {
+  const { data } = await apiClient.get<AiSavingsResponse>(
+    `${PREFIX}/${projectId}/ai/savings`,
+    { params },
   );
   return data;
 }

@@ -22,7 +22,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Modal, Tooltip } from 'rizzui';
+import { Button, Badge, Input, Modal, Tooltip, Select, Checkbox } from 'rizzui';
 import {
   ZoomIn, ZoomOut, Maximize2, Download, Upload, Undo2, Redo2,
   Grid3X3, Layers, Eye, EyeOff, Lock, Unlock, Plus, Minus,
@@ -94,6 +94,7 @@ interface ModelingCanvasProps {
   targetTableIds?: Set<string>; // IDs of target/DWH tables (default tables)
   initialMappings?: InitialColumnMapping[]; // Mappings loaded from events
   isReadOnly?: boolean;
+  onColumnsMapUpdate?: (updater: (prev: Map<string, ColumnInfo[]>) => Map<string, ColumnInfo[]>) => void;
   // Data engineering callbacks
   onDynamicTableCreate?: (table: TableItem) => void;
   onEventTableCreate?: (table: TableItem) => void;
@@ -138,6 +139,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   targetTableIds = new Set(),
   initialMappings = [],
   isReadOnly = false,
+  onColumnsMapUpdate,
   onDynamicTableCreate,
   onEventTableCreate,
   onHybridTableCreate,
@@ -466,6 +468,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Policy and column modals state
   const [showPolicyPanel, setShowPolicyPanel] = useState(false);
   const [showAddColumnModal, setShowAddColumnModal] = useState(false);
+  const [showAddSimpleColumnModal, setShowAddSimpleColumnModal] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+  const [newColumnType, setNewColumnType] = useState('VARCHAR');
+  const [newColumnNullable, setNewColumnNullable] = useState(true);
+  const [newColumnIsPK, setNewColumnIsPK] = useState(false);
   const [showColumnMappingModal, setShowColumnMappingModal] = useState(false);
   const [selectedTableForPanel, setSelectedTableForPanel] = useState<TableItem | null>(null);
   const [selectedTableColumns, setSelectedTableColumns] = useState<ColumnInfo[]>([]);
@@ -718,9 +725,58 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // targetIsTarget,
       // });
 
-      // Validate: Source must be a source table (not DWH), Target must be a target table (DWH)
+      // DWH ↔ DWH: treat as FK relationship, not column mapping
       if (sourceIsTarget && targetIsTarget) {
-        toast.error('Cannot connect two target tables (DWH). Connect from a source table.');
+        // Open FK creation flow between two DWH tables
+        const sourceCols = tableColumns.get(params.source) || [];
+        const targetCols = tableColumns.get(params.target) || [];
+        if (sourceCols.length === 0 || targetCols.length === 0) {
+          toast.error('Both tables must have columns to create a foreign key.');
+          return;
+        }
+        // Use the first PK of target as default referenced column
+        const targetPk = targetCols.find(c => c.isPrimaryKey);
+        if (!targetPk) {
+          toast.error(`Target table "${targetTable.table}" has no primary key. Set one first.`);
+          return;
+        }
+        // Find a matching column in source by name convention (e.g. COD_VENDEUR)
+        const fkColumn = sourceCols.find(c =>
+          c.name.toLowerCase().includes(targetTable.table.toLowerCase().replace('dim_', '')) ||
+          c.name.toLowerCase() === targetPk.name.toLowerCase()
+        ) || sourceCols[0];
+
+        // Fire FK event
+        addEventRef.current({
+          type: 'FOREIGN_KEY_ADDED',
+          projectId: projectId || undefined,
+          target: { database: sourceTable.database, schema: sourceTable.schema, table: sourceTable.table },
+          payload: {
+            columns: [fkColumn.name],
+            referencedTable: { database: targetTable.database, schema: targetTable.schema, table: targetTable.table },
+            referencedColumns: [targetPk.name],
+            sourceColumn: fkColumn.name,
+            targetTable: targetTable.table,
+            targetColumn: targetPk.name,
+          },
+        });
+
+        // Add visual edge
+        setEdges(prev => [
+          ...prev,
+          {
+            id: `fk-${params.source}-${params.target}`,
+            source: params.source!,
+            target: params.target!,
+            type: 'smoothstep',
+            animated: true,
+            style: { stroke: '#f59e0b' },
+            label: `${fkColumn.name} → ${targetPk.name}`,
+            labelStyle: { fontSize: 10, fill: '#64748b' },
+          },
+        ]);
+
+        toast.success(`FK: ${sourceTable.table}.${fkColumn.name} → ${targetTable.table}.${targetPk.name}`);
         return;
       }
 
@@ -750,7 +806,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
       setShowColumnMappingModal(true);
     },
-    [tables, targetTableIds]
+    [tables, targetTableIds, tableColumns, projectId, setEdges]
   );
 
   // Handle column mapping from modal (ETL mapping, not FK relationship)
@@ -958,7 +1014,17 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           }
         }
         break;
+      case 'add_new_column':
+        setSelectedTableForPanel(table);
+        setSelectedTableColumns(columns);
+        setNewColumnName('');
+        setNewColumnType('VARCHAR');
+        setNewColumnNullable(true);
+        setNewColumnIsPK(false);
+        setShowAddSimpleColumnModal(true);
+        break;
       case 'add_column':
+      case 'add_computed_column':
         openAddColumnModal(table);
         break;
       case 'policies':
@@ -1388,6 +1454,99 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           }}
         />
       )}
+
+      {/* Add Simple Column Modal */}
+      <Modal isOpen={showAddSimpleColumnModal} onClose={() => setShowAddSimpleColumnModal(false)}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4">
+            Add Column to {selectedTableForPanel?.table}
+          </h3>
+          <div className="space-y-4">
+            <Input
+              label="Column Name"
+              placeholder="e.g. ORDER_ID"
+              value={newColumnName}
+              onChange={(e) => setNewColumnName(e.target.value.toUpperCase())}
+            />
+            <Select
+              label="Data Type"
+              value={{ label: newColumnType, value: newColumnType }}
+              options={[
+                'VARCHAR', 'NUMBER', 'INTEGER', 'FLOAT', 'BOOLEAN',
+                'DATE', 'TIMESTAMP', 'TIMESTAMP_NTZ', 'VARIANT', 'ARRAY', 'OBJECT',
+              ].map(t => ({ label: t, value: t }))}
+              onChange={(opt: any) => setNewColumnType(opt?.value || 'VARCHAR')}
+            />
+            <div className="flex items-center gap-4">
+              <Checkbox
+                label="Nullable"
+                checked={newColumnNullable}
+                onChange={() => setNewColumnNullable(!newColumnNullable)}
+              />
+              <Checkbox
+                label="Primary Key"
+                checked={newColumnIsPK}
+                onChange={() => setNewColumnIsPK(!newColumnIsPK)}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-6">
+            <Button variant="outline" onClick={() => setShowAddSimpleColumnModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!newColumnName.trim()}
+              onClick={() => {
+                if (!selectedTableForPanel || !newColumnName.trim()) return;
+                const table = selectedTableForPanel;
+                const tableId = `${table.database}.${table.schema}.${table.table}`;
+
+                // Add event
+                addEvent({
+                  type: 'ADD_COLUMN',
+                  target: { database: table.database, schema: table.schema, table: table.table },
+                  payload: {
+                    columnName: newColumnName.trim(),
+                    dataType: newColumnType,
+                    nullable: newColumnNullable,
+                    isPrimaryKey: newColumnIsPK,
+                  },
+                });
+
+                // Update columns map locally
+                if (onColumnsMapUpdate) {
+                  onColumnsMapUpdate((prev) => {
+                    const existing = prev.get(tableId) || [];
+                    const newCol: ColumnInfo = {
+                      name: newColumnName.trim(),
+                      dataType: newColumnType,
+                      isNullable: newColumnNullable,
+                      isPrimaryKey: newColumnIsPK,
+                    };
+                    const updated = new Map(prev);
+                    updated.set(tableId, [...existing, newCol]);
+                    return updated;
+                  });
+                }
+
+                toast.success(`Column "${newColumnName.trim()}" added to ${table.table}`);
+                setShowAddSimpleColumnModal(false);
+
+                // If PK was set, also add a PK event
+                if (newColumnIsPK) {
+                  addEvent({
+                    type: 'PRIMARY_KEY_SET',
+                    target: { database: table.database, schema: table.schema, table: table.table },
+                    payload: { columns: [newColumnName.trim()] },
+                  });
+                }
+              }}
+            >
+              Add Column
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Column Mapping Modal */}
       <ColumnMappingModal

@@ -5,12 +5,14 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Modal, Button, Input, Select, Badge, Checkbox } from 'rizzui';
-import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key, Cloud, Snowflake, Clock, Timer, Sparkles, Loader2, ThumbsUp, ThumbsDown, CheckCheck } from 'lucide-react';
+import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key, Cloud, Snowflake, Clock, Timer, Sparkles, Loader2, ThumbsUp, ThumbsDown, CheckCheck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
-import { addDDLAction } from '@/app/services/api/exploreDesignApi';
+import { aiSuggestColumns, aiCheckNaming, aiMaterialization } from '@/app/services/api/exploreDesignApi';
+import type { NamingCheckItem, MaterializationResult } from '@/app/services/api/types';
 import { cn } from '@/lib/utils';
 import { getCortexRecommend } from '@/app/services/cortex';
+import { useAiFeatures } from '../stores/ai-store';
 
 // Inline schema for table name validation
 const tableNameSchema = z.object({
@@ -59,6 +61,19 @@ const DATA_TYPES = [
   { value: 'BINARY', label: 'BINARY' },
 ];
 
+const TABLE_PURPOSES = [
+  { value: 'fact', label: 'Fact Table' },
+  { value: 'dimension', label: 'Dimension Table' },
+  { value: 'staging', label: 'Staging' },
+  { value: 'ods', label: 'ODS (Operational Data Store)' },
+  { value: 'bridge', label: 'Bridge Table' },
+  { value: 'aggregate', label: 'Aggregate / Summary' },
+  { value: 'lookup', label: 'Lookup / Reference' },
+  { value: 'audit', label: 'Audit / Log' },
+  { value: 'snapshot', label: 'Snapshot' },
+  { value: 'other', label: 'Other' },
+];
+
 const TABLE_TYPES: { value: SnowflakeTableType; label: string; description: string; icon: React.ReactNode }[] = [
   { value: 'standard', label: 'Standard', description: 'Permanent table with full Time Travel & Fail-safe', icon: <TableIcon className="h-4 w-4" /> },
   { value: 'temporary', label: 'Temporary', description: 'Session-scoped, dropped when session ends', icon: <Clock className="h-4 w-4" /> },
@@ -77,8 +92,10 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   onTableCreated,
 }) => {
   const { addEvent } = useEventStore();
+  const { isEnabled: isAiEnabled } = useAiFeatures();
   const [tableType, setTableType] = useState<SnowflakeTableType>(initialTableType);
   const [tableName, setTableName] = useState('');
+  const [tablePurpose, setTablePurpose] = useState('');
 
   // react-hook-form for table name validation
   const {
@@ -115,12 +132,68 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   const [aiDismissed, setAiDismissed] = useState(false);
   const lastAiQuery = useRef('');
 
+  // AI materialization strategy
+  const [matLoading, setMatLoading] = useState(false);
+  const [matResult, setMatResult] = useState<MaterializationResult | null>(null);
+
+  // AI Naming Convention Checker
+  const [tableNameCheck, setTableNameCheck] = useState<NamingCheckItem | null>(null);
+  const [tableNameCheckLoading, setTableNameCheckLoading] = useState(false);
+  const [columnNameChecks, setColumnNameChecks] = useState<Record<string, NamingCheckItem>>({});
+  const columnCheckTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
   // Sync tableType when initialTableType changes (dropdown re-opens)
   useEffect(() => {
     setTableType(initialTableType);
   }, [initialTableType]);
 
-  // AI: Suggest columns based on table name
+  // AI Naming: check table name on blur
+  const checkTableNaming = useCallback(async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length < 2 || !isAiEnabled('naming_checker')) return;
+    setTableNameCheckLoading(true);
+    try {
+      const result = await aiCheckNaming(projectId, {
+        names: [trimmed],
+        entity_type: 'table',
+        convention: 'UPPER_SNAKE',
+      });
+      if (result.results?.length > 0) {
+        setTableNameCheck(result.results[0]);
+      }
+    } catch (err) {
+      console.warn('[AI] Naming check failed for table:', err);
+    } finally {
+      setTableNameCheckLoading(false);
+    }
+  }, [projectId, isAiEnabled]);
+
+  // AI Naming: check column name with debounce
+  const checkColumnNaming = useCallback((columnId: string, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length < 2 || !isAiEnabled('naming_checker')) return;
+
+    if (columnCheckTimers.current[columnId]) {
+      clearTimeout(columnCheckTimers.current[columnId]);
+    }
+
+    columnCheckTimers.current[columnId] = setTimeout(async () => {
+      try {
+        const result = await aiCheckNaming(projectId, {
+          names: [trimmed],
+          entity_type: 'column',
+          convention: 'UPPER_SNAKE',
+        });
+        if (result.results?.length > 0) {
+          setColumnNameChecks(prev => ({ ...prev, [columnId]: result.results[0] }));
+        }
+      } catch (err) {
+        console.warn('[AI] Naming check failed for column:', err);
+      }
+    }, 800);
+  }, [projectId, isAiEnabled]);
+
+  // AI: Suggest columns — uses dedicated API when table_templates feature is enabled, falls back to Cortex
   const fetchAiSuggestions = useCallback(async (force = false) => {
     const name = tableName.trim().toUpperCase();
     if (!name || name.length < 3) return;
@@ -131,7 +204,35 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
     setAiSuggestions([]);
 
     try {
-      const prompt = `You are a Snowflake data warehouse expert. Given the table name "${name}", suggest the most common columns for this table. Return ONLY a valid JSON array (no markdown, no explanation) of objects with these exact fields: "name" (UPPER_SNAKE_CASE string), "dataType" (Snowflake SQL type e.g. VARCHAR(200), NUMBER(38,0), TIMESTAMP_LTZ, DECIMAL(12,2), BOOLEAN, DATE), "nullable" (boolean), "primaryKey" (boolean). Include a primary key column first. Suggest 6-12 columns.`;
+      // Prefer dedicated AI API when the feature toggle is on
+      if (isAiEnabled('table_templates')) {
+        const purpose = tablePurpose
+          ? `${TABLE_PURPOSES.find(p => p.value === tablePurpose)?.label ?? tablePurpose}: ${name}`
+          : name;
+
+        const result = await aiSuggestColumns(projectId, {
+          table_purpose: purpose,
+          domain: database,
+          existing_tables: [],
+        });
+
+        if (result.suggested_columns?.length > 0) {
+          const suggested: Column[] = result.suggested_columns.map((c, i) => ({
+            id: `ai_${Date.now()}_${i}`,
+            name: (c.name || '').toUpperCase(),
+            dataType: (c.type || 'VARCHAR').split('(')[0].toUpperCase(),
+            nullable: c.nullable ?? true,
+            primaryKey: c.role === 'pk' || c.role === 'primary_key',
+            comment: [c.role, c.references ? `→ ${c.references}` : ''].filter(Boolean).join(' ') || undefined,
+          }));
+          setAiSuggestions(suggested);
+          return;
+        }
+        console.warn('[AI] API returned no suggested columns, falling back to Cortex');
+      }
+
+      // Fallback: Cortex-based suggestion (original implementation)
+      const prompt = `You are a Snowflake data warehouse expert. Given the table name "${name}"${tablePurpose ? ` (purpose: ${TABLE_PURPOSES.find(p => p.value === tablePurpose)?.label ?? tablePurpose})` : ''}, suggest the most common columns for this table. Return ONLY a valid JSON array (no markdown, no explanation) of objects with these exact fields: "name" (UPPER_SNAKE_CASE string), "dataType" (Snowflake SQL type e.g. VARCHAR(200), NUMBER(38,0), TIMESTAMP_LTZ, DECIMAL(12,2), BOOLEAN, DATE), "nullable" (boolean), "primaryKey" (boolean). Include a primary key column first. Suggest 6-12 columns.`;
 
       const res = await getCortexRecommend({ error_context: prompt });
       const text = res?.response || '';
@@ -167,14 +268,52 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
     } finally {
       setAiLoading(false);
     }
-  }, [tableName]);
+  }, [tableName, tablePurpose, projectId, database, isAiEnabled]);
 
   // Trigger on blur (auto)
   const handleTableNameBlur = useCallback(() => {
     if (tableName.trim().length >= 3) {
       fetchAiSuggestions();
     }
-  }, [tableName, fetchAiSuggestions]);
+    // Also trigger naming convention check
+    checkTableNaming(tableName);
+  }, [tableName, fetchAiSuggestions, checkTableNaming]);
+
+  // AI: Suggest materialization type
+  const handleSuggestType = async () => {
+    if (!tableName.trim()) return;
+    setMatLoading(true);
+    setMatResult(null);
+    try {
+      const result = await aiMaterialization(projectId, {
+        database,
+        schema,
+        table: tableName.trim().toUpperCase(),
+      });
+      setMatResult(result);
+      // Map recommendation string to our SnowflakeTableType
+      const typeMap: Record<string, SnowflakeTableType> = {
+        REGULAR_TABLE: 'standard',
+        TABLE: 'standard',
+        STANDARD: 'standard',
+        TEMPORARY: 'temporary',
+        TRANSIENT: 'transient',
+        EXTERNAL: 'external',
+        ICEBERG: 'iceberg',
+        MATERIALIZED_VIEW: 'standard',
+        DYNAMIC_TABLE: 'standard',
+        VIEW: 'standard',
+      };
+      const rec = typeof result.recommendation === 'string' ? result.recommendation : '';
+      const mapped = typeMap[rec.toUpperCase()] || 'standard';
+      setTableType(mapped);
+    } catch (err: any) {
+      console.warn('[AI] Materialization suggestion failed:', err);
+      toast.error('Failed to get type recommendation');
+    } finally {
+      setMatLoading(false);
+    }
+  };
 
   const handleAcceptAllSuggestions = () => {
     const merged = aiSuggestions.map((s, i) => ({
@@ -223,6 +362,12 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
       return;
     }
     setColumns(columns.filter((col) => col.id !== id));
+    // Clean up naming check for removed column
+    setColumnNameChecks(prev => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
   };
 
   const handleColumnChange = (id: string, field: keyof Column, value: any) => {
@@ -230,6 +375,27 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
       columns.map((col) => (col.id === id ? { ...col, [field]: value } : col))
     );
   };
+
+  // Column name blur handler for naming check
+  const handleColumnNameBlur = useCallback((columnId: string, name: string) => {
+    checkColumnNaming(columnId, name);
+  }, [checkColumnNaming]);
+
+  // Apply suggested name from naming checker
+  const applyTableNameSuggestion = useCallback((suggested: string) => {
+    setTableName(suggested);
+    setTableNameCheck({ name: suggested, valid: true, suggested: null });
+  }, []);
+
+  const applyColumnNameSuggestion = useCallback((columnId: string, suggested: string) => {
+    setColumns(prev => prev.map(col =>
+      col.id === columnId ? { ...col, name: suggested } : col
+    ));
+    setColumnNameChecks(prev => ({
+      ...prev,
+      [columnId]: { name: suggested, valid: true, suggested: null },
+    }));
+  }, []);
 
   const handleTogglePrimaryKey = (id: string) => {
     setColumns(
@@ -306,7 +472,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
         prefix = `CREATE ICEBERG TABLE ${fqn}`;
         break;
       default:
-        prefix = `CREATE TABLE ${fqn}`;
+        prefix = `CREATE TABLE IF NOT EXISTS${fqn}`;
     }
 
     let sql = '';
@@ -362,13 +528,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
     try {
       const sql = generateSQL();
 
-      await addDDLAction(projectId, {
-        ddl_sql: sql,
-        ddl_type: 'CREATE_TABLE',
-        target_table: `${database}.${schema}.${tableName}`,
-        description: tableComment || `Create ${tableType} table ${tableName}`,
-      });
-
+      // DDL action is auto-synced by the central DDL sync effect in page.tsx
       addEvent({
         type: 'TABLE_CREATED',
         projectId,
@@ -394,11 +554,14 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
       // Reset form
       setTableName('');
+      setTablePurpose('');
       setColumns([{ id: '1', name: '', dataType: 'VARCHAR', nullable: true, primaryKey: false }]);
       setTableComment('');
       setStageLocation(''); setFileFormat('PARQUET'); setFilePattern(''); setAutoRefresh(false);
       setExternalVolume(''); setIcebergCatalog('SNOWFLAKE'); setBaseLocation('');
       setAiSuggestions([]); setAiDismissed(false); lastAiQuery.current = '';
+      setMatResult(null);
+      setTableNameCheck(null); setColumnNameChecks({});
 
       onClose();
     } catch (error: any) {
@@ -410,6 +573,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   };
 
   const primaryKeyCount = columns.filter((col) => col.primaryKey).length;
+  const namingCheckerEnabled = isAiEnabled('naming_checker');
   const currentTypeInfo = TABLE_TYPES.find(t => t.value === tableType);
 
   return (
@@ -453,7 +617,41 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
               </button>
             ))}
           </div>
-          <p className="text-xs text-slate-500 mt-1.5">{currentTypeInfo?.description}</p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <p className="text-xs text-slate-500 flex-1">{currentTypeInfo?.description}</p>
+            {isAiEnabled('materialization_strategy') && (
+              <button
+                type="button"
+                disabled={matLoading || !tableName.trim()}
+                onClick={handleSuggestType}
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all whitespace-nowrap',
+                  'border border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300',
+                  'hover:bg-violet-50 dark:hover:bg-violet-900/30',
+                  'disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+              >
+                {matLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                Suggest Type
+              </button>
+            )}
+          </div>
+          {matResult?.recommendation && (
+            <div className="mt-1.5 text-xs text-violet-600 dark:text-violet-400">
+              <p>
+                <Sparkles className="inline h-3 w-3 mr-1" />
+                <span className="font-medium">{matResult.recommendation}</span>
+                {' — '}{matResult.rationale}
+              </p>
+              <p className="mt-0.5 text-slate-500 dark:text-slate-400">
+                Reads: {matResult.read_count_30d} · Writes: {matResult.write_count_30d} · Ratio: {matResult.read_write_ratio}:1
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Table Name */}
@@ -461,37 +659,84 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
           <label htmlFor="create-table-name" className="block text-sm font-medium mb-2 dark:text-white">
             Table Name <span className="text-red-500">*</span>
           </label>
+          <Input
+            value={tableName}
+            onChange={(e) => {
+              setTableName(e.target.value);
+              if (tableNameCheck) setTableNameCheck(null);
+            }}
+            onBlur={handleTableNameBlur}
+            placeholder="e.g., DIM_CUSTOMER"
+            className="w-full"
+          />
+          {/* Naming convention feedback for table name */}
+          {namingCheckerEnabled && tableNameCheckLoading && (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              <Loader2 className="h-3 w-3 text-slate-400 animate-spin" />
+              <span className="text-xs text-slate-400">Checking naming convention...</span>
+            </div>
+          )}
+          {namingCheckerEnabled && tableNameCheck && !tableNameCheckLoading && (
+            <div className="flex items-center gap-1.5 mt-1.5">
+              {tableNameCheck.valid ? (
+                <>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  <span className="text-xs text-green-600 dark:text-green-400">Naming convention OK</span>
+                </>
+              ) : (
+                <>
+                  <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+                  <span className="text-xs text-amber-600 dark:text-amber-400">
+                    Does not follow UPPER_SNAKE convention
+                    {tableNameCheck.suggested && (
+                      <>
+                        {" \u2014 "}
+                        <button
+                          type="button"
+                          onClick={() => applyTableNameSuggestion(tableNameCheck.suggested!)}
+                          className="underline font-medium hover:text-amber-700 dark:hover:text-amber-300"
+                        >
+                          use {tableNameCheck.suggested}
+                        </button>
+                      </>
+                    )}
+                  </span>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Table Purpose + AI Suggest */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2 dark:text-white">
+            Table Purpose
+            <span className="text-xs text-slate-400 ml-1.5 font-normal">(improves AI suggestions)</span>
+          </label>
           <div className="flex items-center gap-2">
-            <Input
-              id="create-table-name"
-              value={tableName}
-              onChange={(e) => {
-                setTableName(e.target.value);
-                setTableNameValue('tableName', e.target.value);
-                if (tableNameErrors.tableName) clearTableNameErrors('tableName');
-              }}
-              onBlur={() => {
-                handleTableNameBlur();
-                triggerTableNameValidation('tableName');
-              }}
-              placeholder="e.g., DIM_CUSTOMER"
-              className="flex-1"
-              aria-invalid={!!tableNameErrors.tableName}
-              aria-describedby={tableNameErrors.tableName ? 'create-table-name-error' : undefined}
-            />
+            <div className="flex-1">
+              <Select
+                options={TABLE_PURPOSES}
+                value={tablePurpose}
+                onChange={(v: any) => setTablePurpose(v?.value || v || '')}
+                placeholder="Select table purpose..."
+                clearable
+              />
+            </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => fetchAiSuggestions(true)}
               disabled={aiLoading || tableName.trim().length < 3}
-              className="gap-1.5 flex-shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50"
-              title="AI suggest columns"
+              className="gap-1.5 flex-shrink-0 border-violet-300 text-violet-600 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-400 dark:hover:bg-violet-900/20"
+              title="Suggest columns with AI"
             >
               {aiLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Sparkles className="h-4 w-4" />
               )}
+              <span className="hidden sm:inline">Suggest Columns</span>
             </Button>
           </div>
           {tableNameErrors.tableName && (
@@ -692,10 +937,45 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
                     </label>
                     <Input
                       value={column.name}
-                      onChange={(e) => handleColumnChange(column.id, 'name', e.target.value)}
+                      onChange={(e) => {
+                        handleColumnChange(column.id, 'name', e.target.value);
+                        if (columnNameChecks[column.id]) {
+                          setColumnNameChecks(prev => {
+                            const next = { ...prev };
+                            delete next[column.id];
+                            return next;
+                          });
+                        }
+                      }}
+                      onBlur={() => handleColumnNameBlur(column.id, column.name)}
                       placeholder="e.g., CUSTOMER_ID"
                       size="sm"
                     />
+                    {/* Naming convention feedback for column */}
+                    {namingCheckerEnabled && columnNameChecks[column.id] && (
+                      <div className="flex items-center gap-1 mt-1">
+                        {columnNameChecks[column.id].valid ? (
+                          <CheckCircle2 className="h-3 w-3 text-green-500 flex-shrink-0" />
+                        ) : (
+                          <>
+                            <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                            <span className="text-[11px] text-amber-600 dark:text-amber-400 truncate">
+                              {columnNameChecks[column.id].suggested ? (
+                                <button
+                                  type="button"
+                                  onClick={() => applyColumnNameSuggestion(column.id, columnNameChecks[column.id].suggested!)}
+                                  className="underline hover:text-amber-700 dark:hover:text-amber-300"
+                                >
+                                  use {columnNameChecks[column.id].suggested}
+                                </button>
+                              ) : (
+                                'Invalid naming'
+                              )}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1 dark:text-slate-300">Data Type</label>

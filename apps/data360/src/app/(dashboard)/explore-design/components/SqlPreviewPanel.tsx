@@ -9,6 +9,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore, DesignEvent, EventType } from '../stores/event-store';
+import { ingestionSqlPreview } from '@/app/services/api/exploreDesignApi';
+import { getApiErrorMessage } from '@/lib/api-client';
+import type { WhereClauseCondition, IngestionMode, SqlPreviewResult } from '@/app/services/api/types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,6 +31,7 @@ interface SqlPreviewPanelProps {
   table: TableReference | null;
   ingestionMode: string;
   scdConfig?: {
+    businessKeyColumn?: string;
     trackingColumns: string[];
     effectiveDateColumn: string;
     expirationDateColumn: string;
@@ -35,6 +39,10 @@ interface SqlPreviewPanelProps {
   };
   columnMappings?: ColumnMapping[];
   whereClause?: string;
+  /** API-spec WHERE conditions for server-side preview */
+  whereClauses?: WhereClauseCondition[];
+  /** Source table reference for server-side preview */
+  sourceTable?: TableReference | null;
   className?: string;
   projectId?: string | null;
 }
@@ -102,6 +110,7 @@ function generateMergeSQL(
   const fullTarget = `${table.database}.${table.schema}.${table.table}`;
   const sourceAlias = 'src';
   const targetAlias = 'tgt';
+  const businessKey = scdConfig?.businessKeyColumn || 'ID';
 
   const cols = mappings.length > 0
     ? mappings
@@ -146,7 +155,7 @@ USING (
         ${selectList}
     FROM source_stage ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
-ON ${targetAlias}.ID = ${sourceAlias}.ID
+ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
 
 WHEN MATCHED THEN UPDATE SET
 ${cols
@@ -176,7 +185,7 @@ USING (
         ${selectList}
     FROM source_stage ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
-ON ${targetAlias}.ID = ${sourceAlias}.ID
+ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
    AND ${targetAlias}.${flagCol} = TRUE
 
 -- Update existing: expire old record
@@ -210,7 +219,7 @@ USING (
         ${selectList}
     FROM source_stage ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
-ON ${targetAlias}.ID = ${sourceAlias}.ID
+ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
 
 WHEN MATCHED THEN UPDATE SET
 ${cols
@@ -255,19 +264,58 @@ const SqlPreviewPanel: React.FC<SqlPreviewPanelProps> = ({
   scdConfig,
   columnMappings = [],
   whereClause,
+  whereClauses,
+  sourceTable,
   className,
   projectId,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [serverSql, setServerSql] = useState<SqlPreviewResult | null>(null);
+  const [isFetchingServer, setIsFetchingServer] = useState(false);
+  const [isServerMode, setIsServerMode] = useState(false);
 
-  // Generate SQL based on current config
-  const generatedSql = useMemo(() => {
+  // Generate SQL client-side as fallback
+  const clientSql = useMemo(() => {
     if (!table) return '';
     return generateMergeSQL(table, ingestionMode, columnMappings, scdConfig, whereClause);
   }, [table, ingestionMode, columnMappings, scdConfig, whereClause]);
 
+  const generatedSql = isServerMode && serverSql ? serverSql.sql : clientSql;
+
   const lineCount = useMemo(() => generatedSql.split('\n').length, [generatedSql]);
+
+  // Fetch SQL from server
+  const fetchServerPreview = useCallback(async () => {
+    if (!projectId || !table) return;
+    setIsFetchingServer(true);
+    try {
+      const src = sourceTable || table;
+      const result = await ingestionSqlPreview(projectId, {
+        source_database: src.database,
+        source_schema: src.schema,
+        source_table: src.table,
+        target_database: table.database,
+        target_schema: table.schema,
+        target_table: table.table,
+        ingestion_mode: ingestionMode as IngestionMode,
+        mappings: columnMappings.length > 0
+          ? columnMappings.map((m) => ({
+              source_columns: [m.sourceColumn],
+              target_column: m.targetColumn,
+            }))
+          : undefined,
+        where_clauses: whereClauses,
+      });
+      setServerSql(result);
+      setIsServerMode(true);
+      toast.success('Server-generated SQL loaded');
+    } catch (err) {
+      toast.error(getApiErrorMessage(err) || 'Failed to fetch SQL preview');
+    } finally {
+      setIsFetchingServer(false);
+    }
+  }, [projectId, table, sourceTable, ingestionMode, columnMappings, whereClauses]);
 
   const handleCopy = useCallback(async () => {
     try {
@@ -329,8 +377,29 @@ const SqlPreviewPanel: React.FC<SqlPreviewPanelProps> = ({
               <span className="text-xs text-slate-400">
                 {table.database}.{table.schema}.{table.table}
               </span>
+              {isServerMode && serverSql && (
+                <Badge size="sm" className="bg-green-900/40 text-green-400 text-[10px]">
+                  Server-generated
+                  {serverSql.has_where_filter && ' • Filtered'}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-1">
+              {projectId && (
+                <Tooltip content={isServerMode ? 'Switch to client preview' : 'Fetch from server'}>
+                  <button
+                    onClick={isServerMode ? () => setIsServerMode(false) : fetchServerPreview}
+                    disabled={isFetchingServer}
+                    className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  >
+                    {isFetchingServer ? (
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </Tooltip>
+              )}
               <Tooltip content="Copy SQL">
                 <button
                   onClick={handleCopy}
@@ -364,7 +433,11 @@ const SqlPreviewPanel: React.FC<SqlPreviewPanelProps> = ({
           {/* Footer info */}
           <div className="px-3 py-2 bg-slate-800 border-t border-slate-700 flex items-center gap-3 text-xs text-slate-400">
             <AlertTriangle className="h-3 w-3 text-amber-400" />
-            <span>Preview only — actual SQL may differ based on backend execution engine</span>
+            <span>
+              {isServerMode && serverSql
+                ? `Server-generated SQL • ${serverSql.estimated_columns} columns${serverSql.has_where_filter ? ' • WHERE filter applied' : ''}`
+                : 'Preview only — actual SQL may differ based on backend execution engine'}
+            </span>
           </div>
         </div>
       )}

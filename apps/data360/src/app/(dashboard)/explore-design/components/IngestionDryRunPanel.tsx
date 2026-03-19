@@ -11,11 +11,11 @@ import {
 import { toast } from 'react-hot-toast';
 import { dryRunIngestion } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
-import type { IngestionMode } from '@/app/services/api/types';
+import type { IngestionMode, WhereClauseCondition } from '@/app/services/api/types';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type RowAction = 'INSERT' | 'UPDATE' | 'DELETE' | 'UNCHANGED';
+type RowAction = 'INSERT' | 'UPDATE' | 'DELETE' | 'UNCHANGED' | 'NO_CHANGE' | 'UNKNOWN';
 
 interface SamplePreviewRow {
   action: RowAction;
@@ -47,6 +47,8 @@ interface IngestionDryRunPanelProps {
   sourceSchema?: string;
   targetDatabase?: string;
   targetSchema?: string;
+  /** API-spec WHERE conditions to pass to dry-run */
+  whereClauses?: WhereClauseCondition[];
   onRunDryRun?: () => Promise<IngestionDryRunResult>;
   className?: string;
 }
@@ -71,6 +73,8 @@ const actionConfig: Record<RowAction, {
   UPDATE: { label: 'UPDATE', color: 'text-blue-600', bgColor: 'bg-blue-100', icon: RefreshCw },
   DELETE: { label: 'DELETE', color: 'text-red-600', bgColor: 'bg-red-100', icon: Minus },
   UNCHANGED: { label: 'SAME', color: 'text-slate-500', bgColor: 'bg-slate-100', icon: Minus },
+  NO_CHANGE: { label: 'SAME', color: 'text-slate-500', bgColor: 'bg-slate-100', icon: Minus },
+  UNKNOWN: { label: 'UNKNOWN', color: 'text-amber-600', bgColor: 'bg-amber-100', icon: AlertTriangle },
 };
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -83,6 +87,7 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
   sourceSchema,
   targetDatabase,
   targetSchema,
+  whereClauses,
   onRunDryRun,
   className,
 }) => {
@@ -108,20 +113,29 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
           target_table: tableName,
           ingestion_mode: ingestionMode as IngestionMode,
           sample_size: 10,
+          where_clauses: whereClauses,
         });
+        // Backend returns flat rows with _ACTION column — transform to component shape
+        const dataCols = apiResult.columns.filter((c) => c !== '_ACTION');
+        const sampleRows: SamplePreviewRow[] = apiResult.rows.map((row) => ({
+          action: (row._ACTION as RowAction) || 'UNKNOWN',
+          data: Object.fromEntries(
+            dataCols.map((col) => [col, row[col] as string | number | boolean | null]),
+          ),
+        }));
+        const inserts = sampleRows.filter((r) => r.action === 'INSERT').length;
+        const updates = sampleRows.filter((r) => r.action === 'UPDATE').length;
+        const deletes = sampleRows.filter((r) => r.action === 'DELETE').length;
+        const unchanged = sampleRows.filter((r) => r.action === 'UNCHANGED' || r.action === 'NO_CHANGE').length;
         res = {
-          status: apiResult.status,
-          rowsProcessed: apiResult.rows_processed,
-          durationMs: apiResult.duration_ms,
-          nextSyncFrom: apiResult.next_sync_from,
-          sampleRows: apiResult.sample_rows.map((r) => ({
-            action: r.action,
-            data: r.data as Record<string, string | number | boolean | null>,
-          })),
-          columns: apiResult.columns,
-          summary: apiResult.summary,
-          errors: apiResult.errors,
-          warnings: apiResult.warnings,
+          status: 'success',
+          rowsProcessed: apiResult.sample_size,
+          durationMs: 0,
+          sampleRows,
+          columns: dataCols,
+          summary: { inserts, updates, deletes, unchanged },
+          errors: [],
+          warnings: [],
         };
       } else {
         throw new Error('No projectId or onRunDryRun provided');
@@ -137,7 +151,7 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
     } finally {
       setIsRunning(false);
     }
-  }, [onRunDryRun, projectId, tableName, ingestionMode, sourceDatabase, sourceSchema, targetDatabase, targetSchema]);
+  }, [onRunDryRun, projectId, tableName, ingestionMode, sourceDatabase, sourceSchema, targetDatabase, targetSchema, whereClauses]);
 
   return (
     <div className={cn('border dark:border-slate-700 rounded-lg overflow-hidden', className)}>
@@ -294,6 +308,13 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
                       })}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {/* Truncation indicator */}
+              {result.rowsProcessed > result.sampleRows.length && (
+                <div className="px-4 py-2 text-center text-xs text-slate-500 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+                  ... {(result.rowsProcessed - result.sampleRows.length).toLocaleString()} more rows
                 </div>
               )}
 

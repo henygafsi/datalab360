@@ -62,7 +62,8 @@ const ingestionModeIcons: Record<string, React.ReactNode> = {
 // Menu items for table actions - used by sidebar panel
 export const TABLE_ACTION_ITEMS = [
   { id: 'rename', label: 'Rename Table', icon: Edit2 },
-  { id: 'add_column', label: 'Add Computed Column', icon: Plus, highlight: true },
+  { id: 'add_new_column', label: 'Add Column', icon: Plus, highlight: true },
+  { id: 'add_computed_column', label: 'Add Computed Column', icon: Plus, highlight: true },
   { id: 'duplicate', label: 'Duplicate', icon: Copy },
   { id: 'divider1', label: '' },
   { id: 'pk_config', label: 'Set Primary Key', icon: Key, highlight: true },

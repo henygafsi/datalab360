@@ -1,11 +1,13 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Modal, Button, Select, Badge, Input } from 'rizzui';
-import { Link2, X, Save, Trash2, GitBranch, AlertCircle, ArrowRight } from 'lucide-react';
+import { Link2, X, Save, Trash2, GitBranch, AlertCircle, ArrowRight, Sparkles, Check, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore } from '../stores/event-store';
-import { addDDLAction } from '@/app/services/api/exploreDesignApi';
+import { aiDiscoverRelationships } from '@/app/services/api/exploreDesignApi';
+import { useAiFeatures } from '../stores/ai-store';
+import type { AiRelationship } from '@/app/services/api/types';
 
 interface TableColumn {
   name: string;
@@ -52,6 +54,7 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
   onRelationshipCreated,
 }) => {
   const { addEvent } = useEventStore();
+  const { isEnabled } = useAiFeatures();
   const [sourceColumn, setSourceColumn] = useState('');
   const [targetTableKey, setTargetTableKey] = useState('');
   const [targetColumn, setTargetColumn] = useState('');
@@ -59,6 +62,75 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
   const [constraintName, setConstraintName] = useState('');
   const [targetColumns, setTargetColumns] = useState<TableColumn[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // AI Discovery state
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [discoveredRelationships, setDiscoveredRelationships] = useState<AiRelationship[]>([]);
+  const [showDiscovery, setShowDiscovery] = useState(false);
+
+  const handleAiDiscover = useCallback(async () => {
+    if (isDiscovering) return;
+    setIsDiscovering(true);
+    setShowDiscovery(true);
+    try {
+      const result = await aiDiscoverRelationships(projectId, {
+        database,
+        schema,
+        tables: [sourceTable],
+      });
+      setDiscoveredRelationships(result.relationships || []);
+      if (!result.relationships?.length) {
+        toast('No relationships discovered for this table.', { icon: 'ℹ️' });
+      }
+    } catch (err: any) {
+      console.error('AI relationship discovery failed:', err);
+      toast.error(err?.message || 'AI relationship discovery failed.');
+      setDiscoveredRelationships([]);
+    } finally {
+      setIsDiscovering(false);
+    }
+  }, [isDiscovering, projectId, database, schema, sourceTable]);
+
+  const handleAcceptSuggestion = useCallback(async (rel: AiRelationship) => {
+    try {
+      const fkName = rel.suggested_fk || `FK_${rel.source_table}_${rel.source_column}`;
+      const sql = `ALTER TABLE ${database}.${schema}.${rel.source_table} ADD CONSTRAINT ${fkName} FOREIGN KEY (${rel.source_column}) REFERENCES ${database}.${schema}.${rel.target_table}(${rel.target_column});`;
+
+      // DDL action is auto-synced by the central DDL sync effect in page.tsx
+      addEvent({
+        type: 'FOREIGN_KEY_ADDED',
+        projectId,
+        target: {
+          database,
+          schema,
+          table: rel.source_table,
+          column: rel.source_column,
+        },
+        payload: {
+          sourceColumn: rel.source_column,
+          targetTable: { database, schema, table: rel.target_table },
+          targetColumn: rel.target_column,
+          constraintName: fkName,
+          sql,
+          columns: [rel.source_column],
+          referencedTable: { database, schema, table: rel.target_table },
+          referencedColumns: [rel.target_column],
+          discoveryMethod: rel.discovery_method,
+        },
+      });
+
+      toast.success(`Relationship "${fkName}" accepted and added to deployment queue`);
+      setDiscoveredRelationships((prev) => prev.filter((r) => r !== rel));
+      if (onRelationshipCreated) onRelationshipCreated();
+    } catch (err: any) {
+      console.error('Failed to accept AI suggestion:', err);
+      toast.error(err?.message || 'Failed to accept suggestion.');
+    }
+  }, [projectId, database, schema, addEvent, onRelationshipCreated]);
+
+  const handleDismissSuggestion = useCallback((rel: AiRelationship) => {
+    setDiscoveredRelationships((prev) => prev.filter((r) => r !== rel));
+  }, []);
 
   // Initialize form with existing relationship
   useEffect(() => {
@@ -171,14 +243,7 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
         referencedColumns: [targetColumn],
       };
 
-      // Call backend API to persist DDL action
-      await addDDLAction(projectId, {
-        ddl_sql: sql,
-        ddl_type: 'ALTER_ADD_COLUMN',
-        target_table: `${database}.${schema}.${sourceTable}`,
-        description: `Add foreign key ${fkName} on ${sourceColumn} → ${targetTbl}(${targetColumn})`,
-      });
-
+      // DDL action is auto-synced by the central DDL sync effect in page.tsx
       // Add to local store for immediate UI update
       addEvent({
         type: 'FOREIGN_KEY_ADDED',
@@ -224,14 +289,7 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
         sql,
       };
 
-      // Call backend API to persist DDL action
-      await addDDLAction(projectId, {
-        ddl_sql: sql,
-        ddl_type: 'ALTER_DROP_COLUMN',
-        target_table: `${database}.${schema}.${sourceTable}`,
-        description: `Drop foreign key ${fkName}`,
-      });
-
+      // DDL action is auto-synced by the central DDL sync effect in page.tsx
       // Add to local store for immediate UI update
       addEvent({
         type: 'FOREIGN_KEY_REMOVED',
@@ -293,10 +351,114 @@ const RelationshipModal: React.FC<RelationshipModalProps> = ({
               </p>
             </div>
           </div>
-          <Button variant="text" size="sm" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            {isEnabled('relationship_discovery') && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAiDiscover}
+                disabled={isDiscovering}
+                className="gap-1.5 border-purple-300 text-purple-600 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-900/20"
+              >
+                {isDiscovering ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                AI Discover
+              </Button>
+            )}
+            <Button variant="text" size="sm" onClick={onClose}>
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
+
+        {/* AI Discovery Results */}
+        {showDiscovery && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-purple-500" />
+                AI-Discovered Relationships
+              </h3>
+              {discoveredRelationships.length > 0 && (
+                <button
+                  onClick={() => { setShowDiscovery(false); setDiscoveredRelationships([]); }}
+                  className="text-xs text-slate-500 hover:text-slate-700"
+                >
+                  Dismiss all
+                </button>
+              )}
+            </div>
+
+            {isDiscovering ? (
+              <div className="p-6 text-center border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                <Loader2 className="h-6 w-6 animate-spin text-purple-500 mx-auto mb-2" />
+                <p className="text-sm text-slate-500">Analyzing table relationships...</p>
+              </div>
+            ) : discoveredRelationships.length === 0 ? (
+              <div className="p-4 text-center border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50">
+                <p className="text-sm text-slate-500">No relationships discovered.</p>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {discoveredRelationships.map((rel, idx) => (
+                  <div
+                    key={`${rel.source_table}-${rel.source_column}-${rel.target_table}-${rel.target_column}-${idx}`}
+                    className="p-3 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between gap-3"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs truncate">
+                          {rel.source_table}.{rel.source_column}
+                        </Badge>
+                        <ArrowRight className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 text-xs truncate">
+                          {rel.target_table}.{rel.target_column}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500">
+                        <span className="capitalize">{rel.discovery_method?.replace(/_/g, ' ') || 'AI'}</span>
+                        <span className="flex items-center gap-1">
+                          Confidence:
+                          <span className={`font-medium ${
+                            rel.confidence >= 0.8 ? 'text-green-600' :
+                            rel.confidence >= 0.5 ? 'text-amber-600' : 'text-red-500'
+                          }`}>
+                            {Math.round(rel.confidence * 100)}%
+                          </span>
+                        </span>
+                        {rel.suggested_fk && (
+                          <span className="text-slate-400 truncate">{rel.suggested_fk}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleAcceptSuggestion(rel)}
+                        className="gap-1 text-green-600 border-green-300 hover:bg-green-50 dark:border-green-700 dark:hover:bg-green-900/20 px-2"
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        Accept
+                      </Button>
+                      <Button
+                        variant="text"
+                        size="sm"
+                        onClick={() => handleDismissSuggestion(rel)}
+                        className="text-slate-400 hover:text-red-500 px-1.5"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Info Banner */}
         <div className="mb-6 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-start gap-2">

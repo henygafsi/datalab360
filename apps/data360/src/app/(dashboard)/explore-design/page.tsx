@@ -12,7 +12,7 @@ import {
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
-  BookTemplate
+  BookTemplate, Activity
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -37,10 +37,12 @@ import {
   listAlerts,
   dropAlert,
 } from '@/app/services/explore-design';
-import { listDDLActions, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeRename, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors } from '@/app/services/api/projectsApi';
 import { useAuth } from '@/hooks/useAuth';
-import type { ContributorRole } from '@/app/services/api/types';
+import { useSession } from 'next-auth/react';
+import type { ContributorRole, SchemaHealthResult } from '@/app/services/api/types';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
@@ -90,10 +92,13 @@ import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
 import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
 import IngestionDryRunPanel from './components/IngestionDryRunPanel';
-import ConflictResolutionModal from './components/ConflictResolutionModal';
+import ConflictResolutionModal, { EventConflict } from './components/ConflictResolutionModal';
+import AuditTrailPanel from './components/AuditTrailPanel';
+import EventTemplatePickerModal from './components/EventTemplatePickerModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useAiAnalysis } from './hooks/useAiAnalysis';
+import { useAiFeatures } from './stores/ai-store';
 import {
   DWH_TEMPLATE_TABLES,
   DWH_TEMPLATE_RELATIONSHIPS,
@@ -290,6 +295,7 @@ const CompactSourceSelector: React.FC<{
   isLoadingDatabases: boolean;
   isLoadingSchemas: boolean;
   stats: { total: number; configured: number; pending: number };
+  projectId: string | null;
 }> = ({
   databases,
   selectedDatabase,
@@ -301,9 +307,35 @@ const CompactSourceSelector: React.FC<{
   isLoadingDatabases,
   isLoadingSchemas,
   stats,
+  projectId,
 }) => {
   const [showSchemaDropdown, setShowSchemaDropdown] = useState(false);
   const [schemaContextMenu, setSchemaContextMenu] = useState<{ schema: string; x: number; y: number } | null>(null);
+
+  // Schema Health
+  const { isEnabled: isAiEnabled } = useAiFeatures();
+  const [healthResult, setHealthResult] = useState<SchemaHealthResult | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthOpen, setHealthOpen] = useState(false);
+
+  const handleSchemaHealth = useCallback(async () => {
+    if (!projectId || !selectedDatabase || selectedSchemas.size === 0) return;
+    const schemaName = Array.from(selectedSchemas.keys())[0];
+    setHealthLoading(true);
+    try {
+      const result = await aiSchemaHealth(projectId, {
+        database: selectedDatabase,
+        schema: schemaName,
+      });
+      console.log('[SchemaHealth] API response:', JSON.stringify(result, null, 2));
+      setHealthResult(result);
+      setHealthOpen(true);
+    } catch (err: unknown) {
+      toast.error('Schema health analysis failed');
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [projectId, selectedDatabase, selectedSchemas]);
 
   const schemaActions: Array<{
     id: string;
@@ -447,6 +479,148 @@ const CompactSourceSelector: React.FC<{
           <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px] px-1.5">
             {stats.configured} ok
           </Badge>
+        )}
+
+        {/* Schema Health Button */}
+        {isAiEnabled('schema_health_score') && selectedDatabase && selectedSchemas.size > 0 && (
+          <div className="relative">
+            <Tooltip content="AI Schema Health Score" placement="bottom">
+              <button
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors',
+                  healthResult
+                    ? healthResult.overall_score >= 80
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : healthResult.overall_score >= 50
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    : 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                )}
+                onClick={() => healthResult ? setHealthOpen(!healthOpen) : handleSchemaHealth()}
+                disabled={healthLoading}
+              >
+                {healthLoading ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Activity className="h-3 w-3" />
+                )}
+                {healthResult ? `${healthResult.overall_score ?? '?'}` : 'Health'}
+              </button>
+            </Tooltip>
+
+            {/* Health Results Popover */}
+            {healthOpen && healthResult && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHealthOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      Schema Health
+                    </span>
+                    <button onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+                      <X className="h-3 w-3 text-slate-400" />
+                    </button>
+                  </div>
+
+                  {/* Overall Score */}
+                  {(healthResult.overall_score != null) ? (
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={cn(
+                        'text-2xl font-bold',
+                        healthResult.overall_score >= 80 ? 'text-green-600' :
+                        healthResult.overall_score >= 50 ? 'text-amber-600' : 'text-red-600'
+                      )}>
+                        {healthResult.overall_score}
+                      </div>
+                      <div className="text-[10px] text-slate-500">/ 100</div>
+                      <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            healthResult.overall_score >= 80 ? 'bg-green-500' :
+                            healthResult.overall_score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                          )}
+                          style={{ width: `${healthResult.overall_score}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 mb-3">
+                      No score available — check console for API response shape
+                    </div>
+                  )}
+
+                  {/* Sub Scores — handle both object-of-objects and flat formats */}
+                  {healthResult.sub_scores && Object.keys(healthResult.sub_scores).length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {Object.entries(healthResult.sub_scores).map(([key, val]: [string, any]) => (
+                        <div key={key} className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-600 dark:text-slate-400 capitalize">
+                            {key.replace(/_/g, ' ')}
+                          </span>
+                          <span className={cn(
+                            'font-medium',
+                            (val?.score ?? val) >= 80 ? 'text-green-600 dark:text-green-400' :
+                            (val?.score ?? val) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+                          )}>
+                            {val?.score ?? val}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {healthResult.recommendations?.length > 0 && (
+                    <div className="border-t dark:border-slate-700 pt-2">
+                      <div className="text-[10px] font-medium text-slate-500 mb-1">Recommendations</div>
+                      <ul className="space-y-1">
+                        {healthResult.recommendations.slice(0, 3).map((rec: any, i: number) => (
+                          <li key={i} className="text-[10px] text-slate-600 dark:text-slate-400 flex gap-1">
+                            <span className="text-amber-500 mt-px flex-shrink-0">*</span>
+                            <span>{typeof rec === 'string' ? rec : JSON.stringify(rec)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Raw data fallback — show all top-level keys not yet displayed */}
+                  {Object.entries(healthResult)
+                    .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                    .filter(([, v]) => v != null && typeof v !== 'object')
+                    .length > 0 && (
+                    <div className="border-t dark:border-slate-700 pt-2 mt-2 space-y-1">
+                      {Object.entries(healthResult)
+                        .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                        .filter(([, v]) => v != null && typeof v !== 'object')
+                        .map(([k, v]) => (
+                          <div key={k} className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}</span>
+                            <span className="text-slate-700 dark:text-slate-300 font-medium">{String(v)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+
+                  {/* Credits */}
+                  <div className="mt-2 pt-2 border-t dark:border-slate-700 flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400">{healthResult.database || ''}.{healthResult.schema || ''}</span>
+                    <span className="text-[9px] text-slate-400">{healthResult.cortex_credits ?? ''} credits</span>
+                  </div>
+
+                  {/* Re-run */}
+                  <button
+                    className="mt-2 w-full text-[10px] text-center py-1 rounded bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300"
+                    onClick={handleSchemaHealth}
+                    disabled={healthLoading}
+                  >
+                    {healthLoading ? 'Analyzing...' : 'Re-analyze'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -593,10 +767,19 @@ export default function ExploreDesignPage() {
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
 
-  // Project State — pre-fill from ?project_id= query param if present
+  // Project State — pre-fill from ?project_id= query param or last used project
   const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
+
+  // Persist last selected project to localStorage for restore on refresh
+  const lastProjectId = typeof window !== 'undefined'
+    ? localStorage.getItem('explore-design-last-project-id')
+    : null;
+  const lastProjectName = typeof window !== 'undefined'
+    ? localStorage.getItem('explore-design-last-project-name')
+    : null;
+  const autoProjectId = urlProjectId || lastProjectId;
 
   // Role-based access: viewer = read-only, editor/owner = full access
   const [userRole, setUserRole] = useState<ContributorRole | null>(null);
@@ -698,9 +881,22 @@ export default function ExploreDesignPage() {
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
 
   // View mode
-  const [viewMode, setViewMode] = useState<ViewMode>('catalog');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('explore-design-view-mode');
+      if (saved === 'modeling' || saved === 'catalog') return saved;
+    }
+    return 'catalog';
+  });
+  // Persist viewMode to localStorage
+  useEffect(() => {
+    localStorage.setItem('explore-design-view-mode', viewMode);
+  }, [viewMode]);
+
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
+  const [showEventTemplatePicker, setShowEventTemplatePicker] = useState(false);
+  const [showAuditTrail, setShowAuditTrail] = useState(false);
   const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
   // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
   const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
@@ -731,6 +927,12 @@ export default function ExploreDesignPage() {
   const [showPreChecks, setShowPreChecks] = useState(false);
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [showIngestionResults, setShowIngestionResults] = useState(false);
+
+  // Conflict detection modal
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
+  // Stores the pending action to resume after conflict resolution
+  const pendingConflictAction = useRef<{ type: 'deploy'; eventIds: string[] } | null>(null);
 
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
@@ -764,6 +966,73 @@ export default function ExploreDesignPage() {
   // AI analysis — runs analyzers against events when toggles/events change
   useAiAnalysis(events);
 
+  // ── Auto-sync DDL actions to backend ────────────────────────────────────
+  // Maps local event ID → backend DDL event_id for add/remove tracking
+  const ddlEventMapRef = useRef<Map<string, string>>(new Map());
+  const prevEventIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!selectedProjectId) return;
+
+    const currentEventIds = new Set(events.map((e) => e.id));
+
+    // ── ADD: new DDL-relevant events → persist to backend ──
+    const newDDLEvents = events.filter(
+      (e) =>
+        DDL_EVENT_TYPES.includes(e.type) &&
+        e.status === 'pending' &&
+        !ddlEventMapRef.current.has(e.id) &&
+        !prevEventIdsRef.current.has(e.id) &&
+        !e.synced
+    );
+
+    newDDLEvents.forEach(async (event) => {
+      // Mark immediately to prevent re-runs
+      ddlEventMapRef.current.set(event.id, '');
+      try {
+        const { sql } = generateSnowflakeSQL(event);
+        if (!sql || sql.startsWith('--')) return;
+
+        const tableRef = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+        const result = await addDDLAction(selectedProjectId, {
+          ddl_sql: sql,
+          ddl_type: inferDDLType(event.type),
+          target_table: tableRef,
+          description: `${event.type} on ${tableRef}`,
+        });
+        // Store backend event_id for later removal
+        if (result?.event_id) {
+          ddlEventMapRef.current.set(event.id, result.event_id);
+        }
+        console.debug(`[DDL Sync] Added ${event.type} → ${tableRef}`);
+      } catch (err) {
+        console.warn(`[DDL Sync] Failed to add ${event.type}:`, err);
+        ddlEventMapRef.current.delete(event.id);
+      }
+    });
+
+    // ── REMOVE: events that disappeared (undo/delete) → remove from backend ──
+    const removedIds = Array.from(prevEventIdsRef.current).filter(
+      (id) => !currentEventIds.has(id) && ddlEventMapRef.current.has(id)
+    );
+
+    removedIds.forEach(async (localId) => {
+      const backendId = ddlEventMapRef.current.get(localId);
+      ddlEventMapRef.current.delete(localId);
+      if (!backendId) return; // never made it to backend
+
+      try {
+        await removeDDLAction(selectedProjectId, backendId);
+        console.debug(`[DDL Sync] Removed DDL ${backendId} (event ${localId})`);
+      } catch (err) {
+        console.warn(`[DDL Sync] Failed to remove DDL ${backendId}:`, err);
+      }
+    });
+
+    // Update previous snapshot
+    prevEventIdsRef.current = currentEventIds;
+  }, [events, selectedProjectId]);
+
   // Read-only guard: returns true (blocked) if user is a viewer
   const readOnlyGuard = useCallback(() => {
     if (isReadOnly) {
@@ -772,6 +1041,118 @@ export default function ExploreDesignPage() {
     }
     return false;
   }, [isReadOnly]);
+
+  // ── Conflict Detection ────────────────────────────────────────────────────
+  // Checks pending events for conflicts before deploy. Returns true if conflicts
+  // were found (caller should abort and wait for resolution).
+  const checkForConflicts = useCallback(async (eventIds: string[]): Promise<boolean> => {
+    if (!selectedProjectId || eventIds.length === 0) return false;
+
+    try {
+      const result = await checkConflicts(selectedProjectId, { event_ids: eventIds });
+
+      if (result.has_conflicts && result.conflicts.length > 0) {
+        const first = result.conflicts[0];
+
+        // Find the local events for "yours" and "theirs" to build the diff view
+        const myEvent = events.find(e => e.id === first.event_id);
+        const theirEvent = first.conflicting_event_id
+          ? events.find(e => e.id === first.conflicting_event_id)
+          : null;
+
+        const buildChanges = (evt: typeof myEvent) => {
+          if (!evt) return {};
+          const changes: Record<string, { old: string; new: string }> = {};
+          if (evt.payload) {
+            Object.entries(evt.payload).forEach(([key, value]) => {
+              if (key !== 'isTemplate' && typeof value !== 'object') {
+                changes[key] = { old: '', new: String(value) };
+              }
+            });
+          }
+          return changes;
+        };
+
+        const conflict: EventConflict = {
+          eventId: first.event_id,
+          eventType: first.event_type,
+          objectName: first.object_name,
+          yours: {
+            user: currentUsername || 'You',
+            timestamp: myEvent?.timestamp
+              ? new Date(myEvent.timestamp).toISOString()
+              : new Date().toISOString(),
+            changes: buildChanges(myEvent),
+          },
+          theirs: {
+            user: theirEvent?.userId || 'Another user',
+            timestamp: theirEvent?.timestamp
+              ? new Date(theirEvent.timestamp).toISOString()
+              : new Date().toISOString(),
+            changes: buildChanges(theirEvent ?? undefined),
+          },
+        };
+
+        setCurrentConflict(conflict);
+        setShowConflictModal(true);
+
+        // Show a summary toast for all conflicts
+        if (result.conflicts.length > 1) {
+          toast.error(`${result.conflicts.length} conflicts detected — resolve them before deploying`);
+        }
+
+        return true; // conflicts found
+      }
+
+      return false; // no conflicts
+    } catch (error) {
+      // Non-blocking: if the conflict check API fails, allow the user to proceed
+      console.warn('[checkForConflicts] API call failed, proceeding without conflict check:', error);
+      return false;
+    }
+  }, [selectedProjectId, events, currentUsername]);
+
+  // Handle conflict resolution — apply chosen resolution and optionally resume the blocked action
+  const handleConflictResolve = useCallback((resolution: 'mine' | 'theirs' | 'manual', mergedChanges?: Record<string, string>) => {
+    if (!currentConflict) return;
+
+    const eventId = currentConflict.eventId;
+
+    if (resolution === 'mine') {
+      // Keep my event, no changes needed — just proceed
+      toast.success(`Conflict resolved: keeping your changes for "${currentConflict.objectName}"`);
+    } else if (resolution === 'theirs') {
+      // Accept theirs — remove my conflicting event
+      updateEventStatus({ eventId, status: 'failed' });
+      toast.success(`Conflict resolved: accepted other user's changes for "${currentConflict.objectName}"`);
+    } else if (resolution === 'manual') {
+      // Manual merge — update my event payload with merged values
+      const myEvent = events.find(e => e.id === eventId);
+      if (myEvent && mergedChanges) {
+        // Re-add a corrected event with merged payload
+        addEvent({
+          type: myEvent.type,
+          projectId: myEvent.projectId || selectedProjectId || '',
+          target: myEvent.target,
+          payload: { ...myEvent.payload, ...mergedChanges },
+        });
+        // Mark original as superseded
+        updateEventStatus({ eventId, status: 'failed' });
+        toast.success(`Conflict resolved with manual merge for "${currentConflict.objectName}"`);
+      }
+    }
+
+    // Resume the blocked action if there was one
+    const blocked = pendingConflictAction.current;
+    if (blocked?.type === 'deploy') {
+      pendingConflictAction.current = null;
+      // Re-open deployment modal now that conflict is resolved
+      setShowDeploymentModal(true);
+    }
+
+    setCurrentConflict(null);
+    setShowConflictModal(false);
+  }, [currentConflict, events, selectedProjectId, updateEventStatus, addEvent]);
 
   // Clean up empty events on mount (one-time cleanup of any legacy empty events)
   useEffect(() => {
@@ -1024,8 +1405,9 @@ export default function ExploreDesignPage() {
       });
 
       // 9. Fire FOREIGN_KEY_ADDED events for each FK constraint
+      //    Validate FK type compatibility (A1) before adding — fire-and-forget
       const fkEvents: { target: any; payload: any }[] = [];
-      DWH_TEMPLATE_RELATIONSHIPS.forEach(fk => {
+      for (const fk of DWH_TEMPLATE_RELATIONSHIPS) {
         const target = { database: db, schema, table: fk.childTable };
         const payload = {
           constraintName: fk.constraintName,
@@ -1034,9 +1416,22 @@ export default function ExploreDesignPage() {
           referencedColumns: [fk.parentColumn],
           isTemplate: true,
         };
+
+        // Best-effort FK type check (non-blocking — template FKs are assumed valid)
+        if (selectedProjectId) {
+          validateFkTypes(selectedProjectId, {
+            source_database: db, source_schema: schema, source_table: fk.childTable, source_column: fk.childColumn,
+            target_database: db, target_schema: schema, target_table: fk.parentTable, target_column: fk.parentColumn,
+          }).then((res) => {
+            if (!res.compatible) {
+              toast.error(`FK type mismatch: ${fk.childTable}.${fk.childColumn} (${res.source_type}) → ${fk.parentTable}.${fk.parentColumn} (${res.target_type})`);
+            }
+          }).catch(() => { /* non-blocking */ });
+        }
+
         addEvent({ type: 'FOREIGN_KEY_ADDED', projectId: selectedProjectId, target, payload });
         fkEvents.push({ target, payload });
-      });
+      }
 
       // 10. Persist all template events to backend so they restore on project select
       const persistTemplateEvents = async () => {
@@ -1216,6 +1611,22 @@ export default function ExploreDesignPage() {
       return;
     }
 
+    // Check if columns already exist in the map (e.g. DWH template tables)
+    const cachedColumns = tableColumnsMap.get(selectedTable.id);
+    if (cachedColumns && cachedColumns.length > 0) {
+      setTableColumns(cachedColumns);
+      const existingConfig = allTableConfigs.get(selectedTable.id);
+      setTableConfig(existingConfig || {
+        tableId: selectedTable.id,
+        ingestion: { mode: 'full_refresh' },
+        masking: [],
+        primaryKeys: cachedColumns.filter(c => c.isPrimaryKey).map(c => c.name),
+        nullable: cachedColumns.filter(c => c.isNullable).map(c => c.name),
+        sensitive: cachedColumns.filter(c => c.isSensitive).map(c => c.name),
+      });
+      return;
+    }
+
     const loadColumns = async () => {
       setIsLoadingColumns(true);
       try {
@@ -1225,7 +1636,7 @@ export default function ExploreDesignPage() {
           selectedTable.table
         );
 
-        if (columns) {
+        if (columns && columns.length > 0) {
           const formattedColumns: ColumnInfo[] = columns.map((col: any) => {
             // Check for primary key - backend returns isPk: "Y" or "N"
             const isPK = col.isPk === 'Y' ||
@@ -1269,13 +1680,16 @@ export default function ExploreDesignPage() {
           });
         }
       } catch (error) {
-        toast.error('Failed to load columns');
+        // Don't show error for template/DWH tables that don't exist in Snowflake yet
+        if (!targetTableIds.has(selectedTable.id)) {
+          toast.error('Failed to load columns');
+        }
       } finally {
         setIsLoadingColumns(false);
       }
     };
     loadColumns();
-  }, [selectedTable, allTableConfigs]);
+  }, [selectedTable, allTableConfigs, targetTableIds]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset inline panels when selected table changes
   useEffect(() => {
@@ -1500,9 +1914,11 @@ export default function ExploreDesignPage() {
         }
       }
 
-      // Update selected project + persist for auto-restore
+      // Update selected project + persist to localStorage for auto-restore
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
+      localStorage.setItem('explore-design-last-project-id', projectId);
+      localStorage.setItem('explore-design-last-project-name', projectName);
       setBackendMappings([]);
       try { localStorage.setItem('d360_last_project_id', projectId); } catch {};
 
@@ -1669,6 +2085,14 @@ export default function ExploreDesignPage() {
             // These tables need to be in the modeling view for edges to render
             const mappingTableIds = new Set<string>();
 
+            // Rebuild tables + columns from TABLE_CREATED events (user-created tables)
+            const restoredTables: TableItem[] = [];
+            const restoredColumnsMap = new Map<string, ColumnInfo[]>();
+            // Collect ADD_COLUMN events to replay after TABLE_CREATED
+            const addColumnEvents: any[] = [];
+            // Collect FOREIGN_KEY_ADDED events to rebuild relationships
+            const restoredFkRelationships: TableRelationship[] = [];
+
             // Restore modeling template choice from backend events
             let restoredChoice: ModelingChoice | null = null;
             let restoredTargetDb: string | null = null;
@@ -1698,8 +2122,97 @@ export default function ExploreDesignPage() {
                   mappingTableIds.add(`${tgt.database}.${tgt.schema}.${tgt.table}`);
                 }
               }
+              // Rebuild user-created tables from TABLE_CREATED events
+              if (event.type === 'TABLE_CREATED' && event.target?.database && event.target?.schema && event.target?.table) {
+                const tableId = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+                const columns = (event.payload?.columns || []).map((col: any) => ({
+                  name: col.name,
+                  dataType: col.dataType || col.data_type || 'VARCHAR',
+                  isPrimaryKey: col.primaryKey || col.is_primary_key || false,
+                  isNullable: col.nullable !== false && col.is_nullable !== false,
+                }));
+                restoredTables.push({
+                  id: tableId,
+                  database: event.target.database,
+                  schema: event.target.schema,
+                  table: event.target.table,
+                  columnCount: columns.length,
+                  hasPrimaryKey: columns.some((c: any) => c.isPrimaryKey),
+                  status: event.status === 'applied' ? 'configured' : 'pending',
+                  sensitiveColumns: 0,
+                });
+                restoredColumnsMap.set(tableId, columns);
+                // Also add to modeling view
+                addedTableIds.add(tableId);
+              }
+              // Collect ADD_COLUMN events for replay
+              if (event.type === 'ADD_COLUMN' && event.target?.database && event.target?.table) {
+                addColumnEvents.push(event);
+              }
+              // Rebuild FK relationships
+              if (event.type === 'FOREIGN_KEY_ADDED' && event.target?.table) {
+                const refTable = event.payload?.referencedTable || event.payload?.targetTable;
+                if (refTable?.table) {
+                  restoredFkRelationships.push({
+                    constraint_name: event.payload?.constraintName || `FK_${event.target.table}`,
+                    child_schema: event.target.schema,
+                    child_table: event.target.table,
+                    child_column: event.payload?.columns?.[0] || event.payload?.sourceColumn || '',
+                    parent_schema: refTable.schema || event.target.schema,
+                    parent_table: refTable.table,
+                    parent_column: event.payload?.referencedColumns?.[0] || event.payload?.targetColumn || '',
+                  });
+                }
+              }
             });
 
+            // Replay ADD_COLUMN events into restoredColumnsMap
+            addColumnEvents.forEach((event: any) => {
+              const tableId = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+              const existing = restoredColumnsMap.get(tableId);
+              if (existing) {
+                const colName = event.payload?.columnName || event.payload?.name;
+                if (colName && !existing.some(c => c.name === colName)) {
+                  existing.push({
+                    name: colName,
+                    dataType: event.payload?.dataType || event.payload?.type || 'VARCHAR',
+                    isPrimaryKey: event.payload?.isPrimaryKey || false,
+                    isNullable: event.payload?.nullable !== false && event.payload?.isNullable !== false,
+                  });
+                }
+              }
+            });
+
+            // Apply restored tables to state
+            if (restoredTables.length > 0) {
+              setTables(prev => {
+                const existingIds = new Set(prev.map(t => t.id));
+                const newTables = restoredTables.filter(t => !existingIds.has(t.id));
+                return newTables.length > 0 ? [...prev, ...newTables] : prev;
+              });
+              setTableColumnsMap(prev => {
+                const next = new Map(prev);
+                restoredColumnsMap.forEach((cols, tableId) => {
+                  if (!next.has(tableId)) next.set(tableId, cols);
+                });
+                return next;
+              });
+              // Mark created tables as target tables (they're DWH-side)
+              setTargetTableIds(prev => {
+                const merged = new Set(prev);
+                restoredTables.forEach(t => merged.add(t.id));
+                return merged;
+              });
+              console.log('🔄 [Restore] Rebuilt tables from TABLE_CREATED:', restoredTables.map(t => t.id));
+            }
+
+            // Apply restored FK relationships
+            if (restoredFkRelationships.length > 0) {
+              setDefaultRelationships(prev => [...prev, ...restoredFkRelationships]);
+              console.log('🔄 [Restore] Rebuilt FK relationships:', restoredFkRelationships.length);
+            }
+
+            console.log('🔄 Tables from COLUMN_MAPPING events:', Array.from(mappingTableIds));
 
             // Final modeling tables = added - removed + mapping tables
             const modelingTables = new Set([
@@ -1981,6 +2494,20 @@ export default function ExploreDesignPage() {
         newName: newName,
       },
     });
+
+    // Cascade rename: update references in other events (A2)
+    if (selectedProjectId) {
+      cascadeRename(selectedProjectId, {
+        old_table_name: `${database}.${schema}.${tableName}`,
+        new_table_name: `${database}.${schema}.${newName}`,
+      }).then((res) => {
+        if (res.events_updated > 0) {
+          toast.success(`Cascade: ${res.events_updated} dependent event(s) updated`);
+        }
+      }).catch(() => {
+        // Non-blocking — rename event is still registered
+      });
+    }
 
     toast.success(`Table rename "${tableName}" → "${newName}" added to pending changes`);
   }, [addEvent, selectedProjectId]);
@@ -2288,7 +2815,7 @@ export default function ExploreDesignPage() {
             <ProjectSelector
               selectedProjectId={selectedProjectId}
               onProjectSelect={handleProjectSelect}
-              autoSelectProjectId={urlProjectId}
+              autoSelectProjectId={autoProjectId}
             />
             {isReadOnly && (
               <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-2 py-0.5 flex items-center gap-1">
@@ -2373,7 +2900,7 @@ export default function ExploreDesignPage() {
               </Button>
             </Tooltip>
 
-            {/* Event Templates */}
+            {/* Event Templates (local) */}
             <Tooltip content="Event Templates — save & reuse patterns">
               <Button
                 aria-label="Event templates"
@@ -2385,6 +2912,34 @@ export default function ExploreDesignPage() {
                 <BookTemplate className="h-3.5 w-3.5" />
               </Button>
             </Tooltip>
+
+            {/* Server Event Templates (API-backed) */}
+            {selectedProjectId && (
+              <Tooltip content="Apply Server Template">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowEventTemplatePicker(true)}
+                  className="p-1.5"
+                >
+                  <Layers className="h-3.5 w-3.5" />
+                </Button>
+              </Tooltip>
+            )}
+
+            {/* Audit Trail */}
+            {selectedProjectId && (
+              <Tooltip content="Audit Trail">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAuditTrail(true)}
+                  className="p-1.5"
+                >
+                  <History className="h-3.5 w-3.5" />
+                </Button>
+              </Tooltip>
+            )}
 
             {/* DAG Viewer */}
             <Tooltip content="Dependency Graph (DAG)">
@@ -2479,11 +3034,21 @@ export default function ExploreDesignPage() {
             <Button
               size="sm"
               className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-2.5 py-1"
-              onClick={() => {
+              onClick={async () => {
                 if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
+                }
+                // Check for conflicts before opening the deployment modal
+                const eventIds = pendingEvents.map(e => e.id);
+                if (eventIds.length > 0) {
+                  const hasConflicts = await checkForConflicts(eventIds);
+                  if (hasConflicts) {
+                    // Store the blocked action so we can resume after resolution
+                    pendingConflictAction.current = { type: 'deploy', eventIds };
+                    return;
+                  }
                 }
                 setShowDeploymentModal(true);
               }}
@@ -2614,6 +3179,7 @@ export default function ExploreDesignPage() {
           isLoadingDatabases={isLoadingDatabases}
           isLoadingSchemas={isLoadingSchemas}
           stats={stats}
+          projectId={selectedProjectId}
         />
       )}
 
@@ -3653,11 +4219,20 @@ export default function ExploreDesignPage() {
                     <Button
                       size="sm"
                       className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600"
-                      onClick={() => {
+                      onClick={async () => {
                         if (readOnlyGuard()) return;
                         if (!selectedProjectId) {
                           toast.error('Please select a project first');
                           return;
+                        }
+                        // Check for conflicts before opening the deployment modal
+                        const eventIds = pendingEvents.map(e => e.id);
+                        if (eventIds.length > 0) {
+                          const hasConflicts = await checkForConflicts(eventIds);
+                          if (hasConflicts) {
+                            pendingConflictAction.current = { type: 'deploy', eventIds };
+                            return;
+                          }
                         }
                         setShowDeploymentModal(true);
                       }}
@@ -3677,6 +4252,7 @@ export default function ExploreDesignPage() {
               <ModelingCanvas
                 tables={tables.filter(t => modelingTableIds.has(t.id))}
                 tableColumns={tableColumnsMap}
+                onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
                 onTableExclude={handleRemoveFromModeling}
                 isReadOnly={isReadOnly}
@@ -3971,7 +4547,7 @@ export default function ExploreDesignPage() {
       <Modal
         isOpen={showDeploymentModal}
         onClose={() => setShowDeploymentModal(false)}
-        customSize="900px"
+        customSize="1050px"
       >
         <ErrorBoundary>
           <DeploymentValidation
@@ -4157,16 +4733,56 @@ export default function ExploreDesignPage() {
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
+          onAcceptSuggestion={(evt) => {
+            if (!selectedTable) return;
+            const suggestion = evt.suggestion.toUpperCase();
+            if (suggestion.startsWith('CHANGE TO') || suggestion.startsWith('RESIZE')) {
+              const newType = evt.suggestion.replace(/^change to\s+/i, '').replace(/^resize to\s+/i, '').trim();
+              addEvent({
+                type: 'COLUMN_TYPE_CHANGED',
+                projectId: selectedProjectId ?? undefined,
+                target: {
+                  database: selectedTable.database,
+                  schema: selectedTable.schema,
+                  table: selectedTable.table,
+                  column: evt.column,
+                },
+                payload: {
+                  oldType: evt.currentType,
+                  newType,
+                  source: 'ai_optimization',
+                  aiClass: evt.aiClass,
+                },
+              });
+            } else if (suggestion.includes('MASKING') || evt.aiClass === 'PII_CANDIDATE') {
+              addEvent({
+                type: 'MASKING_POLICY_APPLIED',
+                projectId: selectedProjectId ?? undefined,
+                target: {
+                  database: selectedTable.database,
+                  schema: selectedTable.schema,
+                  table: selectedTable.table,
+                  column: evt.column,
+                },
+                payload: {
+                  policyName: 'pii_mask',
+                  columns: [evt.column],
+                  source: 'ai_optimization',
+                  aiClass: evt.aiClass,
+                },
+              });
+            }
+          }}
         />
       )}
 
-      {/* Create Table Modal - Always creates in DWH (CP_DATA360.RETAIL_DW) */}
+      {/* Create Table Modal - Creates in user's chosen DWH target schema */}
       {/* Note: Modal only opens if selectedProjectId is set (checked in onClick handler) */}
       <CreateTableModal
         isOpen={showCreateTableModal}
         onClose={() => setShowCreateTableModal(false)}
-        database="CP_DATA360"
-        schema="RETAIL_DWH"
+        database={dwhTargetDatabase || selectedDatabase || ''}
+        schema={dwhTargetSchema || ''}
         projectId={selectedProjectId!}
         initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
@@ -4277,13 +4893,49 @@ export default function ExploreDesignPage() {
         }}
       />
 
-      {/* Event Template Library */}
+      {/* Event Template Library (local) */}
       <TemplateLibrary
         isOpen={showTemplateLibrary}
         onClose={() => setShowTemplateLibrary(false)}
         projectId={selectedProjectId}
         currentDatabase={dwhTargetDatabase || undefined}
         currentSchema={dwhTargetSchema || undefined}
+      />
+
+      {/* Event Template Picker (server-side API) */}
+      {selectedProjectId && (
+        <EventTemplatePickerModal
+          isOpen={showEventTemplatePicker}
+          onClose={() => setShowEventTemplatePicker(false)}
+          projectId={selectedProjectId}
+          targetDatabase={dwhTargetDatabase || selectedDatabase || ''}
+          targetSchema={dwhTargetSchema || ''}
+          onApplied={(result) => {
+            toast.success(`Template applied: ${result.events_created} events created`);
+            // Refresh events after template apply
+          }}
+        />
+      )}
+
+      {/* Audit Trail Panel (modal overlay) */}
+      {showAuditTrail && selectedProjectId && (
+        <Modal isOpen={showAuditTrail} onClose={() => setShowAuditTrail(false)} size="xl">
+          <div className="p-4">
+            <AuditTrailPanel projectId={selectedProjectId} />
+          </div>
+        </Modal>
+      )}
+
+      {/* Conflict Resolution Modal */}
+      <ConflictResolutionModal
+        isOpen={showConflictModal}
+        onClose={() => {
+          setShowConflictModal(false);
+          setCurrentConflict(null);
+          pendingConflictAction.current = null;
+        }}
+        conflict={currentConflict}
+        onResolve={handleConflictResolve}
       />
 
       {/* DWH Location Picker Modal */}
@@ -4366,6 +5018,8 @@ export default function ExploreDesignPage() {
             columns={tableColumns}
             ingestionMode={catalogIngestionMode}
             onModeChange={setCatalogIngestionMode}
+            columns={tableColumns}
+            projectId={selectedProjectId}
           />
         </Modal>
       )}
