@@ -86,6 +86,18 @@ const WorkflowHomePage: React.FC = () => {
       let token = localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '';
       if (!token) {
         try {
+          // Try NextAuth session API directly (works without SessionProvider)
+          const res = await fetch('/api/auth/session');
+          const session = await res.json();
+          token = session?.user?.access_token || '';
+          if (token) {
+            localStorage.setItem('access_token', token);
+            localStorage.setItem('snowflake_token', token);
+          }
+        } catch { /* session fetch failed */ }
+      }
+      if (!token) {
+        try {
           const session = await getSession();
           token = (session?.user as any)?.access_token || '';
         } catch { /* getSession may fail without SessionProvider */ }

@@ -217,4 +217,4 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
   );
 };
 
-export default ETLPalette;
+export default React.memo(ETLPalette);

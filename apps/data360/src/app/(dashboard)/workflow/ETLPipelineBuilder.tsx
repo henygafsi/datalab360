@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import ReactFlow, {
   Node,
@@ -91,12 +91,51 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
 
     const config = node.data?.config || node.data || {};
     const stepName = node.data?.name || node.type || 'step';
+    const nodeType = node.type || 'source';
+
+    // Derive flat payload keys from structured config for backend template compatibility
+    const derived: Record<string, any> = {};
+
+    // Filter: conditions[] → filter_condition string
+    if (nodeType === 'filter' && Array.isArray(config.conditions) && config.conditions.length > 0 && !config.filter_condition) {
+      const logic = config.logic || 'AND';
+      derived.filter_condition = config.conditions
+        .map((c: any) => {
+          const val = typeof c.value === 'string' ? `'${c.value.replace(/'/g, "''")}'` : c.value;
+          return `${c.column} ${c.operator || '='} ${val}`;
+        })
+        .join(` ${logic} `);
+    }
+
+    // Aggregate: aggregations[] → flat keys for template
+    if (nodeType === 'aggregate' && Array.isArray(config.aggregations) && config.aggregations.length > 0) {
+      const agg = config.aggregations[0];
+      if (!config.agg_type) derived.agg_type = agg.function || 'COUNT';
+      if (!config.column) derived.column = agg.column || '*';
+      if (!config.new_kpi_name) derived.new_kpi_name = agg.alias || `${agg.function}_${agg.column}`;
+      if (Array.isArray(config.group_by)) {
+        derived.group_by_columns = config.group_by.join(', ');
+      }
+    }
+
+    // Sort: order_by[] → flat string
+    if (nodeType === 'sort' && Array.isArray(config.order_by)) {
+      derived.order_by = config.order_by
+        .map((o: any) => typeof o === 'object' ? `${o.column} ${o.direction || 'ASC'}` : o)
+        .join(', ');
+    }
+
+    // Limit: limit → row_count
+    if (nodeType === 'limit' && config.limit && !config.row_count) {
+      derived.row_count = config.limit;
+    }
 
     return {
-      action_type: convertLegacyType(node.type || 'source') as WorkflowActionType,
+      action_type: convertLegacyType(nodeType) as WorkflowActionType,
       step_name: stepName,
       payload: {
         ...config,
+        ...derived,
         inputs,
         cte_alias: stepName.toLowerCase().replace(/\s+/g, '_'),
         position: node.position,
@@ -109,21 +148,37 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
 // Convert workflow steps to ReactFlow nodes/edges
 // Payload stores flat keys (database_name, schema_name, etc.) + reserved keys (inputs, cte_alias, position, nodeId)
 function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[] } {
-  const nodes: Node[] = steps.map((step) => {
+  // Build step_order → nodeId map for API-created pipelines
+  const orderToNodeId: Record<string, string> = {};
+
+  const nodes: Node[] = steps.map((step, idx) => {
     const payload = step.payload || {};
-    const position = (payload.position as { x: number; y: number }) || { x: 0, y: 0 };
+    // Auto-layout: horizontal flow (left→right), stagger vertically for joins
+    const isSource = step.action_type === 'source' || step.action_type?.endsWith('_source');
+    const sourceCount = steps.filter((s, i) => i < idx && (s.action_type === 'source' || s.action_type?.endsWith('_source'))).length;
+    const nonSourceIdx = idx - steps.filter((s, i) => i <= idx && (s.action_type === 'source' || s.action_type?.endsWith('_source'))).length + (isSource ? 0 : steps.filter(s => s.action_type === 'source' || s.action_type?.endsWith('_source')).length);
+    const defaultPos = isSource
+      ? { x: 50, y: 50 + sourceCount * 200 }
+      : { x: 50 + nonSourceIdx * 280, y: 120 };
+    const position = (payload.position as { x: number; y: number }) || defaultPos;
     const stepName = step.step_name;
+    const nodeId = (payload.nodeId as string) || step.step_id;
+
+    // Map step_order to nodeId for edge resolution
+    orderToNodeId[String(step.step_order)] = nodeId;
 
     // Extract config (everything except reserved keys)
-    const { inputs: _inputs, cte_alias: _cte, position: _pos, nodeId: _nid, ...config } = payload;
+    const { inputs: _inputs, cte_alias: _cte, position: _pos, nodeId: _nid,
+            input_step: _is, left_step: _ls, right_step: _rs, ...config } = payload;
 
     return {
-      id: (payload.nodeId as string) || step.step_id,
+      id: nodeId,
       type: step.action_type,
       position,
       data: {
         ...config,
         name: stepName,
+        step_order: step.step_order,
         config,
       },
     };
@@ -132,19 +187,59 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
   const edges: Edge[] = [];
   steps.forEach((step) => {
     const payload = step.payload || {};
-    const inputs = (payload.inputs as string[]) || [];
     const nodeId = (payload.nodeId as string) || step.step_id;
-    inputs.forEach((inputId, index) => {
-      const blockDef = getBlockByType(step.action_type);
+    const blockDef = getBlockByType(step.action_type);
+
+    // Method 1: Frontend-saved format — payload.inputs = [nodeId1, nodeId2]
+    const inputs = (payload.inputs as string[]) || [];
+    if (inputs.length > 0) {
+      inputs.forEach((inputId, index) => {
+        edges.push({
+          id: `${inputId}-${nodeId}`,
+          source: inputId,
+          target: nodeId,
+          targetHandle: blockDef?.maxInputs === 2 ? `input${index + 1}` : undefined,
+          markerEnd: { type: MarkerType.ArrowClosed },
+          style: { strokeWidth: 2 },
+        });
+      });
+      return;
+    }
+
+    // Method 2: API-created format — left_step/right_step (join) or input_step (others)
+    const leftStep = payload.left_step as string;
+    const rightStep = payload.right_step as string;
+    const inputStep = payload.input_step as string;
+
+    if (leftStep && orderToNodeId[leftStep]) {
       edges.push({
-        id: `${inputId}-${nodeId}`,
-        source: inputId,
+        id: `${orderToNodeId[leftStep]}-${nodeId}-L`,
+        source: orderToNodeId[leftStep],
         target: nodeId,
-        targetHandle: blockDef?.maxInputs === 2 ? `input${index + 1}` : undefined,
+        targetHandle: 'input1',
         markerEnd: { type: MarkerType.ArrowClosed },
         style: { strokeWidth: 2 },
       });
-    });
+    }
+    if (rightStep && orderToNodeId[rightStep]) {
+      edges.push({
+        id: `${orderToNodeId[rightStep]}-${nodeId}-R`,
+        source: orderToNodeId[rightStep],
+        target: nodeId,
+        targetHandle: 'input2',
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: { strokeWidth: 2 },
+      });
+    }
+    if (inputStep && orderToNodeId[inputStep] && !leftStep) {
+      edges.push({
+        id: `${orderToNodeId[inputStep]}-${nodeId}`,
+        source: orderToNodeId[inputStep],
+        target: nodeId,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: { strokeWidth: 2 },
+      });
+    }
   });
 
   return { nodes, edges };
@@ -246,10 +341,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const type = event.dataTransfer.getData('application/reactflow');
       if (!type || !reactFlowInstance || !reactFlowWrapper.current) return;
 
-      const bounds = reactFlowWrapper.current.getBoundingClientRect();
-      const position = reactFlowInstance.project({
-        x: event.clientX - bounds.left,
-        y: event.clientY - bounds.top,
+      const position = reactFlowInstance.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
       });
 
       const newNode: Node = {
@@ -377,12 +471,28 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     switch (nodeType) {
       // SOURCE: Returns selected columns from the table
       case 'source':
-      case 'src': {
+      case 'src':
+      case 's3_source':
+      case 'azure_source':
+      case 'gcs_source':
+      case 'postgres_source':
+      case 'mysql_source':
+      case 'external_table_source':
+      case 'dynamic_table_source':
+      case 'shared_data_source':
+      case 'salesforce_source':
+      case 'sap_source':
+      case 'oracle_source':
+      case 'hubspot_source':
+      case 'servicenow_source':
+      case 'api_source':
+      case 'stream_consume': {
         const columns = config.columns || [];
         return Array.isArray(columns) ? (columns as string[]) : [];
       }
 
       // JOIN: Combine columns from both inputs (minus excluded columns)
+      case 'join':
       case 'join_tables': {
         const sortedEdges = inputEdges.sort((a, b) =>
           (a.targetHandle || '').localeCompare(b.targetHandle || '')
@@ -474,7 +584,88 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       case 'sort':
       case 'distinct':
       case 'drop_duplicates':
-      case 'limit': {
+      case 'limit':
+      case 'fill_nulls':
+      case 'date_transform':
+      case 'time_slice': {
+        return getUpstreamColumns();
+      }
+
+      // WINDOW functions: Pass through + add computed column
+      case 'window_rank':
+      case 'window_lag_lead':
+      case 'window_aggregate':
+      case 'window_ntile': {
+        const upstreamCols = getUpstreamColumns();
+        const outputCol = config.output_column || config.alias;
+        return outputCol ? [...upstreamCols, outputCol] : upstreamCols;
+      }
+
+      // CASE WHEN / SPLIT: Pass through + add new column
+      case 'case_when': {
+        const upstreamCols = getUpstreamColumns();
+        const newCol = config.output_column || config.alias;
+        return newCol ? [...upstreamCols, newCol] : upstreamCols;
+      }
+
+      case 'split_column': {
+        const upstreamCols = getUpstreamColumns();
+        const parts = config.output_columns || [];
+        return [...upstreamCols, ...(Array.isArray(parts) ? parts : [])];
+      }
+
+      // JSON transforms: Pass through + add extracted/flattened columns
+      case 'json_flatten':
+      case 'json_extract': {
+        const upstreamCols = getUpstreamColumns();
+        const extractedCols = config.output_columns || config.columns || [];
+        return [...upstreamCols, ...(Array.isArray(extractedCols) ? extractedCols : [])];
+      }
+
+      case 'json_construct': {
+        const upstreamCols = getUpstreamColumns();
+        const jsonCol = config.output_column || 'JSON_OUTPUT';
+        return [...upstreamCols, jsonCol];
+      }
+
+      // PIVOT / UNPIVOT: Schema-changing — use config output columns or pass through
+      case 'pivot':
+      case 'unpivot': {
+        const outputCols = config.output_columns || config.columns || [];
+        return Array.isArray(outputCols) && outputCols.length > 0
+          ? outputCols
+          : getUpstreamColumns();
+      }
+
+      // AI Functions: Pass through + add AI output column
+      case 'ai_classify':
+      case 'ai_sentiment':
+      case 'ai_translate':
+      case 'ai_extract':
+      case 'ai_complete': {
+        const upstreamCols = getUpstreamColumns();
+        const aiCol = config.output_column || config.alias || `${nodeType}_result`;
+        return [...upstreamCols, aiCol];
+      }
+
+      // ML Training / Prediction: Pass through + add prediction columns
+      case 'classification_train':
+      case 'anomaly_detect':
+      case 'forecast': {
+        const upstreamCols = getUpstreamColumns();
+        const predCol = config.output_column || 'PREDICTION';
+        return [...upstreamCols, predCol];
+      }
+
+      // Code blocks: Output columns unknown at design time — pass through
+      case 'sql_script':
+      case 'python_script':
+      case 'notebook_run':
+      case 'create_udf':
+      case 'create_procedure':
+      case 'apply_udf':
+      case 'finetune':
+      case 'document_ai': {
         return getUpstreamColumns();
       }
 
@@ -485,10 +676,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         return getNodeOutputColumns(inputEdges[0].source, new Set(visited));
       }
 
-      // DESTINATION / EXPORT: These are sinks, but still pass through columns for reference
+      // DESTINATION / EXPORT / DYNAMIC TABLE: Sinks, pass through columns for reference
       case 'destination':
       case 'export_file':
-      case 'export_excel': {
+      case 'export_excel':
+      case 'dynamic_table': {
         return getUpstreamColumns();
       }
 
@@ -515,7 +707,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Get columns for join node inputs (uses column propagation)
   const getJoinInputColumns = useCallback((): { left: string[]; right: string[] } => {
-    if (!selectedNode || selectedNode.type !== 'join_tables') return { left: [], right: [] };
+    if (!selectedNode || (selectedNode.type !== 'join_tables' && selectedNode.type !== 'join')) return { left: [], right: [] };
 
     const inputEdges = edges
       .filter((e) => e.target === selectedNode.id)
@@ -783,7 +975,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // RENDER
   // ============================================
 
-  const joinInputColumns = getJoinInputColumns();
+  const joinInputColumns = useMemo(() => getJoinInputColumns(), [getJoinInputColumns]);
 
   // Page-level loading state
   if (isLoading && workflows.length === 0) {
@@ -1052,6 +1244,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             nodesDraggable={!isReadOnly}
             nodeTypes={etlNodeTypes}
             fitView
+            deleteKeyCode={null}
+            onlyRenderVisibleElements
             className="bg-slate-50 dark:bg-slate-900"
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />

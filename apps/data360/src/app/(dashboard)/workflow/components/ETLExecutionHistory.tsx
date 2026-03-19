@@ -62,6 +62,8 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const [statusFilter, setStatusFilter] = useState<RunStatus | ''>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedSql, setCopiedSql] = useState<string | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
+  const [analyzingRun, setAnalyzingRun] = useState<string | null>(null);
 
   const fetchRuns = useCallback(async () => {
     if (!pipelineId) {
@@ -134,6 +136,19 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       setTimeout(() => setCopiedSql(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
+    }
+  };
+
+  const analyzeRun = async (runId: string) => {
+    if (!pipelineId) return;
+    setAnalyzingRun(runId);
+    try {
+      const response = await workflowApi.analyzeRun(pipelineId, runId);
+      setAiAnalysis(prev => ({ ...prev, [runId]: response.ai_analysis }));
+    } catch (err: any) {
+      setAiAnalysis(prev => ({ ...prev, [runId]: `Analysis failed: ${err.message || 'Unknown error'}` }));
+    } finally {
+      setAnalyzingRun(null);
     }
   };
 
@@ -239,21 +254,21 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         <div className="grid grid-cols-4 gap-2 p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
           <div className="text-center">
             <div className="text-lg font-bold text-green-600">{stats.completed}</div>
-            <div className="text-xs text-slate-500">Completed</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Completed</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-red-600">{stats.failed}</div>
-            <div className="text-xs text-slate-500">Failed</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Failed</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-blue-600">{stats.running}</div>
-            <div className="text-xs text-slate-500">Running</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Running</div>
           </div>
           <div className="text-center">
             <div className="text-lg font-bold text-slate-600 dark:text-slate-400">
               {formatDuration(Math.round(stats.avgDuration))}
             </div>
-            <div className="text-xs text-slate-500">Avg Time</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">Avg Time</div>
           </div>
         </div>
       )}
@@ -398,29 +413,113 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                       </div>
                     )}
 
-                    {/* Execution Details */}
-                    {run.execution_details && (
+                    {/* AI Analysis */}
+                    {run.status === 'failed' && (
                       <div className="space-y-2">
-                        <div className="flex items-center gap-1 text-xs text-slate-500">
-                          <Code className="h-3 w-3" />
-                          Execution Details
-                        </div>
-                        <div className="p-3 bg-slate-900 rounded-lg relative group">
-                          <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
-                            {JSON.stringify(run.execution_details, null, 2)}
-                          </pre>
+                        {!aiAnalysis[run.run_id] ? (
                           <button
-                            onClick={() => copyToClipboard(JSON.stringify(run.execution_details, null, 2), run.run_id)}
-                            className="absolute top-2 right-2 p-1 hover:bg-slate-700 rounded opacity-0 group-hover:opacity-100 transition"
-                            title="Copy"
+                            onClick={() => analyzeRun(run.run_id)}
+                            disabled={analyzingRun === run.run_id}
+                            className={cn(
+                              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition',
+                              analyzingRun === run.run_id
+                                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-400 cursor-wait'
+                                : 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-800'
+                            )}
                           >
-                            {copiedSql === run.run_id ? (
-                              <Check className="h-3 w-3 text-green-400" />
+                            {analyzingRun === run.run_id ? (
+                              <><Loader2 className="h-3 w-3 animate-spin" /> Analyzing with AI...</>
                             ) : (
-                              <Copy className="h-3 w-3 text-slate-400" />
+                              <><AlertTriangle className="h-3 w-3" /> AI Error Analysis</>
                             )}
                           </button>
+                        ) : (
+                          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                            <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 mb-2 font-medium">
+                              <AlertTriangle className="h-3 w-3" />
+                              AI Analysis
+                            </div>
+                            <div className="text-xs text-purple-800 dark:text-purple-200 whitespace-pre-wrap leading-relaxed">
+                              {aiAnalysis[run.run_id]}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Step-by-Step Execution Results */}
+                    {run.execution_details?.steps_results && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
+                            <Layers className="h-3 w-3" />
+                            Step Results ({run.execution_details.mode || 'legacy'} mode)
+                          </div>
                         </div>
+                        <div className="space-y-1">
+                          {(run.execution_details.steps_results as any[]).map((step: any, idx: number) => (
+                            <div key={step.step_id || idx} className={cn(
+                              'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs',
+                              step.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' :
+                              step.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
+                              'bg-slate-50 dark:bg-slate-800/50'
+                            )}>
+                              <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
+                                {idx + 1}
+                              </span>
+                              {step.status === 'completed' ? (
+                                <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                              ) : step.status === 'failed' ? (
+                                <XCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                              ) : (
+                                <Clock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                              )}
+                              <span className="font-medium text-slate-700 dark:text-slate-300 truncate flex-1">
+                                {step.step_name || step.action_type || step.step_id}
+                              </span>
+                              {step.rows_affected !== undefined && (
+                                <span className="text-slate-500 dark:text-slate-400">{step.rows_affected} rows</span>
+                              )}
+                              {step.attempt && step.attempt > 1 && (
+                                <span className="text-amber-500 text-[10px]">retry x{step.attempt}</span>
+                              )}
+                              {step.error && (
+                                <span className="text-red-500 truncate max-w-[120px]" title={step.error}>
+                                  {step.error.substring(0, 40)}...
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* Compiled SQL (CTE mode) */}
+                        {run.execution_details.compiled_sql && (
+                          <div className="mt-2">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                <Code className="h-3 w-3" /> Compiled SQL
+                              </span>
+                              <button
+                                onClick={() => copyToClipboard(run.execution_details.compiled_sql, run.run_id)}
+                                className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition"
+                                title="Copy SQL"
+                              >
+                                {copiedSql === run.run_id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-slate-400" />}
+                              </button>
+                            </div>
+                            <pre className="p-2 bg-slate-900 rounded-lg text-[10px] text-green-400 font-mono whitespace-pre-wrap overflow-x-auto max-h-[200px]">
+                              {run.execution_details.compiled_sql}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Raw Details Fallback (when no steps_results) */}
+                    {run.execution_details && !run.execution_details.steps_results && (
+                      <div className="p-3 bg-slate-900 rounded-lg">
+                        <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
+                          {JSON.stringify(run.execution_details, null, 2)}
+                        </pre>
                       </div>
                     )}
                   </div>

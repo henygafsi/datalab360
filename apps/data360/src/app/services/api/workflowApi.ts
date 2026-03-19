@@ -167,6 +167,13 @@ export async function getRunSummary(workflowId: string) {
   return data;
 }
 
+export async function analyzeRun(workflowId: string, runId: string) {
+  const { data } = await apiClient.post<{ ai_analysis: string }>(
+    `${PREFIX}/${workflowId}/runs/${runId}/analyze`,
+  );
+  return data;
+}
+
 // ============================================================================
 // Scheduling
 // ============================================================================

@@ -135,6 +135,14 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // 503 - Backend session affinity issue (multi-worker) — do NOT redirect, just reject
+    if (status === 503) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API Client] 503 Service Unavailable — session may be on another worker:', error.response?.data);
+      }
+      return Promise.reject(error);
+    }
+
     // 500 - Only redirect to signin when detail indicates connection/session failure (no connection)
     if (status === 500) {
       if (process.env.NODE_ENV === 'development') {
@@ -142,6 +150,11 @@ apiClient.interceptors.response.use(
       }
       const data = error.response?.data as { detail?: string | { detail?: string }; error_code?: string } | undefined;
       const detailStr = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail;
+      const errorCode = typeof data?.detail === 'object' ? (data?.detail as any)?.error_code : data?.error_code;
+      // Don't redirect for session-in-process errors — that's a backend worker issue, not auth
+      if (errorCode === 'SESSION_NOT_IN_PROCESS') {
+        return Promise.reject(error);
+      }
       const suggestsNoConnection = detailStr && typeof detailStr === 'string' && /connection|session\s*expired|not\s*authenticated|cursor\s*closed/i.test(detailStr);
       if (suggestsNoConnection && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
         window.location.href = '/signin';

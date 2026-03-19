@@ -40,11 +40,8 @@ export function useAuth() {
   useEffect(() => {
     let parsedRole = 'ACCOUNTADMIN';
     let authenticated = false;
-    try {
-      const token =
-        localStorage.getItem('access_token') ||
-        localStorage.getItem('snowflake_token') ||
-        '';
+
+    const initAuth = (token: string) => {
       if (token && token.includes('.')) {
         const payload = JSON.parse(
           atob(token.split('.')[1] || '{}')
@@ -55,6 +52,29 @@ export function useAuth() {
         setIsAuthenticated(authenticated);
         parsedRole = payload.role || 'ACCOUNTADMIN';
         setRole(parsedRole);
+      }
+    };
+
+    try {
+      const token =
+        localStorage.getItem('access_token') ||
+        localStorage.getItem('snowflake_token') ||
+        '';
+      if (token) {
+        initAuth(token);
+      } else {
+        // Fallback: fetch from NextAuth session and persist to localStorage
+        fetch('/api/auth/session')
+          .then((r) => r.json())
+          .then((session) => {
+            const t = session?.user?.access_token;
+            if (t) {
+              localStorage.setItem('access_token', t);
+              localStorage.setItem('snowflake_token', t);
+              initAuth(t);
+            }
+          })
+          .catch(() => {});
       }
     } catch {
       setUsername('');

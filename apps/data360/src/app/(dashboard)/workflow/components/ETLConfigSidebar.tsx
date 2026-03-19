@@ -11,6 +11,7 @@ import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { getBlockByType } from './etl-blocks';
+import apiClient from '@/lib/api-client';
 import type {
   ComponentType,
   SourceConfig,
@@ -1431,12 +1432,8 @@ const SQLScriptConfigForm: React.FC<{
     setTestResult(null);
     setTestError(null);
     try {
-      const response = await fetch('/api/v1/workflows/run-sql', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sql: config.sql_code, limit: 10 }),
-      });
-      const result = (await response.json()) as Record<string, any>;
+      const response = await apiClient.post('/workflow/run-sql', { sql: config.sql_code, limit: 10 });
+      const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestResult({ columns: result.columns || [], rows: result.rows || [], count: result.count || 0 });
       } else {
@@ -1542,12 +1539,8 @@ const PythonScriptConfigForm: React.FC<{
     setTestOutput(null);
     setTestError(null);
     try {
-      const response = await fetch('/api/v1/workflows/run-python', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: config.python_code }),
-      });
-      const result = (await response.json()) as Record<string, any>;
+      const response = await apiClient.post('/workflow/run-python', { code: config.python_code });
+      const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestOutput((result.output as string) || '(no output)');
       } else {
@@ -4213,6 +4206,120 @@ const MLAnomalyConfigForm: React.FC<{
 };
 
 // ============================================
+// AI EXTRACT CONFIG FORM
+// ============================================
+const AIExtractConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract structured data from text using Cortex AI. Returns JSON with specified keys.</p>
+      </div>
+      <FormField label="Input Column" required error={errors.input_column}>
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select text column" error={!!errors.input_column} />
+      </FormField>
+      <FormField label="Extract Keys" required error={errors.extract_keys} hint="Comma-separated keys to extract (e.g. name, email, phone)">
+        <Input value={(config.extract_keys || []).join(', ')} onChange={(v) => updateConfig({ extract_keys: v.split(',').map((s: string) => s.trim()).filter(Boolean) })} placeholder="name, email, phone" error={!!errors.extract_keys} />
+      </FormField>
+      <FormField label="Model" error={errors.model}>
+        <Select value={config.model || 'llama3.1-70b'} onChange={(v) => updateConfig({ model: v })} options={[
+          { value: 'llama3.1-70b', label: 'Llama 3.1 70B' },
+          { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
+          { value: 'mistral-large2', label: 'Mistral Large 2' },
+        ]} />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'extracted_data'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// DOCUMENT AI CONFIG FORM
+// ============================================
+const DocumentAIConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+        <p className="text-xs text-violet-700 dark:text-violet-300">Parse documents (PDF, images) using Snowflake Document AI. Extracts text and structured fields.</p>
+      </div>
+      <FormField label="Model Name" required error={errors.model}>
+        <Input value={config.model || ''} onChange={(v) => updateConfig({ model: v })} placeholder="my_document_model" error={!!errors.model} />
+      </FormField>
+      <FormField label="Input Column" required error={errors.input_column} hint="Column containing file paths or URLs">
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.input_column} />
+      </FormField>
+      <FormField label="Output Column" error={errors.output_column}>
+        <Input value={config.output_column || 'parsed_content'} onChange={(v) => updateConfig({ output_column: v })} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// FINETUNE CONFIG FORM
+// ============================================
+const FinetuneConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+        <p className="text-xs text-purple-700 dark:text-purple-300">Fine-tune a Cortex LLM on your data. Creates a custom model for your specific use case.</p>
+      </div>
+      <FormField label="Base Model" required error={errors.base_model}>
+        <Select value={config.base_model || 'llama3.1-8b'} onChange={(v) => updateConfig({ base_model: v })} options={[
+          { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
+          { value: 'mistral-7b', label: 'Mistral 7B' },
+        ]} error={!!errors.base_model} />
+      </FormField>
+      <FormField label="Training Table" required error={errors.training_table} hint="Table with prompt/completion columns">
+        <Input value={config.training_table || ''} onChange={(v) => updateConfig({ training_table: v })} placeholder="DB.SCHEMA.TRAINING_DATA" error={!!errors.training_table} />
+      </FormField>
+      <FormField label="Output Model Name" required error={errors.model_name}>
+        <Input value={config.model_name || ''} onChange={(v) => updateConfig({ model_name: v })} placeholder="my_finetuned_model" error={!!errors.model_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
+// CLASSIFICATION TRAIN CONFIG FORM
+// ============================================
+const ClassificationTrainConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">Train a classification model using Snowflake ML. Predicts categorical labels from features.</p>
+      </div>
+      <FormField label="Target Column" required error={errors.target_column} hint="Column to predict">
+        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select target" error={!!errors.target_column} />
+      </FormField>
+      <FormField label="Feature Columns" error={errors.feature_columns} hint="Leave empty to use all columns except target">
+        <div className="text-xs text-slate-500 dark:text-slate-400">{(config.feature_columns || []).length || 'All'} columns selected</div>
+      </FormField>
+      <FormField label="Model Name" required error={errors.model_name}>
+        <Input value={config.model_name || ''} onChange={(v) => updateConfig({ model_name: v })} placeholder="my_classifier" error={!!errors.model_name} />
+      </FormField>
+    </div>
+  );
+};
+
+// ============================================
 // MAIN SIDEBAR COMPONENT
 // ============================================
 
@@ -4519,6 +4626,31 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         if (!config.input_columns || config.input_columns.length === 0) newErrors.input_columns = 'At least one input column is required';
         if (!config.output_column) newErrors.output_column = 'Output column name is required';
         break;
+      // AI Functions
+      case 'ai_extract':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.extract_keys || config.extract_keys.length === 0) newErrors.extract_keys = 'Extract keys are required';
+        break;
+      // ML Training
+      case 'forecast':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'anomaly_detect':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'document_ai':
+        if (!config.model) newErrors.model = 'Model name is required';
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        break;
+      case 'finetune':
+        if (!config.base_model) newErrors.base_model = 'Base model is required';
+        if (!config.training_table) newErrors.training_table = 'Training table is required';
+        break;
+      case 'classification_train':
+        if (!config.target_column) newErrors.target_column = 'Target column is required';
+        break;
     }
 
     setErrors(newErrors);
@@ -4686,10 +4818,20 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <AITranslateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       case 'ai_complete':
         return <AICompleteConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'ai_extract':
+        return <AIExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'forecast':
       case 'ml_forecast':
         return <MLForecastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'anomaly_detect':
       case 'ml_anomaly':
         return <MLAnomalyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'document_ai':
+        return <DocumentAIConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'finetune':
+        return <FinetuneConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'classification_train':
+        return <ClassificationTrainConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }

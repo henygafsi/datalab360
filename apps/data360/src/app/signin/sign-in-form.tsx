@@ -54,6 +54,18 @@ export default function SignInForm() {
       if (result?.error) {
         setError(typeof result.error === 'string' ? result.error : 'Invalid credentials. Check account name, username and password.');
       } else if (result?.ok) {
+        // Store access_token in localStorage for modules that read it directly
+        try {
+          const sessionRes = await fetch('/api/auth/session');
+          const session = await sessionRes.json();
+          const token = session?.user?.access_token;
+          if (token) {
+            localStorage.setItem('access_token', token);
+            localStorage.setItem('snowflake_token', token);
+          }
+        } catch {
+          // Non-blocking — modules will fall back to getSession()
+        }
         router.push('/account-overview');
       }
     } catch (err: unknown) {

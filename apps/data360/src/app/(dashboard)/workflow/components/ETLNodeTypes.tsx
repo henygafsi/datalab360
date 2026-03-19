@@ -7,6 +7,9 @@ import { cn } from '@/lib/utils';
 import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
 import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
 
+// Utility: safely coerce a value to an array (handles null, undefined, non-array types)
+const toArray = (val: unknown): any[] => Array.isArray(val) ? val : [];
+
 // Utility: resolve a Tailwind color class to a hex value
 const resolveHandleColor = (colorClass: string): string => {
   const colorMap: Record<string, string> = {
@@ -137,6 +140,13 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
       )}
     >
+      {/* Step number badge */}
+      {(data.config?.step_order || data.step_order) && (
+        <div className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm z-10">
+          {data.config?.step_order || data.step_order}
+        </div>
+      )}
+
       {/* Status indicator dot */}
       <div className={cn(
         'absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-800 z-10',
@@ -228,7 +238,7 @@ JoinNode.displayName = 'JoinNode';
 // FILTER NODE
 // ============================================
 export const FilterNode = memo(({ data, selected }: NodeProps) => {
-  const conditions = data.config?.conditions || data.conditions || [];
+  const conditions = toArray(data.config?.conditions || data.conditions);
   const logic = data.config?.logic || data.logic || 'AND';
 
   return (
@@ -251,8 +261,8 @@ FilterNode.displayName = 'FilterNode';
 // AGGREGATE NODE
 // ============================================
 export const AggregateNode = memo(({ data, selected }: NodeProps) => {
-  const groupBy = data.config?.group_by || data.group_by || [];
-  const aggregations = data.config?.aggregations || data.aggregations || [];
+  const groupBy = toArray(data.config?.group_by || data.group_by);
+  const aggregations = toArray(data.config?.aggregations || data.aggregations);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="aggregate">
@@ -274,7 +284,8 @@ AggregateNode.displayName = 'AggregateNode';
 // SELECT NODE
 // ============================================
 export const SelectNode = memo(({ data, selected }: NodeProps) => {
-  const columns = data.config?.columns || data.columns || [];
+  const rawCols = data.config?.columns || data.columns || [];
+  const columns = Array.isArray(rawCols) ? rawCols : [];
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="select">
@@ -348,7 +359,7 @@ CastNode.displayName = 'CastNode';
 // FORMULA NODE
 // ============================================
 export const FormulaNode = memo(({ data, selected }: NodeProps) => {
-  const formulas = data.config?.formulas || data.formulas || [];
+  const formulas = toArray(data.config?.formulas || data.formulas);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="formula">
@@ -372,7 +383,7 @@ FormulaNode.displayName = 'FormulaNode';
 // SORT NODE
 // ============================================
 export const SortNode = memo(({ data, selected }: NodeProps) => {
-  const orderBy = data.config?.order_by || data.order_by || [];
+  const orderBy = toArray(data.config?.order_by || data.order_by);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="sort">
@@ -415,7 +426,7 @@ UnionNode.displayName = 'UnionNode';
 // DISTINCT NODE
 // ============================================
 export const DistinctNode = memo(({ data, selected }: NodeProps) => {
-  const columns = data.config?.columns || data.columns || [];
+  const columns = toArray(data.config?.columns || data.columns);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="distinct">
@@ -485,7 +496,7 @@ RecommendationNode.displayName = 'RecommendationNode';
 // SEGMENTATION NODE
 // ============================================
 export const SegmentationNode = memo(({ data, selected }: NodeProps) => {
-  const rules = data.config?.rules || data.rules || [];
+  const rules = toArray(data.config?.rules || data.rules);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="segmentation">
@@ -533,7 +544,7 @@ export const ClusteringNode = memo(({ data, selected }: NodeProps) => (
       {(data.config?.feature_columns || data.feature_columns) && (
         <div className="flex items-center gap-1">
           <span className="text-slate-400">Features:</span>
-          <span className="font-medium">{(data.config?.feature_columns || data.feature_columns || []).length}</span>
+          <span className="font-medium">{toArray(data.config?.feature_columns || data.feature_columns).length}</span>
         </div>
       )}
     </div>
@@ -890,7 +901,7 @@ JsonFlattenNode.displayName = 'JsonFlattenNode';
 // JSON EXTRACT NODE
 // ============================================
 export const JsonExtractNode = memo(({ data, selected }: NodeProps) => {
-  const paths = data.config?.extract_paths || data.extract_paths || [];
+  const paths = toArray(data.config?.extract_paths || data.extract_paths);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="json_extract">
@@ -913,7 +924,7 @@ JsonExtractNode.displayName = 'JsonExtractNode';
 // JSON CONSTRUCT NODE
 // ============================================
 export const JsonConstructNode = memo(({ data, selected }: NodeProps) => {
-  const columns = data.config?.columns || data.columns || [];
+  const columns = toArray(data.config?.columns || data.columns);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="json_construct">
@@ -959,7 +970,7 @@ PivotNode.displayName = 'PivotNode';
 // UNPIVOT NODE
 // ============================================
 export const UnpivotNode = memo(({ data, selected }: NodeProps) => {
-  const columns = data.config?.columns || data.columns || [];
+  const columns = toArray(data.config?.columns || data.columns);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="unpivot">
@@ -1051,7 +1062,7 @@ FillNullsNode.displayName = 'FillNullsNode';
 // CASE WHEN NODE
 // ============================================
 export const CaseWhenNode = memo(({ data, selected }: NodeProps) => {
-  const conditions = data.config?.conditions || data.conditions || [];
+  const conditions = toArray(data.config?.conditions || data.conditions);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="case_when">
@@ -1074,7 +1085,7 @@ CaseWhenNode.displayName = 'CaseWhenNode';
 // SPLIT COLUMN NODE
 // ============================================
 export const SplitColumnNode = memo(({ data, selected }: NodeProps) => {
-  const outputColumns = data.config?.output_columns || data.output_columns || [];
+  const outputColumns = toArray(data.config?.output_columns || data.output_columns);
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="split_column">
@@ -1402,6 +1413,116 @@ export const ApplyUdfNode = memo(({ data, selected }: NodeProps) => (
 ApplyUdfNode.displayName = 'ApplyUdfNode';
 
 // ============================================
+// AI FUNCTION NODES
+// ============================================
+export const AiClassifyNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="ai_classify">
+    <div className="space-y-1">
+      <ParamBadge label="Model" value={displayValue(data.config?.model || data.model, 'llama3.1-8b')} />
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+      <ParamBadge label="Categories" value={displayValue(toArray(data.config?.categories || data.categories).length + ' labels')} />
+    </div>
+  </ETLNodeWrapper>
+));
+AiClassifyNode.displayName = 'AiClassifyNode';
+
+export const AiSentimentNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="ai_sentiment">
+    <div className="space-y-1">
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+      <ParamBadge label="Output" value={displayValue(data.config?.output_column || data.output_column, 'SENTIMENT')} />
+    </div>
+  </ETLNodeWrapper>
+));
+AiSentimentNode.displayName = 'AiSentimentNode';
+
+export const AiTranslateNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="ai_translate">
+    <div className="space-y-1">
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+      <ParamBadge label="From" value={displayValue(data.config?.source_language || data.source_language, 'auto')} />
+      <ParamBadge label="To" value={displayValue(data.config?.target_language || data.target_language, 'en')} />
+    </div>
+  </ETLNodeWrapper>
+));
+AiTranslateNode.displayName = 'AiTranslateNode';
+
+export const AiExtractNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="ai_extract">
+    <div className="space-y-1">
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+      <ParamBadge label="Extract" value={displayValue(toArray(data.config?.extract_keys || data.extract_keys).join(', '))} />
+    </div>
+  </ETLNodeWrapper>
+));
+AiExtractNode.displayName = 'AiExtractNode';
+
+export const AiCompleteNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="ai_complete">
+    <div className="space-y-1">
+      <ParamBadge label="Model" value={displayValue(data.config?.model || data.model, 'llama3.1-70b')} />
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+      <ParamBadge label="Prompt" value={displayValue(data.config?.prompt_template || data.prompt_template, 'Not set')} />
+    </div>
+  </ETLNodeWrapper>
+));
+AiCompleteNode.displayName = 'AiCompleteNode';
+
+// ============================================
+// ML TRAINING NODES
+// ============================================
+export const FinetuneNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="finetune">
+    <div className="space-y-1">
+      <ParamBadge label="Base" value={displayValue(data.config?.base_model || data.base_model, 'llama3.1-8b')} />
+      <ParamBadge label="Train" value={displayValue(data.config?.training_table || data.training_table)} />
+    </div>
+  </ETLNodeWrapper>
+));
+FinetuneNode.displayName = 'FinetuneNode';
+
+export const ClassificationTrainNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="classification_train">
+    <div className="space-y-1">
+      <ParamBadge label="Target" value={displayValue(data.config?.target_column || data.target_column)} />
+      <ParamBadge label="Features" value={displayValue(toArray(data.config?.feature_columns || data.feature_columns).length + ' cols')} />
+    </div>
+  </ETLNodeWrapper>
+));
+ClassificationTrainNode.displayName = 'ClassificationTrainNode';
+
+export const AnomalyDetectNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="anomaly_detect">
+    <div className="space-y-1">
+      <ParamBadge label="Input" value={displayValue(data.config?.input_columns || data.input_columns, 'Not set')} />
+      <ParamBadge label="Output" value={displayValue(data.config?.output_column || data.output_column, 'IS_ANOMALY')} />
+    </div>
+  </ETLNodeWrapper>
+));
+AnomalyDetectNode.displayName = 'AnomalyDetectNode';
+
+export const ForecastNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="forecast">
+    <div className="space-y-1">
+      <ParamBadge label="Target" value={displayValue(data.config?.target_column || data.target_column)} />
+      <ParamBadge label="Horizon" value={displayValue(data.config?.forecast_horizon || data.forecast_horizon, '30')} />
+      <ParamBadge label="Time" value={displayValue(data.config?.timestamp_column || data.timestamp_column)} />
+    </div>
+  </ETLNodeWrapper>
+));
+ForecastNode.displayName = 'ForecastNode';
+
+export const DocumentAiNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="document_ai">
+    <div className="space-y-1">
+      <ParamBadge label="Model" value={displayValue(data.config?.model || data.model)} />
+      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+    </div>
+  </ETLNodeWrapper>
+));
+DocumentAiNode.displayName = 'DocumentAiNode';
+
+// ============================================
 // EXPORT NODE TYPES MAP
 // ============================================
 export const etlNodeTypes = {
@@ -1484,6 +1605,20 @@ export const etlNodeTypes = {
   create_udf: CreateUdfNode,
   create_procedure: CreateProcedureNode,
   apply_udf: ApplyUdfNode,
+
+  // AI Function blocks
+  ai_classify: AiClassifyNode,
+  ai_sentiment: AiSentimentNode,
+  ai_translate: AiTranslateNode,
+  ai_extract: AiExtractNode,
+  ai_complete: AiCompleteNode,
+
+  // ML Training blocks
+  finetune: FinetuneNode,
+  classification_train: ClassificationTrainNode,
+  anomaly_detect: AnomalyDetectNode,
+  forecast: ForecastNode,
+  document_ai: DocumentAiNode,
 
   // Legacy mappings for backward compatibility
   src: SourceNode, // Legacy source
