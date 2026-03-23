@@ -77,16 +77,29 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       if (provider === 'snowflake' || provider === 'aws' || provider === 'azure' || provider === 'gcs') {
         // All cloud providers create Snowflake external stages, so we list via the same API
         const response = await listSnowflakeStages();
-        stageList = Array.isArray(response?.stages) ? response.stages : [];
+        // Support both: old format (response.stages) and paginated (response.data)
+        stageList = Array.isArray(response?.stages) ? response.stages
+          : Array.isArray(response?.data) ? response.data
+          : Array.isArray(response) ? response : [];
       }
 
-      const formattedStages: StageItem[] = stageList.map((stage: any) => ({
-        name: stage.name ?? stage.stage_name ?? String(stage),
-        type: 'stage' as const,
-        schema_name: stage.schema_name,
-        database_name: stage.database_name,
-        error: stage.error,
-      }));
+      const formattedStages: StageItem[] = stageList.map((stage: any) => {
+        const shortName = stage.name ?? stage.stage_name ?? String(stage);
+        const schema = stage.schema_name || 'STAGING';
+        const db = stage.database_name || '';
+        // Use FQN for non-STAGING stages so backend resolves the correct schema
+        const displayName = schema !== 'STAGING' && db
+            ? `${db}.${schema}.${shortName}`
+            : shortName;
+        return {
+          name: displayName,
+          type: 'stage' as const,
+          schema_name: schema,
+          database_name: db,
+          error: stage.error,
+          connector_type: stage.connector_type || null,
+        };
+      });
 
       const validStages = formattedStages.filter(s => !s.error);
       setAllStages(validStages);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useTheme } from 'next-themes';
 import {
   ResponsiveContainer,
@@ -97,13 +97,33 @@ export function DynamicChart({ config }: DynamicChartProps) {
     return allKeys.find((k) => !dataKeys.includes(k) && typeof data[0][k] === 'string') || allKeys[0];
   }, [data, xKey, dataKeys]);
 
+  // Tooltip style must be before any early return (React hooks rule)
+  const commonTooltipStyle = useMemo(() => ({
+    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
+    border: isDark ? '1px solid #374151' : '1px solid #e2e8f0',
+    borderRadius: '8px',
+    fontSize: '12px',
+    color: isDark ? '#F3F4F6' : undefined,
+  }), [isDark]);
+
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center h-full text-slate-400 dark:text-gray-500 text-sm">
+      <div className="flex items-center justify-center h-full text-slate-400 dark:text-gray-500 text-sm" aria-live="polite" role="status">
         No data
       </div>
     );
   }
+
+  // Screen reader summary for chart data (announced when chart updates)
+  const chartSummary = `${chartType} chart with ${data.length} data points${dataKeys.length > 0 ? `, measuring ${dataKeys.join(', ')}` : ''}`;
+
+  // Wrap chart rendering to include aria-live summary
+  const ChartWrapper = ({ children }: { children: React.ReactNode }) => (
+    <div aria-live="polite" className="w-full h-full">
+      <div className="sr-only" role="status">{chartSummary}</div>
+      {children}
+    </div>
+  );
 
   const gridStroke = isDark ? '#374151' : '#e2e8f0';
   const axisStroke = isDark ? '#4B5563' : '#e2e8f0';
@@ -126,14 +146,6 @@ export function DynamicChart({ config }: DynamicChartProps) {
     tickLine: false,
     axisLine: { stroke: axisStroke },
   };
-  const commonTooltipStyle = {
-    backgroundColor: isDark ? '#1F2937' : '#FFFFFF',
-    border: isDark ? '1px solid #374151' : '1px solid #e2e8f0',
-    borderRadius: '8px',
-    fontSize: '12px',
-    color: isDark ? '#F3F4F6' : undefined,
-  };
-
   // ── Pie / Donut ──
   if (chartType === 'pie' || chartType === 'donut') {
     const valueKey = dataKeys[0] || Object.keys(data[0]).find((k) => typeof data[0][k] === 'number') || '';
@@ -141,6 +153,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
     const innerRadius = chartType === 'donut' ? '50%' : 0;
 
     return (
+      <ChartWrapper>
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
@@ -161,10 +174,11 @@ export function DynamicChart({ config }: DynamicChartProps) {
               <Cell key={i} fill={COLORS[i % COLORS.length]} />
             ))}
           </Pie>
-          <Tooltip />
+          <Tooltip contentStyle={commonTooltipStyle} />
           <Legend />
         </PieChart>
       </ResponsiveContainer>
+      </ChartWrapper>
     );
   }
 
@@ -557,11 +571,12 @@ export function DynamicChart({ config }: DynamicChartProps) {
   }
 
   // ── Default: Bar / Line / Area ──
-  const ChartContainer = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
+  const ChartCont = chartType === 'line' ? LineChart : chartType === 'area' ? AreaChart : BarChart;
 
   return (
+    <ChartWrapper>
     <ResponsiveContainer width="100%" height="100%">
-      <ChartContainer data={cleanData as any[]} margin={commonMargin}>
+      <ChartCont data={cleanData as any[]} margin={commonMargin}>
         <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
         <XAxis {...commonXAxis} />
         <YAxis {...commonYAxis} />
@@ -606,8 +621,9 @@ export function DynamicChart({ config }: DynamicChartProps) {
             />
           );
         })}
-      </ChartContainer>
+      </ChartCont>
     </ResponsiveContainer>
+    </ChartWrapper>
   );
 }
 

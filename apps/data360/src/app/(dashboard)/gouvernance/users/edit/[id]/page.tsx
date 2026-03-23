@@ -10,6 +10,7 @@ import { UserTableDataType } from '@/app/shared/gouvernance/users/table';
 import { toast } from 'react-hot-toast';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import apiClient from '@/lib/api-client';
 
 export default function EditUserPage() {
   const params = useParams();
@@ -69,6 +70,8 @@ export default function EditUserPage() {
         email: formData.email,
         display_name: formData.displayName,
       });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
       toast.success(`✅ Utilisateur ${userData.name} mis à jour avec succès`);
       router.push('/gouvernance/users');
     } catch (err: any) {

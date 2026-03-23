@@ -1,5 +1,7 @@
 'use client';
 
+import apiClient from '@/lib/api-client';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Input, Select, Modal, Tab } from 'rizzui';
 import {
@@ -151,11 +153,11 @@ export default function SecurityMatrixPage() {
 
   // ============= DATA LOADING =============
 
-  const loadMatrix = useCallback(async () => {
+  const loadMatrix = useCallback(async (bustCache = false) => {
     setMatrixLoading(true);
     setMatrixError(null);
     try {
-      const data = await getSecurityMatrix();
+      const data = await getSecurityMatrix(bustCache);
       setMatrixData(data);
     } catch (err: any) {
       setMatrixError(formatApiDetail(err?.response?.data?.detail) || 'Failed to load access matrix');
@@ -179,11 +181,11 @@ export default function SecurityMatrixPage() {
     }
   }, []);
 
-  const loadAxes = useCallback(async () => {
+  const loadAxes = useCallback(async (bustCache = false) => {
     setAxesLoading(true);
     setAxesError(null);
     try {
-      const data = await getSecurityAxes();
+      const data = await getSecurityAxes(bustCache);
       setAxes(data);
     } catch (err: any) {
       setAxesError(formatApiDetail(err?.response?.data?.detail) || 'Failed to load security axes');
@@ -241,9 +243,10 @@ export default function SecurityMatrixPage() {
       });
 
       await batchUpdateSecurityMatrix({ updates });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success(`Saved ${updates.length} changes`);
       setDirtyMatrixRows(new Map());
-      loadMatrix();
+      loadMatrix(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to save changes');
     }
@@ -253,9 +256,11 @@ export default function SecurityMatrixPage() {
     if (!confirm(`Delete matrix entry for role "${row.role_name}"?`)) return;
     try {
       await deleteSecurityMatrixEntry(row.id);
+      // Clear backend cache (gouvernance.py delete has no @invalidates_cache)
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success('Entry deleted');
       setDirtyMatrixRows((prev) => { const next = new Map(prev); next.delete(row.id); return next; });
-      loadMatrix();
+      loadMatrix(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to delete');
     }
@@ -274,10 +279,11 @@ export default function SecurityMatrixPage() {
         },
         access_level: matrixForm.access_level,
       });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success('Entry added');
       setShowAddMatrixModal(false);
       setMatrixForm({ role_name: '', region_id: '', store_id: '', department_id: '', product_category: '', customer_segment: '', access_level: 'READ' });
-      loadMatrix();
+      loadMatrix(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to add entry');
     }
@@ -350,7 +356,7 @@ export default function SecurityMatrixPage() {
       toast.success('Axis created');
       setShowAddAxisModal(false);
       resetAxisForm();
-      loadAxes();
+      loadAxes(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to create axis');
     }
@@ -364,7 +370,7 @@ export default function SecurityMatrixPage() {
       toast.success('Axis updated');
       setEditingAxis(null);
       resetAxisForm();
-      loadAxes();
+      loadAxes(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to update axis');
     }
@@ -374,8 +380,9 @@ export default function SecurityMatrixPage() {
     if (!confirm('Delete this security axis?')) return;
     try {
       await deleteSecurityAxis(id);
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_axes:*' }); } catch {}
       toast.success('Axis deleted');
-      loadAxes();
+      loadAxes(true);
     } catch (err: any) {
       toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to delete axis');
     }
@@ -448,6 +455,7 @@ export default function SecurityMatrixPage() {
   // ============= RENDER =============
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -586,7 +594,7 @@ export default function SecurityMatrixPage() {
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
               <div className="flex items-center gap-3 px-6 py-3 bg-amber-500 text-white rounded-full shadow-2xl shadow-amber-500/30">
                 <span className="text-sm font-medium">{dirtyMatrixRows.size} unsaved changes</span>
-                <Button size="sm" onClick={handleSaveMatrixChanges} className="bg-white text-amber-700 hover:bg-amber-50">
+                <Button size="sm" onClick={handleSaveMatrixChanges} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
                   <Save className="w-4 h-4 mr-1" />
                   Save All
                 </Button>
@@ -711,7 +719,7 @@ export default function SecurityMatrixPage() {
             <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
               <div className="flex items-center gap-3 px-6 py-3 bg-amber-500 text-white rounded-full shadow-2xl shadow-amber-500/30">
                 <span className="text-sm font-medium">{dirtyUserRows.size} unsaved user changes</span>
-                <Button size="sm" onClick={handleSaveUserChanges} className="bg-white text-amber-700 hover:bg-amber-50">
+                <Button size="sm" onClick={handleSaveUserChanges} className="bg-white text-amber-700 hover:bg-amber-50 dark:bg-gray-800 dark:text-amber-400">
                   <Save className="w-4 h-4 mr-1" />
                   Save All
                 </Button>
@@ -948,5 +956,6 @@ export default function SecurityMatrixPage() {
         </div>
       </Modal>
     </div>
+    </ErrorBoundary>
   );
 }

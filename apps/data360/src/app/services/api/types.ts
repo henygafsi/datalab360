@@ -1,6 +1,6 @@
 /**
- * Type definitions for the Unified Project Management API (/api/v1/projects)
- * and the Explore & Design Module API (/api/v1/explore-design).
+ * Type definitions for the Unified Project Management API (/projects)
+ * and the Explore & Design Module API (/explore-design).
  */
 
 // ============================================================================
@@ -943,7 +943,7 @@ export interface RejectScheduleRequest {
 }
 
 // ============================================================================
-// PART 3 — Workflow Module Types (/api/v1/workflows)
+// PART 3 — Workflow Module Types (/workflows)
 // ============================================================================
 
 // --- Enums ---
@@ -1305,7 +1305,7 @@ export interface RejectWorkflowDeploymentRequest {
 }
 
 // ============================================================================
-// PART 4 — BI Dashboard Types (/api/v1/bi-dashboard)
+// PART 4 — BI Dashboard Types (/bi-dashboard)
 // ============================================================================
 
 // --- Enums ---

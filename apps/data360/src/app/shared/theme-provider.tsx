@@ -10,6 +10,7 @@ hideRechartsConsoleError();
 export function ThemeProvider({ children }: React.PropsWithChildren<{}>) {
   return (
     <NextThemeProvider
+      attribute="class"
       enableSystem={false}
       defaultTheme={String(siteConfig.mode)}
     >

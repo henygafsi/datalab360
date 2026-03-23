@@ -18,6 +18,7 @@ import {
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
+import apiClient from '@/lib/api-client';
 
 const OBJECT_TYPES = [
   { label: 'Database', value: 'DATABASE' },
@@ -90,7 +91,7 @@ export default function TagPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing tags...');
+      // console.log('[SSE] Policies cache invalidated - refreshing tags...');
       loadTags(true);
     }
   }, [wasInvalidated, loading, loadTags]);
@@ -103,7 +104,7 @@ export default function TagPoliciesContent() {
 
     try {
       const details = await getTagDetails(tag.tag_name);
-      console.log('Tag details:', details);
+      // console.log('Tag details:', details);
       setTagDetails(details);
     } catch (error: any) {
       console.error('Error loading tag details:', error);
@@ -156,6 +157,7 @@ export default function TagPoliciesContent() {
       toast.success('Tag created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadTags();
     } catch (error: any) {
       console.error('Create tag error:', error.response?.data || error);
@@ -208,6 +210,7 @@ export default function TagPoliciesContent() {
       setShowApplyModal(false);
       setSelectedTag(null);
       resetApplyForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadTags();
     } catch (error: any) {
       console.error('Apply tag error:', error.response?.data || error);
@@ -221,6 +224,7 @@ export default function TagPoliciesContent() {
     try {
       await deleteTag(tag.tag_name);
       toast.success('Tag deleted successfully');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadTags();
     } catch (error: any) {
       console.error('Delete tag error:', error.response?.data || error);

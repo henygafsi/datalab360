@@ -28,7 +28,7 @@ async function ensureProjectExists(projectId: string): Promise<void> {
             '/explore-design/guided/create_project',
             { name: projectId }
         );
-        console.log(`[saveGroups] Created/verified project: ${projectId}`);
+        // console.log(`[saveGroups] Created/verified project: ${projectId}`);
     } catch (error: unknown) {
         // Ignore 409 (already exists) or similar - project might already exist
         if (axios.isAxiosError(error)) {

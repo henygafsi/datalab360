@@ -80,7 +80,7 @@ function MessagesList({
                       className="scale-90"
                     />
                   ) : (
-                    <span className="inline-block rounded-full bg-gray-100 p-0.5 dark:bg-gray-50">
+                    <span className="inline-block rounded-full bg-gray-100 p-0.5 dark:bg-slate-800">
                       <PiCheck className="h-auto w-[9px]" />
                     </span>
                   )}

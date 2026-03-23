@@ -11,6 +11,7 @@ import {
   getUsersWithRolesAndModules,
   updateUserRoles
 } from '@/app/services/gouvernance/user_roles';
+import apiClient from '@/lib/api-client';
 import { getRoles as getAllRoles } from '@/app/services/gouvernance/fetch_roles';
 import { getRoles as getRoleGrants } from '@/app/services/gouvernance/grants';
 import TablePagination from '@core/components/table/pagination';
@@ -94,20 +95,33 @@ export default function UserGrantsTable() {
       ]);
 
       const fetchTime = Date.now() - startTime;
-      console.log(`[User Grants] ✅ Data fetched successfully in ${fetchTime}ms`);
-      console.log(`[User Grants]   - Users: ${usersData.length}`);
-      console.log(`[User Grants]   - Roles (total): ${rolesData.length}`);
-      console.log(`[User Grants]   - Grants: ${grantsData.length}`);
+      console.log(`[User Grants] Data fetched in ${fetchTime}ms`);
+      console.log(`[User Grants]   Users: ${usersData.length}, Roles: ${rolesData.length}, Grants: ${grantsData.length}`);
 
-      // All roles from backend are assignable (no system role filtering)
-      // ALL, PUBLIC, ACCOUNTADMIN, etc. are custom roles managed in Snowflake tables
+      // All roles from backend are assignable
       const assignableRoles = rolesData.map(r => r.role);
 
-      console.log(`[User Grants]   - Assignable roles: ${assignableRoles.length}`);
-      console.log(`[User Grants]   - Available roles:`, assignableRoles);
+      // Build role -> modules lookup from grants data
+      const roleModulesMap = new Map<string, string[]>();
+      grantsData.forEach((g: { role_name: string; modules: string[] }) => {
+        roleModulesMap.set(g.role_name.toUpperCase(), g.modules || []);
+      });
+
+      // Enrich each user with their derived modules (union of all role modules)
+      const enrichedUsers: UserGrantTableDataType[] = usersData.map((user) => {
+        const userModules = new Set<string>();
+        (user.roles || []).forEach((role: string) => {
+          const mods = roleModulesMap.get(role.toUpperCase());
+          if (mods) mods.forEach((m: string) => userModules.add(m));
+        });
+        return {
+          ...user,
+          modules: Array.from(userModules).sort(),
+        };
+      });
 
       if (mountedRef.current) {
-        setTableData(usersData);
+        setTableData(enrichedUsers);
         setAvailableRoles(assignableRoles);
         setRoleGrants(grantsData); // Cache for modal
       }
@@ -225,8 +239,8 @@ export default function UserGrantsTable() {
       accessorKey: 'modules',
       cell: ({ row }) => (
         <div className="flex flex-wrap gap-1">
-          {row.original.modules.length > 0 ? (
-            row.original.modules.slice(0, 3).map((module) => {
+          {(row.original.modules || []).length > 0 ? (
+            (row.original.modules || []).slice(0, 3).map((module) => {
               const moduleConfig = VISIBLE_MODULES.find(m => m.apiName === module);
               return (
                 <Badge
@@ -240,9 +254,9 @@ export default function UserGrantsTable() {
           ) : (
             <span className="text-xs text-slate-400">No access</span>
           )}
-          {row.original.modules.length > 3 && (
+          {(row.original.modules || []).length > 3 && (
             <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-              +{row.original.modules.length - 3}
+              +{(row.original.modules || []).length - 3}
             </Badge>
           )}
         </div>
@@ -326,7 +340,7 @@ export default function UserGrantsTable() {
     const modules = new Set<string>();
     modal.selectedRoles.forEach((role) => {
       const grant = roleGrants.find((g) => g.role_name === role);
-      grant?.modules.forEach((mod) => modules.add(mod));
+      (grant?.modules || []).forEach((mod: string) => modules.add(mod));
     });
 
     return Array.from(modules).sort();
@@ -361,6 +375,8 @@ export default function UserGrantsTable() {
       console.log('[User Grants] Step 1: Payload:', { roles: rolesToSend });
       const updateResponse = await updateUserRoles(username, rolesToSend);
       console.log('[User Grants] Step 1: Backend response:', updateResponse);
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
 
       // Step 2: Refresh data from backend
       console.log('[User Grants] Step 2: Refreshing data from backend...');

@@ -7,6 +7,7 @@ import RolesTable from '@/app/shared/gouvernance/roles/table';
 import AddRoleButton from '@/app/shared/gouvernance/roles/add-role-button';
 import ImportButton from '@/app/shared/import-button';
 import PageHeader from '@/components/layout/PageHeader';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 export default function RolesManagementPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -16,7 +17,13 @@ export default function RolesManagementPage() {
   }, []);
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/gouvernance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Roles</span>
+      </div>
+
       <PageHeader
         icon={<HiOutlineShieldCheck className="h-6 w-6" />}
         title="Role Management"
@@ -41,5 +48,6 @@ export default function RolesManagementPage() {
         <RolesTable key={refreshKey} />
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

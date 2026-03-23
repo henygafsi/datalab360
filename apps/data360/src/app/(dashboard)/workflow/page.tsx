@@ -10,13 +10,16 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle } from 'lucide-react';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity } from 'lucide-react';
+import Breadcrumb from '@/components/ui/Breadcrumb';
 import { Loader, Button } from 'rizzui';
-import ETLPipelineBuilder from './ETLPipelineBuilder';
+import dynamic from 'next/dynamic';
+const ETLPipelineBuilder = dynamic(() => import('./ETLPipelineBuilder'), { ssr: false });
 import { ProjectContextPanel } from '@/app/shared/project-context';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, updateProject } from '@/app/services/api/projectsApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface BackendWorkflow {
   workflow_id?: string;
@@ -66,6 +69,7 @@ const WorkflowHomePage: React.FC = () => {
   // Right panel state for Version History, Execution History, Deployment History, and Deploy
   const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
   const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showNavigationButtons, setShowNavigationButtons] = useState(false);
 
   // Get workflow ID for the active workflow
   const activeWorkflowId = useMemo(() => {
@@ -88,7 +92,7 @@ const WorkflowHomePage: React.FC = () => {
         try {
           // Try NextAuth session API directly (works without SessionProvider)
           const res = await fetch('/api/auth/session');
-          const session = await res.json();
+          const session = (await res.json()) as { user?: { access_token?: string } };
           token = session?.user?.access_token || '';
           if (token) {
             localStorage.setItem('access_token', token);
@@ -118,7 +122,7 @@ const WorkflowHomePage: React.FC = () => {
     setError(null);
     try {
       // Fetch workflow projects via unified project API
-      const projectsData = await listProjects({ project_type: 'workflow', mine_only: true });
+      const projectsData = await listProjects({ project_type: 'workflow', mine_only: false });
       const projectList = Array.isArray(projectsData?.projects) ? projectsData.projects : [];
 
       // For each project, fetch its steps to build BackendWorkflow objects
@@ -567,7 +571,6 @@ const WorkflowHomePage: React.FC = () => {
       workflow_name: activeWorkflowName,
       steps: finalSteps,
     };
-    console.log("Generated Workflow JSON:", JSON.stringify(workflowJson, null, 2));
 
     // Check if workflow already exists (update) or is new (create)
     const existingWorkflow = workflows.find(w => w.workflow_name === activeWorkflowName);
@@ -707,8 +710,29 @@ const WorkflowHomePage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-[400px] bg-slate-50 dark:bg-slate-900">
-        <Loader size="xl" />
+      <div className="flex h-screen bg-slate-50 dark:bg-slate-900 animate-pulse">
+        {/* Left sidebar skeleton */}
+        <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 p-4 space-y-3">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-3/4" />
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-10 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+          ))}
+        </div>
+        {/* Main canvas skeleton */}
+        <div className="flex-1 flex flex-col">
+          {/* Top bar */}
+          <div className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3 px-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-8 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+            ))}
+          </div>
+          {/* Canvas area */}
+          <div className="flex-1 p-6 space-y-4">
+            <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+            <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl w-2/3" />
+            <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl w-1/2 ml-auto" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -729,7 +753,8 @@ const WorkflowHomePage: React.FC = () => {
 
       {/* Left Sidebar - ETL Palette */}
       <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-sm">
-        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-indigo-50/80 dark:bg-indigo-900/20">
+        <div className="px-3 pt-2 pb-1 border-b border-slate-200 dark:border-slate-700 bg-indigo-50/80 dark:bg-indigo-900/20">
+          <Breadcrumb items={[{ label: 'Workflow', href: '/workflow' }]} className="mb-1" />
           <p className="text-xs text-slate-700 dark:text-slate-300">
             Glissez les blocs sur le canvas : <strong>Source</strong> → <strong>Transformations</strong> → <strong>Destination</strong>. Planifiez ou exécutez pour automatiser.
           </p>
@@ -816,7 +841,7 @@ const WorkflowHomePage: React.FC = () => {
               {showScheduleDropdown && (
                 <div className="absolute bottom-full mb-1 w-full z-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg overflow-hidden">
                   <select
-                    className="w-full p-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none focus:outline-none"
+                    className="w-full p-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                     value={activeSchedule}
                     onChange={(e) => {
                       const value = e.target.value;
@@ -1109,6 +1134,7 @@ const WorkflowHomePage: React.FC = () => {
           onClose={() => setShowDeployModal(false)}
           onDeploymentCreated={(eventId, status) => {
             toast.success(`Deployment ${status === 'PENDING_APPROVAL' ? 'submitted for approval' : status === 'ACTIVE' ? 'executed' : 'scheduled'}!`);
+            setShowNavigationButtons(true);
             // Refresh deployment history after creating a new deployment
             if (rightPanelTab === 'deployments') {
               setRightPanelTab(null);
@@ -1116,6 +1142,32 @@ const WorkflowHomePage: React.FC = () => {
             }
           }}
         />
+      )}
+
+      {/* Cross-Module Navigation Buttons */}
+      {showNavigationButtons && (
+        <div className="fixed bottom-6 right-6 flex gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => window.location.href = '/data-quality'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            Monitor in Data Health
+          </button>
+          <button
+            onClick={() => window.location.href = '/bi-dashboard'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            Visualize in BI
+          </button>
+          <button
+            onClick={() => setShowNavigationButtons(false)}
+            className="flex items-center justify-center px-2 py-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1128,11 +1180,20 @@ const WorkflowPageWithToggle: React.FC = () => {
   
 
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
-      <div className="flex-1 overflow-hidden">
-        <ETLPipelineBuilder />
+    <ErrorBoundary>
+      <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
+        <div className="flex-1 overflow-hidden">
+          <ETLPipelineBuilder />
+        </div>
+        {/* Cross-module links */}
+        <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-gray-900">
+          <span>Related:</span>
+          <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Source Tables)</a>
+          <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
+          <a href="/bi-dashboard" className="text-blue-600 dark:text-blue-400 hover:underline">BI Dashboard (Visualize)</a>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 

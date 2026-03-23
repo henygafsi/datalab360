@@ -15,6 +15,7 @@ import {
   deleteSessionPolicy,
   type SessionPolicy,
 } from '@/app/services/gouvernance/policies';
+import apiClient from '@/lib/api-client';
 
 export default function SessionPoliciesContent() {
   const [policies, setPolicies] = useState<SessionPolicy[]>([]);
@@ -72,7 +73,7 @@ export default function SessionPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing session policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing session policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -85,7 +86,7 @@ export default function SessionPoliciesContent() {
 
     try {
       const details = await getSessionPolicyDetails(policy.policy_name);
-      console.log('Session policy details:', details);
+      // console.log('Session policy details:', details);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -148,14 +149,15 @@ export default function SessionPoliciesContent() {
         session_ui_idle_timeout_mins: uiIdleTimeout,
         expiration_date: expirationDate || undefined,
       };
-      console.log('[Session Create] Sending request:', requestData);
+      // console.log('[Session Create] Sending request:', requestData);
 
       const result = await createSessionPolicy(requestData);
-      console.log('[Session Create] Response:', result);
+      // console.log('[Session Create] Response:', result);
 
       toast.success('Session policy created successfully!');
       setShowCreateModal(false);
       resetForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Create session policy error:', error.response?.data || error);
@@ -169,6 +171,7 @@ export default function SessionPoliciesContent() {
     try {
       await setSessionPolicyAsDefault(policy.policy_name);
       toast.success('Session policy set as account default');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Set session policy as default error:', error.response?.data || error);
@@ -182,6 +185,7 @@ export default function SessionPoliciesContent() {
     try {
       await deleteSessionPolicy(policy.policy_name);
       toast.success('Policy deleted successfully');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete session policy error:', error.response?.data || error);

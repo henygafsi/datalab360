@@ -12,11 +12,13 @@ import { exportToCSV } from '@core/utils/export-to-csv';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getRoles, deleteRole, deleteMultipleRoles } from '@/app/services/gouvernance/fetch_roles';
 import AddRoleButton from './add-role-button';
+import apiClient from '@/lib/api-client';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from 'react-hot-toast';
 
 export type RoleTableDataType = {
@@ -39,11 +41,19 @@ const PROTECTED_SYSTEM_ROLES = [
   'ORGADMIN',
 ];
 
+interface ConfirmState {
+  open: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+}
+
 export default function RolesTable() {
   const [data, setData] = useState<RoleTableDataType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   // Watch for SSE cache invalidation events on 'roles' key
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.ROLES]);
@@ -112,22 +122,29 @@ export default function RolesTable() {
             return;
           }
 
-          const confirmMessage = `⚠️ ATTENTION - Suppression de rôle\n\nÊtes-vous sûr de vouloir supprimer le rôle "${row.role}" ?\n\nCette action révoquera le rôle de TOUS les utilisateurs qui l'ont assigné.\n\nCette action est irréversible.`;
-          if (!confirm(confirmMessage)) return;
-
-          try {
-            const result = await deleteRole(row.role);
-            const usersInfo = result.revoked_from_users ? ` - ${result.revoked_from_users} utilisateur(s) affecté(s)` : '';
-            const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
-            toast.success(`✅ Rôle ${row.role} supprimé avec succès${usersInfo}${grantsInfo}`);
-            setData((prev) => prev.filter((r) => r.role !== row.role));
-            await fetchRolesData();
-          } catch (error: any) {
-            console.error('Error deleting role:', error);
-            const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
-            toast.error(`❌ Erreur lors de la suppression du rôle: ${errorMessage}`);
-            await fetchRolesData();
-          }
+          setConfirmState({
+            open: true,
+            title: 'Delete Role',
+            message: `Are you sure you want to delete the role "${row.role}"? This will revoke the role from ALL users and is irreversible.`,
+            onConfirm: async () => {
+              setConfirmState(s => ({ ...s, open: false }));
+              try {
+                const result = await deleteRole(row.role);
+                const usersInfo = result.revoked_from_users ? ` - ${result.revoked_from_users} utilisateur(s) affecté(s)` : '';
+                const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
+                toast.success(`✅ Rôle ${row.role} supprimé avec succès${usersInfo}${grantsInfo}`);
+                setData((prev) => prev.filter((r) => r.role !== row.role));
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
+                await fetchRolesData();
+              } catch (error: any) {
+                console.error('Error deleting role:', error);
+                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                toast.error(`❌ Erreur lors de la suppression du rôle: ${errorMessage}`);
+                await fetchRolesData();
+              }
+            },
+          });
         },
         handleMultipleDelete: async (rows) => {
           // Filter out protected system roles
@@ -144,10 +161,13 @@ export default function RolesTable() {
             if (deletableRoles.length === 0) return;
           }
 
-          const confirmMessage = `⚠️ ATTENTION - Suppression multiple de rôles\n\nÊtes-vous sûr de vouloir supprimer ${deletableRoles.length} rôle(s) ?\n\nRôles: ${deletableRoles.join(', ')}\n\nCette action révoquera ces rôles de TOUS les utilisateurs.\n\nCette action est irréversible.`;
-          if (!confirm(confirmMessage)) return;
-
-          try {
+          setConfirmState({
+            open: true,
+            title: `Delete ${deletableRoles.length} Role(s)`,
+            message: `Are you sure you want to delete ${deletableRoles.length} role(s)? This will revoke them from ALL users and is irreversible.\n\nRoles: ${deletableRoles.join(', ')}`,
+            onConfirm: async () => {
+              setConfirmState(s => ({ ...s, open: false }));
+              try {
             const result = await deleteMultipleRoles(deletableRoles);
             const successCount = result.deleted || 0;
             const failedCount = result.failed?.length || 0;
@@ -161,13 +181,17 @@ export default function RolesTable() {
               toast.error(`❌ Échec de la suppression de tous les rôles`);
             }
             setData((prev) => prev.filter((r) => !deletableRoles.includes(r.role)));
+            try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
+            try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
             await fetchRolesData();
-          } catch (error: any) {
-            console.error('Error deleting multiple roles:', error);
-            const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
-            toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
-            await fetchRolesData();
-          }
+              } catch (error: any) {
+                console.error('Error deleting multiple roles:', error);
+                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
+                await fetchRolesData();
+              }
+            },
+          });
         },
       },
       enableColumnResizing: false,
@@ -245,6 +269,14 @@ export default function RolesTable() {
       />
       <TableFooter table={table} onExport={handleExportData} />
       <TablePagination table={table} className="py-4" />
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
     </>
   );
 }

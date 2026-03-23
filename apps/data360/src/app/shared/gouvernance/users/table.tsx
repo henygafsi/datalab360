@@ -12,11 +12,13 @@ import TableFooter from '@core/components/table/footer';
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { getUsers, deleteUser, deleteMultipleUsers, disableUser, enableUser } from '@/app/services/gouvernance/fetch_users';
 import AddUserButton from './add-user-button';
+import apiClient from '@/lib/api-client';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from 'react-hot-toast';
 
 // Define the UserTableDataType based on your frontend needs, including first and last name
@@ -38,11 +40,19 @@ type UsersTableProps = {
   onAddUserSuccess: () => void; // UsersTable receives this to pass to AddUserButton
 }
 
+interface ConfirmState {
+  open: boolean;
+  title: string;
+  message: string;
+  onConfirm: () => void;
+}
+
 export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // Removed accessToken from props
   const [data, setData] = useState<UserTableDataType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} });
 
   // Watch for SSE cache invalidation events on 'users' key
   const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.USERS]);
@@ -106,69 +116,89 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
         },
       },
       meta: {
-        handleDeleteRow: async (row: UserTableDataType) => {
-          const confirmMessage = `⚠️ ATTENTION - Suppression définitive\n\nÊtes-vous sûr de vouloir supprimer l'utilisateur "${row.name}" ?\n\nCette action est irréversible et supprimera l'utilisateur de Snowflake.`;
-          if (!confirm(confirmMessage)) return;
-
-          try {
-            const result = await deleteUser(row.id);
-            const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
-            toast.success(`✅ Utilisateur ${row.name} supprimé avec succès${grantsInfo}`);
-            await fetchUsersData();
-          } catch (error: any) {
-            console.error('Error deleting user:', error);
-            const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
-            toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
-            await fetchUsersData();
-          }
+        handleDeleteRow: (row: UserTableDataType) => {
+          setConfirmState({
+            open: true,
+            title: 'Delete User',
+            message: `Are you sure you want to delete the user "${row.name}"? This action is irreversible and will remove the user from Snowflake.`,
+            onConfirm: async () => {
+              setConfirmState(s => ({ ...s, open: false }));
+              try {
+                const result = await deleteUser(row.id);
+                const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
+                toast.success(`✅ Utilisateur ${row.name} supprimé avec succès${grantsInfo}`);
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
+                await fetchUsersData();
+              } catch (error: any) {
+                console.error('Error deleting user:', error);
+                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
+                await fetchUsersData();
+              }
+            },
+          });
         },
-        handleMultipleDelete: async (rows) => {
+        handleMultipleDelete: (rows) => {
           const usernames = rows.map((r: any) => r.id);
-          const confirmMessage = `⚠️ ATTENTION - Suppression multiple\n\nÊtes-vous sûr de vouloir supprimer ${usernames.length} utilisateur(s) ?\n\nUtilisateurs: ${usernames.join(', ')}\n\nCette action est irréversible.`;
-          if (!confirm(confirmMessage)) return;
-
-          try {
-            const result = await deleteMultipleUsers(usernames);
-            const successCount = result.deleted || 0;
-            const failedCount = result.failed?.length || 0;
-
-            if (successCount > 0 && failedCount === 0) {
-              toast.success(`✅ ${successCount} utilisateur(s) supprimé(s) avec succès`);
-            } else if (successCount > 0 && failedCount > 0) {
-              toast.success(`⚠️ ${successCount} utilisateur(s) supprimé(s), ${failedCount} échec(s)`);
-              console.warn('Failed deletions:', result.failed);
-            } else {
-              toast.error(`❌ Échec de la suppression de tous les utilisateurs`);
-            }
-            await fetchUsersData();
-          } catch (error: any) {
-            console.error('Error deleting multiple users:', error);
-            const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
-            toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
-            await fetchUsersData();
-          }
+          setConfirmState({
+            open: true,
+            title: `Delete ${usernames.length} User(s)`,
+            message: `Are you sure you want to delete ${usernames.length} user(s)? This action is irreversible.\n\nUsers: ${usernames.join(', ')}`,
+            onConfirm: async () => {
+              setConfirmState(s => ({ ...s, open: false }));
+              try {
+                const result = await deleteMultipleUsers(usernames);
+                const successCount = result.deleted || 0;
+                const failedCount = result.failed?.length || 0;
+                if (successCount > 0 && failedCount === 0) {
+                  toast.success(`✅ ${successCount} utilisateur(s) supprimé(s) avec succès`);
+                } else if (successCount > 0 && failedCount > 0) {
+                  toast.success(`⚠️ ${successCount} utilisateur(s) supprimé(s), ${failedCount} échec(s)`);
+                  console.warn('Failed deletions:', result.failed);
+                } else {
+                  toast.error(`❌ Échec de la suppression de tous les utilisateurs`);
+                }
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
+                await fetchUsersData();
+              } catch (error: any) {
+                console.error('Error deleting multiple users:', error);
+                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
+                await fetchUsersData();
+              }
+            },
+          });
         },
-        handleToggleDisabled: async (row: UserTableDataType) => {
+        handleToggleDisabled: (row: UserTableDataType) => {
           const isCurrentlyDisabled = row.status === 'Disabled';
-          const action = isCurrentlyDisabled ? 'activer' : 'désactiver';
-          const confirmMessage = `Êtes-vous sûr de vouloir ${action} l'utilisateur "${row.name}" ?`;
-          if (!confirm(confirmMessage)) return;
-
-          try {
-            if (isCurrentlyDisabled) {
-              await enableUser(row.id);
-              toast.success(`✅ Utilisateur ${row.name} activé avec succès`);
-            } else {
-              await disableUser(row.id);
-              toast.success(`✅ Utilisateur ${row.name} désactivé avec succès`);
-            }
-            await fetchUsersData();
-          } catch (error: any) {
-            console.error('Error toggling user status:', error);
-            const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
-            toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
-            await fetchUsersData();
-          }
+          const action = isCurrentlyDisabled ? 'enable' : 'disable';
+          setConfirmState({
+            open: true,
+            title: `${isCurrentlyDisabled ? 'Enable' : 'Disable'} User`,
+            message: `Are you sure you want to ${action} the user "${row.name}"?`,
+            onConfirm: async () => {
+              setConfirmState(s => ({ ...s, open: false }));
+              try {
+                if (isCurrentlyDisabled) {
+                  await enableUser(row.id);
+                  toast.success(`✅ Utilisateur ${row.name} activé avec succès`);
+                } else {
+                  await disableUser(row.id);
+                  toast.success(`✅ Utilisateur ${row.name} désactivé avec succès`);
+                }
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
+                await fetchUsersData();
+              } catch (error: any) {
+                console.error('Error toggling user status:', error);
+                const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
+                toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
+                await fetchUsersData();
+              }
+            },
+          });
         },
       } as TableMeta<UserTableDataType> & { handleToggleDisabled: (row: UserTableDataType) => void },
       enableColumnResizing: false,
@@ -238,6 +268,14 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
       />
       <TableFooter table={table} />
       <TablePagination table={table} className="py-4" />
+      <ConfirmDialog
+        open={confirmState.open}
+        title={confirmState.title}
+        message={confirmState.message}
+        confirmLabel="Delete"
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(s => ({ ...s, open: false }))}
+      />
     </>
   );
 }

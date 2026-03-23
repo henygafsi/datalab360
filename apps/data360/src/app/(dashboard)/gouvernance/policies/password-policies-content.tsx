@@ -15,6 +15,7 @@ import {
   deletePasswordPolicy,
   type PasswordPolicy,
 } from '@/app/services/gouvernance/policies';
+import apiClient from '@/lib/api-client';
 
 export default function PasswordPoliciesContent() {
   const [policies, setPolicies] = useState<PasswordPolicy[]>([]);
@@ -78,7 +79,7 @@ export default function PasswordPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing password policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing password policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -91,7 +92,7 @@ export default function PasswordPoliciesContent() {
 
     try {
       const details = await getPasswordPolicyDetails(policy.policy_name);
-      console.log('Password policy details:', details);
+      // console.log('Password policy details:', details);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -147,14 +148,15 @@ export default function PasswordPoliciesContent() {
         lockout_time_mins: parseInt(lockoutThreshold),
         expiration_date: expirationDate || undefined,
       };
-      console.log('[Password Create] Sending request:', requestData);
+      // console.log('[Password Create] Sending request:', requestData);
 
       const result = await createPasswordPolicy(requestData);
-      console.log('[Password Create] Response:', result);
+      // console.log('[Password Create] Response:', result);
 
       toast.success('Password policy created successfully!');
       setShowCreateModal(false);
       resetForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('[Password Create] Error:', error.response?.data || error);
@@ -168,6 +170,7 @@ export default function PasswordPoliciesContent() {
     try {
       await setPasswordPolicyAsDefault(policy.policy_name);
       toast.success('Password policy set as account default');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Set password policy as default error:', error.response?.data || error);
@@ -181,6 +184,7 @@ export default function PasswordPoliciesContent() {
     try {
       await deletePasswordPolicy(policy.policy_name);
       toast.success('Policy deleted successfully');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete password policy error:', error.response?.data || error);

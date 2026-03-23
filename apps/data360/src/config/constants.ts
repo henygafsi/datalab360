@@ -53,24 +53,46 @@ export const ROLES = {
 
 // Role-based module access
 export const ROLE_PERMISSIONS = {
+  // Admin roles — full access to all modules
   ACCOUNTADMIN: {
-    modules: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],  // All modules
+    modules: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
     actions: ['create', 'read', 'update', 'delete', 'approve', 'deploy'],
   },
+  SYSADMIN: {
+    modules: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    actions: ['create', 'read', 'update', 'delete', 'approve', 'deploy'],
+  },
+  SECURITYADMIN: {
+    modules: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+    actions: ['create', 'read', 'update', 'delete', 'approve', 'deploy'],
+  },
+  // Business roles
   DATA_MODELER: {
-    modules: [1, 2, 3, 5, 10],  // Connexion, Mapping, Workflow, Data Quality, Intelligent
+    modules: [1, 2, 3, 5, 10, 12],
     actions: ['create', 'read', 'update', 'delete', 'deploy'],
   },
   DATA_ANALYST: {
-    modules: [2, 4, 5, 7, 10],  // Mapping (read), BI Reporting, Data Quality, KPIs, Intelligent
+    modules: [2, 4, 5, 7, 10],
     actions: ['read', 'create_report', 'export'],
   },
+  DATA_STEWARD: {
+    modules: [1, 5, 6, 9],
+    actions: ['read', 'create', 'update', 'approve'],
+  },
+  AI_ENGINEER: {
+    modules: [1, 5, 10, 12],
+    actions: ['read', 'create', 'update', 'deploy'],
+  },
+  FINOPS_MANAGER: {
+    modules: [4, 7, 9],
+    actions: ['read', 'export', 'configure'],
+  },
   QA_ENGINEER: {
-    modules: [2, 3, 5, 9],  // Mapping, Workflow, Data Quality, Observability
+    modules: [2, 3, 5, 9],
     actions: ['read', 'approve', 'reject', 'validate', 'test'],
   },
   BUSINESS_USER: {
-    modules: [4, 7],  // BI Reporting, KPIs Store
+    modules: [4, 7],
     actions: ['read', 'export'],
   },
 } as const;

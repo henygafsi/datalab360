@@ -46,6 +46,8 @@ import {
   Cog,
   Play,
   Zap,
+  // Template icons
+  Clock,
   // ML Training icons
   Brain,
   Crosshair,
@@ -56,10 +58,12 @@ import {
   MessageSquare,
   Languages,
   Tags,
+  // New block icons
+  BarChart,
   type LucideIcon,
 } from 'lucide-react';
 // Category type for palette grouping
-export type ETLCategory = 'source' | 'transform' | 'transform_advanced' | 'destination' | 'python' | 'ml_training' | 'ai_functions';
+export type ETLCategory = 'source' | 'transform' | 'transform_advanced' | 'destination' | 'python' | 'ml_training' | 'ai_functions' | 'templates';
 
 // ETL Block definition
 export interface ETLBlockDefinition {
@@ -99,6 +103,24 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     minInputs: 0,
     maxInputs: 0,
     tooltip: 'Read data from a Snowflake table',
+  },
+
+  // CDC Merge — consumes a Snowflake Stream and applies MERGE INTO target table
+  {
+    id: 'cdc_merge',
+    type: 'cdc_merge',
+    label: 'CDC Merge',
+    description: 'Process Snowflake Stream with MERGE INTO pattern',
+    icon: GitMerge,
+    category: 'source',
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    borderColor: 'border-emerald-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Consume a Snowflake Stream and apply MERGE INTO on the target table (CDC pattern)',
   },
 
   // ============================================
@@ -705,6 +727,86 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     maxInputs: 1,
     tooltip: 'Split a text column by delimiter into multiple output columns using SPLIT_PART',
   },
+  {
+    id: 'fuzzy_match',
+    type: 'fuzzy_match',
+    label: 'Fuzzy Match',
+    description: 'EDIT_DISTANCE deduplication — find similar strings',
+    icon: Search,
+    category: 'transform_advanced',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 2,
+    tooltip: 'Use EDITDISTANCE to find fuzzy matches between two columns for deduplication or record linking',
+  },
+  {
+    id: 'json_path_extract',
+    type: 'json_path_extract',
+    label: 'JSON Path Extract',
+    description: 'Extract nested JSON values with path expressions',
+    icon: Braces,
+    category: 'transform_advanced',
+    color: 'text-cyan-600',
+    bgColor: 'bg-cyan-50 dark:bg-cyan-900/20',
+    borderColor: 'border-cyan-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Extract nested values from VARIANT/JSON columns using JSON_EXTRACT_PATH_TEXT',
+  },
+  {
+    id: 'qualify_filter',
+    type: 'qualify_filter',
+    label: 'Qualify Filter',
+    description: 'QUALIFY — filter rows after window functions',
+    icon: Filter,
+    category: 'transform_advanced',
+    color: 'text-amber-600',
+    bgColor: 'bg-amber-50 dark:bg-amber-900/20',
+    borderColor: 'border-amber-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Use QUALIFY clause to filter rows after window function evaluation — deduplicate with ROW_NUMBER',
+  },
+  {
+    id: 'correlation',
+    type: 'correlation',
+    label: 'Correlation Matrix',
+    description: 'CORR/COVAR — find correlated columns',
+    icon: BarChart3,
+    category: 'transform_advanced',
+    color: 'text-emerald-600',
+    bgColor: 'bg-emerald-50 dark:bg-emerald-900/20',
+    borderColor: 'border-emerald-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Calculate Pearson correlation and covariance between two numeric columns using CORR/COVAR_SAMP',
+  },
+  {
+    id: 'histogram',
+    type: 'histogram',
+    label: 'Distribution',
+    description: 'HISTOGRAM — value distribution analysis',
+    icon: BarChart,
+    category: 'transform_advanced',
+    color: 'text-pink-600',
+    bgColor: 'bg-pink-50 dark:bg-pink-900/20',
+    borderColor: 'border-pink-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Analyze value distribution with WIDTH_BUCKET — create histogram buckets for numeric columns',
+  },
 
   // ============================================
   // CLOUD / EXTERNAL SOURCE BLOCKS
@@ -937,6 +1039,22 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     maxInputs: 0,
     tooltip: 'Read data from a custom REST API endpoint ingested via the Connect module',
   },
+  {
+    id: 'recursive_cte',
+    type: 'recursive_cte',
+    label: 'Recursive Hierarchy',
+    description: 'Recursive CTE for org charts, BOM, tree structures',
+    icon: GitBranch,
+    category: 'source',
+    color: 'text-blue-600',
+    bgColor: 'bg-blue-50 dark:bg-blue-900/20',
+    borderColor: 'border-blue-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Build recursive CTE queries for hierarchical data — org charts, BOM, category trees',
+  },
 
   // ============================================
   // PYTHON DATA ENGINEERING BLOCKS
@@ -1155,6 +1273,90 @@ export const ETL_BLOCKS: ETLBlockDefinition[] = [
     maxInputs: 1,
     tooltip: 'Generate text using AI_COMPLETE with a Cortex LLM model',
   },
+  {
+    id: 'ai_filter',
+    type: 'ai_filter',
+    label: 'AI Filter',
+    description: 'AI_FILTER — natural language row filtering',
+    icon: Sparkles,
+    category: 'ai_functions',
+    bgColor: 'bg-purple-100 dark:bg-purple-900/30',
+    color: 'text-purple-600 dark:text-purple-400',
+    borderColor: 'border-purple-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Filter rows using natural language conditions with Cortex AI_FILTER',
+  },
+  {
+    id: 'ai_agg',
+    type: 'ai_agg',
+    label: 'AI Aggregate',
+    description: 'AI_AGG — semantic group aggregation',
+    icon: Sparkles,
+    category: 'ai_functions',
+    bgColor: 'bg-purple-100 dark:bg-purple-900/30',
+    color: 'text-purple-600 dark:text-purple-400',
+    borderColor: 'border-purple-400',
+    hasInput: true,
+    hasOutput: true,
+    minInputs: 1,
+    maxInputs: 1,
+    tooltip: 'Aggregate text data semantically using Cortex AI_AGG — summarize grouped text with AI',
+  },
+
+  // ============================================
+  // TEMPLATE BLOCKS — Prebuilt Common Patterns
+  // ============================================
+  {
+    id: 'template_daily_refresh',
+    type: 'template_daily_refresh',
+    label: 'Daily Full Refresh',
+    description: 'Source -> Filter -> Destination with daily CRON schedule',
+    icon: Clock,
+    category: 'templates',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Prebuilt pipeline: reads a source table, applies optional filters, and writes to a destination on a daily CRON schedule',
+  },
+  {
+    id: 'template_incremental_merge',
+    type: 'template_incremental_merge',
+    label: 'Incremental Merge',
+    description: 'Source -> Filter by watermark -> MERGE INTO target',
+    icon: GitMerge,
+    category: 'templates',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Prebuilt pipeline: reads new/changed rows using a watermark column, then MERGE INTO the target table with configurable merge keys',
+  },
+  {
+    id: 'template_sentiment_pipeline',
+    type: 'template_sentiment_pipeline',
+    label: 'AI Sentiment Pipeline',
+    description: 'Source -> AI Sentiment -> Destination with scores',
+    icon: Sparkles,
+    category: 'templates',
+    color: 'text-violet-600',
+    bgColor: 'bg-violet-50 dark:bg-violet-900/20',
+    borderColor: 'border-violet-400',
+    hasInput: false,
+    hasOutput: true,
+    minInputs: 0,
+    maxInputs: 0,
+    tooltip: 'Prebuilt pipeline: reads a text column from source, runs AI_SENTIMENT to score each row, and writes results to a destination table',
+  },
 ];
 
 // Get blocks by category
@@ -1176,6 +1378,7 @@ export const CATEGORY_LABELS: Record<ETLCategory, string> = {
   python: 'Python / UDF',
   ml_training: 'ML Training',
   ai_functions: 'AI Functions',
+  templates: 'Templates',
 };
 
 // Category icons
@@ -1187,6 +1390,7 @@ export const CATEGORY_ICONS: Record<ETLCategory, LucideIcon> = {
   python: Code2,
   ml_training: Brain,
   ai_functions: Sparkles,
+  templates: Clock,
 };
 
 // ============================================
@@ -1198,10 +1402,19 @@ export const LEGACY_TYPE_MAP: Record<string, string> = {
   src: 'source',
   join_tables: 'join',
   aggregate_kpi: 'aggregate',
+  filter_rows: 'filter',
   drop_nulls: 'filter',
   drop_duplicates: 'distinct',
-  normalize: 'formula', // Can be implemented as formula
+  deduplicate: 'distinct',
+  normalize: 'formula',
+  normalize_zscore: 'formula',
+  normalize_minmax: 'formula',
+  set_col_value: 'formula',
+  rename_col: 'rename',
   export_excel: 'export_file',
+  python_inline: 'python_script',
+  copy_into: 'destination',
+  merge: 'destination',
 };
 
 // Convert legacy node type to new type

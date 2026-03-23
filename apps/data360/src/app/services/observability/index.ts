@@ -392,5 +392,41 @@ export async function getImportableTasks(state: string = 'suspended'): Promise<a
   return apiCall<any>(`/observability/tasks/importable?state=${state}`);
 }
 
+// =============================================================================
+// REFRESH PROBES — Row Timestamps (METADATA$ROW_LAST_MODIFIED_AT)
+// =============================================================================
+
+/**
+ * Probe table freshness using Snowflake row timestamps
+ * GET /observability/probes/table
+ */
+export async function probeTableFreshness(table: string): Promise<any> {
+  return apiCall<any>(`/observability/probes/table?table=${encodeURIComponent(table)}`);
+}
+
+/**
+ * Probe all tables in a schema for freshness
+ * GET /observability/probes/schema
+ */
+export async function probeSchemaFreshness(database: string, schema: string): Promise<any> {
+  return apiCall<any>(`/observability/probes/schema?database=${encodeURIComponent(database)}&schema=${encodeURIComponent(schema)}`);
+}
+
+/**
+ * Detect rows changed since a specific timestamp
+ * GET /observability/probes/changes
+ */
+export async function probeChanges(table: string, since: string): Promise<any> {
+  return apiCall<any>(`/observability/probes/changes?table=${encodeURIComponent(table)}&since=${encodeURIComponent(since)}`);
+}
+
+/**
+ * Probe all Data360 metadata tables for freshness
+ * GET /observability/probes/platform
+ */
+export async function probePlatformFreshness(): Promise<any> {
+  return apiCall<any>('/observability/probes/platform');
+}
+
 // Re-export types for convenience
 export * from './types';

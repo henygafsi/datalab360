@@ -86,15 +86,15 @@ export function useExecuteDashboard() {
     setExecuting(true);
     setErrors({});
 
-    console.log('[BI] executeAll — fetching data for', dataWidgets.length, 'widgets');
+    // console.log('[BI] executeAll — fetching data for', dataWidgets.length, 'widgets');
     // Pair each settled result with its widget so rejections can map back to a widget ID.
     const settled = await Promise.allSettled(
       dataWidgets.map(async (w) => {
         const req = buildRequest(w, timeRange);
-        console.log('[BI] fetchChartData request for', w.widget_id, w.widget_type, ':', req);
+        // console.log('[BI] fetchChartData request for', w.widget_id, w.widget_type, ':', req);
         try {
           const response = await fetchChartData(req);
-          console.log('[BI] fetchChartData response for', w.widget_id, ':', response.data?.length, 'rows');
+          // console.log('[BI] fetchChartData response for', w.widget_id, ':', response.data?.length, 'rows');
           return { widgetId: w.widget_id, result: { data: response.data }, error: null };
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Failed to load data';

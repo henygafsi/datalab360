@@ -18,7 +18,7 @@ interface S3FormData {
  */
 export const submitS3Form = async (formData: S3FormData): Promise<any> => {
   try {
-    const response = await apiClient.get('/connect/data_lake');
+    const response = await apiClient.get('/connect/stages');
     return response.data;
   } catch (error) {
     console.error('Error submitting the S3 form:', error);

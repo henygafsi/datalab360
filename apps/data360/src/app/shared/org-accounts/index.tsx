@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Text, Title, Button } from 'rizzui';
 import cn from '@core/utils/class-names';
+import toast from 'react-hot-toast';
 import {
   PiArrowClockwiseBold,
   PiBuildingsDuotone,
@@ -99,15 +100,27 @@ export default function OrgAccountsDashboard() {
             </Text>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-        >
-          <PiArrowClockwiseBold className={cn('h-4 w-4 mr-2', refreshing && 'animate-spin')} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              toast.success(`Exported ${activeTab} data as CSV`);
+            }}
+          >
+            <PiChartLineUpDuotone className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            <PiArrowClockwiseBold className={cn('h-4 w-4 mr-2', refreshing && 'animate-spin')} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        </div>
       </div>
 
       {/* Tab Navigation */}

@@ -38,7 +38,7 @@ export default function MapsPage() {
           >
             <Button
               as="span"
-              className="w-full @lg:w-auto dark:bg-gray-100 dark:text-white"
+              className="w-full @lg:w-auto dark:bg-gray-800 dark:text-white"
             >
               Learn More
             </Button>

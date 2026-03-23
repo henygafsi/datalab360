@@ -119,16 +119,16 @@ export default function PageTabs({
                   className="w-24 h-6 text-xs"
                   autoFocus
                 />
-                <button onClick={() => handleRenamePage(page.page_id)} disabled={loading}>
+                <button onClick={() => handleRenamePage(page.page_id)} disabled={loading} aria-label="Confirm rename">
                   <Check className="h-3.5 w-3.5 text-green-500" />
                 </button>
-                <button onClick={() => setEditingPageId(null)}>
+                <button onClick={() => setEditingPageId(null)} aria-label="Cancel rename">
                   <X className="h-3.5 w-3.5 text-slate-400" />
                 </button>
               </div>
             ) : (
               <>
-                <span onClick={() => onPageSelect(page.page_id)}>{page.title}</span>
+                <button type="button" onClick={() => onPageSelect(page.page_id)} className="bg-transparent border-none p-0 font-inherit text-inherit cursor-pointer">{page.title}</button>
                 <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
                   <button
                     className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -137,6 +137,7 @@ export default function PageTabs({
                       setEditingPageId(page.page_id);
                       setEditTitle(page.title);
                     }}
+                    aria-label="Rename page"
                   >
                     <Pencil className="h-3 w-3 text-slate-400" />
                   </button>
@@ -147,6 +148,7 @@ export default function PageTabs({
                         e.stopPropagation();
                         handleDeletePage(page.page_id, page.title);
                       }}
+                      aria-label="Delete page"
                     >
                       <X className="h-3 w-3 text-red-400" />
                     </button>
@@ -173,10 +175,10 @@ export default function PageTabs({
             className="w-28 h-6 text-xs"
             autoFocus
           />
-          <button onClick={handleAddPage} disabled={loading}>
+          <button onClick={handleAddPage} disabled={loading} aria-label="Confirm add page">
             {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5 text-green-500" />}
           </button>
-          <button onClick={() => { setIsAdding(false); setNewTitle(''); }}>
+          <button onClick={() => { setIsAdding(false); setNewTitle(''); }} aria-label="Cancel add page">
             <X className="h-3.5 w-3.5 text-slate-400" />
           </button>
         </div>

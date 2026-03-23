@@ -7,6 +7,7 @@ import UsersTable from '@/app/shared/gouvernance/users/table';
 import AddUserButton from '@/app/shared/gouvernance/users/add-user-button';
 import ImportButton from '@/app/shared/import-button';
 import PageHeader from '@/components/layout/PageHeader';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 export default function UsersManagementPage() {
   const [refreshKey, setRefreshKey] = useState(0);
@@ -16,7 +17,13 @@ export default function UsersManagementPage() {
   }, []);
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/gouvernance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Users</span>
+      </div>
+
       <PageHeader
         icon={<HiOutlineUsers className="h-6 w-6" />}
         title="User Management"
@@ -43,5 +50,6 @@ export default function UsersManagementPage() {
         />
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

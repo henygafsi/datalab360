@@ -25,8 +25,8 @@ export const getRoles = async (): Promise<RoleGrantData[]> => {
  * Update grants for a specific role
  */
 export async function updateGrants(role_name: string, modules: string[]) {
-  console.log('[API] Updating grants:', { role_name, modules });
+  // console.log('[API] Updating grants:', { role_name, modules });
   const response = await apiClient.put('/gouvernance/update-grants', { role_name, modules });
-  console.log('[API] Update grants response:', response.data);
+  // console.log('[API] Update grants response:', response.data);
   return response;
 }

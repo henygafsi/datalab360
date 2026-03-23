@@ -15,9 +15,12 @@ import {
   PiRocketLaunch,
   PiGear,
   PiChartLineUp,
+  PiCloudArrowUp,
 } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import KPICard from '@/components/analytics/KPICard';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import Breadcrumb from '@/components/ui/Breadcrumb';
 
 // Import content components
 import SemanticModelsContent from './semantic-models-content';
@@ -25,8 +28,10 @@ import CortexChatContent from './cortex-chat-content';
 import MLFeaturesContent from './ml-features-content';
 import AdvancedMLContent from './advanced-ml-content';
 import QueryAnalyticsContent from './query-analytics-content';
+import LocalAnalyticsContent from './local-analytics-content';
+import SnowparkServicesContent from './snowpark-services-content';
 
-type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics';
+type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services';
 
 const TABS = [
   {
@@ -69,6 +74,22 @@ const TABS = [
     badge: 'Cortex',
     badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
   },
+  {
+    id: 'local-analytics' as TabType,
+    name: 'Local Analytics',
+    icon: PiDatabase,
+    description: 'Zero-cost queries on staged data (DuckDB-style)',
+    badge: 'New',
+    badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400',
+  },
+  {
+    id: 'snowpark-services' as TabType,
+    name: 'Snowpark Services',
+    icon: PiCloudArrowUp,
+    description: 'Container services, Streamlit apps & compute pools',
+    badge: 'Enterprise',
+    badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
+  },
 ];
 
 function formatKpiValue(value: number | null | undefined, format: 'number' | 'percent' | 'seconds'): string {
@@ -82,7 +103,7 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
@@ -115,7 +136,9 @@ export default function IntelligentPage() {
   }, []);
 
   return (
+    <ErrorBoundary>
     <div className="space-y-8">
+      <Breadcrumb items={[{ label: 'Intelligent Analytics', href: '/intelligent' }]} />
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -229,6 +252,8 @@ export default function IntelligentPage() {
           {activeTab === 'ml-features' && <MLFeaturesContent />}
           {activeTab === 'advanced-ml' && <AdvancedMLContent />}
           {activeTab === 'query-analytics' && <QueryAnalyticsContent />}
+          {activeTab === 'local-analytics' && <LocalAnalyticsContent />}
+          {activeTab === 'snowpark-services' && <SnowparkServicesContent />}
         </div>
       </div>
 
@@ -270,6 +295,14 @@ export default function IntelligentPage() {
           </p>
         </div>
       </div>
+
+      {/* Related Modules */}
+      <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <span>Related:</span>
+        <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Blocks)</a>
+        <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Semantic Models)</a>
+      </div>
     </div>
+    </ErrorBoundary>
   );
 }

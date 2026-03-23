@@ -792,7 +792,7 @@ export const loadProjectEventsAtom = atom(
       redoStack: [],
     });
 
-    console.log(`[EventStore] Loaded ${events.length} events for project ${projectId}`);
+    // console.log(`[EventStore] Loaded ${events.length} events for project ${projectId}`);
   }
 );
 

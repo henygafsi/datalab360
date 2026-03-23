@@ -3,6 +3,7 @@
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { Badge, Tooltip } from 'rizzui';
 import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle } from 'lucide-react';
+import DataTable from '@/components/ui/DataTable';
 import { DynamicChart } from './DynamicChart';
 import { DeltaBadge } from './TimeIntelligenceBar';
 import type { DashboardWidget } from '@/app/services/api/types';
@@ -203,52 +204,30 @@ function TableContent({
     );
   }
   const allColumns = Object.keys(data[0]);
-  const columns =
+  const visibleCols =
     selectedColumns && selectedColumns.length > 0
       ? selectedColumns.filter((c) => allColumns.includes(c))
       : allColumns;
+
+  const tableColumns = visibleCols.map((col) => ({
+    key: col,
+    label: col.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    sortable: true,
+    filterable: true,
+  }));
+
   return (
-    <div className="overflow-auto h-full">
-      <table className="w-full text-xs">
-        <thead className="sticky top-0 bg-white dark:bg-slate-900 z-[1]">
-          <tr className="border-b border-slate-200 dark:border-slate-700">
-            {columns.map((col) => (
-              <th
-                key={col}
-                className="px-2 py-1.5 text-left font-medium text-slate-600 dark:text-slate-400 whitespace-nowrap"
-              >
-                {col}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.slice(0, 200).map((row, i) => (
-            <tr
-              key={i}
-              className={`border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 ${onRowClick ? 'cursor-pointer' : ''}`}
-              onClick={() => {
-                if (!onRowClick) return;
-                // Use the first string column as filter key/value
-                const firstStringCol = columns.find((c) => typeof row[c] === 'string' && row[c] != null);
-                if (firstStringCol) {
-                  onRowClick(firstStringCol, String(row[firstStringCol]));
-                }
-              }}
-            >
-              {columns.map((col) => (
-                <td
-                  key={col}
-                  className="px-2 py-1 text-slate-700 dark:text-slate-300 whitespace-nowrap"
-                >
-                  {row[col] != null ? String(row[col]) : '—'}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <DataTable
+      data={data as Record<string, any>[]}
+      columns={tableColumns}
+      pageSize={50}
+      searchable
+      exportable
+      onRowClick={onRowClick ? (row) => {
+        const firstStringCol = visibleCols.find((c) => typeof row[c] === 'string' && row[c] != null);
+        if (firstStringCol) onRowClick(firstStringCol, String(row[firstStringCol]));
+      } : undefined}
+    />
   );
 }
 

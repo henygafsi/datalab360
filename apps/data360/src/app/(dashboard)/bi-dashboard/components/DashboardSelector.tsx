@@ -61,8 +61,8 @@ export default function DashboardSelector({
   // Create form
   const [newName, setNewName] = useState('');
   const [newDescription, setNewDescription] = useState('');
-  const [defaultDatabase, setDefaultDatabase] = useState('');
-  const [defaultSchema, setDefaultSchema] = useState('');
+  const [defaultDatabase, setDefaultDatabase] = useState('CP_DATA360');
+  const [defaultSchema, setDefaultSchema] = useState('RETAIL_DW');
   const [isCreating, setIsCreating] = useState(false);
 
   // Database/schema options
@@ -118,7 +118,7 @@ export default function DashboardSelector({
     else setIsRefreshing(true);
 
     try {
-      const response = await listProjects({ project_type: 'bi_dashboard', mine_only: true });
+      const response = await listProjects({ project_type: 'bi_dashboard', mine_only: false });
       if (mountedRef.current) {
         setProjects(
           (response.projects || []).map((p: ApiProject) => ({

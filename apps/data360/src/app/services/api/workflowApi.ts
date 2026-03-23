@@ -1,5 +1,5 @@
 /**
- * Workflow Module API client — /api/v1/workflows/*
+ * Workflow Module API client — /workflows/*
  * Handles: CRUD, steps, action templates, execution, runs, scheduling,
  * versions, and deployments for the CTE Pipeline Engine.
  */

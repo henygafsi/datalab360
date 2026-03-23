@@ -37,7 +37,7 @@ function NotificationsList({
               key={item.name + item.id}
               className="group grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md px-2 py-2 pe-3 transition-colors hover:bg-gray-100 dark:hover:bg-gray-50"
             >
-              <div className="flex h-9 w-9 items-center justify-center rounded bg-gray-100/70 p-1 dark:bg-gray-50/50 [&>svg]:h-auto [&>svg]:w-5">
+              <div className="flex h-9 w-9 items-center justify-center rounded bg-gray-100/70 p-1 dark:bg-slate-800/50 [&>svg]:h-auto [&>svg]:w-5">
                 <item.icon />
               </div>
               <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center">
@@ -58,7 +58,7 @@ function NotificationsList({
                       className="scale-90"
                     />
                   ) : (
-                    <span className="inline-block rounded-full bg-gray-100 p-0.5 dark:bg-gray-50">
+                    <span className="inline-block rounded-full bg-gray-100 p-0.5 dark:bg-slate-800">
                       <PiCheck className="h-auto w-[9px]" />
                     </span>
                   )}

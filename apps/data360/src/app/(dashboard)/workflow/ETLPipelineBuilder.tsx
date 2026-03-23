@@ -173,7 +173,7 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
 
     return {
       id: nodeId,
-      type: step.action_type,
+      type: convertLegacyType(step.action_type),
       position,
       data: {
         ...config,
@@ -199,8 +199,9 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
           source: inputId,
           target: nodeId,
           targetHandle: blockDef?.maxInputs === 2 ? `input${index + 1}` : undefined,
-          markerEnd: { type: MarkerType.ArrowClosed },
-          style: { strokeWidth: 2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
+          style: { strokeWidth: 2, stroke: '#10B981' },
+          animated: false,
         });
       });
       return;
@@ -217,8 +218,9 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
         source: orderToNodeId[leftStep],
         target: nodeId,
         targetHandle: 'input1',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
+        style: { strokeWidth: 2, stroke: '#10B981' },
+        animated: false,
       });
     }
     if (rightStep && orderToNodeId[rightStep]) {
@@ -227,8 +229,9 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
         source: orderToNodeId[rightStep],
         target: nodeId,
         targetHandle: 'input2',
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
+        style: { strokeWidth: 2, stroke: '#10B981' },
+        animated: false,
       });
     }
     if (inputStep && orderToNodeId[inputStep] && !leftStep) {
@@ -236,8 +239,9 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
         id: `${orderToNodeId[inputStep]}-${nodeId}`,
         source: orderToNodeId[inputStep],
         target: nodeId,
-        markerEnd: { type: MarkerType.ArrowClosed },
-        style: { strokeWidth: 2 },
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
+        style: { strokeWidth: 2, stroke: '#10B981' },
+        animated: false,
       });
     }
   });
@@ -277,6 +281,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'tasks'>('runs');
   const [showMembers, setShowMembers] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
+  const [showErrorPanel, setShowErrorPanel] = useState(false);
 
   // Role-based access
   const { username: currentUsername } = useAuth();
@@ -297,6 +302,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [validation, setValidation] = useState<ValidateWorkflowResponse | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  // Persistent error display (shown in Runs panel instead of disappearing toast)
+  const [pipelineError, setPipelineError] = useState<string | null>(null);
 
   // ============================================
   // LOAD DATA
@@ -384,8 +391,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         addEdge(
           {
             ...params,
-            markerEnd: { type: MarkerType.ArrowClosed },
-            style: { strokeWidth: 2 },
+            markerEnd: { type: MarkerType.ArrowClosed, color: '#10B981' },
+            style: { strokeWidth: 2, stroke: '#10B981' },
+            animated: false,
           },
           eds
         )
@@ -851,14 +859,33 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const handleExecute = useCallback(
     async (dryRun: boolean = false) => {
       if (!dryRun && readOnlyGuard()) return;
+      setPipelineError(null); // Clear previous errors
       if (!activeWorkflowId && nodes.length === 0) {
-        toast.error('No pipeline to execute');
+        setPipelineError('No pipeline to execute. Add blocks to the canvas first.');
         return;
       }
 
       if (!activeWorkflowId) {
-        toast.error('Save the pipeline first before executing');
+        setPipelineError('Save the pipeline first before executing.');
         return;
+      }
+
+      // Auto-save before execute to ensure backend has latest steps
+      try {
+        const stepInputs = nodesToStepInputs(nodes, edges);
+        const existing = await workflowApi.listSteps(activeWorkflowId);
+        // Only re-save if step count changed or it's a manual execute
+        if (!dryRun || (existing.steps || []).length !== stepInputs.length) {
+          for (const step of existing.steps || []) {
+            await workflowApi.deleteStep(activeWorkflowId, step.step_id);
+          }
+          for (const input of stepInputs) {
+            await workflowApi.addStep(activeWorkflowId, input);
+          }
+        }
+      } catch (saveErr: any) {
+        console.warn('Auto-save before execute failed:', saveErr);
+        // Continue with execute — steps may already be current
       }
 
       setIsExecuting(true);
@@ -882,12 +909,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             const errorDetail = response.error
               ? extractErrorString(response.error)
               : 'Check execution history for details';
-            toast.error(`Execution failed: ${errorDetail}`, { duration: 6000 });
+            setPipelineError(`Execution failed: ${errorDetail}`);
+            setActiveTab('runs'); // Switch to runs tab to show error details
           }
         }
       } catch (error: any) {
         console.error('Execution failed:', error);
-        toast.error(getApiErrorMessage(error) || 'Execution failed');
+        setPipelineError(getApiErrorMessage(error) || 'Execution failed');
+        setActiveTab('runs');
       } finally {
         setIsExecuting(false);
         // Force execution history to refresh after execution completes
@@ -898,9 +927,24 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   );
 
   const handleValidate = useCallback(async () => {
+    setPipelineError(null);
     if (!activeWorkflowId) {
-      toast.error('Save the pipeline first before validating');
+      setPipelineError('Save the pipeline first before validating.');
       return;
+    }
+
+    // Auto-save before validate
+    try {
+      const stepInputs = nodesToStepInputs(nodes, edges);
+      const existing = await workflowApi.listSteps(activeWorkflowId);
+      for (const step of existing.steps || []) {
+        await workflowApi.deleteStep(activeWorkflowId, step.step_id);
+      }
+      for (const input of stepInputs) {
+        await workflowApi.addStep(activeWorkflowId, input);
+      }
+    } catch (saveErr: any) {
+      console.warn('Auto-save before validate failed:', saveErr);
     }
 
     try {
@@ -910,12 +954,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       if (result.valid) {
         toast.success('Pipeline is valid');
+        setPipelineError(null);
       } else {
-        toast.error(`Validation failed: ${extractErrorString(result.error) || 'Unknown error'}`);
+        const errMsg = extractErrorString(result.error) || 'Check the error panel for details';
+        setPipelineError(`Validation: ${errMsg}`);
       }
     } catch (error: any) {
       console.error('Validation failed:', error);
-      toast.error(getApiErrorMessage(error) || 'Validation failed');
+      setPipelineError(getApiErrorMessage(error) || 'Validation failed');
     }
   }, [activeWorkflowId]);
 
@@ -974,6 +1020,156 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // ============================================
   // RENDER
   // ============================================
+
+  // Normalize validation errors into an array for the error panel and node states
+  const validationErrors = useMemo(() => {
+    if (!validation || validation.valid) return [];
+    if (Array.isArray((validation as any).errors) && (validation as any).errors.length > 0) {
+      return (validation as any).errors;
+    }
+    if (validation.error) {
+      return [{ message: validation.error }];
+    }
+    return [];
+  }, [validation]);
+
+  // Map validation errors to node IDs for visual error states on canvas nodes
+  const nodeErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    validationErrors.forEach((err: any) => {
+      const nodeId = err.step_id || err.node_id;
+      if (nodeId) errors[nodeId] = typeof err === 'string' ? err : err.message || err.error || '';
+    });
+    return errors;
+  }, [validationErrors]);
+
+  // Map execution step results to nodes for post-execution visual states
+  const executionNodeState = useMemo(() => {
+    const state: Record<string, {
+      executionStatus: 'pending' | 'running' | 'completed' | 'failed';
+      rowsAffected?: number;
+      durationMs?: number;
+      error?: string;
+      stepIndex?: number;
+    }> = {};
+
+    if (!lastExecution) return state;
+
+    // Map step results to node IDs by step order (nodes are ordered as steps)
+    const stepResults = (lastExecution as any)?.execution_details?.steps_results
+      || (lastExecution as any)?.steps_results
+      || [];
+
+    // Try to match by step_id first, then by order
+    const orderedNodeIds = nodes
+      .filter(n => n.type !== 'default')
+      .sort((a, b) => {
+        const aOrder = a.data?.stepOrder ?? a.data?.step_number ?? 999;
+        const bOrder = b.data?.stepOrder ?? b.data?.step_number ?? 999;
+        return aOrder - bOrder;
+      })
+      .map(n => n.id);
+
+    stepResults.forEach((step: any, idx: number) => {
+      // Match by step_id or by order
+      const nodeId = step.step_id || step.node_id || orderedNodeIds[idx];
+      if (!nodeId) return;
+
+      state[nodeId] = {
+        executionStatus: step.status === 'completed' || step.status === 'success'
+          ? 'completed'
+          : step.status === 'failed' || step.status === 'error'
+            ? 'failed'
+            : step.status === 'running' ? 'running' : 'pending',
+        rowsAffected: step.rows_affected ?? step.row_count,
+        durationMs: step.duration_ms ?? step.duration,
+        error: step.error,
+        stepIndex: idx + 1,
+      };
+    });
+
+    // If execution failed but no step results, mark all as failed
+    if (stepResults.length === 0 && (lastExecution.status === 'failed' || lastExecution.status === 'partial_failure')) {
+      const errMsg = typeof lastExecution.error === 'string'
+        ? lastExecution.error
+        : (lastExecution as any).error_log || 'Execution failed';
+      orderedNodeIds.forEach((id, idx) => {
+        state[id] = { executionStatus: 'failed', error: errMsg, stepIndex: idx + 1 };
+      });
+    }
+
+    return state;
+  }, [lastExecution, nodes]);
+
+  // Also set execution state when pipeline is running
+  const runningNodeState = useMemo(() => {
+    if (!isExecuting) return {};
+    const state: Record<string, { executionStatus: 'running' }> = {};
+    nodes.forEach(n => { state[n.id] = { executionStatus: 'running' }; });
+    return state;
+  }, [isExecuting, nodes]);
+
+  // Enrich nodes with error data + execution state for visual states on canvas
+  const enrichedNodes = useMemo(() => {
+    const execState = isExecuting ? runningNodeState : executionNodeState;
+    const hasErrors = Object.keys(nodeErrors).length > 0;
+    const hasExec = Object.keys(execState).length > 0;
+
+    if (!hasErrors && !hasExec) return nodes;
+
+    return nodes.map((node) => {
+      const error = nodeErrors[node.id];
+      const exec = execState[node.id];
+      if (!error && !exec) return node;
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          ...(error ? { error } : {}),
+          ...(exec ? {
+            executionStatus: exec.executionStatus,
+            rowsAffected: exec.rowsAffected,
+            durationMs: exec.durationMs,
+            executionError: exec.error,
+            stepIndex: exec.stepIndex,
+          } : {}),
+        },
+      };
+    });
+  }, [nodes, nodeErrors, executionNodeState, runningNodeState, isExecuting]);
+
+  // Enrich edges with execution state — red dashed for failed paths, green for completed
+  const enrichedEdges = useMemo(() => {
+    if (Object.keys(executionNodeState).length === 0 && !isExecuting) return edges;
+    const execState = isExecuting ? runningNodeState : executionNodeState;
+    return edges.map((edge) => {
+      const sourceState = execState[edge.source];
+      const targetState = execState[edge.target];
+      if (sourceState?.executionStatus === 'failed' || targetState?.executionStatus === 'failed') {
+        return {
+          ...edge,
+          style: { strokeWidth: 2, stroke: '#ef4444' },  // red-500
+          animated: true,
+          className: 'stroke-red-500',
+        };
+      }
+      if (sourceState?.executionStatus === 'completed' && targetState?.executionStatus === 'completed') {
+        return {
+          ...edge,
+          style: { strokeWidth: 2, stroke: '#22c55e' },  // green-500
+          animated: false,
+        };
+      }
+      if (isExecuting) {
+        return {
+          ...edge,
+          style: { strokeWidth: 2, stroke: '#3b82f6' },  // blue-500
+          animated: true,
+        };
+      }
+      return edge;
+    });
+  }, [edges, executionNodeState, runningNodeState, isExecuting]);
 
   const joinInputColumns = useMemo(() => getJoinInputColumns(), [getJoinInputColumns]);
 
@@ -1069,17 +1265,57 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           )}
 
           {validation && (
-            <span
-              className={cn(
-                'px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap',
-                validation.valid
-                  ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                  : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+            <div className="relative">
+              <span
+                onClick={() => !validation.valid && validationErrors.length > 0 && setShowErrorPanel(!showErrorPanel)}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap',
+                  validation.valid
+                    ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 cursor-pointer hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors'
+                )}
+              >
+                {validation.valid ? <CheckCircle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                {validation.valid ? 'Valid' : `${validationErrors.length} Error${validationErrors.length !== 1 ? 's' : ''}`}
+              </span>
+              {showErrorPanel && validationErrors.length > 0 && (
+                <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 rounded-lg shadow-xl p-3 max-h-[300px] overflow-y-auto min-w-[320px]">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">
+                      {validationErrors.length} Validation Error{validationErrors.length > 1 ? 's' : ''}
+                    </h4>
+                    <button onClick={() => setShowErrorPanel(false)} className="text-slate-400 hover:text-slate-600" aria-label="Close error panel">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {validationErrors.map((err: any, i: number) => (
+                      <div key={i}
+                        className="flex items-start gap-2 p-2 rounded-lg bg-red-50 dark:bg-red-900/20 cursor-pointer hover:bg-red-100 dark:hover:bg-red-900/30"
+                        onClick={() => {
+                          const nodeId = err.step_id || err.node_id;
+                          if (nodeId) {
+                            const node = nodes.find(n => n.id === nodeId);
+                            if (node) { setSelectedNode(node); setShowSidebar(true); }
+                          }
+                          setShowErrorPanel(false);
+                        }}
+                      >
+                        <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-red-700 dark:text-red-300">
+                            {err.step_name || err.action_type || `Step ${err.step_order || i + 1}`}
+                          </p>
+                          <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
+                            {typeof err === 'string' ? err : err.message || err.error || JSON.stringify(err)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
-            >
-              {validation.valid ? <CheckCircle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-              {validation.valid ? 'Valid' : 'Errors'}
-            </span>
+            </div>
           )}
         </div>
 
@@ -1129,6 +1365,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     <button
                       onClick={() => setShowMembers(false)}
                       className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600"
+                      aria-label="Close members panel"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -1194,6 +1431,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 onClick={handleDeletePipeline}
                 className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
                 title="Delete pipeline"
+                aria-label="Delete pipeline"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -1219,6 +1457,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           onClick={() => setShowPalette(!showPalette)}
           className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-r-lg shadow-sm"
           style={{ left: showPalette ? '288px' : '0' }}
+          aria-label={showPalette ? 'Hide block palette' : 'Show block palette'}
         >
           {showPalette ? (
             <ChevronLeft className="h-4 w-4" />
@@ -1230,8 +1469,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         {/* Canvas */}
         <div ref={reactFlowWrapper} className="flex-1">
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={enrichedNodes}
+            edges={enrichedEdges}
             onNodesChange={isReadOnly ? undefined : onNodesChange}
             onEdgesChange={isReadOnly ? undefined : onEdgesChange}
             onConnect={isReadOnly ? undefined : onConnect}
@@ -1281,6 +1520,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             ))}
           </div>
 
+          {/* Persistent error banner (replaces disappearing toasts) */}
+          <div aria-live="polite" aria-atomic="true">
+            {pipelineError && (
+              <div className="mx-4 mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2" role="alert">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-red-700 dark:text-red-300">{pipelineError}</p>
+                </div>
+                <button onClick={() => setPipelineError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0" aria-label="Dismiss error">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Execution status for screen readers */}
+          <div aria-live="polite" className="sr-only">
+            {isExecuting ? 'Pipeline is executing...' : ''}
+          </div>
+
           {/* Tab content */}
           <div className="flex-1 overflow-auto p-4">
             {activeTab === 'runs' && (
@@ -1294,13 +1553,23 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             )}
 
             {activeTab === 'schedules' && (
-              <ScheduleManager
-                pipelineId={activeWorkflowId}
-                pipelineName={activeWorkflowName}
-                compact
-                isReadOnly={isReadOnly}
-                className="-mx-4 -mt-4"
-              />
+              <>
+                {validation && !validation.valid && (
+                  <div className="px-3 py-2 mb-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+                    <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      Pipeline has validation errors. Fix errors and run successfully before scheduling.
+                    </p>
+                  </div>
+                )}
+                <ScheduleManager
+                  pipelineId={activeWorkflowId}
+                  pipelineName={activeWorkflowName}
+                  compact
+                  isReadOnly={isReadOnly}
+                  className="-mx-4 -mt-4"
+                />
+              </>
             )}
 
             {activeTab === 'sql' && (

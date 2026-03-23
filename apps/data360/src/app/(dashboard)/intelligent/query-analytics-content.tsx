@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Badge, Button, Loader } from 'rizzui';
 import {
   PiMagnifyingGlass,
@@ -11,6 +11,8 @@ import {
   PiCopy,
   PiCaretDown,
   PiCaretUp,
+  PiArrowUp,
+  PiArrowDown,
 } from 'react-icons/pi';
 import {
   HiOutlineExclamationTriangle,
@@ -51,6 +53,39 @@ export default function QueryAnalyticsContent() {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [hours, setHours] = useState(5);
+  const [sortKey, setSortKey] = useState<string | null>('EXECUTION_TIME_MS');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const sortedResults = useMemo(() => {
+    if (!sortKey) return results;
+
+    const sorted = [...results].sort((a, b) => {
+      const aVal = a[sortKey as keyof AnalyticsResult];
+      const bVal = b[sortKey as keyof AnalyticsResult];
+
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      const aStr = String(aVal).toLowerCase();
+      const bStr = String(bVal).toLowerCase();
+      return sortDir === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+    });
+
+    return sorted;
+  }, [results, sortKey, sortDir]);
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -246,8 +281,54 @@ export default function QueryAnalyticsContent() {
             <p className="text-gray-500 dark:text-gray-400">No analysis results yet. Run an analysis to get started.</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100 dark:divide-gray-700">
-            {results.map((r) => (
+          <>
+            {/* Results Header with Sortable Columns */}
+            <div className="hidden lg:grid grid-cols-12 gap-4 px-5 py-3 bg-gray-50/50 dark:bg-gray-750/50 border-b border-gray-100 dark:border-gray-700 text-xs font-medium text-gray-500 dark:text-gray-400">
+              <button
+                onClick={() => handleSort('SEVERITY')}
+                className="col-span-1 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition-colors"
+              >
+                Severity {sortKey === 'SEVERITY' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('ANALYSIS_TYPE')}
+                className="col-span-1 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition-colors"
+              >
+                Type {sortKey === 'ANALYSIS_TYPE' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('RECOMMENDATION')}
+                className="col-span-5 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition-colors"
+              >
+                Recommendation {sortKey === 'RECOMMENDATION' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('USERNAME')}
+                className="col-span-1 hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 transition-colors"
+              >
+                User {sortKey === 'USERNAME' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('EXECUTION_TIME_MS')}
+                className="col-span-1 text-right hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 justify-end transition-colors"
+              >
+                Time {sortKey === 'EXECUTION_TIME_MS' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('ROWS_PRODUCED')}
+                className="col-span-1 text-right hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 justify-end transition-colors"
+              >
+                Rows {sortKey === 'ROWS_PRODUCED' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+              <button
+                onClick={() => handleSort('IS_REDUNDANT')}
+                className="col-span-1 text-center hover:text-gray-700 dark:hover:text-gray-300 flex items-center gap-1 justify-center transition-colors"
+              >
+                Status {sortKey === 'IS_REDUNDANT' && (sortDir === 'asc' ? <PiArrowUp className="w-3 h-3" /> : <PiArrowDown className="w-3 h-3" />)}
+              </button>
+            </div>
+            <div className="divide-y divide-gray-100 dark:divide-gray-700">
+              {sortedResults.map((r) => (
               <div key={r.ANALYSIS_ID}>
                 <button
                   onClick={() => setExpandedRow(expandedRow === r.ANALYSIS_ID ? null : r.ANALYSIS_ID)}
@@ -343,8 +424,9 @@ export default function QueryAnalyticsContent() {
                   </div>
                 )}
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 

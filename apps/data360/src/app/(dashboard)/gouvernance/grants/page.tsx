@@ -15,6 +15,7 @@ import UserGrantsTable from '@/app/shared/gouvernance/user-grants/table';
 import PolicyGrantsTable from '@/app/shared/gouvernance/policy-grants/table';
 import StageGrantsTable from '@/app/shared/gouvernance/stage-grants/table';
 import PageHeader from '@/components/layout/PageHeader';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { HiOutlineCube } from 'react-icons/hi2';
 
 type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants';
@@ -23,7 +24,13 @@ export default function GrantsManagementPage() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400">
+        <a href="/" className="hover:text-blue-600">Home</a> / <a href="/gouvernance" className="hover:text-blue-600">Governance</a> / <span className="text-slate-700 dark:text-slate-300">Access Control</span>
+      </div>
+
       <PageHeader
         icon={<HiOutlineKey className="h-6 w-6" />}
         title="Access Control"
@@ -212,5 +219,6 @@ export default function GrantsManagementPage() {
         )}
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

@@ -49,7 +49,7 @@ function ControlItem({ control, label }: { control: ComplianceControl; label: st
   const Icon = config.icon;
 
   return (
-    <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-100/50">
+    <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-700/50">
       <div className="flex items-center gap-2">
         <Icon className={cn('h-4 w-4', config.color)} />
         <Text className="text-sm font-medium text-gray-700 dark:text-gray-300">

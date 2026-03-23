@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
 import { Modal, Button, Input, Select, Badge, Checkbox } from 'rizzui';
 import { Plus, Trash2, Save, X, Database, Table as TableIcon, Key, Cloud, Snowflake, Clock, Timer, Sparkles, Loader2, ThumbsUp, ThumbsDown, CheckCheck } from 'lucide-react';
 import { toast } from 'react-hot-toast';
@@ -8,6 +11,17 @@ import { useEventStore } from '../stores/event-store';
 import { addDDLAction } from '@/app/services/api/exploreDesignApi';
 import { cn } from '@/lib/utils';
 import { getCortexRecommend } from '@/app/services/cortex';
+
+// Inline schema for table name validation
+const tableNameSchema = z.object({
+  tableName: z
+    .string()
+    .min(1, 'Table name is required')
+    .regex(
+      /^[A-Za-z_][A-Za-z0-9_]*$/,
+      'Must start with a letter or underscore. Only letters, numbers, and underscores allowed.'
+    ),
+});
 
 export type SnowflakeTableType = 'standard' | 'temporary' | 'transient' | 'external' | 'iceberg';
 
@@ -65,6 +79,19 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   const { addEvent } = useEventStore();
   const [tableType, setTableType] = useState<SnowflakeTableType>(initialTableType);
   const [tableName, setTableName] = useState('');
+
+  // react-hook-form for table name validation
+  const {
+    register: registerTableName,
+    trigger: triggerTableNameValidation,
+    formState: { errors: tableNameErrors },
+    setValue: setTableNameValue,
+    clearErrors: clearTableNameErrors,
+  } = useForm({
+    resolver: zodResolver(tableNameSchema),
+    mode: 'onBlur',
+    defaultValues: { tableName: '' },
+  });
   const [columns, setColumns] = useState<Column[]>([
     { id: '1', name: '', dataType: 'VARCHAR', nullable: true, primaryKey: false },
   ]);
@@ -108,7 +135,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
       const res = await getCortexRecommend({ error_context: prompt });
       const text = res?.response || '';
-      console.log('[AI] Cortex response for columns:', text);
+      // console.log('[AI] Cortex response for columns:', text);
 
       // Parse JSON — handle markdown code blocks or raw JSON
       const cleaned = text.replace(/```json?\s*/gi, '').replace(/```/g, '').trim();
@@ -322,6 +349,10 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   };
 
   const handleCreate = async () => {
+    // Trigger react-hook-form validation on table name first
+    const tableNameValid = await triggerTableNameValidation('tableName');
+    if (!tableNameValid) return;
+
     const error = validateForm();
     if (error) { toast.error(error); return; }
     if (isSubmitting) return;
@@ -427,16 +458,26 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
 
         {/* Table Name */}
         <div className="mb-4">
-          <label className="block text-sm font-medium mb-2 dark:text-white">
+          <label htmlFor="create-table-name" className="block text-sm font-medium mb-2 dark:text-white">
             Table Name <span className="text-red-500">*</span>
           </label>
           <div className="flex items-center gap-2">
             <Input
+              id="create-table-name"
               value={tableName}
-              onChange={(e) => setTableName(e.target.value)}
-              onBlur={handleTableNameBlur}
+              onChange={(e) => {
+                setTableName(e.target.value);
+                setTableNameValue('tableName', e.target.value);
+                if (tableNameErrors.tableName) clearTableNameErrors('tableName');
+              }}
+              onBlur={() => {
+                handleTableNameBlur();
+                triggerTableNameValidation('tableName');
+              }}
               placeholder="e.g., DIM_CUSTOMER"
               className="flex-1"
+              aria-invalid={!!tableNameErrors.tableName}
+              aria-describedby={tableNameErrors.tableName ? 'create-table-name-error' : undefined}
             />
             <Button
               variant="outline"
@@ -453,6 +494,11 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
               )}
             </Button>
           </div>
+          {tableNameErrors.tableName && (
+            <p id="create-table-name-error" className="mt-1 text-xs text-red-500" role="alert">
+              {tableNameErrors.tableName.message as string}
+            </p>
+          )}
         </div>
 
         {/* External Table Fields */}

@@ -1,6 +1,10 @@
 'use client';
 
+import Breadcrumb from '@/components/ui/Breadcrumb';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { dqThresholdSchema, type DQThresholdFormValues } from '@/validators/dq-threshold.schema';
 import { Badge, Button, Input, Tooltip, Modal, Select } from 'rizzui';
 import {
   CheckCircle2, AlertTriangle, Database, Clock,
@@ -8,7 +12,7 @@ import {
   RefreshCw, Upload, Table2, Tag, Fingerprint,
   Activity, TrendingUp, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
-  ArrowRight, Info, Play, Settings,
+  ArrowRight, Info, Play, Settings, Download,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -18,6 +22,8 @@ import {
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import apiClient from '@/lib/api-client';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 
 // ── Types ──
 
@@ -29,10 +35,14 @@ interface QualitySummary {
   health_score: number;
   total_tables: number;
   freshness_violations: number;
+  freshness_violation_pct: number;
   classification_coverage: number;
   schema_score: number;
   dmf_pass_rate: number;
   ingestion_success_rate: number;
+  checks_run_30d: number;
+  schema_changes_30d: number;
+  dq_credits_30d: number;
 }
 
 interface Recommendation {
@@ -101,13 +111,18 @@ const TAB_LABELS: Record<string, string> = {
 
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
 
+const PAGINATED_TABS = new Set(['completeness', 'uniqueness', 'freshness', 'schema', 'cost', 'security']);
+
 // ── API helpers ──
 
-async function fetchQualityData(endpoint: string, forceRefresh = false): Promise<any> {
+async function fetchQualityData(endpoint: string, forceRefresh = false, params?: Record<string, string | number>): Promise<any> {
   try {
     const headers: Record<string, string> = {};
     if (forceRefresh) headers['Cache-Control'] = 'no-cache';
-    const res = await apiClient.get(`/data-quality/${endpoint}`, { headers });
+    const queryStr = params ? '?' + new URLSearchParams(
+      Object.entries(params).map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    const res = await apiClient.get(`/data-quality/${endpoint}${queryStr}`, { headers });
     return res.data;
   } catch (err: any) {
     const msg = err?.response?.data?.detail || err?.message || 'Request failed';
@@ -242,16 +257,16 @@ function RecommendationCard({ rec, onApply }: { rec: Recommendation; onApply?: (
           <span className="text-xs font-semibold text-gray-900 dark:text-white">{rec.title}</span>
           <Badge variant="flat" color={cfg.color} className="text-[10px]">{rec.severity}</Badge>
         </div>
-        <p className="text-[11px] text-gray-600 dark:text-gray-400 mb-1.5">{rec.description}</p>
+        <p className="text-xs text-gray-600 dark:text-gray-400 mb-1.5">{rec.description}</p>
         {rec.table && (
-          <span className="text-[10px] text-gray-500 dark:text-gray-500 font-mono">{rec.table}{rec.column ? `.${rec.column}` : ''}</span>
+          <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{rec.table}{rec.column ? `.${rec.column}` : ''}</span>
         )}
       </div>
       {onApply && (
         <Button
           size="sm"
           variant="outline"
-          className="text-[11px] h-7 px-2 flex-shrink-0"
+          className="text-xs h-7 px-2 flex-shrink-0"
           onClick={() => onApply(rec)}
         >
           <ArrowRight className="h-3 w-3 mr-1" />
@@ -455,7 +470,7 @@ function AuditTable({
 }) {
   if (!data || data.length === 0) {
     return (
-      <div className="flex items-center justify-center py-10 text-gray-400 dark:text-gray-500 text-sm">
+      <div className="flex items-center justify-center py-10 text-gray-400 dark:text-gray-400 text-sm">
         {emptyMsg || 'No data available'}
       </div>
     );
@@ -470,6 +485,7 @@ function AuditTable({
                 {col.label}
               </th>
             ))}
+            <th className="px-2.5 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -480,10 +496,91 @@ function AuditTable({
                   {col.format ? col.format(row[col.key], row) : String(row[col.key] ?? '—')}
                 </td>
               ))}
+              <td className="px-2.5 py-1.5 whitespace-nowrap">
+                <button
+                  onClick={() => toast.success(`Profiling ${row.TABLE_NAME || row.COLUMN_NAME || 'item'}...`)}
+                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                >
+                  <BarChart3 className="h-3 w-3" /> Profile
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ── Pagination Controls ──
+
+function PaginationControls({
+  page,
+  totalPages,
+  total,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  totalPages: number;
+  total: number;
+  pageSize: number;
+  onPageChange: (p: number) => void;
+  onPageSizeChange: (s: number) => void;
+}) {
+  if (totalPages <= 1 && total <= pageSize) return null;
+  return (
+    <div className="flex items-center justify-between px-3 py-2 border-t border-gray-200 dark:border-gray-700">
+      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <span>{total.toLocaleString()} total rows</span>
+        <span className="text-gray-300 dark:text-gray-600">|</span>
+        <label className="flex items-center gap-1">
+          Per page:
+          <select
+            value={pageSize}
+            onChange={(e) => onPageSizeChange(Number(e.target.value))}
+            className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 text-xs text-gray-700 dark:text-gray-300"
+          >
+            {[10, 25, 50, 100, 200].map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={() => onPageChange(1)}
+          disabled={page <= 1}
+          className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+        >
+          First
+        </button>
+        <button
+          onClick={() => onPageChange(page - 1)}
+          disabled={page <= 1}
+          className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+        >
+          Prev
+        </button>
+        <span className="px-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+          {page} / {totalPages}
+        </span>
+        <button
+          onClick={() => onPageChange(page + 1)}
+          disabled={page >= totalPages}
+          className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+        >
+          Next
+        </button>
+        <button
+          onClick={() => onPageChange(totalPages)}
+          disabled={page >= totalPages}
+          className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+        >
+          Last
+        </button>
+      </div>
     </div>
   );
 }
@@ -577,8 +674,8 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
     case 'security':
       return [
         { key: 'TABLE_NAME', label: 'Table' },
-        { key: 'HAS_MASKING', label: 'Masking', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Applied</span> : <span className="text-gray-400">—</span> },
-        { key: 'HAS_RLS', label: 'RLS', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Active</span> : <span className="text-gray-400">—</span> },
+        { key: 'HAS_MASKING', label: 'Masking', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Applied</span> : <span className="text-gray-400 dark:text-gray-300">—</span> },
+        { key: 'HAS_RLS', label: 'RLS', format: (v) => v ? <span className="text-green-600 dark:text-green-400">Active</span> : <span className="text-gray-400 dark:text-gray-300">—</span> },
         { key: 'GRANTS_COUNT', label: 'Grants', format: (v) => Number(v || 0).toLocaleString() },
         { key: 'LAST_GRANT_AT', label: 'Last Grant' },
       ];
@@ -790,16 +887,39 @@ export default function DataQualityPage() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [schemaFilter, setSchemaFilter] = useState<string | null>(null);
 
+  // Pagination state (for paginated tabs)
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [paginationMeta, setPaginationMeta] = useState<Record<string, { total: number; totalPages: number }>>({});
+
   // Recommendations panel
   const [showRecs, setShowRecs] = useState(true);
 
   // Charts panel
   const [showCharts, setShowCharts] = useState(true);
 
+  // NL Filter
+  const [nlQuery, setNlQuery] = useState('');
+
   // Threshold modal
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdForm, setThresholdForm] = useState({ table_name: '', metric: 'completeness', threshold: 90, alert_on_breach: true });
   const [runningCheck, setRunningCheck] = useState(false);
+
+  // react-hook-form for threshold form
+  const {
+    register: registerThreshold,
+    handleSubmit: handleThresholdSubmit,
+    formState: { errors: thresholdErrors },
+    reset: resetThresholdForm,
+  } = useForm<DQThresholdFormValues>({
+    resolver: zodResolver(dqThresholdSchema),
+    defaultValues: {
+      table_name: '',
+      metric: 'completeness',
+      threshold: 90,
+    },
+  });
 
   const loadSummary = useCallback(async (force = false) => {
     try {
@@ -812,14 +932,27 @@ export default function DataQualityPage() {
     }
   }, []);
 
-  const loadTabData = useCallback(async (tab: string, force = false) => {
-    if (!force && tabData[tab] !== undefined) return;
+  const loadTabData = useCallback(async (tab: string, force = false, pg?: number, ps?: number) => {
+    const currentPage = pg ?? page;
+    const currentSize = ps ?? pageSize;
+    if (!force && !pg && !ps && tabData[tab] !== undefined) return;
     setTabLoading(true);
     try {
       const endpoint = TAB_ENDPOINTS[tab] || tab;
-      const data = await fetchQualityData(endpoint, force);
+      const params: Record<string, string | number> = {};
+      if (PAGINATED_TABS.has(tab)) {
+        params.offset = (currentPage - 1) * currentSize;
+        params.limit = currentSize;
+      }
+      const data = await fetchQualityData(endpoint, force, Object.keys(params).length > 0 ? params : undefined);
       const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
       setTabData((prev) => ({ ...prev, [tab]: Array.isArray(rows) ? (rows as MetricRow[]) : [] }));
+      if (data?.total !== undefined) {
+        setPaginationMeta((prev) => ({
+          ...prev,
+          [tab]: { total: data.total, totalPages: data.total_pages || 1 },
+        }));
+      }
       setCacheInfo({
         loadedAt: Date.now(),
         fromCache: !force,
@@ -830,7 +963,7 @@ export default function DataQualityPage() {
     } finally {
       setTabLoading(false);
     }
-  }, [tabData]);
+  }, [tabData, page, pageSize]);
 
   const loadTrend = useCallback(async (force = false) => {
     try {
@@ -906,11 +1039,24 @@ export default function DataQualityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Tab change
+  // Tab change — reset pagination when switching tabs
   useEffect(() => {
-    loadTabData(activeTab);
+    setPage(1);
+    loadTabData(activeTab, false, 1, pageSize);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  // Page change handler for paginated tabs
+  const handlePageChange = useCallback((newPage: number) => {
+    setPage(newPage);
+    loadTabData(activeTab, true, newPage, pageSize);
+  }, [activeTab, pageSize, loadTabData]);
+
+  const handlePageSizeChange = useCallback((newSize: number) => {
+    setPageSize(newSize);
+    setPage(1);
+    loadTabData(activeTab, true, 1, newSize);
+  }, [activeTab, loadTabData]);
 
   // Compute filtered data
   const filteredData = useMemo(() => {
@@ -962,19 +1108,29 @@ export default function DataQualityPage() {
     toast.success(`Action "${rec.action}" noted for ${rec.table || 'system'}. Navigate to relevant module to apply.`);
   };
 
-  // KPI bar
+  // KPI bar — health score color: green >80, amber 50-80, red <50
+  const healthColor = summary
+    ? summary.health_score > 80
+      ? 'from-green-400 to-emerald-500'
+      : summary.health_score >= 50
+        ? 'from-amber-400 to-orange-500'
+        : 'from-red-400 to-rose-500'
+    : 'from-green-400 to-emerald-500';
+
   const kpis = [
-    { label: 'Health', value: summary ? `${summary.health_score}%` : '—', icon: BarChart3, color: 'from-green-400 to-emerald-500' },
+    { label: 'Health Score', value: summary ? `${summary.health_score}%` : '—', icon: BarChart3, color: healthColor },
     { label: 'Tables', value: summary?.total_tables ?? '—', icon: Database, color: 'from-blue-400 to-indigo-500' },
-    { label: 'Violations', value: summary?.freshness_violations ?? '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
+    { label: 'Violations', value: summary ? `${summary.freshness_violations} (${summary.freshness_violation_pct ?? 0}%)` : '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
     { label: 'DMF Pass', value: summary ? `${summary.dmf_pass_rate}%` : '—', icon: Activity, color: 'from-rose-400 to-pink-500' },
-    { label: 'Schema', value: summary ? `${summary.schema_score}%` : '—', icon: Table2, color: 'from-cyan-400 to-teal-500' },
-    { label: 'Classified', value: summary ? `${summary.classification_coverage}%` : '—', icon: Tag, color: 'from-purple-400 to-violet-500' },
-    { label: 'Ingestion', value: summary ? `${summary.ingestion_success_rate}%` : '—', icon: TrendingUp, color: 'from-lime-400 to-green-500' },
+    { label: 'Checks (30d)', value: summary?.checks_run_30d ?? '—', icon: CheckCircle2, color: 'from-cyan-400 to-teal-500' },
+    { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500' },
+    { label: 'DQ Credits', value: summary?.dq_credits_30d ?? '—', icon: DollarSign, color: 'from-lime-400 to-green-500' },
   ];
 
   return (
+    <ErrorBoundary>
     <div className="p-4 space-y-4 max-w-[1600px] mx-auto">
+      <Breadcrumb items={[{ label: 'Data Health', href: '/data-quality' }]} />
       {/* ── Header Bar ── */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl px-5 py-4 flex items-center justify-between">
         <div>
@@ -987,6 +1143,7 @@ export default function DataQualityPage() {
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={async () => {
+              if (!window.confirm('Run quality checks on all tables? This may take a few minutes and consume Snowflake credits.')) return;
               setRunningCheck(true);
               try {
                 await apiClient.post('/data-quality/run-check', { database: 'CP_DATA360' });
@@ -1022,14 +1179,83 @@ export default function DataQualityPage() {
         </div>
       </div>
 
+      {/* Screen reader status for running checks */}
+      <div aria-live="polite" className="sr-only">
+        {runningCheck ? 'Quality check is running...' : ''}
+        {refreshing ? 'Refreshing data quality scores...' : ''}
+      </div>
+
+      {/* ── Inline Threshold Form (react-hook-form validated) ── */}
+      {showThresholdModal && (
+        <form
+          onSubmit={handleThresholdSubmit((data) => {
+            toast.success(`Threshold set: ${data.metric} >= ${data.threshold}%${data.table_name ? ` for ${data.table_name}` : ''}`);
+            setShowThresholdModal(false);
+            resetThresholdForm();
+          })}
+          noValidate
+          className="bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-3"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Settings className="h-4 w-4 text-blue-500" /> Set Quality Threshold
+            </h3>
+            <button type="button" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+              <X className="h-4 w-4 text-gray-500" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+              <Input
+                size="sm"
+                placeholder="Table name (optional)"
+                {...registerThreshold('table_name')}
+                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                aria-label="Table name"
+              />
+            </div>
+            <div>
+              <select
+                {...registerThreshold('metric')}
+                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 w-full"
+                aria-label="Quality metric"
+              >
+                <option value="completeness">Completeness</option>
+                <option value="uniqueness">Uniqueness</option>
+                <option value="freshness">Freshness</option>
+                <option value="schema">Schema</option>
+              </select>
+            </div>
+            <div>
+              <Input
+                size="sm"
+                type="number"
+                placeholder="Threshold %"
+                {...registerThreshold('threshold', { valueAsNumber: true })}
+                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+                aria-invalid={!!thresholdErrors.threshold}
+                aria-label="Threshold percentage"
+              />
+              {thresholdErrors.threshold && (
+                <p className="text-[10px] text-red-500 mt-0.5" role="alert">{thresholdErrors.threshold.message}</p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button size="sm" type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs">Apply</Button>
+              <Button size="sm" variant="outline" className="text-xs" type="button" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }}>Cancel</Button>
+            </div>
+          </div>
+        </form>
+      )}
+
       {/* ── Compact KPI Bar ── */}
-      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl">
+      <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl" aria-live="polite" aria-atomic="true">
         {loading ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-200 dark:divide-gray-700">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-200 dark:divide-gray-700" role="status" aria-label="Loading quality scores">
             {Array.from({ length: 7 }).map((_, i) => <KpiSkeleton key={i} />)}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-100 dark:divide-gray-800">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 divide-x divide-gray-100 dark:divide-gray-800" role="region" aria-label="Data quality KPI scores">
             {kpis.map((kpi) => {
               const Icon = kpi.icon;
               return (
@@ -1038,7 +1264,7 @@ export default function DataQualityPage() {
                     <Icon className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
                     <p className="text-base font-bold text-gray-900 dark:text-white leading-tight">{kpi.value}</p>
                   </div>
                 </div>
@@ -1106,7 +1332,7 @@ export default function DataQualityPage() {
                 <SkeletonBar className="h-16 w-full rounded-lg" />
               </div>
             ) : recommendations.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-gray-400 dark:text-gray-500 text-sm gap-2">
+              <div className="flex items-center justify-center py-8 text-gray-400 dark:text-gray-400 text-sm gap-2">
                 <CheckCircle2 className="h-5 w-5 text-green-500" />
                 All quality checks passed. No recommendations at this time.
               </div>
@@ -1116,7 +1342,7 @@ export default function DataQualityPage() {
                   <RecommendationCard key={rec.id} rec={rec} onApply={handleRecApply} />
                 ))}
                 {recommendations.length > 15 && (
-                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-1">
+                  <p className="text-xs text-gray-400 dark:text-gray-400 text-center py-1">
                     +{recommendations.length - 15} more recommendations
                   </p>
                 )}
@@ -1128,8 +1354,39 @@ export default function DataQualityPage() {
 
       {/* ── Search & Filters + Tab Navigation + Data Table ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-        {/* Search + Filters Bar */}
+        {/* NL Filter + Search + Filters Bar */}
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
+          {/* Natural Language Filter */}
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 max-w-lg">
+              <Lightbulb className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-500" />
+              <Input
+                type="text"
+                placeholder="Ask in natural language: e.g. 'show tables with null rate above 20%'"
+                value={nlQuery}
+                onChange={(e) => {
+                  setNlQuery(e.target.value);
+                  // Simple NL parsing: apply as search query for matching
+                  const q = e.target.value.toLowerCase();
+                  if (q.includes('fail')) setStatusFilter('FAIL');
+                  else if (q.includes('pass')) setStatusFilter('PASS');
+                  else if (q.includes('warning')) setStatusFilter('WARNING');
+                  // Also pass as search
+                  if (q.length > 3) {
+                    const terms = q.replace(/show|tables|with|above|below|rate|null/gi, '').trim();
+                    if (terms) setSearchQuery(terms);
+                  }
+                }}
+                className="pl-8 h-8 text-xs"
+                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
+              />
+              {nlQuery && (
+                <button onClick={() => { setNlQuery(''); setSearchQuery(''); setStatusFilter(null); }} className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <X className="h-3.5 w-3.5 text-gray-400 hover:text-gray-600" />
+                </button>
+              )}
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
@@ -1150,6 +1407,22 @@ export default function DataQualityPage() {
                 </button>
               )}
             </div>
+            <button
+              onClick={() => {
+                const rows = filteredData;
+                if (!rows.length) return;
+                const headers = Object.keys(rows[0]);
+                const csv = [headers.join(','), ...rows.map(row => headers.map(h => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(','))].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a'); a.href = url; a.download = `data-quality-${activeTab}.csv`; a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-lg transition-colors"
+              title="Export current tab data as CSV"
+            >
+              <Download className="h-3.5 w-3.5" /> Export CSV
+            </button>
             <div className="flex items-center gap-1.5 flex-wrap">
               <Filter className="h-3.5 w-3.5 text-gray-400" />
               <FilterChip
@@ -1199,7 +1472,7 @@ export default function DataQualityPage() {
           {TAB_IDS.map((tabId) => {
             const Icon = TAB_ICONS[tabId];
             const isActive = activeTab === tabId;
-            const rowCount = (tabData[tabId] || []).length;
+            const rowCount = paginationMeta[tabId]?.total ?? (tabData[tabId] || []).length;
             return (
               <button
                 key={tabId}
@@ -1250,6 +1523,18 @@ export default function DataQualityPage() {
                 emptyMsg={getTabEmptyMsg(activeTab)}
               />
 
+              {/* Pagination controls for paginated tabs */}
+              {PAGINATED_TABS.has(activeTab) && paginationMeta[activeTab] && (
+                <PaginationControls
+                  page={page}
+                  totalPages={paginationMeta[activeTab].totalPages}
+                  total={paginationMeta[activeTab].total}
+                  pageSize={pageSize}
+                  onPageChange={handlePageChange}
+                  onPageSizeChange={handlePageSizeChange}
+                />
+              )}
+
               {/* Column Distribution Histogram for numeric columns */}
               {(activeTab === 'completeness' || activeTab === 'schema') &&
                 tabData?.completeness && Array.isArray(tabData.completeness) && tabData.completeness
@@ -1285,6 +1570,27 @@ export default function DataQualityPage() {
           )}
         </div>
       </div>
+
+      {/* Query Audit Section — recent queries against monitored tables */}
+      <div className="mt-6">
+        <h2 className="mb-3 text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          <FileSearch className="h-5 w-5 text-blue-500" />
+          Query Audit
+        </h2>
+        <p className="mb-4 text-sm text-gray-500 dark:text-gray-400">
+          Recent queries executed against your data — filter by user or warehouse to investigate data quality issues.
+        </p>
+        <QueryHistoryTable days={7} limit={100} />
+      </div>
+
+      {/* Related Modules */}
+      <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+        <span>Related:</span>
+        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
+        <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Lineage)</a>
+        <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Catalog)</a>
+      </div>
     </div>
+    </ErrorBoundary>
   );
 }

@@ -10,6 +10,7 @@ import { RoleTableDataType } from '@/app/shared/gouvernance/roles/table';
 import { toast } from 'react-hot-toast';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import apiClient from '@/lib/api-client';
 
 export default function EditRolePage() {
   const params = useParams();
@@ -54,6 +55,8 @@ export default function EditRolePage() {
     try {
       setIsSaving(true);
       await updateRole(roleData.role, { comment });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
       toast.success(`✅ Rôle ${roleData.role} mis à jour avec succès`);
       router.push('/gouvernance/roles');
     } catch (err: any) {

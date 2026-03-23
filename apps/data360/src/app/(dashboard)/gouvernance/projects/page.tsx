@@ -1,5 +1,6 @@
 'use client';
 
+import apiClient from '@/lib/api-client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -12,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { formatDistanceToNow } from 'date-fns';
 import PageHeader from '@/components/layout/PageHeader';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import {
   listProjects,
   listContributors,
@@ -471,6 +473,17 @@ export default function ProjectsGovernancePage() {
   const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
+  /** Bust ALL backend cache patterns for projects + deployments after mutations */
+  const bustProjectCache = async () => {
+    try {
+      await Promise.all([
+        apiClient.post('/cache/clear/pattern', { pattern: '*projects*' }),
+        apiClient.post('/cache/clear/pattern', { pattern: '*deploy*' }),
+        apiClient.post('/cache/clear/pattern', { pattern: '*overview*' }),
+      ]);
+    } catch { /* cache clear is best-effort */ }
+  };
+
   const fetchPendingDeploys = useCallback(async () => {
     try {
       const overview = await getProjectsOverview({ days: 90 });
@@ -489,24 +502,35 @@ export default function ProjectsGovernancePage() {
     setDeployActionLoading(deploymentId);
     try {
       await approveDeployment(projectId, deploymentId);
-      toast.success(`Deployment approved for ${projectName}`);
-      fetchPendingDeploys();
-    } catch (err) {
-      toast.error(getApiErrorMessage(err));
+      await bustProjectCache();
+      toast.success(`Deployment approved for ${projectName} — deploying now...`);
+      await Promise.all([fetchPendingDeploys(), fetchAll()]);
+    } catch (err: any) {
+      const msg = getApiErrorMessage(err);
+      // If already processed (404), just refresh the list silently
+      if (err?.response?.status === 404) {
+        toast.success(`Deployment already processed for ${projectName}`);
+        await bustProjectCache();
+        await Promise.all([fetchPendingDeploys(), fetchAll()]);
+      } else {
+        toast.error(typeof msg === 'string' ? msg : 'Deployment action failed');
+      }
     } finally {
       setDeployActionLoading(null);
     }
-  }, [deployActionLoading, fetchPendingDeploys]);
+  }, [deployActionLoading, fetchPendingDeploys, fetchAll]);
 
   const handleRejectDeploy = useCallback(async () => {
     if (!rejectModal || deployActionLoading) return;
     setDeployActionLoading(rejectModal.deploymentId);
     try {
       await rejectDeployment(rejectModal.projectId, rejectModal.deploymentId, { reason: rejectReason || undefined });
+      await bustProjectCache();
       toast.success(`Deployment rejected for ${rejectModal.projectName}`);
       setRejectModal(null);
       setRejectReason('');
-      fetchPendingDeploys();
+      // Refresh BOTH pending list AND project list
+      await Promise.all([fetchPendingDeploys(), fetchAll()]);
     } catch (err) {
       toast.error(getApiErrorMessage(err));
     } finally {
@@ -521,6 +545,7 @@ export default function ProjectsGovernancePage() {
   ];
 
   return (
+    <ErrorBoundary>
     <div className="space-y-6">
       <PageHeader
         icon={<FolderOpen className="h-6 w-6" />}
@@ -605,7 +630,7 @@ export default function ProjectsGovernancePage() {
 
       {/* Reject Deployment Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectModal(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" role="button" tabIndex={0} aria-label="Close modal" onClick={() => setRejectModal(null)} onKeyDown={(e) => e.key === 'Escape' && setRejectModal(null)}>
           <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -703,5 +728,6 @@ export default function ProjectsGovernancePage() {
         )}
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

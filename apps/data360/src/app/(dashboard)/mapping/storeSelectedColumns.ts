@@ -26,8 +26,8 @@ export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload)
     const token = session.user.access_token;
 
     try {
-        console.log(`Service: storeSelectedColumns - Sending POST request to ${API_BASE_URL}/mapping/store-selected-columns`);
-        console.log('Service: storeSelectedColumns - Request payload:', payload);
+        // console.log(`Service: storeSelectedColumns - Sending POST request to ${API_BASE_URL}/mapping/store-selected-columns`);
+        // console.log('Service: storeSelectedColumns - Request payload:', payload);
         const response = await axios.post<StoreSelectedColumnsResponse>(
             `${API_BASE_URL}/explore-design/guided/store-selected-columns`.replace(/\/$/, ''),
             payload,
@@ -38,7 +38,7 @@ export const storeSelectedColumns = async (payload: StoreSelectedColumnsPayload)
                 },
             }
         );
-        console.log('Service: storeSelectedColumns - Response received:', response.data);
+        // console.log('Service: storeSelectedColumns - Response received:', response.data);
         return response.data;
     } catch (error) {
         console.error('Service: storeSelectedColumns - Error storing selected columns:', error);

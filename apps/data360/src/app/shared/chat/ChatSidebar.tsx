@@ -103,6 +103,7 @@ export default function ChatSidebar() {
   };
 
   const loadMessages = async (conversationId: string) => {
+    if (!conversationId || conversationId === 'undefined') return;
     try {
       setLoading(true);
       const { data } = await apiClient.get(`/chat/conversations/${conversationId}/messages?limit=50`);
@@ -127,7 +128,7 @@ export default function ChatSidebar() {
   };
 
   const sendMessage = async () => {
-    if (!newMessage.trim() || !activeConversation) return;
+    if (!newMessage.trim() || !activeConversation?.conversation_id) return;
     try {
       await apiClient.post(`/chat/conversations/${activeConversation.conversation_id}/messages`, {
         content: newMessage.trim(),
@@ -270,6 +271,7 @@ export default function ChatSidebar() {
 
       {/* Floating chat button */}
       <button
+        aria-label={isOpen ? 'Close chat' : 'Open chat'}
         onClick={() => setIsOpen(!isOpen)}
         className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-600/30 transition-all hover:scale-105 hover:shadow-xl active:scale-95"
       >
@@ -288,7 +290,7 @@ export default function ChatSidebar() {
           <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-gray-700">
             {activeConversation ? (
               <>
-                <button onClick={() => setActiveConversation(null)} className="mr-2 text-gray-500 hover:text-gray-700 dark:text-gray-400">
+                <button aria-label="Back to conversations" onClick={() => setActiveConversation(null)} className="mr-2 text-gray-500 hover:text-gray-700 dark:text-gray-400">
                   <ArrowLeft className="h-5 w-5" />
                 </button>
                 <div className="flex-1 min-w-0">
@@ -304,7 +306,7 @@ export default function ChatSidebar() {
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Badge className="text-[9px] px-1.5 py-0.5" color="success">{onlineUsers.length} online</Badge>
-                  <button onClick={() => setShowNewChat(true)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
+                  <button aria-label="New conversation" onClick={() => setShowNewChat(true)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
                     <Plus className="h-4 w-4" />
                   </button>
                 </div>
@@ -442,7 +444,7 @@ export default function ChatSidebar() {
               )}
               {/* Input row */}
               <div className="flex items-center gap-1.5 px-3 py-2.5">
-                <button onClick={() => setShowContextMenu(!showContextMenu)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300">
+                <button aria-label="Attach context or file" onClick={() => setShowContextMenu(!showContextMenu)} className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300">
                   <Plus className="h-4 w-4" />
                 </button>
                 <input
@@ -453,10 +455,10 @@ export default function ChatSidebar() {
                   disabled={isAskingAI}
                   className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white disabled:opacity-50"
                 />
-                <button onClick={askCortexAI} disabled={!newMessage.trim() || isAskingAI} className="flex h-8 w-8 items-center justify-center rounded-lg text-purple-500 hover:bg-purple-50 disabled:opacity-30 dark:hover:bg-purple-900/30" title="Ask AI">
+                <button aria-label="Ask AI" onClick={askCortexAI} disabled={!newMessage.trim() || isAskingAI} className="flex h-8 w-8 items-center justify-center rounded-lg text-purple-500 hover:bg-purple-50 disabled:opacity-30 dark:hover:bg-purple-900/30" title="Ask AI">
                   <Sparkles className="h-4 w-4" />
                 </button>
-                <button onClick={sendMessage} disabled={!newMessage.trim() || isAskingAI} className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
+                <button aria-label="Send message" onClick={sendMessage} disabled={!newMessage.trim() || isAskingAI} className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40">
                   <Send className="h-4 w-4" />
                 </button>
               </div>

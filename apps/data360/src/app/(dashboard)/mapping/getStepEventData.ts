@@ -30,7 +30,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
     const token = session.user.access_token;
 
     try {
-        console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
+        // console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
         const response = await axios.post<LatestStepEventResponse>(
             `${API_BASE_URL}/explore-design/guided/get-steps-event/`,
             null, // POST request with empty body as per your Swagger
@@ -45,7 +45,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
                 }
             }
         );
-        console.log(`Service: getLatestStepEvent - Response for step ${stepType}:`, response.data);
+        // console.log(`Service: getLatestStepEvent - Response for step ${stepType}:`, response.data);
         return response.data.latest_event;
     } catch (error) {
         console.error(`Service: getLatestStepEvent - Error fetching latest event for step ${stepType}:`, error);

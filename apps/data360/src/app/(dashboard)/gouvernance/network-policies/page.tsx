@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { Button, Badge, Input, Select, Modal, Text } from 'rizzui';
 import {
   HiOutlineGlobeAlt,
@@ -192,6 +193,7 @@ export default function NetworkPoliciesPage() {
   const totalIPs = policies.reduce((sum, p) => sum + p.ip_ranges.length, 0);
 
   return (
+    <ErrorBoundary>
     <div className="space-y-8">
       <Breadcrumb />
 
@@ -447,5 +449,6 @@ export default function NetworkPoliciesPage() {
         </div>
       </Modal>
     </div>
+    </ErrorBoundary>
   );
 }

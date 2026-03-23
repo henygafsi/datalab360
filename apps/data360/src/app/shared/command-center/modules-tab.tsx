@@ -5,6 +5,7 @@ import { Badge, Loader } from 'rizzui';
 import {
   Database, GitBranch, BarChart3, Shield, Brain,
   CheckCircle, Eye, Upload, Activity, ArrowRight,
+  TrendingUp, TrendingDown, Minus,
 } from 'lucide-react';
 import Link from 'next/link';
 import {
@@ -128,9 +129,14 @@ function ModulesTab() {
                   </div>
                   <div>
                     <h3 className="font-semibold text-gray-900 dark:text-white text-sm">{mod.name}</h3>
-                    <Badge className={`${STATUS_BADGE[mod.status]} text-[10px] mt-0.5`}>
-                      {mod.status}
-                    </Badge>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <Badge className={`${STATUS_BADGE[mod.status]} text-[10px]`}>
+                        {mod.status}
+                      </Badge>
+                      {mod.status === 'healthy' && <TrendingUp className="w-3 h-3 text-green-500" />}
+                      {mod.status === 'degraded' && <TrendingDown className="w-3 h-3 text-amber-500" />}
+                      {mod.status === 'inactive' && <Minus className="w-3 h-3 text-gray-400" />}
+                    </div>
                   </div>
                 </div>
                 <ArrowRight className="w-4 h-4 text-gray-300 dark:text-gray-600 group-hover:text-gray-500 dark:group-hover:text-gray-400 transition-colors" />

@@ -123,6 +123,7 @@ export default function DMFContent() {
       toast.success('Data Metric Function created');
       setShowCreate(false);
       setCreateForm({ name: '', table_args: '', expression: '', comment: '' });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadItems();
     } catch (err: any) {
       toast.error(err.message || 'Failed to create DMF');
@@ -136,6 +137,7 @@ export default function DMFContent() {
     try {
       await deleteDMF(name, database || undefined, schema || undefined);
       toast.success(`DMF "${name}" dropped`);
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadItems();
     } catch (err: any) {
       toast.error(err.message || 'Failed to drop DMF');

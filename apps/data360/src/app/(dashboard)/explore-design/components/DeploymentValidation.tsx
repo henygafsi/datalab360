@@ -13,11 +13,11 @@ import {
 import { toast } from 'react-hot-toast';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
 import { useSession } from 'next-auth/react';
-// v1 API — /api/v1/explore-design/* and /api/v1/projects/*
+// v1 API — /api/v1/explore-design/* and /projects/*
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
 import { rollbackVersion, bulkUpdateEvents } from '@/app/services/api/projectsApi';
 // Old service — kept for reference, deploy now uses addDDLAction + executeDDLActions
-// import { deploySchema } from '@/app/services/explore-design';
+// import { deploySchema } from '@/app/services/api/v1/explore-design';
 import type {
   CreateExploreDeploymentRequest,
   ProjectVersion,
@@ -1248,12 +1248,12 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   // Deploy changes - with real backend integration
   const handleDeploy = useCallback(async () => {
     // Debug: Log event counts
-    console.log('[Deployment] Event counts:', {
-      totalEvents: events.length,
-      pendingEvents: pendingEvents.length,
-      validatedEvents: events.filter(e => e.status === 'validated').length,
-      columnMappingEvents: events.filter(e => e.type === 'COLUMN_MAPPING_CREATED').length,
-    });
+    // console.log('[Deployment] Event counts:', {
+    //   totalEvents: events.length,
+    //   pendingEvents: pendingEvents.length,
+    //   validatedEvents: events.filter(e => e.status === 'validated').length,
+    //   columnMappingEvents: events.filter(e => e.type === 'COLUMN_MAPPING_CREATED').length,
+    // });
 
     // Use validated events if available, otherwise use pending events directly
     const validatedEvents = events.filter((e) => e.status === 'validated');
@@ -1287,7 +1287,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         status: e.status,
         created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
       }));
-      console.log('[Deployment] API events (user changes):', apiEvents.length);
+      // console.log('[Deployment] API events (user changes):', apiEvents.length);
 
       // Sort events for all deployment types (needed for SQL generation)
       const sortedEvents = sortEventsForDeployment(eventsToDeploy);
@@ -1298,7 +1298,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         .map(event => generateSnowflakeSQL(event).sql)
         .filter(sql => sql && !sql.trim().startsWith('--'));
 
-      console.log('[Deployment] Prepared', orderedSqlQueries.length, 'SQL queries in dependency order');
+      // console.log('[Deployment] Prepared', orderedSqlQueries.length, 'SQL queries in dependency order');
 
       // Handle based on deployment type
       if (deploymentType === 'with_approval') {
@@ -1320,7 +1320,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           };
           const v1Result = await exploreDesignApi.requestDeployment(projectId, v1Body);
           resultId = v1Result.deployment_id;
-          console.log('[Deployment] v1 approval deployment created:', resultId);
+          // console.log('[Deployment] v1 approval deployment created:', resultId);
 
           // Also save locally
           const pendingApproval: ScheduledDeploymentLocal = {
@@ -1381,10 +1381,10 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
         //   - Executes data ingestion with column mappings
         //   - Tracks ingestion history per schema version
 
-        console.log('[Deployment] ========== IMMEDIATE DEPLOYMENT STARTED ==========');
-        console.log('[Deployment] Project ID:', projectId);
-        console.log('[Deployment] Deployment type:', deploymentType);
-        console.log('[Deployment] Pending events (user changes):', eventsToDeploy.length);
+        // console.log('[Deployment] ========== IMMEDIATE DEPLOYMENT STARTED ==========');
+        // console.log('[Deployment] Project ID:', projectId);
+        // console.log('[Deployment] Deployment type:', deploymentType);
+        // console.log('[Deployment] Pending events (user changes):', eventsToDeploy.length);
 
         toast.loading('Preparing two-phase deployment...');
         setDeploymentPhase('schema');
@@ -1399,10 +1399,10 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
           // Sort and filter PENDING events (user's changes only)
           const sortedEvents = sortEventsForDeployment(eventsToDeploy);
-          console.log('[Deployment] Sorted pending events:', sortedEvents.length);
+          // console.log('[Deployment] Sorted pending events:', sortedEvents.length);
 
           const executableEvents = filterExecutableEvents(sortedEvents);
-          console.log('[Deployment] Executable events:', executableEvents.length);
+          // console.log('[Deployment] Executable events:', executableEvents.length);
 
           // Separate schema events (DDL) from ingestion events (ETL)
           const schemaEventTypes: EventType[] = [
@@ -1416,7 +1416,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
           // Get schema events from PENDING changes (user's DDL modifications)
           const schemaEventsToExecute = executableEvents.filter(e => schemaEventTypes.includes(e.type));
-          console.log('[Deployment] Schema events (user DDL changes):', schemaEventsToExecute.length);
+          // console.log('[Deployment] Schema events (user DDL changes):', schemaEventsToExecute.length);
 
           // Generate SQL statements for user's DDL changes only
           // Backend will: 1) Clone template tables, 2) Apply these DDL changes
@@ -1433,14 +1433,14 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
             }
           });
 
-          console.log('[Deployment] Generated SQL statements:', sqlStatements.length);
+          // console.log('[Deployment] Generated SQL statements:', sqlStatements.length);
           if (sqlStatements.length > 0) {
-            console.log('[Deployment] SQL statements:', sqlStatements.map(s => s.sql.substring(0, 100) + '...'));
+            // console.log('[Deployment] SQL statements:', sqlStatements.map(s => s.sql.substring(0, 100) + '...'));
           }
 
           // Extract ingestion configurations from ALL events (for data loading)
           const ingestionConfigs = extractIngestionConfigs(events, ingestionModeOverrides);
-          console.log('[Deployment] Ingestion configs:', ingestionConfigs.length);
+          // console.log('[Deployment] Ingestion configs:', ingestionConfigs.length);
 
           let schemaVersionId: string | null = null;
           let queriesExecuted = 0;
@@ -1449,8 +1449,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           // =====================================================
           // PHASE 1: Schema Deployment via addDDLAction + executeDDLActions
           // =====================================================
-          console.log('[Deployment] ========== REGISTERING DDL ACTIONS ==========');
-          console.log('[Deployment] SQL statements to register:', sqlStatements.length);
+          // console.log('[Deployment] ========== REGISTERING DDL ACTIONS ==========');
+          // console.log('[Deployment] SQL statements to register:', sqlStatements.length);
 
           if (sqlStatements.length > 0) {
             // Step 1: Register each SQL statement as a DDL action
@@ -1481,7 +1481,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               }
             }
 
-            console.log('[Deployment] Registered DDL actions:', registeredCount, '/', sqlStatements.length);
+            // console.log('[Deployment] Registered DDL actions:', registeredCount, '/', sqlStatements.length);
             toast.dismiss();
 
             if (registeredCount === 0) {
@@ -1497,10 +1497,10 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
             // Step 2: Execute all registered DDL actions on Snowflake
             toast.loading(`Phase 1: Executing ${registeredCount} DDL actions on Snowflake...`);
-            console.log('[Deployment] ========== CALLING executeDDLActions ==========');
+            // console.log('[Deployment] ========== CALLING executeDDLActions ==========');
 
             const ddlResult = await exploreDesignApi.executeDDLActions(projectId);
-            console.log('[Deployment] executeDDLActions result:', ddlResult);
+            // console.log('[Deployment] executeDDLActions result:', ddlResult);
             toast.dismiss();
 
             // Check for failures
@@ -1528,7 +1528,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
 
             queriesExecuted = ddlResult.executed || 0;
           } else {
-            console.log('[Deployment] No SQL statements to execute - skipping DDL phase');
+            // console.log('[Deployment] No SQL statements to execute - skipping DDL phase');
             queriesExecuted = 0;
           }
 
@@ -1571,7 +1571,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           });
 
           const schemaName = schemaDeployResult.versioned_schema_name || `${projectId}_V${schemaDeployResult.version_number}`;
-          console.log('[Deployment] Phase 1 complete - Schema version:', schemaVersionId, 'Executed:', queriesExecuted);
+          // console.log('[Deployment] Phase 1 complete - Schema version:', schemaVersionId, 'Executed:', queriesExecuted);
           toast.dismiss();
           toast.success(`Phase 1 complete: ${queriesExecuted} DDL actions executed successfully`);
 
@@ -1594,7 +1594,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               || schemaDeployResult?.versioned_schema_name
               || 'selected schema version';
 
-            console.log('[Deployment] Ingestion target version:', ingestionTargetVersion, '-> resolved to:', targetVersionId);
+            // console.log('[Deployment] Ingestion target version:', ingestionTargetVersion, '-> resolved to:', targetVersionId);
 
             if (ingestionType === 'scheduled') {
               // ─── Scheduled Ingestion: create Snowflake TASK via backend ───
@@ -1615,7 +1615,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                   },
                 });
 
-                console.log('[Deployment] Ingestion scheduled:', scheduleResult);
+                // console.log('[Deployment] Ingestion scheduled:', scheduleResult);
 
                 // Mark ingestion events as applied
                 eventsToDeploy.forEach((event) => {
@@ -1745,11 +1745,11 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 return;
               }
 
-              console.log('[Deployment] Phase 2 complete:', {
-                successful: successCount,
-                failed: failCount,
-                rowsAffected: ingestionRowsAffected,
-              });
+              // console.log('[Deployment] Phase 2 complete:', {
+                // successful: successCount,
+                // failed: failCount,
+                // rowsAffected: ingestionRowsAffected,
+              // });
 
               // Mark ingestion events as applied
               eventsToDeploy.forEach((event) => {
@@ -1766,7 +1766,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
               }
             }
           } else {
-            console.log('[Deployment] No ingestion configs - skipping Phase 2');
+            // console.log('[Deployment] No ingestion configs - skipping Phase 2');
           }
 
           // =====================================================
@@ -1791,7 +1791,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
           };
           const v1Record = await exploreDesignApi.requestDeployment(projectId, v1Body);
           const recordedDeploymentId = v1Record.deployment_id;
-          console.log('[Deployment] v1 immediate deployment recorded:', recordedDeploymentId);
+          // console.log('[Deployment] v1 immediate deployment recorded:', recordedDeploymentId);
 
           // Mark any remaining metadata events as applied (local Jotai store)
           sortedEvents.forEach((event) => {
@@ -1811,7 +1811,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                 event_ids: appliedEventIds,
                 new_status: 'SUCCESS',
               });
-              console.log('[Deployment] Backend event statuses synced:', appliedEventIds.length);
+              // console.log('[Deployment] Backend event statuses synced:', appliedEventIds.length);
             } catch (syncErr) {
               console.warn('[Deployment] Failed to sync event statuses to backend (non-blocking):', syncErr);
             }

@@ -36,14 +36,14 @@ export const manageTableStructure = async (payload: ManageTablePayload): Promise
     const token = session.user.access_token;
 
     const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/manage_table`;
-    console.log(`Service: manageTableStructure - Sending GET request to ${url} with params:`, payload);
+    // console.log(`Service: manageTableStructure - Sending GET request to ${url} with params:`, payload);
 
     try {
         const response = await axios.get(url, {
             headers: { 'Authorization': `Bearer ${token}` },
             params: payload,
         });
-        console.log('Service: manageTableStructure - Response received:', response.data);
+        // console.log('Service: manageTableStructure - Response received:', response.data);
         return response.data;
     } catch (error) {
         console.error("Service: manageTableStructure - Error managing table structure:", error);

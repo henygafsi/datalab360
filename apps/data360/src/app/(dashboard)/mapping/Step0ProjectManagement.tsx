@@ -61,7 +61,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
 
         try {
             const baseProjects = await getProjects();
-            console.log('Step0: Fetched base projects:', baseProjects);
+            // console.log('Step0: Fetched base projects:', baseProjects);
 
             if (!baseProjects || baseProjects.length === 0) {
                 if (mountedRef.current) setProjects([]);
@@ -81,7 +81,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
             const finalProjects = await Promise.all(enrichedProjectsPromises);
             if (mountedRef.current) {
                 setProjects(finalProjects);
-                console.log('Step0: Enriched projects with final steps:', finalProjects);
+                // console.log('Step0: Enriched projects with final steps:', finalProjects);
             }
         } catch (error: unknown) {
             console.error("Step0: Error during data fetching:", error);
@@ -113,7 +113,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     // Auto-refresh when SSE cache invalidation event is received
     useEffect(() => {
         if (wasInvalidated && !loading) {
-            console.log('[SSE] Projects cache invalidated - refreshing data...');
+            // console.log('[SSE] Projects cache invalidated - refreshing data...');
             fetchData(true);
         }
     }, [wasInvalidated, loading, fetchData]);

@@ -225,10 +225,20 @@ export function TableHeadBasic<TData extends Record<string, any>>({
           header.column
         );
 
+        const sortDirection = header.column.getIsSorted();
+        const ariaSortValue = sortDirection === 'asc'
+          ? 'ascending' as const
+          : sortDirection === 'desc'
+            ? 'descending' as const
+            : header.column.getCanSort()
+              ? 'none' as const
+              : undefined;
+
         return (
           <Table.Head
             key={header.id}
             colSpan={header.colSpan}
+            aria-sort={ariaSortValue}
             style={{
               left: isLeftPinned ? header.column.getStart("left") : undefined,
               right: isRightPinned ? header.column.getAfter("right") : undefined,
@@ -253,7 +263,7 @@ export function TableHeadBasic<TData extends Record<string, any>>({
                   type="button"
                   onClick={header.column.getToggleSortingHandler()}
                   className="ms-1 inline-block"
-                  aria-label="Sort by column"
+                  aria-label={`Sort by ${typeof header.column.columnDef.header === 'string' ? header.column.columnDef.header : 'column'}`}
                 >
                   {{
                     asc: <PiCaretUpFill size={14} />,

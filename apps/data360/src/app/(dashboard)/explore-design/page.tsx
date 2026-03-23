@@ -44,7 +44,8 @@ import type { ContributorRole } from '@/app/services/api/types';
 import type { ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
-import ModelingCanvas from './components/ModelingCanvas';
+import dynamic from 'next/dynamic';
+const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
@@ -91,6 +92,7 @@ import QualityGatesPanel from './components/QualityGatesPanel';
 import IngestionDryRunPanel from './components/IngestionDryRunPanel';
 import ConflictResolutionModal from './components/ConflictResolutionModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useAiAnalysis } from './hooks/useAiAnalysis';
 import {
   DWH_TEMPLATE_TABLES,
@@ -183,11 +185,12 @@ const BulkActionsBar: React.FC<{
 }) => {
   const [showIngestionDropdown, setShowIngestionDropdown] = useState(false);
 
-  if (selectedCount === 0) return null;
+  // Only show batch action bar for multi-select (2+). Single table uses inline icon actions.
+  if (selectedCount < 2) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-      <div className="flex items-center gap-3 px-6 py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-full shadow-2xl">
+    <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 max-w-[95vw]">
+      <div className="flex items-center gap-2 sm:gap-3 px-4 sm:px-6 py-2.5 sm:py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-full shadow-2xl flex-nowrap whitespace-nowrap overflow-x-auto scrollbar-hide">
         <span className="font-medium">{selectedCount} tables selected</span>
         <div className="w-px h-6 bg-slate-600" />
 
@@ -750,7 +753,7 @@ export default function ExploreDesignPage() {
   useEffect(() => {
     const removedCount = cleanupEmptyEvents();
     if (removedCount > 0) {
-      console.log(`[Explore-Design] Cleaned up ${removedCount} empty events from localStorage`);
+      // Cleanup complete
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -836,7 +839,6 @@ export default function ExploreDesignPage() {
     );
 
     const merged = [...eventMappings, ...uniqueBackend];
-    console.log('[initialColumnMappings] event:', eventMappings.length, 'backend:', backendFlat.length, 'merged:', merged.length);
     return merged;
   }, [events, backendMappings]);
 
@@ -853,15 +855,12 @@ export default function ExploreDesignPage() {
     const loadDatabases = async () => {
       // Don't load if offline
       if (isOffline) {
-        console.log('[Explore-Design] Skipping database load - offline');
         return;
       }
 
-      console.log('[Explore-Design] Starting to load databases...');
       setIsLoadingDatabases(true);
       try {
         const dbList = await getDatabases();
-        console.log('[Explore-Design] Databases loaded:', dbList);
         setDatabases(Array.isArray(dbList) ? dbList : []);
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
@@ -882,11 +881,9 @@ export default function ExploreDesignPage() {
   // Load masking policies on mount
   useEffect(() => {
     const loadMaskingPolicies = async () => {
-      console.log('[Explore-Design] Starting to load masking policies...');
       setIsLoadingPolicies(true);
       try {
         const policies = await getMaskingPolicies();
-        console.log('[Explore-Design] Masking policies loaded:', policies);
         // Map to display format
         const displayPolicies: MaskingPolicyDisplay[] = (policies || []).map(p => ({
           name: p.policy_name,
@@ -917,7 +914,6 @@ export default function ExploreDesignPage() {
     const db = dwhTargetDatabase;
     const schema = dwhTargetSchema;
 
-    console.log(`[Modeling] Loading hardcoded DWH template into ${db}.${schema}`);
 
     // 1. Build data from hardcoded template
     const templateTables = buildTemplateTableItems(db, schema);
@@ -1045,7 +1041,6 @@ export default function ExploreDesignPage() {
               entity_type: 'design_event',
             });
           }
-          console.log(`[Template] Persisted ${1 + tableEvents.length + fkEvents.length} template events to backend`);
         } catch (err) {
           console.warn('[Template] Failed to persist template events to backend:', err);
         }
@@ -1054,7 +1049,6 @@ export default function ExploreDesignPage() {
     }
 
     setDefaultModelingTablesLoaded(true);
-    console.log(`[Modeling] Loaded ${templateTables.length} template tables, ${templateRelationships.length} relationships`);
   }, [viewMode, modelingChoice, defaultModelingTablesLoaded, dwhTargetDatabase, dwhTargetSchema, selectedProjectId, selectedDatabase, tables.length, targetTableIds.size, addEvent]);
 
   // Load schemas when database changes
@@ -1065,11 +1059,9 @@ export default function ExploreDesignPage() {
     }
 
     const loadSchemas = async () => {
-      console.log('[Explore-Design] Loading schemas for database:', selectedDatabase);
       setIsLoadingSchemas(true);
       try {
         const schemaList = await getSchemas(selectedDatabase);
-        console.log('[Explore-Design] Schemas loaded:', schemaList);
         setSchemas(schemaList || []);
       } catch (error) {
         console.error('[Explore-Design] Failed to load schemas:', error);
@@ -1090,16 +1082,13 @@ export default function ExploreDesignPage() {
     }
 
     const loadTables = async () => {
-      console.log('[Explore-Design] Loading tables for schemas:', Object.fromEntries(selectedSchemas));
       setIsLoadingTables(true);
       try {
         const newTables: TableItem[] = [];
 
         // Iterate over schema->database map entries
         for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
-          console.log(`[Explore-Design] Fetching tables for ${dbName}.${schemaName}`);
           const tableList = await getTables(dbName, schemaName);
-          console.log(`[Explore-Design] Tables for ${schemaName}:`, tableList);
           if (tableList) {
             tableList.forEach((tableName: string) => {
               const tableId = `${dbName}.${schemaName}.${tableName}`;
@@ -1120,7 +1109,6 @@ export default function ExploreDesignPage() {
         }
 
         // Merge with existing tables: keep target/DWH tables, add new schema tables
-        console.log('🔄 [Tables] Loaded table IDs:', newTables.map(t => t.id));
         setTables(prev => {
           // Keep existing target/DWH tables (default tables)
           const existingTargetTables = prev.filter(t => targetTableIds.has(t.id));
@@ -1138,7 +1126,6 @@ export default function ExploreDesignPage() {
         // Only load for tables not already in tableColumnsMap
         const tablesToLoadColumns = newTables.filter(t => !tableColumnsMap.has(t.id));
         if (tablesToLoadColumns.length > 0) {
-          console.log(`[Explore-Design] Loading columns for ${tablesToLoadColumns.length} new tables...`);
           const columnsPromises = tablesToLoadColumns.map(async (table) => {
             try {
               const cols = await getTableColumns(table.database, table.schema, table.table);
@@ -1172,7 +1159,6 @@ export default function ExploreDesignPage() {
             return next;
           });
 
-          console.log(`[Explore-Design] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
         }
       } catch (error) {
         toast.error('Failed to load tables');
@@ -1344,7 +1330,6 @@ export default function ExploreDesignPage() {
               database: databaseForSchema,
             },
           });
-          console.log('📌 SCHEMA_SELECTED event created for:', databaseForSchema + '.' + schema);
         }, 0);
       }
 
@@ -1448,13 +1433,6 @@ export default function ExploreDesignPage() {
       try {
         // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write
         const eventsResponse = await listProjectEvents(projectId, { module_name: 'EXPLORE-DESIGN' });
-        console.log('📥 Backend events response:', eventsResponse);
-        console.log('📥 Raw events details:', eventsResponse.events?.map((e: any) => ({
-          type: e.event_type,
-          details: e.details,
-          schema: e.details?.target?.schema || e.details?.schema,
-          table: e.details?.target?.table || e.details?.table,
-        })));
 
         // Extract unique database and schemas from ALL events
         // Track schemas per database: Map<database, Set<schema>>
@@ -1506,15 +1484,6 @@ export default function ExploreDesignPage() {
               error: e.error_message,
             };
 
-            // Debug logging for COLUMN_MAPPING events
-            if (e.event_type === 'COLUMN_MAPPING_CREATED' || e.event_type === 'COLUMN_MAPPING_REMOVED') {
-              console.log('[handleProjectSelect] Converting COLUMN_MAPPING event:', {
-                rawEvent: e,
-                details,
-                convertedPayload: convertedEvent.payload,
-              });
-            }
-
             // Extract database and schema pairs from EVERY event
             const db = convertedEvent.target?.database;
             const schema = convertedEvent.target?.schema;
@@ -1540,10 +1509,6 @@ export default function ExploreDesignPage() {
             return convertedEvent;
           });
 
-          console.log('📊 Total converted events:', backendEvents.length);
-          console.log('📊 Schemas by database:', Object.fromEntries(
-            Array.from(schemasByDatabase.entries()).map(([db, schemas]) => [db, Array.from(schemas)])
-          ));
         }
 
         await loadProjectEvents({ projectId, events: backendEvents });
@@ -1553,7 +1518,7 @@ export default function ExploreDesignPage() {
         try {
           const ddlResponse = await listDDLActions(projectId);
           const ddlActions = ddlResponse.actions || [];
-          console.log('[handleProjectSelect] Loaded DDL actions:', ddlActions.length);
+          void ddlActions; // loaded for awareness only
         } catch (ddlErr) {
           console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
         }
@@ -1562,7 +1527,7 @@ export default function ExploreDesignPage() {
         /**try {
           const mappingsResponse = await listMappings(projectId);
           setBackendMappings(mappingsResponse.mappings || []);
-          console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
+          // console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
         } catch (mappingErr) {
           console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
           setBackendMappings([]);
@@ -1572,8 +1537,6 @@ export default function ExploreDesignPage() {
         if (schemasByDatabase.size > 0) {
           // Use the first database as the selected one (user can switch later)
           const dbToSelect = Array.from(schemasByDatabase.keys())[0];
-          console.log('🔄 Restoring database selection:', dbToSelect);
-          console.log('🔄 All databases with schemas:', Array.from(schemasByDatabase.keys()));
 
           try {
             // Set the database first
@@ -1591,7 +1554,6 @@ export default function ExploreDesignPage() {
               });
             });
 
-            console.log('🔄 Restoring ALL schema selections:', Object.fromEntries(allSchemasMap));
             setSelectedSchemas(allSchemasMap);
 
             // Expanded schemas - only those in the selected database's schema list
@@ -1641,7 +1603,6 @@ export default function ExploreDesignPage() {
               }
             });
 
-            console.log('🔄 Tables from COLUMN_MAPPING events:', Array.from(mappingTableIds));
 
             // Final modeling tables = added - removed + mapping tables
             const modelingTables = new Set([
@@ -1649,13 +1610,7 @@ export default function ExploreDesignPage() {
               ...Array.from(mappingTableIds)
             ]);
 
-            console.log('🔄 [Restore] TABLE_ADDED_TO_MODELING ids:', Array.from(addedTableIds));
-            console.log('🔄 [Restore] TABLE_REMOVED_FROM_MODELING ids:', Array.from(removedTableIds));
-            console.log('🔄 [Restore] COLUMN_MAPPING table ids:', Array.from(mappingTableIds));
-            console.log('🔄 [Restore] Final modelingTables:', Array.from(modelingTables));
-
             if (modelingTables.size > 0) {
-              console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
               // Merge with existing modeling tables (including default DWH tables)
               setModelingTableIds(prev => {
                 const merged = new Set(prev);
@@ -2162,10 +2117,15 @@ export default function ExploreDesignPage() {
   }, [savedPanelState]);
 
   return (
+    <ErrorBoundary>
     <div className={cn(
       "flex flex-col",
       isFullscreen ? "h-screen" : "h-[calc(100vh-84px)]"
     )}>
+      {/* Breadcrumb */}
+      <div className="text-xs text-slate-500 dark:text-slate-400 px-4 pt-2 pb-1">
+        <a href="/" className="hover:text-blue-600">Home</a> / <span className="text-slate-700 dark:text-slate-300">Explore & Design</span>
+      </div>
       {/* Offline Warning Banner */}
       {isOffline && (
         <div className="px-4 py-3 bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800">
@@ -2481,6 +2441,13 @@ export default function ExploreDesignPage() {
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Pending events: {displayablePendingEvents.length}. Use the Deploy button in the toolbar to validate and deploy.
               </p>
+              <button
+                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors mt-2"
+              >
+                <ArrowRight className="h-3.5 w-3.5" />
+                Open in Workflow
+              </button>
             </div>
           ) : undefined}
           versionsSlot={selectedProjectId ? (
@@ -2534,7 +2501,7 @@ export default function ExploreDesignPage() {
                   <div className="p-1 bg-blue-100 dark:bg-blue-900/30 rounded">
                     <Table2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
                   </div>
-                  <span className="font-semibold text-sm text-slate-800 dark:text-slate-200">
+                  <span className="font-semibold text-base text-slate-800 dark:text-slate-200">
                     Source Tables
                   </span>
                   <Badge className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 py-0 font-medium">
@@ -2777,7 +2744,7 @@ export default function ExploreDesignPage() {
                               <Table2 className="h-5 w-5 text-blue-600" />
                             </div>
                             <div>
-                              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                                 {selectedTable.table}
                               </h2>
                               <p className="text-sm text-slate-500">
@@ -2800,21 +2767,21 @@ export default function ExploreDesignPage() {
                       <div className="px-5 py-4">
                         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
                             onClick={() => setTablePreviewModal(true)}
                           >
                             <Eye className="h-5 w-5 text-blue-600" />
                             <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Preview Data</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150 bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800"
                             onClick={() => setTableProfileModal(true)}
                           >
                             <BarChart3 className="h-5 w-5 text-purple-600" />
                             <span className="text-xs font-medium text-purple-700 dark:text-purple-400">Data Profile</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => {
                               if (readOnlyGuard()) return;
                               const newName = prompt('Enter new table name:', selectedTable.table);
@@ -2832,28 +2799,28 @@ export default function ExploreDesignPage() {
                             <span className="text-xs font-medium">Rename</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => setShowIngestionPanel(true)}
                           >
                             <RefreshCw className="h-5 w-5 text-blue-500" />
                             <span className="text-xs font-medium">Ingestion</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => setShowCatalogPolicyPanel(true)}
                           >
                             <Shield className="h-5 w-5 text-green-500" />
                             <span className="text-xs font-medium">Masking</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => setShowCatalogPolicyPanel(true)}
                           >
                             <Layers className="h-5 w-5 text-purple-500" />
                             <span className="text-xs font-medium">Aggregation</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => {
                               if (readOnlyGuard()) return;
                               if (!selectedTable) return;
@@ -2881,7 +2848,7 @@ export default function ExploreDesignPage() {
                             <span className="text-xs font-medium">Primary Key</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => toast('Column naming rules — coming soon')}
                           >
                             <Columns3 className="h-5 w-5 text-slate-500" />
@@ -4152,6 +4119,14 @@ export default function ExploreDesignPage() {
           )}
         </div>
       </Modal>
+      {/* Cross-module links */}
+      <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <span>Related:</span>
+        <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Pipelines)</a>
+        <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
+        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
+      </div>
     </div>
+    </ErrorBoundary>
   );
 }

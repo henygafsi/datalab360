@@ -36,7 +36,7 @@ export default function StageGrantsTable() {
     setError(null);
     try {
       const res = await listSnowflakeStages();
-      const list = Array.isArray(res?.stages) ? res.stages : [];
+      const list = Array.isArray(res?.stages) ? res.stages : Array.isArray(res?.data) ? res.data : [];
       setStages(list);
       if (list.length > 0) {
         setSelectedStage((prev) => prev || list[0].name);

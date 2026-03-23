@@ -30,6 +30,12 @@ export interface TemplateWidget {
     suggestedDimension?: string;
     description?: string;
     colors?: string[];
+    /** Pre-configured data source for instant rendering */
+    database?: string;
+    schema?: string;
+    table?: string;
+    aggregator?: string;
+    rowLimit?: number;
   };
 }
 
@@ -47,69 +53,86 @@ export interface DashboardTemplate {
 // ── Template Definitions ───────────────────────────────────────────
 
 const TEMPLATES: DashboardTemplate[] = [
-  // ── 1. Retail Sales Dashboard ──
+  // ── 1. Retail Sales Dashboard (CP_DATA360.RETAIL_DW) ──
   {
     id: 'retail-sales',
     name: 'Retail Sales Dashboard',
-    description: 'Track revenue trends, store performance, top products, and payment distribution for retail operations.',
+    description: 'Revenue trends, city/store performance, and product analysis using CP_DATA360.RETAIL_DW sample data.',
     icon: ShoppingCart,
     category: 'Retail',
     color: 'from-blue-500 to-cyan-500',
     widgets: [
       {
-        type: 'area',
+        type: 'bar',
         widgetType: 'chart',
-        title: 'Revenue Trend',
+        title: 'Revenue by City',
         width: 12,
         height: 4,
         config: {
-          chartType: 'area',
-          suggestedMeasures: ['REVENUE', 'TOTAL_SALES'],
-          suggestedDimension: 'DATE',
-          description: 'Revenue over time with area fill',
+          chartType: 'bar',
+          suggestedMeasures: ['TOTAL_REVENUE'],
+          suggestedDimension: 'CITY',
+          description: 'Total revenue per city from ETL pipeline',
           colors: [PALETTE[0], PALETTE[4]],
+          database: 'CP_DATA360',
+          schema: 'RETAIL_DW',
+          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
+          aggregator: 'SUM',
+          rowLimit: 15,
         },
       },
       {
         type: 'bar',
         widgetType: 'chart',
-        title: 'Sales by Store',
+        title: 'Top 10 Stores by Revenue',
         width: 12,
         height: 4,
         config: {
           chartType: 'bar',
-          suggestedMeasures: ['TOTAL_SALES', 'TRANSACTION_COUNT'],
+          suggestedMeasures: ['TOTAL_REVENUE'],
           suggestedDimension: 'STORE_NAME',
-          description: 'Compare sales performance across stores',
+          description: 'Store performance ranked by total revenue',
           colors: [PALETTE[1], PALETTE[2]],
-        },
-      },
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Top Products',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['QUANTITY_SOLD', 'REVENUE'],
-          suggestedDimension: 'PRODUCT_NAME',
-          description: 'Top-selling products ranked by volume or revenue',
-          colors: [PALETTE[4], PALETTE[5]],
+          database: 'CP_DATA360',
+          schema: 'RETAIL_DW',
+          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
+          aggregator: 'SUM',
+          rowLimit: 10,
         },
       },
       {
         type: 'pie',
         widgetType: 'chart',
-        title: 'Payment Method Distribution',
+        title: 'Revenue Distribution by City',
         width: 12,
         height: 4,
         config: {
           chartType: 'pie',
-          suggestedMeasures: ['TRANSACTION_COUNT'],
-          suggestedDimension: 'PAYMENT_METHOD',
-          description: 'Breakdown of transactions by payment method',
+          suggestedMeasures: ['TOTAL_REVENUE'],
+          suggestedDimension: 'CITY',
+          description: 'Revenue share per city as pie chart',
           colors: PALETTE,
+          database: 'CP_DATA360',
+          schema: 'RETAIL_DW',
+          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
+          aggregator: 'SUM',
+          rowLimit: 10,
+        },
+      },
+      {
+        type: 'table',
+        widgetType: 'table',
+        title: 'Store Revenue Details',
+        width: 24,
+        height: 4,
+        config: {
+          suggestedMeasures: ['TOTAL_REVENUE', 'STORE_COUNT', 'CITY'],
+          suggestedDimension: 'STORE_NAME',
+          description: 'Detailed revenue table with all store metrics',
+          database: 'CP_DATA360',
+          schema: 'RETAIL_DW',
+          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
+          rowLimit: 50,
         },
       },
     ],

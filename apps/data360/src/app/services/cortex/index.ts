@@ -25,40 +25,6 @@ export type {
   SemanticModelGenerateResponse,
 } from './semantic-models';
 
-// Advanced ML Features
-export {
-  createFineTuneJob,
-  listFineTuneJobs,
-  describeFineTuneJob,
-  cancelFineTuneJob,
-  createDocumentAIModel,
-  listDocumentAIModels,
-  predictDocumentAI,
-  trainClassification,
-  predictClassification,
-  listClassificationModels,
-  getClassificationMetrics,
-  dropClassificationModel,
-  createTopInsights,
-  analyzeTopInsights,
-  listTopInsights,
-} from './ml-advanced';
-export type {
-  CreateFineTuneRequest,
-  FineTuneJob,
-  FineTuneJobDescription,
-  CreateDocumentAIModelRequest,
-  DocumentAIModel,
-  PredictDocumentAIRequest,
-  TrainClassificationRequest,
-  PredictClassificationRequest,
-  ClassificationModel,
-  ClassificationMetrics,
-  CreateTopInsightsRequest,
-  AnalyzeTopInsightsRequest,
-  TopInsightsInstance,
-} from './ml-advanced';
-
 // Query Analytics (Cortex-powered query history analysis)
 export {
   runQueryAnalysis,
@@ -72,3 +38,41 @@ export type {
   RedundantGroup,
   RunAnalysisResponse,
 } from './query-analytics';
+
+// DuckDB / Local Analytics
+export {
+  listDuckdbDatasets,
+  queryStage,
+  duckdbQuery,
+} from './duckdb';
+export type {
+  DuckdbDataset,
+  DuckdbDatasetsResponse,
+  DuckdbQueryResult,
+} from './duckdb';
+
+// Snowpark Container Services
+export {
+  listComputePools,
+  createComputePool,
+  suspendPool,
+  resumePool,
+  listServices,
+  createService,
+  getServiceStatus,
+  getServiceLogs,
+  listStreamlitApps,
+  createStreamlitApp,
+  listImageRepos,
+  listEndpoints,
+} from './snowpark';
+export type {
+  ComputePool,
+  ContainerService,
+  StreamlitApp,
+  ImageRepo,
+  ServiceEndpoint,
+  CreatePoolRequest,
+  CreateServiceRequest,
+  CreateStreamlitRequest,
+} from './snowpark';

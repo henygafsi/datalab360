@@ -135,6 +135,36 @@ function AIAssistantTab() {
         </div>
       </div>
 
+      {/* Quick Demo Presets */}
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          Quick Demo
+        </label>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          {[
+            { label: 'Explain Schema', text: 'Explain the schema of CP_DATA360.RETAIL_DW', icon: PiDatabaseDuotone },
+            { label: 'Top Customers Query', text: 'Write a query to find top 10 customers by revenue', icon: PiMagnifyingGlassDuotone },
+            { label: 'DQ Checks', text: 'Suggest data quality checks for FACT_TRANSACTIONS', icon: PiShieldCheckDuotone },
+          ].map((preset) => {
+            const PresetIcon = preset.icon;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => setPrompt(preset.text)}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-left transition-all hover:border-purple-400 hover:bg-purple-50 dark:border-slate-600 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
+              >
+                <PresetIcon className="h-5 w-5 flex-shrink-0 text-purple-500 dark:text-purple-400" />
+                <div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">{preset.label}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{preset.text}</div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Model Selection */}
         <div>
@@ -284,9 +314,18 @@ function SentimentTab() {
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Enter text to analyze (one per line for batch analysis)
-        </label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Enter text to analyze (one per line for batch analysis)
+          </label>
+          <button
+            onClick={() => setInput("I love this product! The quality is amazing and delivery was super fast.\nTerrible experience. The item arrived broken and customer service was unhelpful.\nIt's okay, nothing special but it works as expected.\nBest purchase I've made this year! Highly recommended.\nDisappointing quality for the price. Would not buy again.")}
+            className="text-xs font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1"
+          >
+            <PiSparkle className="h-3 w-3" />
+            Try Sample
+          </button>
+        </div>
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -467,9 +506,18 @@ function TranslatorTab() {
       {/* Text Areas */}
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-            Source Text
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Source Text
+            </label>
+            <button
+              onClick={() => setSourceText("Data360 is the all-in-one AI and Data ERP platform that connects, models, transforms, governs, and analyzes enterprise data in a single unified experience.")}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1"
+            >
+              <PiSparkle className="h-3 w-3" />
+              Try Sample
+            </button>
+          </div>
           <Textarea
             value={sourceText}
             onChange={(e) => setSourceText(e.target.value)}
@@ -598,6 +646,13 @@ function SummarizerTab() {
         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
           Original Text
         </label>
+        <button
+          onClick={() => setInputText("Data governance is the process of managing the availability, usability, integrity, and security of data in enterprise systems. It includes establishing policies, standards, and procedures that ensure data quality and compliance with regulations such as GDPR and SOC 2. Effective data governance requires collaboration between data stewards, engineers, analysts, and business stakeholders. Modern platforms like Data360 automate governance through AI-powered classification, masking policies, row-level security, and real-time compliance monitoring across all data assets.")}
+          className="text-xs font-medium text-orange-600 dark:text-orange-400 hover:text-orange-700 flex items-center gap-1 mb-1"
+        >
+          <PiSparkle className="h-3 w-3" />
+          Try Sample Text
+        </button>
         <Textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}

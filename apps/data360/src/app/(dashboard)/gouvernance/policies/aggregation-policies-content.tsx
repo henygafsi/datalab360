@@ -20,6 +20,7 @@ import {
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
+import apiClient from '@/lib/api-client';
 
 export default function AggregationPoliciesContent() {
   const [policies, setPolicies] = useState<AggregationPolicy[]>([]);
@@ -84,7 +85,7 @@ export default function AggregationPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing aggregation policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing aggregation policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -97,7 +98,7 @@ export default function AggregationPoliciesContent() {
 
     try {
       const details = await getAggregationPolicyDetails(policy.policy_name);
-      console.log('Aggregation policy details:', details);
+      // console.log('Aggregation policy details:', details);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -148,14 +149,15 @@ export default function AggregationPoliciesContent() {
         schema: DEFAULTS.SCHEMA,
         expiration_date: expirationDate || undefined,
       };
-      console.log('[Aggregation Create] Sending request:', requestData);
+      // console.log('[Aggregation Create] Sending request:', requestData);
 
       const result = await createAggregationPolicy(requestData);
-      console.log('[Aggregation Create] Response:', result);
+      // console.log('[Aggregation Create] Response:', result);
 
       toast.success('Aggregation policy created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('[Aggregation Create] Error:', error.response?.data || error);
@@ -180,6 +182,7 @@ export default function AggregationPoliciesContent() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Apply aggregation policy error:', error.response?.data || error);
@@ -221,6 +224,7 @@ export default function AggregationPoliciesContent() {
       toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteAggregationPolicy(policy.policy_name);
       toast.success('Policy deleted successfully', { id: 'delete-policy' });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete aggregation policy error:', error.response?.data || error);

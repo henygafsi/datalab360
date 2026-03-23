@@ -181,5 +181,204 @@ export async function getUserMfaStatus(username: string): Promise<MfaStatus> {
   return apiCall<MfaStatus>(`/gouvernance/user/mfa/status?${params}`);
 }
 
+// ---------------------------------------------------------------------------
+// GUI Permissions — role-based page access control
+// ---------------------------------------------------------------------------
+
+export interface GuiPermission {
+  permission_id: string;
+  role_name: string;
+  page_path: string;
+  access_level: 'READ' | 'WRITE' | 'NONE';
+  created_by: string | null;
+  created_at: string | null;
+}
+
+export interface GuiPermissionCreate {
+  role_name: string;
+  page_path: string;
+  access_level: 'READ' | 'WRITE' | 'NONE';
+}
+
+/**
+ * List all GUI permission rules
+ * GET /gouvernance/gui-permissions
+ */
+export async function listGuiPermissions(): Promise<{ data: GuiPermission[]; count: number }> {
+  return apiCall<{ data: GuiPermission[]; count: number }>('/gouvernance/gui-permissions');
+}
+
+/**
+ * Create or update a GUI permission rule (upsert by role + page_path)
+ * POST /gouvernance/gui-permissions
+ */
+export async function upsertGuiPermission(
+  payload: GuiPermissionCreate
+): Promise<{ success: boolean; message: string }> {
+  return apiCall<{ success: boolean; message: string }>(
+    '/gouvernance/gui-permissions',
+    'POST',
+    payload
+  );
+}
+
+/**
+ * Get the page access map for the currently logged-in user's roles.
+ * Keys are page paths (e.g. "connect", "workflow"), values are access levels.
+ * GET /gouvernance/gui-permissions/my-access
+ */
+export async function getMyPageAccess(): Promise<{
+  data: Record<string, 'READ' | 'WRITE' | 'NONE'>;
+  roles: string[];
+}> {
+  return apiCall<{ data: Record<string, 'READ' | 'WRITE' | 'NONE'>; roles: string[] }>(
+    '/gouvernance/gui-permissions/my-access'
+  );
+}
+
+/**
+ * Delete a GUI permission rule by ID
+ * DELETE /gouvernance/gui-permissions/{permission_id}
+ */
+export async function deleteGuiPermission(
+  permissionId: string
+): Promise<{ success: boolean; message: string }> {
+  const { data } = await apiClient.delete<{ success: boolean; message: string }>(
+    `/gouvernance/gui-permissions/${permissionId}`
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// OAuth / External Auth Management
+// ---------------------------------------------------------------------------
+
+export interface OAuthIntegration {
+  name: string;
+  type: string;
+  category: string;
+  enabled: string;
+  created_on: string;
+  [key: string]: unknown;
+}
+
+export interface NetworkPolicy {
+  name: string;
+  created_on: string;
+  allowed_ip_list: string;
+  blocked_ip_list: string;
+  [key: string]: unknown;
+}
+
+export interface ApiKeyUser {
+  user_name: string;
+  created_on: string;
+  last_success_login: string | null;
+  has_rsa_public_key: string;
+  disabled: string;
+  default_role: string | null;
+}
+
+/**
+ * List all security integrations (OAuth, SAML, SCIM)
+ * GET /gouvernance/oauth/integrations
+ */
+export async function listOAuthIntegrations(): Promise<{
+  integrations: OAuthIntegration[];
+  count: number;
+}> {
+  return apiCall('/gouvernance/oauth/integrations');
+}
+
+/**
+ * List all network policies with IP rules
+ * GET /gouvernance/oauth/network-policies
+ */
+export async function listNetworkPolicies(): Promise<{
+  policies: NetworkPolicy[];
+  count: number;
+}> {
+  return apiCall('/gouvernance/oauth/network-policies');
+}
+
+/**
+ * List service accounts with RSA key pair authentication
+ * GET /gouvernance/oauth/api-keys
+ */
+export async function listApiKeys(): Promise<{
+  api_keys: ApiKeyUser[];
+  count: number;
+}> {
+  return apiCall('/gouvernance/oauth/api-keys');
+}
+
+// =====================================
+// CREATE SECURITY INTEGRATIONS (OAuth / SAML)
+// =====================================
+
+export interface CreateOAuthIntegrationBody {
+  name: string;
+  oauth_provider: 'AZURE' | 'OKTA' | 'CUSTOM';
+  oauth_client_id: string;
+  oauth_client_secret?: string;
+  oauth_token_endpoint?: string;
+  oauth_authorization_endpoint?: string;
+  oauth_allowed_scopes?: string[];
+  azure_tenant_id?: string;
+  enabled?: boolean;
+}
+
+export interface CreateSAMLIntegrationBody {
+  name: string;
+  saml2_issuer: string;
+  saml2_sso_url: string;
+  saml2_x509_cert: string;
+  saml2_provider?: string;
+  saml2_sp_initiated_login_page_label?: string;
+  enabled?: boolean;
+}
+
+export async function createOAuthIntegration(body: CreateOAuthIntegrationBody): Promise<{
+  message: string;
+  name: string;
+  provider: string;
+  enabled: boolean;
+}> {
+  return apiCall('/gouvernance/oauth/integrations', 'POST', body);
+}
+
+export async function createSAMLIntegration(body: CreateSAMLIntegrationBody): Promise<{
+  message: string;
+  name: string;
+  provider: string;
+  sso_url: string;
+  enabled: boolean;
+}> {
+  return apiCall('/gouvernance/oauth/saml-integrations', 'POST', body);
+}
+
+// =====================================
+// SERVICE USER & KEY MANAGEMENT
+// =====================================
+
+export async function createServiceUser(body: {
+  username: string;
+  default_role?: string;
+  comment?: string;
+}): Promise<{ message: string; username: string }> {
+  return apiCall('/gouvernance/oauth/service-users', { method: 'POST', data: body });
+}
+
+export async function assignRSAKey(body: {
+  username: string;
+  rsa_public_key: string;
+}): Promise<{ message: string; username: string }> {
+  return apiCall('/gouvernance/oauth/assign-rsa-key', { method: 'POST', data: body });
+}
+
+export async function revokeRSAKey(username: string): Promise<{ message: string }> {
+  return apiCall(`/gouvernance/oauth/revoke-rsa-key/${encodeURIComponent(username)}`, { method: 'DELETE' });
+}
+
 // Re-export types for convenience
 export * from './types';

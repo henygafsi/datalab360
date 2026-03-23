@@ -196,12 +196,12 @@ const TableRow: React.FC<{
       )}
       onClick={handleRowClick}
     >
-      <div className="pt-0.5" onClick={handleCheckboxClick}>
+      <button type="button" aria-label="Toggle row selection" className="pt-0.5 cursor-pointer" onClick={handleCheckboxClick}>
         <Checkbox
           checked={isSelected}
           onCheckedChange={handleCheckboxChange}
         />
-      </div>
+      </button>
 
       <div className="flex-1 min-w-0">
         {/* Table name - full width, no truncation fighting */}

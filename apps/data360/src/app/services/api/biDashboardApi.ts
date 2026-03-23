@@ -1,5 +1,5 @@
 /**
- * BI Dashboard Module API client — /api/v1/bi-dashboard/*
+ * BI Dashboard Module API client — /bi-dashboard/*
  * Replaces the old business_reporting module.
  * Handles: dashboard CRUD, pages, widgets, filters, chart data, retail KPIs, snapshots.
  */
@@ -164,6 +164,37 @@ export async function fetchWidgetChartData(chartConfig: BIDashboardChartConfig) 
   const { data } = await apiClient.post<ChartDataResponse>(
     `${PREFIX}/charts/data`,
     chartConfig
+  );
+  return data;
+}
+
+// ============================================================================
+// NL-to-Chart (AI-powered chart generation)
+// ============================================================================
+
+export interface NlToChartRequest {
+  question: string;
+  database?: string;
+  schema?: string;
+}
+
+export interface NlToChartResponse {
+  chart_config: Record<string, unknown>;
+  question: string;
+  execution_time_ms: number;
+}
+
+export async function nlToChart(
+  question: string,
+  database?: string,
+  schema?: string
+) {
+  const body: NlToChartRequest = { question };
+  if (database) body.database = database;
+  if (schema) body.schema = schema;
+  const { data } = await apiClient.post<NlToChartResponse>(
+    `${PREFIX}/nl-to-chart`,
+    body
   );
   return data;
 }

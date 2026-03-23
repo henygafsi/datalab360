@@ -13,6 +13,7 @@ import {
   HiOutlineExclamationCircle
 } from 'react-icons/hi2';
 import { Database, ArrowLeft } from 'lucide-react';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { ROLE_PERMISSIONS } from '@/config/constants';
 import { routes } from '@/config/routes';
 
@@ -44,6 +45,9 @@ import {
     icebergNamespaces,
     icebergTables,
     icebergIngest,
+    oracleTest,
+    oracleIngest,
+    oracleSampleStage,
 } from './connectionServices';
 import { silentReauth } from '@/app/services/auth/silentReauth';
 
@@ -60,7 +64,7 @@ function Breadcrumb({ onHomeClick }: { onHomeClick?: () => void }) {
     <nav className="mb-8" aria-label="Breadcrumb">
       <div className="flex items-center space-x-2 text-sm text-slate-600 dark:text-slate-400">
         {onHomeClick ? (
-          <button type="button" onClick={onHomeClick} className="cursor-pointer transition-colors hover:text-slate-900 dark:hover:text-slate-200 focus:outline-none focus:underline">
+          <button type="button" onClick={onHomeClick} className="cursor-pointer transition-colors hover:text-slate-900 dark:hover:text-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded">
             Home
           </button>
         ) : (
@@ -235,6 +239,7 @@ type StageConnection = {
     name: string;
     schema_name?: string;
     database_name?: string;
+    connector_type?: string | null;
 };
 
 export default function DataSourceConnectionPage() {
@@ -244,7 +249,7 @@ export default function DataSourceConnectionPage() {
   const [loading, setLoading] = useState<boolean>(false);
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
-  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | null>(null);
+  const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'oracle' | null>(null);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
   const [activeConnections, setActiveConnections] = useState<StageConnection[]>([]);
   const [connectionsLoading, setConnectionsLoading] = useState<boolean>(false);
@@ -299,6 +304,7 @@ export default function DataSourceConnectionPage() {
       iceberg: '/data-sources/iceberg-logo.svg',
       postgres: '/data-sources/postgres-logo.svg',
       mysql: '/data-sources/mysql-logo.svg',
+      oracle: '/data-sources/oracle-logo.svg',
   };
 
   const dataSources: { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[] = [
@@ -350,6 +356,12 @@ export default function DataSourceConnectionPage() {
       icon: '/data-sources/mysql-logo.svg',
       description: 'Popular open-source relational database',
     },
+    {
+      id: 'oracle',
+      name: 'Oracle ATP',
+      icon: '/data-sources/oracle-logo.svg',
+      description: 'Oracle Autonomous Database — Always Free cloud tier',
+    },
   ];
 
   // Check user permissions
@@ -374,7 +386,10 @@ export default function DataSourceConnectionPage() {
     setConnectionsLoading(true);
     try {
       const response = await listSnowflakeStages();
-      const stages: any[] = Array.isArray(response?.stages) ? response.stages : [];
+      // Support both old format (response.stages) and new paginated format (response.data)
+      const stages: any[] = Array.isArray(response?.stages) ? response.stages
+        : Array.isArray(response?.data) ? response.data
+        : Array.isArray(response) ? response : [];
       const connections: StageConnection[] = stages
         .filter((s: any) => !s.error)
         .map((s: any) => ({
@@ -382,6 +397,7 @@ export default function DataSourceConnectionPage() {
           name: s.name ?? s.stage_name ?? String(s),
           schema_name: s.schema_name,
           database_name: s.database_name,
+          connector_type: s.connector_type || null,
         }));
       setActiveConnections(connections);
     } catch (err) {
@@ -400,9 +416,12 @@ export default function DataSourceConnectionPage() {
   }, [status, canManageConnections]);
 
   const browseConnection = (connection: StageConnection) => {
-    // All stages are Snowflake stages (external or internal)
     setConnectedProvider('snowflake');
-    setActiveConnectionId(connection.id);
+    // For non-STAGING schemas, use fully qualified name so backend resolves correctly
+    const stageId = connection.schema_name && connection.schema_name !== 'STAGING'
+        ? `${connection.database_name}.${connection.schema_name}.${connection.name}`
+        : connection.id;
+    setActiveConnectionId(stageId);
     setShowDatalakeBrowser(true);
     setCurrentStep(0);
   };
@@ -577,7 +596,7 @@ export default function DataSourceConnectionPage() {
                   throw new Error("Notification integration not created, cannot fetch details.");
               }
               const response = await getIntegrationDetails(azureFormData.notification_integration_name);
-              console.log('Notification Integration Details:', response);
+              // console.log('Notification Integration Details:', response);
               // Assuming response.details contains the fields
               setAzureConsentUrl(response?.azure_consent_url || null);
               setAzureMultiTenantAppName(response?.azure_multi_tenant_app_name || null);
@@ -659,6 +678,18 @@ export default function DataSourceConnectionPage() {
   const [mysqlFormData, setMySQLFormData] = useState({
     host: '', port: 3306, database: '', user: '', password: '',
   });
+
+  const [oracleFormData, setOracleFormData] = useState({
+    host: 'adb.eu-paris-1.oraclecloud.com',
+    port: 1522,
+    service_name: 'g9bbeb1dc290c07_data360_medium.adb.oraclecloud.com',
+    username: 'ADMIN',
+    password: 'Henuch*1991!',
+    connection_mode: 'tls' as 'standard' | 'tls' | 'wallet',
+    wallet_path: '',
+    wallet_password: '',
+  });
+  const [oracleTestResult, setOracleTestResult] = useState<{ ok?: boolean; version?: string; table_count?: number; tables?: string[]; latency_ms?: number } | null>(null);
 
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
@@ -2244,10 +2275,205 @@ export default function DataSourceConnectionPage() {
       );
   };
 
+  const renderOracleForm = () => {
+      const handleTest = async () => {
+          setLoading(true);
+          setOracleTestResult(null);
+          try {
+              const result = await oracleTest(oracleFormData);
+              setOracleTestResult(result);
+              toast.success(`Connected! ${result.table_count || 0} tables found (${result.latency_ms || 0}ms)`);
+          } catch (err: any) {
+              toast.error(err?.message || 'Connection failed');
+              setOracleTestResult({ ok: false });
+          } finally {
+              setLoading(false);
+          }
+      };
+      const handleIngest = async (e: FormEvent) => {
+          e.preventDefault();
+          setLoading(true);
+          try {
+              const tables = oracleTestResult?.tables || undefined;
+              const result = await oracleIngest({ ...oracleFormData, tables });
+              toast.success(`Oracle ingest complete: ${result.tables_count} tables, ${result.rows_total} rows`);
+              await loadConnections();
+              setCurrentStep(0);
+              setSelectedSource('');
+              setOracleTestResult(null);
+          } catch (err: any) {
+              toast.error(err?.message || 'Ingest failed');
+          } finally {
+              setLoading(false);
+          }
+      };
+      const SAMPLE_PRESETS = {
+          data360_atp: {
+              label: 'Data360 ATP (eu-paris-1)',
+              host: 'adb.eu-paris-1.oraclecloud.com',
+              port: 1522,
+              service_name: 'g9bbeb1dc290c07_data360_medium.adb.oraclecloud.com',
+              username: 'ADMIN',
+              password: 'Henuch*1991!',
+              connection_mode: 'tls' as const,
+          },
+          custom: {
+              label: 'Custom Connection',
+              host: '', port: 1521, service_name: '', username: '', password: '',
+              connection_mode: 'standard' as const,
+          },
+      };
+      const applySample = (key: keyof typeof SAMPLE_PRESETS) => {
+          const p = SAMPLE_PRESETS[key];
+          setOracleFormData((prev) => ({ ...prev, ...p }));
+          setOracleTestResult(null);
+      };
+      return (
+          <div className="mx-auto w-full max-w-lg transform rounded-2xl bg-white/70 dark:bg-slate-800/70 backdrop-blur-xl p-10 shadow-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="mb-6 flex items-center justify-between">
+                  <div>
+                      <h3 className="text-2xl font-bold text-slate-800 dark:text-white">Oracle ATP</h3>
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">Autonomous Database — Always Free</p>
+                  </div>
+                  <Image src={logos.oracle} alt="Oracle" width={56} height={56} unoptimized />
+              </div>
+
+              {/* Sample presets */}
+              <div className="mb-5 rounded-lg bg-blue-50/80 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 p-3">
+                  <p className="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2">Quick Connect — Sample Connections</p>
+                  <div className="flex gap-2">
+                      <button type="button" onClick={() => applySample('data360_atp')}
+                          className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors">
+                          Data360 ATP (Free)
+                      </button>
+                      <button type="button" onClick={() => applySample('custom')}
+                          className="flex-1 rounded-md bg-slate-200 dark:bg-slate-600 px-3 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-slate-500 transition-colors">
+                          Custom
+                      </button>
+                  </div>
+              </div>
+
+              <form onSubmit={handleIngest} className="space-y-4">
+                  <Input label="Host" value={oracleFormData.host} onChange={(e) => setOracleFormData((p) => ({ ...p, host: e.target.value }))} required disabled={loading} />
+                  <div className="grid grid-cols-3 gap-3">
+                      <Input type="number" label="Port" value={String(oracleFormData.port)} onChange={(e) => setOracleFormData((p) => ({ ...p, port: parseInt(e.target.value, 10) || 1522 }))} disabled={loading} />
+                      <div className="col-span-2">
+                          <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mode</label>
+                          <select value={oracleFormData.connection_mode}
+                              onChange={(e) => setOracleFormData((p) => ({ ...p, connection_mode: e.target.value as any }))}
+                              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                              disabled={loading}>
+                              <option value="tls">TLS (Autonomous DB)</option>
+                              <option value="wallet">Wallet (mTLS)</option>
+                              <option value="standard">Standard (on-prem)</option>
+                          </select>
+                      </div>
+                  </div>
+                  <Input label="Service Name" value={oracleFormData.service_name} onChange={(e) => setOracleFormData((p) => ({ ...p, service_name: e.target.value }))} required disabled={loading} />
+                  <div className="grid grid-cols-2 gap-3">
+                      <Input label="Username" value={oracleFormData.username} onChange={(e) => setOracleFormData((p) => ({ ...p, username: e.target.value }))} required disabled={loading} />
+                      <Password label="Password" value={oracleFormData.password} onChange={(e) => setOracleFormData((p) => ({ ...p, password: e.target.value }))} disabled={loading} />
+                  </div>
+                  {oracleFormData.connection_mode === 'wallet' && (
+                      <div className="grid grid-cols-2 gap-3">
+                          <Input label="Wallet Path" value={oracleFormData.wallet_path} onChange={(e) => setOracleFormData((p) => ({ ...p, wallet_path: e.target.value }))} placeholder="/path/to/wallet" disabled={loading} />
+                          <Password label="Wallet Password" value={oracleFormData.wallet_password} onChange={(e) => setOracleFormData((p) => ({ ...p, wallet_password: e.target.value }))} disabled={loading} />
+                      </div>
+                  )}
+
+                  {/* Test result */}
+                  {oracleTestResult && (
+                      <div className={`rounded-lg p-3 text-sm ${oracleTestResult.ok ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800' : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800'}`}>
+                          {oracleTestResult.ok ? (
+                              <div>
+                                  <div className="flex items-center gap-2 font-medium"><HiOutlineCheckCircle className="h-4 w-4" /> Connected</div>
+                                  <p className="mt-1 text-xs">{oracleTestResult.version}</p>
+                                  <p className="text-xs">{oracleTestResult.table_count} tables — {oracleTestResult.latency_ms}ms</p>
+                                  {oracleTestResult.tables && oracleTestResult.tables.length > 0 && (
+                                      <div className="mt-2 flex flex-wrap gap-1">
+                                          {oracleTestResult.tables.map((t) => (
+                                              <Badge key={t} size="sm" className="bg-emerald-100 dark:bg-emerald-800/30 text-emerald-700 dark:text-emerald-300">{t}</Badge>
+                                          ))}
+                                      </div>
+                                  )}
+                              </div>
+                          ) : (
+                              <div>
+                                  <div className="flex items-center gap-2"><HiOutlineExclamationCircle className="h-4 w-4" /> Connection failed</div>
+                                  <p className="mt-1 text-xs opacity-75">If using TLS mode, ensure mTLS is disabled in Oracle Console (Network &gt; Mutual TLS &gt; uncheck)</p>
+                              </div>
+                          )}
+                      </div>
+                  )}
+
+                  <div className="flex gap-3">
+                      <Button type="button" variant="outline" onClick={handleTest} disabled={loading} className="flex-1">
+                          {loading && !oracleTestResult ? 'Testing...' : 'Test Connection'}
+                      </Button>
+                      <Button type="submit" disabled={loading || !oracleTestResult?.ok} className="flex-1">
+                          {loading ? 'Ingesting...' : 'Ingest to Snowflake'}
+                      </Button>
+                  </div>
+              </form>
+
+              {/* Sample stage — works without Oracle connection */}
+              <div className="mt-5 pt-5 border-t border-slate-200 dark:border-slate-700">
+                  <div className="rounded-lg bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-3 mb-3">
+                      <p className="text-xs font-medium text-amber-700 dark:text-amber-300">No Oracle connection? Load sample data directly into Snowflake:</p>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">3 tables: CUSTOMERS (10), ORDERS (15), PRODUCTS (10) — Data360 sample dataset</p>
+                  </div>
+                  <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full text-sm border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                      disabled={loading}
+                      onClick={async () => {
+                          setLoading(true);
+                          try {
+                              const result = await oracleSampleStage();
+                              toast.success(`Sample data loaded: ${result.total_rows} rows across ${result.tables?.length} tables → ${result.target_schema}`);
+                              setOracleTestResult({ ok: true, table_count: result.tables?.length, tables: result.tables?.map((t) => t.name) });
+                          } catch (err: any) {
+                              toast.error(err?.message || 'Sample stage load failed');
+                          } finally {
+                              setLoading(false);
+                          }
+                      }}
+                  >
+                      <HiOutlineCloudArrowUp className="h-4 w-4 mr-2" />
+                      Load Sample CSVs to Snowflake Stage
+                  </Button>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">Tables will be loaded to CP_DATA360.ORACLE_SAMPLE schema</p>
+          </div>
+      );
+  };
+
   const renderForm = () => {
         if (currentStep === 0) {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
+
+                    {/* Loading skeleton for connections */}
+                    {connectionsLoading && activeConnections.length === 0 && (
+                        <div className="mb-12 space-y-4">
+                            <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                {[1, 2, 3].map((i) => (
+                                    <div key={i} className="bg-white dark:bg-slate-800 rounded-lg p-4 border border-slate-200 dark:border-slate-700">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <div className="h-10 w-10 rounded-lg bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                                            <div className="space-y-2 flex-1">
+                                                <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                                                <div className="h-3 w-16 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                                            </div>
+                                        </div>
+                                        <div className="h-3 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* Active Connections - Tab-Based View */}
                     {activeConnections.length > 0 && (
@@ -2275,8 +2501,15 @@ export default function DataSourceConnectionPage() {
                                                     : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/50'
                                             }`}
                                         >
-                                            <Database className="h-4 w-4 opacity-80" />
+                                            {conn.connector_type ? (
+                                                <Image src={logos[conn.connector_type] || '/data-sources/snowflake-logo.png'} alt={conn.connector_type} width={16} height={16} unoptimized className="opacity-80" />
+                                            ) : (
+                                                <Database className="h-4 w-4 opacity-80" />
+                                            )}
                                             <span>{conn.name}</span>
+                                            {conn.connector_type && (
+                                                <Badge size="sm" className="text-[10px] bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300">{conn.connector_type.toUpperCase()}</Badge>
+                                            )}
                                         </button>
                                     ))}
                                 </div>
@@ -2501,6 +2734,13 @@ export default function DataSourceConnectionPage() {
                             {renderMySQLForm()}
                         </div>
                     );
+                case 'oracle':
+                    return (
+                        <div className="mx-auto max-w-2xl space-y-8">
+                            <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                            {renderOracleForm()}
+                        </div>
+                    );
                 default:
                     return null;
             }
@@ -2528,6 +2768,7 @@ export default function DataSourceConnectionPage() {
     const showHeaderBack = currentStep === 1 || showDatalakeBrowser;
 
     return (
+      <ErrorBoundary>
         <div className="space-y-8">
             <Breadcrumb onHomeClick={() => router.push(routes.home)} />
 
@@ -2573,6 +2814,14 @@ export default function DataSourceConnectionPage() {
             </div>
 
             <div className="animate-fade-in-up">{renderForm()}</div>
+
+            {/* Related Modules */}
+            <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
+              <span>Related:</span>
+              <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Model Sources)</a>
+              <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (Ingest Pipelines)</a>
+            </div>
         </div>
+      </ErrorBoundary>
     );
 }

@@ -12,8 +12,10 @@ import { RoleTableDataType } from '@/app/shared/gouvernance/roles/table';
 export async function getRoles(): Promise<RoleTableDataType[]> {
   try {
     const response = await apiClient.get('/gouvernance/roles');
-    const data = response.data;
-    const safeData = Array.isArray(data) ? data : [];
+    const raw = response.data;
+    // Support both: direct array or paginated { data: [...], pagination: {...} }
+    const data = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
+    const safeData = data;
 
     const roles: RoleTableDataType[] = safeData.map((role: any) => ({
       id: role.name || crypto.randomUUID().toString(),

@@ -47,8 +47,12 @@ const WorkflowCard: React.FC<WorkflowCardProps> = ({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label={`Open workflow: ${workflow.workflow_name}`}
       className="bg-white dark:bg-gray-900 p-4 rounded-lg shadow-md hover:shadow-lg transition-shadow duration-200 cursor-pointer flex flex-col justify-between border border-gray-200 dark:border-gray-700"
       onClick={() => onSelectWorkflow(workflow)}
+      onKeyDown={(e) => e.key === 'Enter' && onSelectWorkflow(workflow)}
     >
       {isEditing ? (
         <input

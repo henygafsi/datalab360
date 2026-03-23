@@ -26,8 +26,8 @@ export const logWizardEvent = async (payload: LogWizardEventPayload): Promise<Lo
     const token = session.user.access_token;
 
     try {
-        console.log(`Service: logWizardEvent - Sending POST request to ${API_BASE_URL}/mapping/log_wizard_event`);
-        console.log('Service: logWizardEvent - Request payload:', payload);
+        // console.log(`Service: logWizardEvent - Sending POST request to ${API_BASE_URL}/mapping/log_wizard_event`);
+        // console.log('Service: logWizardEvent - Request payload:', payload);
         const response = await axios.post<LogWizardEventResponse>(
             `${API_BASE_URL}/explore-design/guided/log_wizard_event`,
             payload,
@@ -38,7 +38,7 @@ export const logWizardEvent = async (payload: LogWizardEventPayload): Promise<Lo
                 },
             }
         );
-        console.log('Service: logWizardEvent - Response received:', response.data);
+        // console.log('Service: logWizardEvent - Response received:', response.data);
         return response.data;
     } catch (error) {
         console.error('Service: logWizardEvent - Error logging wizard event:', error);

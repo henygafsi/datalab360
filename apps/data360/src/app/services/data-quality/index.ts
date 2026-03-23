@@ -177,7 +177,7 @@ export async function getSecurityPosture(database: string): Promise<MetricRow[]>
 }
 
 export async function getDmfDashboardResults(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/dmf-results-dashboard`, {
+  const { data } = await apiClient.get(`${PREFIX}/dmf-results`, {
     params: { database },
   });
   return data?.data || data || [];
@@ -211,26 +211,4 @@ export async function setQualityThresholds(config: ThresholdConfig): Promise<{ s
   return data?.data || data;
 }
 
-// Re-export local report service for backward compatibility
-export {
-  createQualityReport,
-  getQualityReports,
-  getQualityReport,
-  updateQualityReport,
-  deleteQualityReport,
-  duplicateQualityReport,
-  exportQualityReport,
-  importQualityReport,
-  clearAllQualityReports,
-  getStorageInfo,
-  setCurrentUser,
-  runQualityChecks,
-} from './reports-local';
-export type {
-  QualityMetric,
-  DataSource,
-  QualityReportItem,
-  QualityReport,
-  CreateQualityReportInput,
-  RunQualityChecksOptions,
-} from './reports-local';
+// Local report service removed (reports-local.ts deleted — was unused)

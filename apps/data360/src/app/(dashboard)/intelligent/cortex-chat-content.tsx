@@ -34,16 +34,29 @@ interface ChatMessage {
   error?: string;
 }
 
-const EXAMPLE_QUERIES = [
+const DEFAULT_EXAMPLE_QUERIES = [
   { text: "What were the total sales last month?", icon: HiOutlineChartBar },
   { text: "Show me the top 10 customers by revenue", icon: HiOutlineTableCells },
   { text: "Compare this quarter vs last quarter", icon: HiOutlineLightBulb },
   { text: "How many new users signed up today?", icon: PiDatabase },
 ];
 
+function getContextExamples(table: string) {
+  if (!table) return DEFAULT_EXAMPLE_QUERIES;
+  const shortName = table.split('.').pop() || table;
+  return [
+    { text: `Describe the columns in ${shortName}`, icon: HiOutlineTableCells },
+    { text: `Show the top 10 rows from ${shortName} ordered by the primary key`, icon: PiDatabase },
+    { text: `What are the trends in ${shortName} over the last 30 days?`, icon: HiOutlineChartBar },
+    { text: `Suggest optimizations for ${shortName}`, icon: HiOutlineLightBulb },
+  ];
+}
+
 export default function CortexChatContent() {
   const searchParams = useSearchParams();
   const modelFromUrl = searchParams.get('model') || '';
+  const contextModule = searchParams.get('context_module') || '';
+  const contextTable = searchParams.get('context_table') || '';
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
@@ -129,8 +142,12 @@ export default function CortexChatContent() {
     setIsQuerying(true);
 
     try {
+      const contextPrefix = contextTable
+        ? `You are helping the user analyze the table ${contextTable} in the ${contextModule || 'data'} module. `
+        : '';
+      const fullPrompt = contextPrefix + messageText;
       const response = await queryCortex({
-        prompt: messageText,
+        prompt: fullPrompt,
         semantic_model: selectedModel || undefined,
       });
 
@@ -295,6 +312,11 @@ export default function CortexChatContent() {
               Ask questions about your data in natural language
             </p>
           </div>
+          {contextTable && (
+            <Badge className="bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 text-xs ml-2">
+              {contextModule ? `${contextModule} / ` : ''}{contextTable.split('.').pop()}
+            </Badge>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="w-52">
@@ -344,7 +366,7 @@ export default function CortexChatContent() {
             <div className="w-full max-w-2xl">
               <p className="text-xs font-medium text-slate-500 mb-3">Try asking:</p>
               <div className="grid grid-cols-2 gap-3">
-                {EXAMPLE_QUERIES.map((query, index) => {
+                {getContextExamples(contextTable).map((query, index) => {
                   const Icon = query.icon;
                   return (
                     <button

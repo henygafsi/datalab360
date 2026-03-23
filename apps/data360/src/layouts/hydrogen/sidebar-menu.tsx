@@ -16,6 +16,7 @@ import {
   HiOutlineSparkles,
   HiOutlineBuildingOffice2,
   HiOutlineChartBarSquare,
+  HiOutlineFingerPrint,
 } from 'react-icons/hi2';
 
 
@@ -110,6 +111,11 @@ const modernMenuItems = [
         name: 'Masking Policy',
         href: '/gouvernance/masking',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
+      },
+      {
+        name: 'OAuth & Auth',
+        href: '/gouvernance/oauth',
+        icon: <HiOutlineFingerPrint className="w-4 h-4" />,
       },
       {
         name: 'Projects',

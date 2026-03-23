@@ -122,8 +122,9 @@ export async function initializeSecurityMatrix(): Promise<{ message: string }> {
   return response.data;
 }
 
-export async function getSecurityMatrix(): Promise<SecurityMatrixResponse> {
-  const response = await apiClient.get('/gouvernance/security-matrix');
+export async function getSecurityMatrix(bustCache = false): Promise<SecurityMatrixResponse> {
+  const params = bustCache ? { _t: Date.now() } : {};
+  const response = await apiClient.get('/gouvernance/security-matrix', { params });
   return response.data;
 }
 
@@ -172,8 +173,9 @@ export async function batchUpdateSecurityMatrix(
 
 // ============= SECURITY AXES =============
 
-export async function getSecurityAxes(): Promise<SecurityAxis[]> {
-  const response = await apiClient.get('/gouvernance/security-axes');
+export async function getSecurityAxes(bustCache = false): Promise<SecurityAxis[]> {
+  const params = bustCache ? { _t: Date.now() } : {};
+  const response = await apiClient.get('/gouvernance/security-axes', { params });
   return response.data;
 }
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Button, Badge } from 'rizzui';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import {
   PiShieldCheck,
   PiLockKey,
@@ -148,6 +149,7 @@ export default function PoliciesPage() {
   };
 
   return (
+    <ErrorBoundary>
     <div className="space-y-8">
       <Breadcrumb />
 
@@ -208,5 +210,6 @@ export default function PoliciesPage() {
         </div>
       </div>
     </div>
+    </ErrorBoundary>
   );
 }

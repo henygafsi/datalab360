@@ -1,8 +1,8 @@
 'use client';
 
-import React, { memo } from 'react';
+import React, { memo, useState } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { ChevronUp, ChevronDown } from 'lucide-react';
+import { ChevronUp, ChevronDown, AlertTriangle, CheckCircle2, XCircle, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
 import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
@@ -30,7 +30,7 @@ const resolveHandleColor = (colorClass: string): string => {
 const ParamBadge: React.FC<{ label: string; value: string }> = ({ label, value }) => (
   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium bg-slate-100 dark:bg-slate-700/50">
     <span className="text-slate-400 dark:text-slate-500">{label}</span>
-    <span className="text-slate-700 dark:text-slate-200 truncate max-w-[80px]">{value}</span>
+    <span className="text-slate-700 dark:text-slate-200 truncate max-w-[120px]">{value}</span>
   </span>
 );
 
@@ -54,7 +54,17 @@ interface ETLNodeWrapperProps {
 
 const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, children }) => {
   const blockDef = getBlockByType(type);
-  const [expanded, setExpanded] = React.useState(true);
+  const [expanded, setExpanded] = useState(true);
+  const error = data.error || data.config?.error || data.executionError || '';
+
+  // Execution state from pipeline run results
+  const execStatus = data.executionStatus as 'pending' | 'running' | 'completed' | 'failed' | undefined;
+  const rowsAffected = data.rowsAffected as number | undefined;
+  const durationMs = data.durationMs as number | undefined;
+
+  // Connection counts from data (injected by ReactFlow parent or pipeline state)
+  const inputCount = data?._inputCount ?? 0;
+  const outputCount = data?._outputCount ?? 0;
 
   if (!blockDef) {
     return (
@@ -132,35 +142,80 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
     );
   };
 
+  // Border color: execution state > validation error > default
+  const borderClass = execStatus === 'failed'
+    ? 'border-red-500 shadow-red-200/50 dark:shadow-red-900/30'
+    : execStatus === 'completed'
+      ? 'border-green-500 shadow-green-200/50 dark:shadow-green-900/30'
+      : execStatus === 'running'
+        ? 'border-blue-500 shadow-blue-200/50 dark:shadow-blue-900/30 animate-pulse'
+        : error
+          ? 'border-red-500 shadow-red-100 dark:shadow-red-900/20'
+          : blockDef.borderColor;
+
+  // Status dot color: execution state > config status
+  const dotClass = execStatus === 'failed' ? 'bg-red-500'
+    : execStatus === 'completed' ? 'bg-green-500'
+    : execStatus === 'running' ? 'bg-blue-500 animate-pulse'
+    : error ? 'bg-red-500'
+    : status === 'configured' ? 'bg-green-500'
+    : status === 'partial' ? 'bg-amber-500'
+    : 'bg-slate-300 dark:bg-slate-600';
+
+  // Format duration
+  const fmtDuration = (ms?: number) => {
+    if (!ms) return '';
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
+  };
+
   return (
     <div
       className={cn(
-        'relative min-w-[180px] max-w-[220px] rounded-xl border-2 shadow-lg transition-all bg-white dark:bg-slate-800',
-        blockDef.borderColor,
+        'relative min-w-[240px] max-w-[300px] rounded-xl border-2 shadow-lg transition-all hover:shadow-2xl hover:-translate-y-0.5 bg-white dark:bg-slate-800',
+        borderClass,
         selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
       )}
     >
-      {/* Step number badge */}
-      {(data.config?.step_order || data.step_order) && (
-        <div className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-blue-500 text-white text-[10px] font-bold flex items-center justify-center shadow-sm z-10">
-          {data.config?.step_order || data.step_order}
+      {/* Step number badge — color reflects execution state */}
+      {(data.config?.step_order || data.step_order || data.stepIndex) && (
+        <div
+          className={cn(
+            'absolute -top-2.5 -left-2.5 min-w-[20px] h-5 px-1 rounded-full text-white text-[10px] font-bold flex items-center justify-center shadow-sm z-10',
+            execStatus === 'failed' ? 'bg-red-500' :
+            execStatus === 'completed' ? 'bg-green-500' :
+            execStatus === 'running' ? 'bg-blue-500 animate-pulse' :
+            error ? 'bg-red-500' : 'bg-blue-500'
+          )}
+          title={error || `Step ${data.stepIndex || data.config?.step_order || data.step_order}`}
+        >
+          {execStatus === 'failed' && <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />}
+          {execStatus === 'completed' && <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />}
+          {data.stepIndex || data.config?.step_order || data.step_order}
         </div>
       )}
 
       {/* Status indicator dot */}
       <div className={cn(
         'absolute -top-1.5 -right-1.5 w-3 h-3 rounded-full border-2 border-white dark:border-slate-800 z-10',
-        status === 'configured' ? 'bg-green-500' : status === 'partial' ? 'bg-amber-500' : 'bg-slate-300 dark:bg-slate-600'
+        dotClass
       )} />
 
       {/* Header */}
-      <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2', blockDef.bgColor)}>
-        <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', blockDef.color)}>
+      <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2', error ? 'bg-red-50 dark:bg-red-900/20' : blockDef.bgColor)}>
+        <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', error ? 'text-red-500' : blockDef.color)}>
           <Icon className="h-4 w-4" />
         </div>
-        <span className="font-semibold text-sm text-slate-800 dark:text-slate-100 truncate">
-          {displayName}
-        </span>
+        <div className="flex-1 min-w-0">
+          <span className={cn('font-semibold text-sm truncate block', error ? 'text-red-700 dark:text-red-300' : 'text-slate-800 dark:text-slate-100')} title={displayName}>
+            {displayName}
+          </span>
+          {error && (
+            <span className="text-[9px] text-red-500 dark:text-red-400 truncate block" title={error}>
+              ⚠ {error.substring(0, 50)}{error.length > 50 ? '...' : ''}
+            </span>
+          )}
+        </div>
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
           className="ml-auto p-0.5 rounded hover:bg-white/20 transition-colors"
@@ -176,6 +231,50 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         </div>
       )}
 
+      {/* Data flow context badge */}
+      {expanded && data.config?.table && (
+        <div className="mx-3 mb-2 px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 rounded text-[10px] text-blue-600 dark:text-blue-400 truncate">
+          {data.config.database ? `${data.config.database}.` : ''}{data.config.table}
+        </div>
+      )}
+
+      {/* Execution result badges — rows affected + duration */}
+      {execStatus && execStatus !== 'pending' && (
+        <div className={cn(
+          'mx-3 mb-2 flex items-center gap-1.5 text-[10px] font-medium',
+          execStatus === 'failed' ? 'text-red-600 dark:text-red-400' :
+          execStatus === 'completed' ? 'text-green-600 dark:text-green-400' :
+          'text-blue-600 dark:text-blue-400'
+        )}>
+          {execStatus === 'running' && (
+            <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" /> Running...</span>
+          )}
+          {execStatus === 'completed' && (
+            <>
+              <CheckCircle2 className="h-3 w-3" />
+              {rowsAffected !== undefined && <span>{rowsAffected.toLocaleString()} rows</span>}
+              {durationMs !== undefined && <span className="text-slate-400">| {fmtDuration(durationMs)}</span>}
+            </>
+          )}
+          {execStatus === 'failed' && (
+            <>
+              <XCircle className="h-3 w-3" />
+              <span className="truncate">{(data.executionError || 'Failed').toString().substring(0, 60)}</span>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Input port indicator */}
+      {blockDef.hasInput && blockDef.maxInputs <= 1 && (
+        <div className="absolute -left-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-blue-400 border border-white dark:border-slate-800 pointer-events-none" title="Input" />
+      )}
+
+      {/* Output port indicator */}
+      {blockDef.hasOutput && (
+        <div className="absolute -right-1 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-green-400 border border-white dark:border-slate-800 pointer-events-none" title="Output" />
+      )}
+
       {/* Handles */}
       {renderInputHandles()}
       {blockDef.hasOutput && (
@@ -185,6 +284,13 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
           className="!w-[10px] !h-[10px] !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
           style={{ backgroundColor: resolveHandleColor(blockDef.color) }}
         />
+      )}
+
+      {/* Connected edges count */}
+      {(inputCount > 0 || outputCount > 0) && (
+        <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 px-1.5 py-0.5 bg-slate-600 text-white text-[8px] rounded-full leading-none whitespace-nowrap shadow-sm">
+          {inputCount}&rarr;{outputCount}
+        </div>
       )}
     </div>
   );
@@ -206,32 +312,60 @@ const truncate = (text: string, maxLength: number = 20): string => {
 // ============================================
 // SOURCE NODE
 // ============================================
-export const SourceNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="source">
-    <div className="flex flex-wrap gap-1">
-      <ParamBadge label="DB" value={displayValue(data.config?.database || data.database)} />
-      <ParamBadge label="Schema" value={displayValue(data.config?.schema || data.schema)} />
-      <ParamBadge label="Table" value={displayValue(data.config?.table || data.table)} />
-      {(data.config?.columns || data.columns) && (
-        <ParamBadge label="Cols" value={Array.isArray(data.config?.columns || data.columns) ? String((data.config?.columns || data.columns).length) : 'All'} />
+export const SourceNode = memo(({ data, selected }: NodeProps) => {
+  const colCount = Array.isArray(data.config?.columns || data.columns) ? (data.config?.columns || data.columns).length : null;
+  const rowEstimate = data.config?.row_count || data.row_count;
+  const lastRefresh = data.config?.last_refresh || data.last_refresh;
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="source">
+      <div className="flex flex-wrap gap-1">
+        <ParamBadge label="DB" value={displayValue(data.config?.database || data.database)} />
+        <ParamBadge label="Schema" value={displayValue(data.config?.schema || data.schema)} />
+        <ParamBadge label="Table" value={displayValue(data.config?.table || data.table)} />
+        {colCount !== null && <ParamBadge label="Cols" value={String(colCount)} />}
+      </div>
+      {(rowEstimate || lastRefresh) && (
+        <div className="mt-1.5 flex flex-wrap gap-1">
+          {rowEstimate && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400">
+              ~{Number(rowEstimate).toLocaleString()} rows
+            </span>
+          )}
+          {lastRefresh && (
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-50 dark:bg-sky-900/20 text-sky-600 dark:text-sky-400 truncate max-w-[140px]">
+              {lastRefresh}
+            </span>
+          )}
+        </div>
       )}
-    </div>
-  </ETLNodeWrapper>
-));
+    </ETLNodeWrapper>
+  );
+});
 SourceNode.displayName = 'SourceNode';
 
 // ============================================
 // JOIN NODE
 // ============================================
-export const JoinNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="join">
-    <div className="flex flex-wrap gap-1">
-      <ParamBadge label="Type" value={displayValue(data.config?.join_type || data.join_type, 'INNER')} />
-      <ParamBadge label="L-Key" value={displayValue(data.config?.left_key || data.left_key)} />
-      <ParamBadge label="R-Key" value={displayValue(data.config?.right_key || data.right_key)} />
-    </div>
-  </ETLNodeWrapper>
-));
+export const JoinNode = memo(({ data, selected }: NodeProps) => {
+  const joinType = displayValue(data.config?.join_type || data.join_type, 'INNER');
+  const joinBg = joinType === 'LEFT' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+    : joinType === 'FULL' ? 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400'
+    : joinType === 'CROSS' ? 'bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400'
+    : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400';
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="join">
+      <div className="flex flex-wrap gap-1">
+        <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase', joinBg)}>
+          {joinType}
+        </span>
+        <ParamBadge label="L-Key" value={displayValue(data.config?.left_key || data.left_key)} />
+        <ParamBadge label="R-Key" value={displayValue(data.config?.right_key || data.right_key)} />
+      </div>
+    </ETLNodeWrapper>
+  );
+});
 JoinNode.displayName = 'JoinNode';
 
 // ============================================
@@ -240,12 +374,14 @@ JoinNode.displayName = 'JoinNode';
 export const FilterNode = memo(({ data, selected }: NodeProps) => {
   const conditions = toArray(data.config?.conditions || data.conditions);
   const logic = data.config?.logic || data.logic || 'AND';
+  const uniqueCols = new Set(conditions.map((c: any) => c?.column).filter(Boolean)).size;
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="filter">
       <div className="flex flex-wrap gap-1">
         <ParamBadge label="Logic" value={logic} />
         <ParamBadge label="Rules" value={String(conditions.length)} />
+        {uniqueCols > 0 && <ParamBadge label="Cols" value={String(uniqueCols)} />}
       </div>
       {conditions.length > 0 && conditions[0] && (
         <div className="text-slate-500 truncate text-[10px] mt-1">
@@ -263,6 +399,7 @@ FilterNode.displayName = 'FilterNode';
 export const AggregateNode = memo(({ data, selected }: NodeProps) => {
   const groupBy = toArray(data.config?.group_by || data.group_by);
   const aggregations = toArray(data.config?.aggregations || data.aggregations);
+  const outputCols = groupBy.length + aggregations.length;
 
   return (
     <ETLNodeWrapper data={data} selected={selected} type="aggregate">
@@ -273,6 +410,13 @@ export const AggregateNode = memo(({ data, selected }: NodeProps) => {
       {aggregations.length > 0 && aggregations[0] && (
         <div className="text-slate-500 truncate text-[10px] mt-1">
           {aggregations[0].function}({aggregations[0].column}) as {aggregations[0].alias}
+        </div>
+      )}
+      {outputCols > 0 && (
+        <div className="mt-1 flex gap-1">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400">
+            {outputCols} output cols
+          </span>
         </div>
       )}
     </ETLNodeWrapper>
@@ -555,28 +699,34 @@ ClusteringNode.displayName = 'ClusteringNode';
 // ============================================
 // DESTINATION NODE
 // ============================================
-export const DestinationNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="destination">
-    <div className="space-y-1">
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">DB:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
+export const DestinationNode = memo(({ data, selected }: NodeProps) => {
+  const writeMode = displayValue(data.config?.write_mode || data.write_mode, 'overwrite');
+  const modeBg = writeMode === 'append' ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400'
+    : writeMode === 'merge' ? 'bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400'
+    : 'bg-rose-50 dark:bg-rose-900/20 text-rose-600 dark:text-rose-400';
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="destination">
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">DB:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.database || data.database)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Schema:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-slate-400">Table:</span>
+          <span className="font-medium truncate">{displayValue(data.config?.table || data.table)}</span>
+        </div>
+        <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase', modeBg)}>
+          {writeMode}
+        </span>
       </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Schema:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.schema || data.schema)}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Table:</span>
-        <span className="font-medium truncate">{displayValue(data.config?.table || data.table)}</span>
-      </div>
-      <div className="flex items-center gap-1">
-        <span className="text-slate-400">Mode:</span>
-        <span className="font-medium">{displayValue(data.config?.write_mode || data.write_mode, 'overwrite')}</span>
-      </div>
-    </div>
-  </ETLNodeWrapper>
-));
+    </ETLNodeWrapper>
+  );
+});
 DestinationNode.displayName = 'DestinationNode';
 
 // ============================================
@@ -652,6 +802,25 @@ export const StreamConsumeNode = memo(({ data, selected }: NodeProps) => (
   </ETLNodeWrapper>
 ));
 StreamConsumeNode.displayName = 'StreamConsumeNode';
+
+// ============================================
+// CDC MERGE NODE (stream MERGE INTO target)
+// ============================================
+export const CdcMergeNode = memo(({ data, selected }: NodeProps) => (
+  <ETLNodeWrapper data={data} selected={selected} type="cdc_merge">
+    <div className="space-y-1">
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Stream:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.stream_name || data.stream_name)}</span>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-slate-400">Target:</span>
+        <span className="font-medium truncate">{displayValue(data.config?.target_table || data.target_table)}</span>
+      </div>
+    </div>
+  </ETLNodeWrapper>
+));
+CdcMergeNode.displayName = 'CdcMergeNode';
 
 // ============================================
 // GIT FILE NODE (merged from developer)
@@ -1422,6 +1591,9 @@ export const AiClassifyNode = memo(({ data, selected }: NodeProps) => (
       <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
       <ParamBadge label="Categories" value={displayValue(toArray(data.config?.categories || data.categories).length + ' labels')} />
     </div>
+    <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400">
+      ~0.01 cr/1K rows
+    </span>
   </ETLNodeWrapper>
 ));
 AiClassifyNode.displayName = 'AiClassifyNode';
@@ -1457,15 +1629,23 @@ export const AiExtractNode = memo(({ data, selected }: NodeProps) => (
 ));
 AiExtractNode.displayName = 'AiExtractNode';
 
-export const AiCompleteNode = memo(({ data, selected }: NodeProps) => (
-  <ETLNodeWrapper data={data} selected={selected} type="ai_complete">
-    <div className="space-y-1">
-      <ParamBadge label="Model" value={displayValue(data.config?.model || data.model, 'llama3.1-70b')} />
-      <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
-      <ParamBadge label="Prompt" value={displayValue(data.config?.prompt_template || data.prompt_template, 'Not set')} />
-    </div>
-  </ETLNodeWrapper>
-));
+export const AiCompleteNode = memo(({ data, selected }: NodeProps) => {
+  const model = displayValue(data.config?.model || data.model, 'llama3.1-70b');
+  const costEstimate = model.includes('70b') ? '~0.06' : model.includes('405b') ? '~0.20' : '~0.01';
+
+  return (
+    <ETLNodeWrapper data={data} selected={selected} type="ai_complete">
+      <div className="space-y-1">
+        <ParamBadge label="Model" value={model} />
+        <ParamBadge label="Input" value={displayValue(data.config?.input_column || data.input_column)} />
+        <ParamBadge label="Prompt" value={displayValue(data.config?.prompt_template || data.prompt_template, 'Not set')} />
+      </div>
+      <span className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400">
+        {costEstimate} cr/1K rows
+      </span>
+    </ETLNodeWrapper>
+  );
+});
 AiCompleteNode.displayName = 'AiCompleteNode';
 
 // ============================================
@@ -1547,6 +1727,7 @@ export const etlNodeTypes = {
 
   // Merged blocks (from data-engineering & developer modules)
   stream_consume: StreamConsumeNode,
+  cdc_merge: CdcMergeNode,
   git_file: GitFileNode,
   sql_script: SQLScriptNode,
   python_script: PythonScriptNode,

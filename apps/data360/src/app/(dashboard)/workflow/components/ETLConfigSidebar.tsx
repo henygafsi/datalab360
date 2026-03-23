@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Node } from 'reactflow';
 import {
@@ -1432,7 +1432,7 @@ const SQLScriptConfigForm: React.FC<{
     setTestResult(null);
     setTestError(null);
     try {
-      const response = await apiClient.post('/workflow/run-sql', { sql: config.sql_code, limit: 10 });
+      const response = await apiClient.post('/api/v1/workflows/run-sql', { sql: config.sql_code, limit: 10 });
       const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestResult({ columns: result.columns || [], rows: result.rows || [], count: result.count || 0 });
@@ -1539,7 +1539,7 @@ const PythonScriptConfigForm: React.FC<{
     setTestOutput(null);
     setTestError(null);
     try {
-      const response = await apiClient.post('/workflow/run-python', { code: config.python_code });
+      const response = await apiClient.post('/api/v1/workflows/run-python', { code: config.python_code });
       const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestOutput((result.output as string) || '(no output)');
@@ -1875,6 +1875,68 @@ const StreamConsumeConfigForm: React.FC<{
             { value: 'FALSE', label: 'No (only new changes)' },
             { value: 'TRUE', label: 'Yes (include existing rows)' },
           ]}
+        />
+      </FormField>
+    </div>
+  );
+};
+
+// CDC Merge Config
+const CdcMergeConfigForm: React.FC<{
+  data: any;
+  onChange: (data: any) => void;
+  errors: Record<string, string>;
+}> = ({ data, onChange, errors }) => {
+  const config = data.config || data;
+
+  const updateConfig = (updates: Record<string, any>) => {
+    onChange({ ...data, config: { ...config, ...updates } });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">
+          Reads CDC rows from a Snowflake Stream and applies a MERGE INTO on the target table. Use after a stream_consume block.
+        </p>
+      </div>
+
+      <FormField label="Stream Name" required error={errors.stream_name}
+        hint="Fully-qualified stream name (e.g., DB.SCHEMA.MY_STREAM)">
+        <Input
+          value={config.stream_name || ''}
+          onChange={(v) => updateConfig({ stream_name: v })}
+          placeholder="e.g., MY_DB.MY_SCHEMA.MY_STREAM"
+          error={!!errors.stream_name}
+        />
+      </FormField>
+
+      <FormField label="Target Table" required error={errors.target_table}
+        hint="Fully-qualified target table (e.g., DB.SCHEMA.TABLE)">
+        <Input
+          value={config.target_table || ''}
+          onChange={(v) => updateConfig({ target_table: v })}
+          placeholder="e.g., MY_DB.MY_SCHEMA.MY_TABLE"
+          error={!!errors.target_table}
+        />
+      </FormField>
+
+      <FormField label="Merge Keys" required error={errors.merge_keys}
+        hint="Comma-separated column names used to match rows (e.g., ID, ORDER_DATE)">
+        <Input
+          value={config.merge_keys || ''}
+          onChange={(v) => updateConfig({ merge_keys: v })}
+          placeholder="e.g., ID"
+          error={!!errors.merge_keys}
+        />
+      </FormField>
+
+      <FormField label="Update Columns" error={errors.update_columns}
+        hint='Comma-separated columns to update on match, or "all" to update every column'>
+        <Input
+          value={config.update_columns || 'all'}
+          onChange={(v) => updateConfig({ update_columns: v })}
+          placeholder='e.g., NAME, STATUS or "all"'
         />
       </FormField>
     </div>
@@ -4153,6 +4215,175 @@ const AICompleteConfigForm: React.FC<{
   );
 };
 
+const FuzzyMatchConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800">
+        <p className="text-xs text-violet-700 dark:text-violet-300">Find similar strings using EDITDISTANCE. Great for deduplication, record linking, and fuzzy lookups.</p>
+      </div>
+      <FormField label="Source Column" required error={errors.source_column}>
+        <Select value={config.source_column || ''} onChange={(v) => updateConfig({ source_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.source_column} />
+      </FormField>
+      <FormField label="Target Column" required error={errors.target_column}>
+        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.target_column} />
+      </FormField>
+      <FormField label="Distance Threshold" error={errors.threshold} hint="Max edit distance (default: 3)">
+        <Input value={config.threshold || 3} onChange={(v) => updateConfig({ threshold: parseInt(v) || 3 })} type="number" />
+      </FormField>
+    </div>
+  );
+};
+
+const JSONPathExtractConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20 border border-cyan-200 dark:border-cyan-800">
+        <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract nested values from VARIANT/JSON columns using JSON_EXTRACT_PATH_TEXT.</p>
+      </div>
+      <FormField label="JSON Column" required error={errors.json_column}>
+        <Select value={config.json_column || ''} onChange={(v) => updateConfig({ json_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select VARIANT column" error={!!errors.json_column} />
+      </FormField>
+      <FormField label="JSON Path" required error={errors.json_path} hint="e.g. 'address', 'name'">
+        <Input value={config.json_path || ''} onChange={(v) => updateConfig({ json_path: v })} placeholder="key.nested_key" error={!!errors.json_path} />
+      </FormField>
+    </div>
+  );
+};
+
+const QualifyFilterConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+        <p className="text-xs text-amber-700 dark:text-amber-300">Use QUALIFY to filter after window functions. Keeps only the top row per partition (dedup by ROW_NUMBER).</p>
+      </div>
+      <FormField label="Partition Columns" required error={errors.partition_columns} hint="Comma-separated columns">
+        <Input value={config.partition_columns || ''} onChange={(v) => updateConfig({ partition_columns: v })} placeholder="e.g. customer_id, region" error={!!errors.partition_columns} />
+      </FormField>
+      <FormField label="Order Column" required error={errors.order_column}>
+        <Select value={config.order_column || ''} onChange={(v) => updateConfig({ order_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.order_column} />
+      </FormField>
+    </div>
+  );
+};
+
+const CorrelationConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+        <p className="text-xs text-emerald-700 dark:text-emerald-300">Calculate Pearson correlation and covariance between two numeric columns using CORR / COVAR_SAMP.</p>
+      </div>
+      <FormField label="Column A" required error={errors.column_a}>
+        <Select value={config.column_a || ''} onChange={(v) => updateConfig({ column_a: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column_a} />
+      </FormField>
+      <FormField label="Column B" required error={errors.column_b}>
+        <Select value={config.column_b || ''} onChange={(v) => updateConfig({ column_b: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column_b} />
+      </FormField>
+    </div>
+  );
+};
+
+const HistogramConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-800">
+        <p className="text-xs text-pink-700 dark:text-pink-300">Analyze value distribution using WIDTH_BUCKET. Creates histogram buckets for numeric columns.</p>
+      </div>
+      <FormField label="Column" required error={errors.column}>
+        <Select value={config.column || ''} onChange={(v) => updateConfig({ column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column} />
+      </FormField>
+      <FormField label="Number of Buckets" error={errors.num_buckets} hint="Default: 10">
+        <Input value={config.num_buckets || 10} onChange={(v) => updateConfig({ num_buckets: parseInt(v) || 10 })} type="number" />
+      </FormField>
+    </div>
+  );
+};
+
+const AIFilterConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+        <p className="text-xs text-purple-700 dark:text-purple-300">Filter rows using natural language with Cortex AI_FILTER. Describe what rows to keep in plain English.</p>
+      </div>
+      <FormField label="Filter Prompt" required error={errors.filter_prompt} hint="Describe which rows to keep">
+        <Input value={config.filter_prompt || ''} onChange={(v) => updateConfig({ filter_prompt: v })} placeholder="e.g. rows about customer complaints" error={!!errors.filter_prompt} />
+      </FormField>
+      <FormField label="Text Column" error={errors.text_column}>
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" />
+      </FormField>
+    </div>
+  );
+};
+
+const AIAggConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800">
+        <p className="text-xs text-purple-700 dark:text-purple-300">Aggregate text data semantically with Cortex AI_AGG. Summarize grouped text using AI.</p>
+      </div>
+      <FormField label="Group Column" required error={errors.group_column}>
+        <Select value={config.group_column || ''} onChange={(v) => updateConfig({ group_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.group_column} />
+      </FormField>
+      <FormField label="Text Column" error={errors.text_column}>
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select text column" />
+      </FormField>
+      <FormField label="Aggregation Prompt" required error={errors.aggregation_prompt} hint="How to summarize the text">
+        <Input value={config.aggregation_prompt || ''} onChange={(v) => updateConfig({ aggregation_prompt: v })} placeholder="e.g. summarize the key themes" error={!!errors.aggregation_prompt} />
+      </FormField>
+    </div>
+  );
+};
+
+const RecursiveCTEConfigForm: React.FC<{
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
+}> = ({ data, onChange, errors, availableColumns }) => {
+  const config = data.config || data;
+  const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
+  return (
+    <div className="space-y-4">
+      <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+        <p className="text-xs text-blue-700 dark:text-blue-300">Build recursive CTE for hierarchical data: org charts, bill of materials, category trees. Traverses parent-child relationships.</p>
+      </div>
+      <FormField label="ID Column" required error={errors.id_column}>
+        <Select value={config.id_column || ''} onChange={(v) => updateConfig({ id_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select ID column" error={!!errors.id_column} />
+      </FormField>
+      <FormField label="Parent Column" required error={errors.parent_column}>
+        <Select value={config.parent_column || ''} onChange={(v) => updateConfig({ parent_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select parent ID column" error={!!errors.parent_column} />
+      </FormField>
+      <FormField label="Name Column" required error={errors.name_column}>
+        <Select value={config.name_column || ''} onChange={(v) => updateConfig({ name_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select display name column" error={!!errors.name_column} />
+      </FormField>
+    </div>
+  );
+};
+
 const MLForecastConfigForm: React.FC<{
   data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
 }> = ({ data, onChange, errors, availableColumns }) => {
@@ -4362,6 +4593,49 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
     setErrors({});
   }, []);
 
+  // Real-time validation errors (computed on every formData change)
+  const validationErrors = useMemo(() => {
+    if (!node) return [];
+    const config = formData.config || formData;
+    const errs: string[] = [];
+    const type = node.type || '';
+
+    if (['source', 'src'].includes(type)) {
+      if (!config.database && !config.database_name) errs.push('Database is required');
+      if (!config.schema && !config.schema_name) errs.push('Schema is required');
+      if (!config.table && !config.table_name) errs.push('Table is required');
+    }
+    if (['s3_source', 'azure_source', 'gcs_source'].includes(type)) {
+      if (!config.stage_name) errs.push('Stage name is required');
+      if (!config.file_path) errs.push('File path is required');
+    }
+    if (type === 'join') {
+      if (!config.left_key && !config.join_key) errs.push('Left key is required');
+      if (!config.right_key) errs.push('Right key is required');
+    }
+    if (type === 'destination') {
+      if (!config.database && !config.database_name) errs.push('Database is required');
+      if (!config.schema && !config.schema_name) errs.push('Schema is required');
+      if (!config.table && !config.table_name) errs.push('Table name is required');
+    }
+    if (type === 'filter') {
+      if (!config.filter_condition && (!config.conditions || config.conditions.length === 0)) {
+        errs.push('At least one filter condition is required');
+      }
+    }
+    if (type === 'aggregate') {
+      if (!config.aggregations || config.aggregations.length === 0) {
+        errs.push('At least one aggregation is required');
+      }
+    }
+    if (type === 'select') {
+      if (!config.columns || config.columns.length === 0) errs.push('Select at least one column');
+    }
+    return errs;
+  }, [node, formData]);
+
+  const isValid = validationErrors.length === 0;
+
   const validate = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
     if (!node) return false;
@@ -4433,6 +4707,11 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         if (!config.database) newErrors.database = 'Source database is required';
         if (!config.schema) newErrors.schema = 'Source schema is required';
         if (!config.source_object) newErrors.source_object = 'Source table/view is required';
+        break;
+      case 'cdc_merge':
+        if (!config.stream_name) newErrors.stream_name = 'Stream name is required';
+        if (!config.target_table) newErrors.target_table = 'Target table is required';
+        if (!config.merge_keys) newErrors.merge_keys = 'Merge keys are required';
         break;
       case 'git_file':
         if (!config.repo_name) newErrors.repo_name = 'Repository name is required';
@@ -4539,6 +4818,37 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'split_column':
         if (!config.column) newErrors.column = 'Column is required';
         if (!config.delimiter) newErrors.delimiter = 'Delimiter is required';
+        break;
+      case 'fuzzy_match':
+        if (!config.source_column) newErrors.source_column = 'Source column is required';
+        if (!config.target_column) newErrors.target_column = 'Target column is required';
+        break;
+      case 'json_path_extract':
+        if (!config.json_column) newErrors.json_column = 'JSON column is required';
+        if (!config.json_path) newErrors.json_path = 'JSON path is required';
+        break;
+      case 'qualify_filter':
+        if (!config.partition_columns) newErrors.partition_columns = 'Partition columns are required';
+        if (!config.order_column) newErrors.order_column = 'Order column is required';
+        break;
+      case 'correlation':
+        if (!config.column_a) newErrors.column_a = 'Column A is required';
+        if (!config.column_b) newErrors.column_b = 'Column B is required';
+        break;
+      case 'histogram':
+        if (!config.column) newErrors.column = 'Column is required';
+        break;
+      case 'ai_filter':
+        if (!config.filter_prompt) newErrors.filter_prompt = 'Filter prompt is required';
+        break;
+      case 'ai_agg':
+        if (!config.group_column) newErrors.group_column = 'Group column is required';
+        if (!config.aggregation_prompt) newErrors.aggregation_prompt = 'Aggregation prompt is required';
+        break;
+      case 'recursive_cte':
+        if (!config.id_column) newErrors.id_column = 'ID column is required';
+        if (!config.parent_column) newErrors.parent_column = 'Parent column is required';
+        if (!config.name_column) newErrors.name_column = 'Name column is required';
         break;
       // Cloud Sources
       case 's3_source':
@@ -4731,6 +5041,8 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <DynamicTableConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'stream_consume':
         return <StreamConsumeConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} />;
+      case 'cdc_merge':
+        return <CdcMergeConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'git_file':
         return <GitFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'compute_pool':
@@ -4832,6 +5144,23 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <FinetuneConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       case 'classification_train':
         return <ClassificationTrainConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      // New blocks
+      case 'fuzzy_match':
+        return <FuzzyMatchConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'json_path_extract':
+        return <JSONPathExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'qualify_filter':
+        return <QualifyFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'correlation':
+        return <CorrelationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'histogram':
+        return <HistogramConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ai_filter':
+        return <AIFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'ai_agg':
+        return <AIAggConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+      case 'recursive_cte':
+        return <RecursiveCTEConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }
@@ -4892,12 +5221,22 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-2">
+        {validationErrors.length > 0 && (
+          <div className="mb-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">Required fields missing:</p>
+            {validationErrors.map((err, i) => (
+              <p key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span>•</span> {err}
+              </p>
+            ))}
+          </div>
+        )}
         <button
           onClick={handleSave}
-          disabled={!hasChanges}
+          disabled={!hasChanges || !isValid}
           className={cn(
             'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
-            hasChanges
+            hasChanges && isValid
               ? 'bg-blue-600 text-white hover:bg-blue-700'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-700'
           )}

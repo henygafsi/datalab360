@@ -703,12 +703,55 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                   )}
                 </div>
 
-                {/* Cron expression (collapsed) */}
-                {!compact && (
+                {/* Cron expression */}
+                {!compact && schedule.cron_expression && (
                   <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
                     <code className="text-xs text-slate-400 font-mono">
                       {schedule.cron_expression}
                     </code>
+                  </div>
+                )}
+
+                {/* Next Runs Preview */}
+                {isActive && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 dark:border-slate-600">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <Clock className="h-3.5 w-3.5 text-blue-500" />
+                      <span className="text-xs font-medium text-slate-600 dark:text-slate-300">Next Runs</span>
+                    </div>
+                    <div className="space-y-1">
+                      {(() => {
+                        // Calculate next 3 run times from cron
+                        const now = new Date();
+                        const cronHuman = schedule.schedule || cronToHuman(schedule.cron_expression || '');
+                        const nextRuns: Date[] = [];
+
+                        // Simple next-run estimation based on schedule type
+                        const cron = schedule.cron_expression || '';
+                        let intervalMs = 3600000; // default 1h
+                        if (cron.includes('0 * * * *') || cronHuman.toLowerCase().includes('hour')) intervalMs = 3600000;
+                        else if (cron.includes('0 0 * * *') || cronHuman.toLowerCase().includes('day')) intervalMs = 86400000;
+                        else if (cron.includes('0 0 * * 1') || cronHuman.toLowerCase().includes('week')) intervalMs = 604800000;
+                        else if (cron.includes('0 0 1 * *') || cronHuman.toLowerCase().includes('month')) intervalMs = 2592000000;
+
+                        for (let i = 1; i <= 3; i++) {
+                          nextRuns.push(new Date(now.getTime() + intervalMs * i));
+                        }
+
+                        return nextRuns.map((run, i) => (
+                          <div key={i} className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                            <div className="w-4 h-4 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-[9px] font-bold text-blue-600 dark:text-blue-400">
+                              {i + 1}
+                            </div>
+                            <span>{run.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                            <span className="text-slate-400">{run.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</span>
+                            <span className="text-slate-400 text-[10px]">
+                              ({i === 0 ? 'next' : `in ${Math.round(intervalMs * (i + 1) / 3600000)}h`})
+                            </span>
+                          </div>
+                        ));
+                      })()}
+                    </div>
                   </div>
                 )}
               </div>

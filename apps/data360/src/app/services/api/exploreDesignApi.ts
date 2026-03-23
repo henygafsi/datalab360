@@ -1,5 +1,5 @@
 /**
- * Explore & Design Module API client — /api/v1/explore-design/*
+ * Explore & Design Module API client — /explore-design/*
  * Handles: project, templates, metadata, profiling, preview, detection,
  * schema-clone, ingestion, masking, mappings, DDL actions, models, deploy, scheduling.
  */

@@ -252,3 +252,226 @@ export interface CostBreakdownResponse {
   balance: CreditBalance;
   execution_time_ms: number;
 }
+
+// ── Filter Options ──────────────────────────────────────────────────────────
+
+export interface FilterUser {
+  name: string;
+  query_count: number;
+  last_active: string | null;
+}
+
+export interface FilterWarehouse {
+  name: string;
+  size: string;
+  credits: number;
+  active_days: number;
+}
+
+export interface FilterDatabase {
+  name: string;
+  table_count: number;
+  total_bytes: number;
+}
+
+export interface FilterRole {
+  name: string;
+  user_count: number;
+}
+
+export interface FilterModule {
+  name: string;
+  event_count: number;
+  user_count: number;
+}
+
+export interface FilterSchema {
+  database: string;
+  schema: string;
+  object_count: number;
+}
+
+export interface FilterOptionsData {
+  users: FilterUser[];
+  warehouses: FilterWarehouse[];
+  databases: FilterDatabase[];
+  roles: FilterRole[];
+  modules: FilterModule[];
+  schemas: FilterSchema[];
+}
+
+export interface FilterOptionsResponse {
+  filters: FilterOptionsData;
+  days: number;
+}
+
+// ── Cross-Module Intelligence ───────────────────────────────────────────────
+
+export interface QueryByModule {
+  module: string;
+  query_count: number;
+  total_seconds: number;
+  credits: number;
+}
+
+export interface GovernanceCoverage {
+  database: string;
+  total_tables: number;
+  tables_with_policies: number;
+  coverage_pct: number;
+}
+
+export interface FreshnessBySchema {
+  database: string;
+  schema: string;
+  table_count: number;
+  freshest_hours: number;
+  stalest_hours: number;
+  avg_staleness_hours: number;
+}
+
+export interface CostByDatabase {
+  database: string;
+  query_count: number;
+  credits: number;
+  avg_ms: number;
+}
+
+export interface CrossModuleData {
+  queries_by_module: QueryByModule[];
+  governance_coverage: GovernanceCoverage[];
+  freshness_by_schema: FreshnessBySchema[];
+  cost_by_database: CostByDatabase[];
+}
+
+export interface CrossModuleResponse {
+  intelligence: CrossModuleData;
+  filters_applied: Record<string, string | number>;
+}
+
+// ── Security Audit ──────────────────────────────────────────────────────────
+
+export interface LoginSummary {
+  total_logins_7d: number;
+  failed_logins_7d: number;
+  unique_users_7d: number;
+  mfa_enabled_pct: number;
+}
+
+export interface LoginEvent {
+  user: string;
+  ip: string;
+  status: string;
+  auth_method: string;
+  timestamp: string | null;
+}
+
+export interface AccessGrant {
+  user: string;
+  role: string;
+  granted_by: string;
+  granted_on: string | null;
+}
+
+export interface PolicyCoverage {
+  masking_policies: number;
+  rls_policies: number;
+  total_tables: number;
+  tables_with_policies: number;
+  coverage_pct: number;
+}
+
+export interface SensitiveData {
+  pii_columns_detected: number;
+  pii_columns_masked: number;
+  unmasked_pct: number;
+}
+
+export interface SecurityAuditResponse {
+  login_summary: LoginSummary;
+  login_history: LoginEvent[];
+  access_grants: AccessGrant[];
+  policy_coverage: PolicyCoverage;
+  sensitive_data: SensitiveData;
+  execution_time_ms: number;
+}
+
+// ── Warehouse Performance ───────────────────────────────────────────────────
+
+export interface WarehouseDetail {
+  name: string;
+  size: string;
+  state: string;
+  auto_suspend: number;
+  auto_resume: boolean;
+  credits_used: number;
+  avg_execution_ms: number;
+  total_queries: number;
+  queue_time_avg_ms: number;
+  utilization_pct: number;
+}
+
+export interface ResourceMonitor {
+  name: string;
+  quota: number;
+  used: number;
+  remaining: number;
+  status: string;
+}
+
+export interface WarehouseQueryPerformance {
+  total_queries_7d: number;
+  avg_execution_ms: number;
+  p95_execution_ms: number;
+  failed_queries_7d: number;
+  queued_queries_7d: number;
+}
+
+export interface WarehousePerformanceResponse {
+  warehouses: WarehouseDetail[];
+  resource_monitors: ResourceMonitor[];
+  query_performance: WarehouseQueryPerformance;
+  execution_time_ms: number;
+}
+
+// ── Query Intelligence ──────────────────────────────────────────────────────
+
+export interface SlowQuery {
+  query_id: string;
+  query_text: string;
+  execution_time_ms: number;
+  user: string;
+  warehouse: string;
+  timestamp: string | null;
+}
+
+export interface FrequentQuery {
+  query_hash: string;
+  count: number;
+  avg_ms: number;
+  total_credits: number;
+  sample_text: string;
+}
+
+export interface ErrorQuery {
+  query_id: string;
+  error_code: string;
+  error_message: string;
+  query_text: string;
+  user: string;
+  timestamp: string | null;
+}
+
+export interface QueryVolumeTrend {
+  date: string | null;
+  count: number;
+  avg_ms: number;
+}
+
+export interface QueryIntelligenceResponse {
+  slow_queries: SlowQuery[];
+  frequent_queries: FrequentQuery[];
+  error_queries: ErrorQuery[];
+  query_volume_trend: QueryVolumeTrend[];
+  execution_time_ms: number;
+}

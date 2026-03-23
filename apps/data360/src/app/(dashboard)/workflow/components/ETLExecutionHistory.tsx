@@ -16,6 +16,7 @@ import {
   Code,
   Copy,
   Check,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -109,6 +110,17 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     const interval = setInterval(fetchRuns, 5000);
     return () => clearInterval(interval);
   }, [runs, fetchRuns]);
+
+  // Auto-trigger AI analysis on latest failed run
+  useEffect(() => {
+    if (runs.length > 0) {
+      const latestRun = runs[0];
+      if (latestRun.status === 'failed' && !aiAnalysis[latestRun.run_id]) {
+        analyzeRun(latestRun.run_id);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runs]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -336,6 +348,20 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         )}
                       </button>
                       {getStatusBadge(run.status as RunStatus)}
+                      {run.status === 'failed' && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); analyzeRun(run.run_id); }}
+                          className="ml-1 px-2 py-0.5 text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full hover:bg-purple-200 dark:hover:bg-purple-800/40 flex items-center gap-1"
+                          disabled={analyzingRun === run.run_id}
+                        >
+                          {analyzingRun === run.run_id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="h-3 w-3" />
+                          )}
+                          AI Fix
+                        </button>
+                      )}
                       <span className="text-xs font-mono text-slate-500">
                         #{run.run_id.slice(-8)}
                       </span>
@@ -362,6 +388,25 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* AI Analysis — always visible when available (not hidden inside expanded) */}
+                {run.status === 'failed' && analyzingRun === run.run_id && !aiAnalysis[run.run_id] && (
+                  <div className="mt-2 ml-6 flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-xs text-purple-600 dark:text-purple-400">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Analyzing with Cortex AI...
+                  </div>
+                )}
+                {aiAnalysis[run.run_id] && (
+                  <div className="mt-2 ml-6 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                      <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">AI Analysis & Fix Suggestions</span>
+                    </div>
+                    <div className="text-xs text-purple-800 dark:text-purple-200 whitespace-pre-wrap leading-relaxed">
+                      {aiAnalysis[run.run_id]}
+                    </div>
+                  </div>
+                )}
 
                 {/* Expanded Details */}
                 {isExpanded && (
@@ -401,9 +446,20 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     {/* Error Log */}
                     {run.error_log && (
                       <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                        <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400 mb-1">
-                          <AlertTriangle className="h-3 w-3" />
-                          Error
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
+                            <AlertTriangle className="h-3 w-3" />
+                            Error
+                          </div>
+                          <button
+                            onClick={() => navigator.clipboard.writeText(
+                              typeof run.error_log === 'string' ? run.error_log : JSON.stringify(run.error_log, null, 2)
+                            )}
+                            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                            title="Copy error to clipboard"
+                          >
+                            <Copy className="h-3 w-3" />
+                          </button>
                         </div>
                         <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap">
                           {typeof run.error_log === 'string'
@@ -414,36 +470,21 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     )}
 
                     {/* AI Analysis */}
-                    {run.status === 'failed' && (
-                      <div className="space-y-2">
-                        {!aiAnalysis[run.run_id] ? (
-                          <button
-                            onClick={() => analyzeRun(run.run_id)}
-                            disabled={analyzingRun === run.run_id}
-                            className={cn(
-                              'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition',
-                              analyzingRun === run.run_id
-                                ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-400 cursor-wait'
-                                : 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40 border border-purple-200 dark:border-purple-800'
-                            )}
-                          >
-                            {analyzingRun === run.run_id ? (
-                              <><Loader2 className="h-3 w-3 animate-spin" /> Analyzing with AI...</>
-                            ) : (
-                              <><AlertTriangle className="h-3 w-3" /> AI Error Analysis</>
-                            )}
-                          </button>
-                        ) : (
-                          <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
-                            <div className="flex items-center gap-1 text-xs text-purple-600 dark:text-purple-400 mb-2 font-medium">
-                              <AlertTriangle className="h-3 w-3" />
-                              AI Analysis
-                            </div>
-                            <div className="text-xs text-purple-800 dark:text-purple-200 whitespace-pre-wrap leading-relaxed">
-                              {aiAnalysis[run.run_id]}
-                            </div>
-                          </div>
-                        )}
+                    {run.status === 'failed' && analyzingRun === run.run_id && !aiAnalysis[run.run_id] && (
+                      <div className="flex items-center gap-2 px-3 py-2 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-xs text-purple-600 dark:text-purple-400">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Analyzing with AI...
+                      </div>
+                    )}
+                    {aiAnalysis[run.run_id] && (
+                      <div className="mt-2 p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Sparkles className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                          <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">AI Analysis & Fix Suggestions</span>
+                        </div>
+                        <div className="text-xs text-purple-800 dark:text-purple-200 whitespace-pre-wrap leading-relaxed">
+                          {aiAnalysis[run.run_id]}
+                        </div>
                       </div>
                     )}
 
@@ -458,37 +499,41 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         </div>
                         <div className="space-y-1">
                           {(run.execution_details.steps_results as any[]).map((step: any, idx: number) => (
-                            <div key={step.step_id || idx} className={cn(
-                              'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs',
-                              step.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' :
-                              step.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
-                              'bg-slate-50 dark:bg-slate-800/50'
-                            )}>
-                              <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
-                                {idx + 1}
-                              </span>
-                              {step.status === 'completed' ? (
-                                <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
-                              ) : step.status === 'failed' ? (
-                                <XCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                              ) : (
-                                <Clock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
-                              )}
-                              <span className="font-medium text-slate-700 dark:text-slate-300 truncate flex-1">
-                                {step.step_name || step.action_type || step.step_id}
-                              </span>
-                              {step.rows_affected !== undefined && (
-                                <span className="text-slate-500 dark:text-slate-400">{step.rows_affected} rows</span>
-                              )}
-                              {step.attempt && step.attempt > 1 && (
-                                <span className="text-amber-500 text-[10px]">retry x{step.attempt}</span>
-                              )}
-                              {step.error && (
-                                <span className="text-red-500 truncate max-w-[120px]" title={step.error}>
-                                  {step.error.substring(0, 40)}...
+                            <React.Fragment key={step.step_id || idx}>
+                              <div className={cn(
+                                'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs',
+                                step.status === 'completed' ? 'bg-green-50 dark:bg-green-900/20' :
+                                step.status === 'failed' ? 'bg-red-50 dark:bg-red-900/20' :
+                                'bg-slate-50 dark:bg-slate-800/50'
+                              )}>
+                                <span className="w-5 h-5 rounded-full bg-slate-200 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold">
+                                  {idx + 1}
                                 </span>
+                                {step.status === 'completed' ? (
+                                  <CheckCircle className="h-3.5 w-3.5 text-green-500 flex-shrink-0" />
+                                ) : step.status === 'failed' ? (
+                                  <XCircle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
+                                ) : (
+                                  <Clock className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+                                )}
+                                <span className="font-medium text-slate-700 dark:text-slate-300 truncate flex-1">
+                                  {step.step_name || step.action_type || step.step_id}
+                                </span>
+                                {step.rows_affected !== undefined && (
+                                  <span className="text-slate-500 dark:text-slate-400">{step.rows_affected} rows</span>
+                                )}
+                                {step.attempt && step.attempt > 1 && (
+                                  <span className="text-amber-500 text-[10px]">retry x{step.attempt}</span>
+                                )}
+                              </div>
+                              {step.error && (
+                                <div className="mt-1 ml-7">
+                                  <p className="text-xs text-red-600 dark:text-red-400 break-words">
+                                    {step.error}
+                                  </p>
+                                </div>
                               )}
-                            </div>
+                            </React.Fragment>
                           ))}
                         </div>
                         {/* Compiled SQL (CTE mode) */}

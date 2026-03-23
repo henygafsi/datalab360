@@ -121,7 +121,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
     <>
       <div
         className={cn(
-          'min-w-[220px] rounded-lg border-2 shadow-lg transition-all',
+          'min-w-[220px] rounded-lg border-2 shadow-lg transition-all hover:shadow-2xl hover:border-blue-400 dark:hover:border-blue-500 hover:-translate-y-0.5',
           selected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900' : '',
           data.isTargetTable
             ? targetTableStyles // Target/DWH tables get special styling
@@ -132,7 +132,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
       >
         {/* Header */}
         <div className={cn(
-          "px-3 py-2 rounded-t-md border-b dark:border-slate-600",
+          "px-3 py-2 rounded-t-md border-b dark:border-slate-600 cursor-grab active:cursor-grabbing",
           data.isTargetTable
             ? "bg-indigo-100 dark:bg-indigo-900/40"
             : "bg-slate-100 dark:bg-slate-700"
@@ -157,7 +157,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
                   autoFocus
                 />
               ) : (
-                <span className="font-medium text-sm truncate" title={displayName}>
+                <span className="font-semibold text-sm truncate" title={displayName}>
                   {displayName}
                 </span>
               )}
@@ -286,7 +286,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
 
         {/* Footer */}
         <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 rounded-b-md border-t dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
-          <span>{data.columns.length} columns</span>
+          <span><span className="font-semibold">{data.columns.length}</span> columns</span>
           <div className="flex items-center gap-2">
             {/* Mapping status for target tables */}
             {data.isTargetTable && mappedCount > 0 && (
@@ -314,12 +314,12 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
         <Handle
           type="target"
           position={Position.Left}
-          className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white"
+          className="!w-4 !h-4 !bg-blue-500 !border-2 !border-white"
         />
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-3 !h-3 !bg-green-500 !border-2 !border-white"
+          className="!w-4 !h-4 !bg-green-500 !border-2 !border-white"
         />
       </div>
     </>

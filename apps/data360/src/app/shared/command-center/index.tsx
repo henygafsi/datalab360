@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useTransition, useMemo, useDeferredValue, useRef, memo, lazy, Suspense } from 'react';
-import { Loader, Text, Title, Badge } from 'rizzui';
+import { Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
 import {
@@ -19,6 +19,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, AreaChart, Area, ComposedChart, Line,
 } from 'recharts';
+
+import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
+import LoginHistoryTable from '@/components/audit/LoginHistoryTable';
 
 import {
   getSummary, getModuleHealth, getActivityFeed,
@@ -138,6 +141,8 @@ const KpiCard = memo(function KpiCard({
   trend?: number; color?: string; suffix?: string;
   previousValue?: number; invertTrend?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   // Compute delta from previous period if provided
   const delta = useMemo(() => {
     if (trend !== undefined) return trend;
@@ -149,25 +154,54 @@ const KpiCard = memo(function KpiCard({
 
   const isPositiveGood = invertTrend ? (delta ?? 0) < 0 : (delta ?? 0) > 0;
 
+  // Health badge based on delta
+  const healthBadge = delta !== undefined
+    ? Math.abs(delta) < 5 ? { label: 'Stable', cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' }
+    : isPositiveGood ? { label: 'Improving', cls: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' }
+    : { label: 'Declining', cls: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' }
+    : null;
+
   return (
-    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
+    <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 transition-all">
       <div className="flex items-center justify-between">
         <div className={`rounded-lg bg-${color}-100 dark:bg-${color}-900/30 p-2`}>
           <Icon className={`h-5 w-5 text-${color}-600 dark:text-${color}-400`} />
         </div>
-        {delta !== undefined && delta !== 0 && (
-          <span className={cn('flex items-center gap-1 text-xs font-medium',
-            isPositiveGood ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
-            {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {delta > 0 ? '+' : ''}{Math.abs(delta)}%
-            <span className="text-gray-400 dark:text-gray-500 font-normal ml-0.5">vs prev</span>
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {delta !== undefined && delta !== 0 && (
+            <span className={cn('flex items-center gap-1 text-xs font-medium',
+              isPositiveGood ? 'text-green-600 dark:text-green-400' : 'text-red-500')}>
+              {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+              {delta > 0 ? '+' : ''}{Math.abs(delta)}%
+              <span className="text-gray-400 dark:text-gray-400 font-normal ml-0.5">vs prev</span>
+            </span>
+          )}
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+            title={expanded ? 'Collapse' : 'Expand details'}
+          >
+            {expanded ? <ChevronUp className="h-3.5 w-3.5 text-gray-400" /> : <ChevronDown className="h-3.5 w-3.5 text-gray-400" />}
+          </button>
+        </div>
       </div>
       <p className="mt-3 text-2xl font-bold text-gray-900 dark:text-white">
-        {typeof value === 'object' && value !== null ? JSON.stringify(value) : value}{suffix}
+        {typeof value === 'object' && value !== null ? (value as any)?.message ?? '—' : value}{suffix}
       </p>
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{label}</p>
+      {expanded && (
+        <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-800 space-y-1.5">
+          {healthBadge && (
+            <span className={cn('inline-block px-2 py-0.5 rounded-full text-[10px] font-medium', healthBadge.cls)}>
+              {healthBadge.label}
+            </span>
+          )}
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            Current: <strong className="text-gray-700 dark:text-gray-300">{typeof value === 'object' ? '—' : value}{suffix}</strong>
+            {delta !== undefined && <> | Change: <strong className={isPositiveGood ? 'text-green-600' : 'text-red-500'}>{delta > 0 ? '+' : ''}{delta}%</strong></>}
+          </p>
+        </div>
+      )}
     </div>
   );
 });
@@ -185,8 +219,14 @@ const SectionCard = memo(function SectionCard({ title, children, className }: {
 
 function LoadingSection() {
   return (
-    <div className="flex items-center justify-center py-12">
-      <Loader size="lg" />
+    <div className="space-y-4 p-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+        {[...Array(6)].map((_, i) => (
+          <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+        ))}
+      </div>
+      <div className="h-48 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+      <div className="h-48 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
     </div>
   );
 }
@@ -354,13 +394,13 @@ const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, opt
         {/* Last updated + auto-refresh indicator */}
         <div className="ml-auto flex items-center gap-3">
           {lastUpdated && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
+            <span className="text-xs text-gray-400 dark:text-gray-400 flex items-center gap-1">
               <Timer className="h-3 w-3" />
               Updated {relativeTime(lastUpdated.toISOString())}
             </span>
           )}
           {autoRefreshCountdown > 0 && (
-            <span className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1 tabular-nums">
+            <span className="text-xs text-gray-400 dark:text-gray-400 flex items-center gap-1 tabular-nums">
               <RefreshCw className="h-3 w-3 animate-spin" style={{ animationDuration: '3s' }} />
               {Math.floor(autoRefreshCountdown / 60)}:{String(autoRefreshCountdown % 60).padStart(2, '0')}
             </span>
@@ -511,12 +551,14 @@ function AuditTable<T extends Record<string, any>>({
           <Badge size="sm" variant="flat" color="secondary">{sorted.length} rows</Badge>
         </div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setShowFilters(!showFilters)}
+          <button
+            aria-label={showFilters ? 'Hide search filters' : 'Show search filters'}
+            onClick={() => setShowFilters(!showFilters)}
             className={cn('rounded-lg p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors',
               showFilters && 'bg-primary/10 text-primary')}>
             <Search className="h-4 w-4" />
           </button>
-          <button onClick={exportCsv} className="rounded-lg p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+          <button aria-label="Export to CSV" onClick={exportCsv} className="rounded-lg p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
             <Download className="h-4 w-4" />
           </button>
         </div>
@@ -685,8 +727,8 @@ function CommandCenterDashboardInner() {
       setLastUpdated(new Date());
       tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
       // Also fetch observability scores + health score (non-blocking)
-      getIntelligentKpis().then(setObsKpis).catch(() => {});
-      getAccountHealthScore().then(setHealthScore).catch(() => {});
+      getIntelligentKpis().then(d => { if (!isApiError(d)) setObsKpis(d); }).catch(() => {});
+      getAccountHealthScore().then(d => { if (!isApiError(d)) setHealthScore(d); }).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load summary';
       setError(msg);
@@ -830,6 +872,15 @@ function CommandCenterDashboardInner() {
   useEffect(() => { fetchOverview(); }, [fetchOverview]);
   useEffect(() => { getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
 
+  // Warm backend caches on first visit (fire-and-forget)
+  useEffect(() => {
+    const cacheWarmed = sessionStorage.getItem('data360_cache_warmed');
+    if (!cacheWarmed) {
+      apiClient.post('/command-center/warm-user-cache').catch(() => {});
+      sessionStorage.setItem('data360_cache_warmed', 'true');
+    }
+  }, []);
+
   // Re-fetch active tab when filters or activeTab change (skip if cached within TTL)
   useEffect(() => {
     const cached = tabDataCache.current[activeTab];
@@ -918,8 +969,26 @@ function CommandCenterDashboardInner() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+      <div className="space-y-6 p-4">
+        {/* Header skeleton */}
+        <div className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+        {/* Tab bar skeleton */}
+        <div className="flex gap-2">
+          {[...Array(7)].map((_, i) => (
+            <div key={i} className="h-10 w-32 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse" />
+          ))}
+        </div>
+        {/* KPI cards skeleton */}
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+          ))}
+        </div>
+        {/* Chart skeletons */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+          <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -940,10 +1009,11 @@ function CommandCenterDashboardInner() {
         </div>
         <button
           onClick={handleRefresh}
-          className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          disabled={isLoading}
+          className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50"
         >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
+          <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
+          {isLoading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
@@ -1015,7 +1085,7 @@ function TasksQuickWidget() {
   const [taskData, setTaskData] = useState<any>(null);
 
   useEffect(() => {
-    apiClient.get('/observability/lineage-with-tasks', { params: { days: 7 } })
+    apiClient.get('/observability/lineage/with-tasks', { params: { days: 7 } })
       .then((res) => setTaskData(res.data))
       .catch(() => {}); // non-blocking — widget is optional
   }, []);
@@ -1071,12 +1141,12 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
     <>
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-        <KpiCard label="Active Users (7d)" value={summary?.platform?.active_users_7d ?? 0} icon={Users} color="blue" />
-        <KpiCard label="Projects" value={summary?.platform?.total_projects ?? 0} icon={Box} color="violet" />
-        <KpiCard label="Quality Score" value={`${summary?.quality?.health_score ?? 0}%`} icon={CheckCircle} color="green" />
-        <KpiCard label="Credits (30d)" value={(summary?.cost?.credits_30d ?? 0).toLocaleString()} icon={DollarSign} color="amber" trend={summary?.cost?.credit_trend_pct} />
-        <KpiCard label="MFA Coverage" value={`${summary?.security?.mfa_coverage_pct ?? 0}%`} icon={Shield} color="rose" />
-        <KpiCard label="AI Models" value={summary?.ai?.semantic_models ?? 0} icon={Brain} color="purple" />
+        <KpiCard label="Active Users (7d)" value={Number(summary?.platform?.active_users_7d) || 0} icon={Users} color="blue" />
+        <KpiCard label="Projects" value={Number(summary?.platform?.total_projects) || 0} icon={Box} color="violet" />
+        <KpiCard label="Quality Score" value={`${Number(summary?.quality?.health_score) || 0}%`} icon={CheckCircle} color="green" />
+        <KpiCard label="Credits (30d)" value={(Number(summary?.cost?.credits_30d) || 0).toLocaleString()} icon={DollarSign} color="amber" trend={Number(summary?.cost?.credit_trend_pct) || undefined} />
+        <KpiCard label="MFA Coverage" value={`${Number(summary?.security?.mfa_coverage_pct) || 0}%`} icon={Shield} color="rose" />
+        <KpiCard label="AI Models" value={Number(summary?.ai?.semantic_models) || 0} icon={Brain} color="purple" />
       </div>
 
       {/* Module Health Grid */}
@@ -1089,7 +1159,7 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
               >
                 <div className={cn('h-2.5 w-2.5 rounded-full', STATUS_BG[m.status])} />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{m.module}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{safeStr(m.module)}</p>
                   <p className="text-xs text-gray-500 dark:text-gray-400">{typeof m.key_metric === 'object' && m.key_metric !== null ? '' : (m.key_metric ?? '')}</p>
                 </div>
               </div>
@@ -1126,9 +1196,9 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
               <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
                 <div className="flex items-center gap-2 min-w-0">
                   <Badge size="sm" variant="flat" color={evt.status === 'SUCCESS' ? 'success' : 'danger'} className="shrink-0">
-                    {evt.module}
+                    {safeStr(evt.module)}
                   </Badge>
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{evt.username} — {evt.event_type}</span>
+                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{safeStr(evt.username)} — {safeStr(evt.event_type)}</span>
                 </div>
                 <span className="text-xs text-gray-400 whitespace-nowrap">{relativeTime(evt.timestamp)}</span>
               </div>
@@ -1296,6 +1366,7 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
             render: (_: string, row: any) => row.status === 'pending_approval' ? (
               <div className="flex items-center gap-1">
                 <button
+                  aria-label="Approve deployment"
                   onClick={() => handleApprove(row.project_id, row.deployment_id, row.project_name)}
                   disabled={actionLoading === row.deployment_id}
                   className="rounded-md bg-green-100 dark:bg-green-900/30 p-1.5 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50 transition-colors disabled:opacity-50"
@@ -1304,6 +1375,7 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
                   <Check className="h-3.5 w-3.5" />
                 </button>
                 <button
+                  aria-label="Reject deployment"
                   onClick={() => setRejectModal({ projectId: row.project_id, deploymentId: row.deployment_id, projectName: row.project_name })}
                   disabled={actionLoading === row.deployment_id}
                   className="rounded-md bg-red-100 dark:bg-red-900/30 p-1.5 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors disabled:opacity-50"
@@ -1357,7 +1429,7 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
                         {' '}— {relativeTime(p.requested_at)}
                       </span>
                       {p.deployment_id && (
-                        <span className="font-mono text-gray-400 dark:text-gray-500">{safeStr(p.deployment_id)}</span>
+                        <span className="font-mono text-gray-400 dark:text-gray-400">{safeStr(p.deployment_id)}</span>
                       )}
                     </div>
                     {p.deployment_type && (
@@ -1698,6 +1770,12 @@ const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
           ]}
         />
       )}
+
+      {/* Full Query History Audit (from ACCOUNT_USAGE) */}
+      <QueryHistoryTable days={data.period_days || 7} />
+
+      {/* Full Login History Audit (from ACCOUNT_USAGE) */}
+      <LoginHistoryTable days={data.period_days || 7} />
     </>
   );
 });

@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-table';
 import { exportToCSV } from '@core/utils/export-to-csv';
 import { getRoles, updateGrants, type RoleGrantData } from '@/app/services/gouvernance/grants';
+import apiClient from '@/lib/api-client';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import Filters from './filters';
@@ -359,8 +360,9 @@ export default function GrantsTable() {
               const updateResponse = await updateGrants(roleName, collapsedModules);
               console.log('[Grants] Step 1: Backend response:', updateResponse.data);
 
-              // Step 2: Refresh data from backend
-              console.log('[Grants] Step 2: Refreshing data from backend...');
+              // Step 2: Clear backend cache and refresh data from backend
+              console.log('[Grants] Step 2: Clearing cache and refreshing data from backend...');
+              try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
               const refreshStartTime = Date.now();
               await fetchGrantsData();
               console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');

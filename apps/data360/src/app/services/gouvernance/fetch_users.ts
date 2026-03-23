@@ -12,8 +12,9 @@ import { UserTableDataType } from '@/app/shared/gouvernance/users/table';
 export async function getUsers(): Promise<UserTableDataType[]> {
   try {
     const response = await apiClient.get('/gouvernance/users');
-    const data = response.data;
-    const safeData = Array.isArray(data) ? data : [];
+    const raw = response.data;
+    // Support both: direct array or paginated { data: [...], pagination: {...} }
+    const safeData = Array.isArray(raw) ? raw : Array.isArray(raw?.data) ? raw.data : [];
 
     const users: UserTableDataType[] = safeData.map((user: any) => {
       let roles: string[] = [];

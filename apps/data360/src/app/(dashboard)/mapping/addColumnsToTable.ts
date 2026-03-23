@@ -37,7 +37,7 @@ export const addColumnsToTable = async (payload: AddColumnsPayload): Promise<Add
     const token = session.user.access_token;
 
     try {
-        console.log(`Service: addColumnsToTable - Sending POST request to ${API_BASE_URL}/mapping/add-columns with payload:`, payload);
+        // console.log(`Service: addColumnsToTable - Sending POST request to ${API_BASE_URL}/mapping/add-columns with payload:`, payload);
         const response = await axios.post<AddColumnsResponse>(
             `${API_BASE_URL}/explore-design/guided/add-columns`,
             payload,
@@ -48,7 +48,7 @@ export const addColumnsToTable = async (payload: AddColumnsPayload): Promise<Add
                 },
             }
         );
-        console.log('Service: addColumnsToTable - Response received:', response.data);
+        // console.log('Service: addColumnsToTable - Response received:', response.data);
         return response.data;
     } catch (error) {
         console.error('Service: addColumnsToTable - Error adding columns:', error);

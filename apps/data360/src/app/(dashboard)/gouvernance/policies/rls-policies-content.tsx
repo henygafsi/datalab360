@@ -1,6 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { rlsPolicySchema, type RLSPolicyFormValues } from '@/validators/rls-policy.schema';
 import { Button, Badge, Input, Modal, Select } from 'rizzui';
 import {
   HiOutlineLockClosed,
@@ -29,6 +32,7 @@ import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
 import { DEFAULTS } from '@/config/database.config';
+import apiClient from '@/lib/api-client';
 
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
@@ -49,12 +53,33 @@ export default function RLSPoliciesContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
+  // Feedback message for screen readers (aria-live)
+  const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [tables, setTables] = useState<string[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [loadingColumns, setLoadingColumns] = useState(false);
+
+  // react-hook-form for Create RLS Policy
+  const {
+    register: registerCreate,
+    handleSubmit: handleCreateSubmit,
+    formState: { errors: createErrors },
+    reset: resetCreateForm,
+    setValue: setCreateValue,
+    watch: watchCreate,
+  } = useForm<RLSPolicyFormValues>({
+    resolver: zodResolver(rlsPolicySchema),
+    defaultValues: {
+      policy_name: '',
+      signature: '',
+      expression: '',
+      description: '',
+      expiration_date: '',
+    },
+  });
 
   const [formData, setFormData] = useState({
     policy_name: '',
@@ -116,7 +141,7 @@ export default function RLSPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing RLS policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing RLS policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -201,36 +226,40 @@ export default function RLSPoliciesContent() {
     return defaultMessage;
   };
 
-  const handleCreate = async () => {
-    // Validate required fields
-    if (!formData.policy_name || !formData.signature || !formData.expression) {
-      toast.error('Please fill in all required fields: Policy Name, Signature, and Expression');
-      return;
-    }
-
+  const onCreateSubmit = async (data: RLSPolicyFormValues) => {
+    setFeedbackMessage(null);
     try {
       const requestData = {
-        policy_name: formData.policy_name.trim().toUpperCase(),
-        signature: formData.signature.trim(),
-        expression: formData.expression.trim(),
+        policy_name: data.policy_name.trim().toUpperCase(),
+        signature: data.signature.trim(),
+        expression: data.expression.trim(),
         database: DEFAULTS.DATABASE,
         schema: DEFAULTS.SCHEMA,
-        description: formData.description?.trim(),
-        expiration_date: formData.expiration_date || undefined,
+        description: data.description?.trim(),
+        expiration_date: data.expiration_date || undefined,
       };
-      console.log('[RLS Create] Sending request:', requestData);
 
-      const result = await createRLSPolicy(requestData);
-      console.log('[RLS Create] Response:', result);
+      await createRLSPolicy(requestData);
 
-      toast.success('RLS Policy created successfully');
+      const msg = `RLS Policy "${requestData.policy_name}" created successfully`;
+      toast.success(msg);
+      setFeedbackMessage({ type: 'success', text: msg });
       setShowCreateModal(false);
+      resetCreateForm();
       resetForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('[RLS Create] Error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create RLS policy'));
+      const errMsg = formatErrorMessage(error, 'Failed to create RLS policy');
+      toast.error(errMsg);
+      setFeedbackMessage({ type: 'error', text: errMsg });
     }
+  };
+
+  // Legacy handler kept for backward compatibility - now delegates to react-hook-form
+  const handleCreate = () => {
+    handleCreateSubmit(onCreateSubmit)();
   };
 
   const handleApply = async () => {
@@ -251,14 +280,19 @@ export default function RLSPoliciesContent() {
         policy_column: applyForm.policy_column,
         policy_schema: DEFAULTS.SCHEMA,
       });
-      toast.success(`RLS Policy applied to ${applyForm.database}.${applyForm.schema}.${applyForm.table_name}`);
+      const applyMsg = `RLS Policy applied to ${applyForm.database}.${applyForm.schema}.${applyForm.table_name}`;
+      toast.success(applyMsg);
+      setFeedbackMessage({ type: 'success', text: applyMsg });
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Apply RLS policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to apply RLS policy'));
+      const applyErrMsg = formatErrorMessage(error, 'Failed to apply RLS policy');
+      toast.error(applyErrMsg);
+      setFeedbackMessage({ type: 'error', text: applyErrMsg });
     }
   };
 
@@ -296,10 +330,14 @@ export default function RLSPoliciesContent() {
       toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteRLSPolicy(policy.policy_name);
       toast.success('RLS Policy deleted successfully', { id: 'delete-policy' });
+      setFeedbackMessage({ type: 'success', text: `RLS Policy "${policy.policy_name}" deleted successfully` });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete RLS policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete RLS policy'), { id: 'delete-policy' });
+      const delErrMsg = formatErrorMessage(error, 'Failed to delete RLS policy');
+      toast.error(delErrMsg, { id: 'delete-policy' });
+      setFeedbackMessage({ type: 'error', text: delErrMsg });
     }
   };
 
@@ -321,6 +359,7 @@ export default function RLSPoliciesContent() {
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Remove RLS policy error:', error.response?.data || error);
@@ -372,7 +411,7 @@ export default function RLSPoliciesContent() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6" aria-live="polite" aria-atomic="true">
         <ModernCard className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -553,9 +592,14 @@ export default function RLSPoliciesContent() {
         )}
       </ModernCard>
 
+      {/* Feedback region for screen readers */}
+      <div aria-live="assertive" aria-atomic="true" className="sr-only">
+        {feedbackMessage?.text}
+      </div>
+
       {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); resetForm(); }}>
-        <div className="p-6 space-y-6">
+      <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); resetCreateForm(); resetForm(); }}>
+        <form onSubmit={handleCreateSubmit(onCreateSubmit)} noValidate className="p-6 space-y-6">
           <div className="flex items-center space-x-3">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center">
               <HiOutlinePlus className="w-6 h-6 text-white" />
@@ -566,66 +610,100 @@ export default function RLSPoliciesContent() {
             </div>
           </div>
 
+          {/* Inline validation errors for screen readers */}
+          {Object.keys(createErrors).length > 0 && (
+            <div aria-live="assertive" role="alert" className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+              <ul className="text-xs text-red-600 dark:text-red-400 space-y-1">
+                {Object.values(createErrors).map((err, i) => (
+                  <li key={i}>{err?.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="rls-policy-name" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Policy Name <span className="text-red-500">*</span>
               </label>
               <Input
-                value={formData.policy_name}
-                onChange={(e) => setFormData({ ...formData, policy_name: e.target.value })}
+                id="rls-policy-name"
+                {...registerCreate('policy_name')}
                 placeholder="e.g., RESTRICT_BY_REGION"
+                aria-invalid={!!createErrors.policy_name}
+                aria-describedby={createErrors.policy_name ? 'rls-policy-name-error' : undefined}
               />
+              {createErrors.policy_name && (
+                <p id="rls-policy-name-error" className="mt-1 text-xs text-red-500" role="alert">
+                  {createErrors.policy_name.message}
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="rls-signature" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Signature <span className="text-red-500">*</span>
               </label>
               <Input
-                value={formData.signature}
-                onChange={(e) => setFormData({ ...formData, signature: e.target.value })}
+                id="rls-signature"
+                {...registerCreate('signature')}
                 placeholder="e.g., (val VARCHAR)"
                 className="font-mono"
+                aria-invalid={!!createErrors.signature}
+                aria-describedby={createErrors.signature ? 'rls-signature-error' : 'rls-signature-hint'}
               />
-              <p className="mt-1 text-xs text-slate-500">
-                Function signature defining the input parameter type (e.g., (val VARCHAR), (user_id NUMBER))
-              </p>
+              {createErrors.signature ? (
+                <p id="rls-signature-error" className="mt-1 text-xs text-red-500" role="alert">
+                  {createErrors.signature.message}
+                </p>
+              ) : (
+                <p id="rls-signature-hint" className="mt-1 text-xs text-slate-500">
+                  Function signature defining the input parameter type (e.g., (val VARCHAR), (user_id NUMBER))
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="rls-expression" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Expression <span className="text-red-500">*</span>
               </label>
               <textarea
-                value={formData.expression}
-                onChange={(e) => setFormData({ ...formData, expression: e.target.value })}
+                id="rls-expression"
+                {...registerCreate('expression')}
                 placeholder="e.g., CURRENT_ROLE() IN ('ADMIN', 'MANAGER') OR val = CURRENT_USER()"
                 rows={4}
                 className="w-full px-4 py-3 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white font-mono text-sm"
+                aria-invalid={!!createErrors.expression}
+                aria-describedby={createErrors.expression ? 'rls-expression-error' : 'rls-expression-hint'}
               />
-              <p className="mt-2 text-xs text-slate-500">
-                Boolean SQL expression that determines row access. Use context functions like CURRENT_ROLE(), CURRENT_USER()
-              </p>
+              {createErrors.expression ? (
+                <p id="rls-expression-error" className="mt-1 text-xs text-red-500" role="alert">
+                  {createErrors.expression.message}
+                </p>
+              ) : (
+                <p id="rls-expression-hint" className="mt-2 text-xs text-slate-500">
+                  Boolean SQL expression that determines row access. Use context functions like CURRENT_ROLE(), CURRENT_USER()
+                </p>
+              )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Description</label>
+              <label htmlFor="rls-description" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Description</label>
               <Input
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                id="rls-description"
+                {...registerCreate('description')}
                 placeholder="Optional description"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+              <label htmlFor="rls-expiration" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
                 Expiration Date
               </label>
               <Input
+                id="rls-expiration"
                 type="datetime-local"
-                value={formData.expiration_date}
-                onChange={(e) => setFormData({ ...formData, expiration_date: e.target.value })}
+                {...registerCreate('expiration_date')}
               />
               <p className="mt-1 text-xs text-slate-500">
                 Optional. Defaults to 7 days from creation if not specified.
@@ -634,18 +712,17 @@ export default function RLSPoliciesContent() {
           </div>
 
           <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={() => { setShowCreateModal(false); resetForm(); }}>
+            <Button variant="outline" onClick={() => { setShowCreateModal(false); resetCreateForm(); resetForm(); }} type="button">
               Cancel
             </Button>
             <Button
-              onClick={handleCreate}
-              disabled={!formData.policy_name || !formData.signature || !formData.expression}
+              type="submit"
               className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white"
             >
               Create Policy
             </Button>
           </div>
-        </div>
+        </form>
       </Modal>
 
       {/* Apply Modal */}

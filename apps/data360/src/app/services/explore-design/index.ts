@@ -1,14 +1,9 @@
 /** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
-// ////dependency//// service → lib.auth, lib.api-contracts, config.database.config, axios
-import axios from 'axios';
-import { getAuthHeaders } from '@/lib/auth';
-import { API_CONTRACTS } from '@/lib/api-contracts';
-import { API_CONFIG } from '@/config/database.config';
+// ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
 
-const API_URL = API_CONFIG.BASE_URL;
-const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
-/** Explore & Design guided data flow: /explore-design/guided/* */
+/** Legacy explore-design prefix (relative, apiClient adds baseURL) */
+const ED = '/explore-design';
 /** New v1 explore-design prefix (uses apiClient with built-in auth) */
 const V1_EXPLORE = '/api/v1/explore-design';
 
@@ -154,8 +149,6 @@ export interface RelationDetection {
   value_overlap_percent?: number;
 }
 
-// Using centralized getAuthHeaders from @/lib/auth
-
 // ============================================
 // METADATA APIS
 // ============================================
@@ -197,16 +190,14 @@ export async function detectRelations(
   detected_relations: RelationDetection[];
   suggestions: RelationDetection[];
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/detect/relations`,
+  const response = await apiClient.post(
+    `${ED}/detect/relations`,
     {
       source_tables: sourceTables,
       target_tables: targetTables,
       detection_methods: options?.detection_methods ?? ['naming_convention', 'data_type_match', 'value_overlap'],
       sample_size: options?.sample_size ?? 1000,
     },
-    { headers }
   );
   return response.data;
 }
@@ -234,16 +225,14 @@ export async function detectPrimaryKeys(
     recommendation: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/detect/primary-keys`,
+  const response = await apiClient.post(
+    `${ED}/detect/primary-keys`,
     {
       tables,
       patterns: options?.patterns ?? ['*_ID', 'ID_*', '*_PK', '*_KEY'],
       check_uniqueness: options?.check_uniqueness ?? true,
       check_nullability: options?.check_nullability ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -261,23 +250,21 @@ export async function recordEvent(
   target: TableReference & { column?: string },
   payload: Record<string, any>
 ): Promise<{ event_id: string; status: EventStatus; created_at: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events`,
+  const response = await apiClient.post(
+    `${ED}/events`,
     {
       project_id: projectId,
       event_type: eventType,
       target,
       payload,
     },
-    { headers }
   );
   return response.data;
 }
 
 /**
  * Get all events for a project
- * Tries v1 API first (GET /api/v1/explore-design/{projectId}/events), falls back to legacy
+ * Tries v1 API first (GET /explore-design/{projectId}/events), falls back to legacy
  */
 export async function getProjectEvents(
   projectId: string,
@@ -310,14 +297,13 @@ export async function getProjectEvents(
     };
   } catch {
     // Fallback to legacy endpoint
-    const headers = await getAuthHeaders();
-    const params = new URLSearchParams();
-    if (filters?.status) params.append('status', filters.status);
-    if (filters?.event_type) params.append('event_type', filters.event_type);
+    const params: Record<string, string> = {};
+    if (filters?.status) params.status = filters.status;
+    if (filters?.event_type) params.event_type = filters.event_type;
 
-    const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
-      { headers }
+    const response = await apiClient.get(
+      `${ED}/projects/${projectId}/events`,
+      { params },
     );
     return response.data;
   }
@@ -359,15 +345,13 @@ export async function validateEvents(
   results: ValidationResult[];
   summary: { validated: number; failed: number };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/validate-events`,
+  const response = await apiClient.post(
+    `${ED}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
       dry_run: dryRun,
     },
-    { headers }
   );
   return response.data;
 }
@@ -389,15 +373,13 @@ export async function deployEvents(
   results: DeploymentResult[];
   summary: { applied: number; failed: number; skipped: number };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events/deploy`,
+  const response = await apiClient.post(
+    `${ED}/events/deploy`,
     {
       project_id: projectId,
       event_ids: eventIds,
       rollback_on_error: options?.rollback_on_error ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -451,7 +433,7 @@ export interface ExploreProjectsResponse {
 
 /**
  * Get all explore projects for the current user
- * Tries v1 API first (GET /api/v1/projects?project_type=explore_design), falls back to legacy
+ * Tries v1 API first (GET /projects?project_type=explore_design), falls back to legacy
  */
 export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
   // Try v1 endpoint first
@@ -471,18 +453,14 @@ export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
     return { projects, total: data.total ?? projects.length };
   } catch {
     // Fallback to legacy endpoint
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/projects`,
-      { headers }
-    );
+    const response = await apiClient.get(`${ED}/projects`);
     return response.data;
   }
 }
 
 /**
  * Create a new explore project
- * Tries v1 API first (POST /api/v1/explore-design), falls back to legacy
+ * Tries v1 API first (POST /explore-design), falls back to legacy
  */
 export async function createExploreProject(
   projectName: string,
@@ -503,14 +481,12 @@ export async function createExploreProject(
     };
   } catch {
     // Fallback to legacy endpoint
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/projects`,
+    const response = await apiClient.post(
+      `${ED}/projects`,
       {
         project_name: projectName,
         metadata: metadata || {},
       },
-      { headers }
     );
     return response.data;
   }
@@ -520,11 +496,7 @@ export async function createExploreProject(
  * Get project state
  */
 export async function getProjectState(projectId: string): Promise<ProjectState> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/project/${projectId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/project/${projectId}`);
   return response.data;
 }
 
@@ -535,12 +507,7 @@ export async function saveProjectState(
   projectId: string,
   state: Partial<ProjectState>
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.put(
-    `${EXPLORE_DESIGN_BASE}/project/${projectId}`,
-    state,
-    { headers }
-  );
+  const response = await apiClient.put(`${ED}/project/${projectId}`, state);
   return response.data;
 }
 
@@ -551,12 +518,9 @@ export async function createProject(
   name: string,
   tables?: TableReference[]
 ): Promise<{ project_id: string; name: string }> {
-  const headers = await getAuthHeaders();
-  const url = API_CONTRACTS.exploreDesign.createProject.getUrl();
-  const response = await axios.post(
-    url,
+  const response = await apiClient.post(
+    `${ED}/projects`,
     { project_name: name, metadata: tables ? { tables } : undefined },
-    { headers }
   );
   return response.data;
 }
@@ -587,11 +551,7 @@ export interface ConfigTemplate {
  * List available templates
  */
 export async function getTemplates(): Promise<ConfigTemplate[]> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/templates`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/templates`);
   return response.data;
 }
 
@@ -601,12 +561,7 @@ export async function getTemplates(): Promise<ConfigTemplate[]> {
 export async function saveTemplate(
   template: Omit<ConfigTemplate, 'id'>
 ): Promise<{ template_id: string; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/templates`,
-    template,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/templates`, template);
   return response.data;
 }
 
@@ -618,11 +573,9 @@ export async function applyTemplate(
   projectId: string,
   tables: TableReference[]
 ): Promise<{ success: boolean; applied_to: number; events_created: number }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/templates/${templateId}/apply`,
+  const response = await apiClient.post(
+    `${ED}/templates/${templateId}/apply`,
     { project_id: projectId, tables },
-    { headers }
   );
   return response.data;
 }
@@ -648,11 +601,7 @@ export interface SchemaChange {
 export async function detectSchemaChanges(
   projectId: string
 ): Promise<{ last_sync: string; changes: SchemaChange }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/schema-changes/${projectId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/schema-changes/${projectId}`);
   return response.data;
 }
 
@@ -679,11 +628,9 @@ export async function validateCompliance(
   score: number;
   checks: ComplianceCheck[];
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/compliance/validate`,
+  const response = await apiClient.post(
+    `${ED}/compliance/validate`,
     { project_id: projectId, compliance_rules: rules },
-    { headers }
   );
   return response.data;
 }
@@ -737,10 +684,8 @@ export async function createDeployment(
   approval_required: boolean;
   approval_request_id?: string;
 }> {
-  const headers = await getAuthHeaders();
-  const url = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
-  const response = await axios.post(
-    url,
+  const response = await apiClient.post(
+    `${ED}/deployments`,
     {
       project_id: projectId,
       version,
@@ -754,7 +699,6 @@ export async function createDeployment(
         ...config,
       },
     },
-    { headers }
   );
   return response.data;
 }
@@ -777,11 +721,7 @@ export async function getDeployment(deploymentId: string): Promise<Deployment & 
     duration_seconds: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/deployments/${deploymentId}`);
   return response.data;
 }
 
@@ -796,14 +736,12 @@ export async function executeDeployment(
   status: DeploymentStatus;
   execution_started: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/execute`,
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/execute`,
     {
       execution_mode: options?.execution_mode ?? 'immediate',
       dry_run: options?.dry_run ?? false,
     },
-    { headers }
   );
   return response.data;
 }
@@ -816,14 +754,12 @@ export async function rollbackDeployment(
   targetVersion: string,
   reason: string
 ): Promise<{ success: boolean; message: string; rollback_deployment_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/rollback`,
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/rollback`,
     {
       target_version: targetVersion,
       reason,
     },
-    { headers }
   );
   return response.data;
 }
@@ -835,14 +771,13 @@ export async function listDeployments(
   projectId: string,
   filters?: { status?: DeploymentStatus; limit?: number }
 ): Promise<{ deployments: Deployment[]; total: number }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (filters?.status) params.append('status', filters.status);
-  if (filters?.limit) params.append('limit', String(filters.limit));
+  const params: Record<string, string> = {};
+  if (filters?.status) params.status = filters.status;
+  if (filters?.limit) params.limit = String(filters.limit);
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/deployments/project/${projectId}?${params.toString()}`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/deployments/project/${projectId}`,
+    { params },
   );
   return response.data;
 }
@@ -886,16 +821,14 @@ export async function createVersion(
   changelogSummary: string,
   snapshotEvents?: boolean
 ): Promise<{ version_id: string; version: string; previous_version?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions`,
+  const response = await apiClient.post(
+    `${ED}/versions`,
     {
       project_id: projectId,
       version_type: versionType,
       changelog: changelogSummary,
       snapshot_events: snapshotEvents ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -904,11 +837,7 @@ export async function createVersion(
  * List versions for a project
  */
 export async function listVersions(projectId: string): Promise<{ versions: Version[] }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/${projectId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/versions/${projectId}`);
   return response.data;
 }
 
@@ -916,11 +845,7 @@ export async function listVersions(projectId: string): Promise<{ versions: Versi
  * Get version details
  */
 export async function getVersion(versionId: string): Promise<Version & { snapshot: any }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/detail/${versionId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/versions/detail/${versionId}`);
   return response.data;
 }
 
@@ -944,10 +869,8 @@ export async function compareVersions(
     policies_removed: string[];
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/${fromVersionId}/compare/${toVersionId}`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/versions/${fromVersionId}/compare/${toVersionId}`,
   );
   return response.data;
 }
@@ -956,12 +879,7 @@ export async function compareVersions(
  * Publish a version
  */
 export async function publishVersion(versionId: string): Promise<{ success: boolean; published_at: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions/${versionId}/publish`,
-    {},
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/versions/${versionId}/publish`, {});
   return response.data;
 }
 
@@ -969,12 +887,7 @@ export async function publishVersion(versionId: string): Promise<{ success: bool
  * Archive a version
  */
 export async function archiveVersion(versionId: string): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions/${versionId}/archive`,
-    {},
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/versions/${versionId}/archive`, {});
   return response.data;
 }
 
@@ -1023,11 +936,7 @@ export async function getPendingApprovals(): Promise<{
   pending: ApprovalRequest[];
   total: number;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/approvals/pending`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/approvals/pending`);
   return response.data;
 }
 
@@ -1035,11 +944,7 @@ export async function getPendingApprovals(): Promise<{
  * Get approval details
  */
 export async function getApprovalDetails(approvalId: string): Promise<ApprovalRequest> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/approvals/${approvalId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/approvals/${approvalId}`);
   return response.data;
 }
 
@@ -1050,11 +955,9 @@ export async function approveRequest(
   approvalId: string,
   comment?: string
 ): Promise<{ success: boolean; deployment_status: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/approvals/${approvalId}/approve`,
+  const response = await apiClient.post(
+    `${ED}/approvals/${approvalId}/approve`,
     { comment },
-    { headers }
   );
   return response.data;
 }
@@ -1067,14 +970,12 @@ export async function rejectRequest(
   comment: string,
   requiredChanges?: Array<{ type: string; table?: string; column?: string }>
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/approvals/${approvalId}/reject`,
+  const response = await apiClient.post(
+    `${ED}/approvals/${approvalId}/reject`,
     {
       comment,
       required_changes: requiredChanges,
     },
-    { headers }
   );
   return response.data;
 }
@@ -1086,11 +987,9 @@ export async function addApprovalComment(
   approvalId: string,
   comment: string
 ): Promise<{ success: boolean; comment_id: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/approvals/${approvalId}/comment`,
+  const response = await apiClient.post(
+    `${ED}/approvals/${approvalId}/comment`,
     { comment },
-    { headers }
   );
   return response.data;
 }
@@ -1135,15 +1034,13 @@ export async function createSnowpipe(
   tableId: string,
   config: SnowpipeConfig
 ): Promise<{ pipe_id: string; pipe_name: string; status: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/snowpipe`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/snowpipe`,
     {
       project_id: projectId,
       table_id: tableId,
       config,
     },
-    { headers }
   );
   return response.data;
 }
@@ -1156,15 +1053,13 @@ export async function createBatchTask(
   tableId: string,
   config: BatchTaskConfig
 ): Promise<{ task_id: string; task_name: string; status: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/batch-task`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/batch-task`,
     {
       project_id: projectId,
       table_id: tableId,
       config,
     },
-    { headers }
   );
   return response.data;
 }
@@ -1178,9 +1073,8 @@ export async function createStream(
   sourceTable: string,
   options?: { append_only?: boolean; show_initial_rows?: boolean }
 ): Promise<{ stream_id: string; stream_name: string; status: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/stream`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/stream`,
     {
       project_id: projectId,
       stream_name: streamName,
@@ -1188,7 +1082,6 @@ export async function createStream(
       append_only: options?.append_only ?? false,
       show_initial_rows: options?.show_initial_rows ?? false,
     },
-    { headers }
   );
   return response.data;
 }
@@ -1200,11 +1093,9 @@ export async function pauseIngestion(
   ingestionId: string,
   type: 'snowpipe' | 'task'
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/${ingestionId}/pause`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/${ingestionId}/pause`,
     { type },
-    { headers }
   );
   return response.data;
 }
@@ -1216,11 +1107,9 @@ export async function resumeIngestion(
   ingestionId: string,
   type: 'snowpipe' | 'task'
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/${ingestionId}/resume`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/${ingestionId}/resume`,
     { type },
-    { headers }
   );
   return response.data;
 }
@@ -1504,10 +1393,9 @@ export async function executeIngestion(
     return { ...data, project_id: request.project_id };
   } catch {
     // Fallback to legacy endpoint
-    const headers = await getAuthHeaders();
     try {
-      const response = await axios.post<IngestionExecutionResponse>(
-        `${EXPLORE_DESIGN_BASE}/execute_ingestion`,
+      const response = await apiClient.post<IngestionExecutionResponse>(
+        `${ED}/execute_ingestion`,
         {
           project_id: request.project_id,
           schema_version_id: request.schema_version_id,
@@ -1515,7 +1403,6 @@ export async function executeIngestion(
           warehouse: request.warehouse || 'COMPUTE_WH',
           triggered_by: request.triggered_by,
         },
-        { headers }
       );
 
       return response.data;
@@ -1661,11 +1548,9 @@ export async function rollbackIngestionOperation(
 export async function deploySchema(
   request: SchemaDeploymentRequest
 ): Promise<SchemaDeploymentResponse> {
-  const headers = await getAuthHeaders();
-
   try {
-    const response = await axios.post<SchemaDeploymentResponse>(
-      `${EXPLORE_DESIGN_BASE}/deploy_schema`,
+    const response = await apiClient.post<SchemaDeploymentResponse>(
+      `${ED}/deploy_schema`,
       {
         project_id: request.project_id,
         version_name: request.version_name,
@@ -1674,7 +1559,6 @@ export async function deploySchema(
         events: request.events,
         options: request.options || { rollback_on_error: true },
       },
-      { headers }
     );
 
     return response.data;
@@ -1747,15 +1631,14 @@ export async function getSchemaVersions(
     };
   } catch {
     // Fallback to legacy endpoint
-    const headers = await getAuthHeaders();
     try {
-      const params = new URLSearchParams();
-      if (options?.limit) params.append('limit', options.limit.toString());
-      if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
+      const params: Record<string, string> = {};
+      if (options?.limit) params.limit = options.limit.toString();
+      if (options?.include_rolled_back) params.include_rolled_back = 'true';
 
-      const response = await axios.get<SchemaVersionsResponse>(
-        `${EXPLORE_DESIGN_BASE}/schema_versions/${projectId}?${params.toString()}`,
-        { headers }
+      const response = await apiClient.get<SchemaVersionsResponse>(
+        `${ED}/schema_versions/${projectId}`,
+        { params },
       );
 
       return response.data;
@@ -1784,7 +1667,7 @@ export interface RecentDeploymentError {
 
 /**
  * Fetch recent deployment errors for Deployment Plans UI and Cortex recommendations.
- * Backend: GET /api/v1/explore-design/recent-deployment-errors
+ * Backend: GET /explore-design/recent-deployment-errors
  */
 export async function getRecentDeploymentErrors(
   limit: number = 20
@@ -1814,13 +1697,10 @@ export async function rollbackSchema(
   versionId: string,
   options?: RollbackOptions
 ): Promise<RollbackResponse> {
-  const headers = await getAuthHeaders();
-
   try {
-    const response = await axios.post<RollbackResponse>(
-      `${EXPLORE_DESIGN_BASE}/rollback_schema/${versionId}`,
+    const response = await apiClient.post<RollbackResponse>(
+      `${ED}/rollback_schema/${versionId}`,
       options || {},
-      { headers }
     );
 
     return response.data;
@@ -1842,7 +1722,7 @@ export async function rollbackSchema(
 
 /**
  * List deployments for a project via v1 API
- * GET /api/v1/explore-design/{projectId}/deployments
+ * GET /explore-design/{projectId}/deployments
  */
 export async function listProjectDeploymentsV1(
   projectId: string,
@@ -1858,7 +1738,7 @@ export async function listProjectDeploymentsV1(
 
 /**
  * Approve a deployment via v1 API
- * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/approve
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/approve
  */
 export async function approveDeploymentV1(
   projectId: string,
@@ -1872,7 +1752,7 @@ export async function approveDeploymentV1(
 
 /**
  * Reject a deployment via v1 API
- * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/reject
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/reject
  */
 export async function rejectDeploymentV1(
   projectId: string,
@@ -1888,7 +1768,7 @@ export async function rejectDeploymentV1(
 
 /**
  * Execute a deployment via v1 API
- * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/execute
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/execute
  */
 export async function executeDeploymentV1(
   projectId: string,
@@ -1902,7 +1782,7 @@ export async function executeDeploymentV1(
 
 /**
  * Cancel a deployment via v1 API
- * POST /api/v1/explore-design/{projectId}/deployments/{deploymentId}/cancel
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/cancel
  */
 export async function cancelDeploymentV1(
   projectId: string,
@@ -1916,7 +1796,7 @@ export async function cancelDeploymentV1(
 
 /**
  * Quick deploy via v1 API
- * POST /api/v1/explore-design/{projectId}/deploy?version_id=...
+ * POST /explore-design/{projectId}/deploy?version_id=...
  */
 export async function quickDeployV1(
   projectId: string,
@@ -1932,7 +1812,7 @@ export async function quickDeployV1(
 
 /**
  * Create a schedule via v1 API
- * POST /api/v1/explore-design/{projectId}/schedule
+ * POST /explore-design/{projectId}/schedule
  */
 export async function createScheduleV1(
   projectId: string,
@@ -1949,7 +1829,7 @@ export async function createScheduleV1(
 
 /**
  * List schedules via v1 API
- * GET /api/v1/explore-design/{projectId}/schedules
+ * GET /explore-design/{projectId}/schedules
  */
 export async function listSchedulesV1(
   projectId: string,
@@ -1979,16 +1859,14 @@ export async function getIngestionHistory(
     schema_version_id?: string;
   }
 ): Promise<IngestionHistoryResponse> {
-  const headers = await getAuthHeaders();
-
   try {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.schema_version_id) params.append('schema_version_id', options.schema_version_id);
+    const params: Record<string, string> = {};
+    if (options?.limit) params.limit = options.limit.toString();
+    if (options?.schema_version_id) params.schema_version_id = options.schema_version_id;
 
-    const response = await axios.get<IngestionHistoryResponse>(
-      `${EXPLORE_DESIGN_BASE}/ingestion_history/${projectId}?${params.toString()}`,
-      { headers }
+    const response = await apiClient.get<IngestionHistoryResponse>(
+      `${ED}/ingestion_history/${projectId}`,
+      { params },
     );
 
     return response.data;
@@ -2024,11 +1902,9 @@ export async function addEventConditions(
   eventId: string,
   conditions: Omit<EventCondition, 'id'>[]
 ): Promise<{ success: boolean; condition_ids: string[] }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events/${eventId}/conditions`,
+  const response = await apiClient.post(
+    `${ED}/events/${eventId}/conditions`,
     { conditions },
-    { headers }
   );
   return response.data;
 }
@@ -2046,11 +1922,9 @@ export async function evaluateConditions(eventId: string): Promise<{
     next_valid_window?: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events/${eventId}/conditions/evaluate`,
+  const response = await apiClient.post(
+    `${ED}/events/${eventId}/conditions/evaluate`,
     {},
-    { headers }
   );
   return response.data;
 }
@@ -2063,10 +1937,9 @@ export async function evaluateConditions(eventId: string): Promise<{
  * Export project configuration
  */
 export async function exportProject(projectId: string): Promise<Blob> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/export/${projectId}`,
-    { headers, responseType: 'blob' }
+  const response = await apiClient.get(
+    `${ED}/export/${projectId}`,
+    { responseType: 'blob' },
   );
   return response.data;
 }
@@ -2077,16 +1950,13 @@ export async function exportProject(projectId: string): Promise<Blob> {
 export async function importProject(
   file: File
 ): Promise<{ project_id: string; imported_tables: number; imported_events: number }> {
-  const headers = await getAuthHeaders();
-  delete (headers as any)['Content-Type']; // Let browser set multipart boundary
-
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/import`,
+  const response = await apiClient.post(
+    `${ED}/import`,
     formData,
-    { headers }
+    { headers: { 'Content-Type': 'multipart/form-data' } },
   );
   return response.data;
 }
@@ -2147,12 +2017,7 @@ export interface IngestionAdaptationRequest {
  * POST /explore-design/schema-clone
  */
 export async function createSchemaClone(request: SchemaCloneRequest): Promise<SchemaCloneResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post<SchemaCloneResponse>(
-    `${EXPLORE_DESIGN_BASE}/schema-clone`,
-    request,
-    { headers }
-  );
+  const response = await apiClient.post<SchemaCloneResponse>(`${ED}/schema-clone`, request);
   return response.data;
 }
 
@@ -2161,11 +2026,7 @@ export async function createSchemaClone(request: SchemaCloneRequest): Promise<Sc
  * GET /explore-design/schema-clone/{clone_id}/status
  */
 export async function getSchemaCloneStatus(clone_id: string): Promise<SchemaCloneResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get<SchemaCloneResponse>(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/status`,
-    { headers }
-  );
+  const response = await apiClient.get<SchemaCloneResponse>(`${ED}/schema-clone/${clone_id}/status`);
   return response.data;
 }
 
@@ -2179,11 +2040,9 @@ export async function executeSchemaClone(clone_id: string, warehouse?: string): 
   execution_time_ms: number;
   errors?: string[];
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/execute`,
+  const response = await apiClient.post(
+    `${ED}/schema-clone/${clone_id}/execute`,
     { warehouse },
-    { headers }
   );
   return response.data;
 }
@@ -2196,12 +2055,7 @@ export async function rollbackSchemaClone(clone_id: string): Promise<{
   success: boolean;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/rollback`,
-    {},
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/schema-clone/${clone_id}/rollback`, {});
   return response.data;
 }
 
@@ -2210,11 +2064,10 @@ export async function rollbackSchemaClone(clone_id: string): Promise<{
  * GET /explore-design/schema-clone/list
  */
 export async function listSchemaClones(project_id?: string): Promise<SchemaCloneResponse[]> {
-  const headers = await getAuthHeaders();
   const params = project_id ? { project_id } : {};
-  const response = await axios.get<SchemaCloneResponse[]>(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/list`,
-    { headers, params }
+  const response = await apiClient.get<SchemaCloneResponse[]>(
+    `${ED}/schema-clone/list`,
+    { params },
   );
   return response.data;
 }
@@ -2229,12 +2082,7 @@ export async function previewSchemaCloneDDL(request: Omit<SchemaCloneRequest, 'w
   estimated_tables: number;
   estimated_size_bytes?: number;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/preview`,
-    request,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/schema-clone/preview`, request);
   return response.data;
 }
 
@@ -2255,11 +2103,9 @@ export async function adaptIngestionForVersion(
     ddl_statements: string[];
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/adapt`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/adapt`,
     { version_id, source_schema, target_schema },
-    { headers }
   );
   return response.data;
 }
@@ -2280,11 +2126,9 @@ export async function pauseIngestionForClone(
     pipes: string[];
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/pause`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/pause`,
     { database, schema, table },
-    { headers }
   );
   return response.data;
 }
@@ -2306,11 +2150,9 @@ export async function resumeIngestionAfterClone(
     pipes: string[];
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/resume`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/resume`,
     { database, schema, table, target_schema },
-    { headers }
   );
   return response.data;
 }
@@ -2335,11 +2177,9 @@ export async function createVersionedIngestion(
   }>;
   ddl_executed: string[];
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/ingestion/create-versioned`,
+  const response = await apiClient.post(
+    `${ED}/ingestion/create-versioned`,
     { version_id, database, source_schema, target_schema, tables },
-    { headers }
   );
   return response.data;
 }
@@ -2368,10 +2208,8 @@ export async function compareSchemaVersions(
     policies_removed: Array<{ type: string; name: string; table?: string }>;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/${from_version_id}/compare/${to_version_id}`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/versions/${from_version_id}/compare/${to_version_id}`,
   );
   return response.data;
 }
@@ -2390,11 +2228,9 @@ export async function promoteVersion(
   target_schema: string;
   promoted_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions/${version_id}/promote`,
+  const response = await apiClient.post(
+    `${ED}/versions/${version_id}/promote`,
     { target_environment, target_database },
-    { headers }
   );
   return response.data;
 }
@@ -2412,10 +2248,8 @@ export async function getVersionMigrationScript(
   estimated_downtime_seconds?: number;
   requires_data_migration: boolean;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/${from_version_id}/migration/${to_version_id}`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/versions/${from_version_id}/migration/${to_version_id}`,
   );
   return response.data;
 }
@@ -2499,14 +2333,11 @@ export function generateBatchSQL(events: DesignEvent[]): string {
 export async function ensureProjectExists(
   projectName: string
 ): Promise<{ project_id: string; created: boolean }> {
-  const headers = await getAuthHeaders();
-
   try {
     // Try to create the project - if it already exists, backend may return it
-    const response = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/projects`,
+    const response = await apiClient.post(
+      `${ED}/projects`,
       { name: projectName },
-      { headers }
     );
 
     return {
@@ -2589,9 +2420,9 @@ export interface ScheduledDeployment {
 
 /**
  * Schedule a deployment
- * Tries v1 API first (POST /api/v1/explore-design/{projectId}/deployments), falls back to legacy
+ * Tries v1 API first (POST /explore-design/{projectId}/deployments), falls back to legacy
  *
- * Backend endpoint (v1): POST /api/v1/explore-design/{project_id}/deployments
+ * Backend endpoint (v1): POST /explore-design/{project_id}/deployments
  * Backend endpoint (legacy): POST /explore-design/deployments
  */
 export async function scheduleDeploymentUnified(
@@ -2616,7 +2447,7 @@ export async function scheduleDeploymentUnified(
   event_id?: string;
   deployment_id?: string;
 }> {
-  // Try v1 endpoint first: POST /api/v1/explore-design/{projectId}/deployments
+  // Try v1 endpoint first: POST /explore-design/{projectId}/deployments
   try {
     const v1Body = {
       deployment_type: config.requires_approval ? 'with_approval' : 'scheduled',
@@ -2658,7 +2489,6 @@ export async function scheduleDeploymentUnified(
   }
 
   // Fallback to legacy endpoint
-  const headers = await getAuthHeaders();
 
   // First, record all events to the backend using POST /explore-design/add-event
   const eventIds: string[] = [];
@@ -2678,11 +2508,7 @@ export async function scheduleDeploymentUnified(
         module_type: config.module_type || 'explore-design',
       };
 
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/add-event`,
-        eventPayload,
-        { headers }
-      );
+      const response = await apiClient.post(`${ED}/add-event`, eventPayload);
       eventIds.push(response.data.event_id || response.data.project_id || event.event_id);
     } catch (e: any) {
       const errorDetail = e.response?.data?.detail || e.message;
@@ -2720,13 +2546,9 @@ export async function scheduleDeploymentUnified(
     },
   };
 
-  console.log('[scheduleDeploymentUnified] Creating scheduled deployment:', JSON.stringify(deploymentPayload, null, 2));
+  // console.log('[scheduleDeploymentUnified] Creating scheduled deployment:', JSON.stringify(deploymentPayload, null, 2));
 
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments`,
-    deploymentPayload,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/deployments`, deploymentPayload);
 
   const deploymentId = response.data.deployment_id || response.data.id;
 
@@ -2762,7 +2584,6 @@ export async function recordDesignEvents(
   recorded_count: number;
   event_ids: string[];
 }> {
-  const headers = await getAuthHeaders();
   const recordedIds: string[] = [];
 
   for (const event of events) {
@@ -2786,26 +2607,15 @@ export async function recordDesignEvents(
         module_type: moduleType,
       };
 
-      console.log('[recordDesignEvents] 🔍 DEBUG - Sending to /explore-design/add-event:', {
-        url: `${EXPLORE_DESIGN_BASE}/add-event`,
-        payload: JSON.stringify(eventPayload, null, 2),
-        headers: Object.keys(headers),
-      });
+      const response = await apiClient.post(`${ED}/add-event`, eventPayload);
 
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/add-event`,
-        eventPayload,
-        { headers }
-      );
-
-      console.log('[recordDesignEvents] ✅ SUCCESS - Response:', response.data);
       recordedIds.push(response.data?.event_id || response.data?.project_id || event.event_id);
     } catch (error: any) {
       // Enhanced error logging
-      console.error('[recordDesignEvents] ❌ ERROR - Failed to record event:', {
+      console.error('[recordDesignEvents] Failed to record event:', {
         event_id: event.event_id,
         event_type: event.event_type,
-        url: `${EXPLORE_DESIGN_BASE}/add-event`,
+        url: `${ED}/add-event`,
         status: error.response?.status,
         statusText: error.response?.statusText,
         errorMessage: error.message,
@@ -2845,14 +2655,8 @@ export async function executeQueries(
     error?: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-
   try {
-    const response = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/execute_queries`,
-      queries,
-      { headers }
-    );
+    const response = await apiClient.post(`${ED}/execute_queries`, queries);
 
     return {
       status: 'success',
@@ -2876,7 +2680,7 @@ export async function executeQueries(
 
 /**
  * Deploy events immediately
- * Tries v1 API first (POST /api/v1/explore-design/{projectId}/deployments), falls back to legacy
+ * Tries v1 API first (POST /explore-design/{projectId}/deployments), falls back to legacy
  */
 export async function deployEventsImmediate(
   projectId: string,
@@ -2951,8 +2755,6 @@ export async function deployEventsImmediate(
   }
 
   // Fallback to legacy endpoint
-  const headers = await getAuthHeaders();
-
   const createPayload = {
     project_id: projectId,
     version: `v${Date.now()}`,
@@ -2972,15 +2774,13 @@ export async function deployEventsImmediate(
   };
 
   try {
-    const createUrl = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
-    const createResponse = await axios.post(createUrl, createPayload, { headers });
+    const createResponse = await apiClient.post(`${ED}/deployments`, createPayload);
 
     const deploymentId = createResponse.data.deployment_id || createResponse.data.id;
 
-    const executeResponse = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/execute`,
+    const executeResponse = await apiClient.post(
+      `${ED}/deployments/${deploymentId}/execute`,
       { rollback_on_error: options?.rollback_on_error ?? true },
-      { headers }
     );
 
     return {
@@ -3147,14 +2947,12 @@ export async function getScheduledDeployments(
   scheduled_deployments: ScheduledDeployment[];
   total: number;
 }> {
-  const headers = await getAuthHeaders();
-
   try {
-    const params = new URLSearchParams();
-    if (projectId) params.append('project_id', projectId);
-    const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/scheduled-deployments${params.toString() ? `?${params.toString()}` : ''}`,
-      { headers }
+    const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
+    const response = await apiClient.get(
+      `${ED}/scheduled-deployments`,
+      { params },
     );
 
     let deployments = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
@@ -3212,11 +3010,7 @@ export async function getScheduledDeploymentDetails(
     timestamp: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/scheduled-deployments/${scheduleId}`);
   return response.data;
 }
 
@@ -3233,11 +3027,9 @@ export async function approveScheduledDeployment(
   approved_at: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/approve`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/approve`,
     { comment },
-    { headers }
   );
   return response.data;
 }
@@ -3255,11 +3047,9 @@ export async function rejectScheduledDeployment(
   rejected_at: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/reject`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/reject`,
     { reason },
-    { headers }
   );
   return response.data;
 }
@@ -3277,11 +3067,9 @@ export async function cancelScheduledDeployment(
   cancelled_at: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/cancel`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/cancel`,
     { reason },
-    { headers }
   );
   return response.data;
 }
@@ -3300,14 +3088,12 @@ export async function rescheduleDeployment(
   requires_reapproval: boolean;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/reschedule`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/reschedule`,
     {
       scheduled_date: newScheduledDate,
       reason,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3325,11 +3111,9 @@ export async function executeScheduledDeploymentNow(
   status: ScheduledDeploymentStatus;
   started_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/execute-now`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/execute-now`,
     { reason },
-    { headers }
   );
   return response.data;
 }
@@ -3350,11 +3134,7 @@ export async function getScheduledDeploymentLogs(
     sql_executed?: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/logs`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/scheduled-deployments/${scheduleId}/logs`);
   return response.data;
 }
 
@@ -3439,16 +3219,14 @@ export async function createWorkflow(
     notification_channels?: string[];
   }
 ): Promise<{ workflow_id: string; status: WorkflowStatus }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows`,
+  const response = await apiClient.post(
+    `${ED}/workflows`,
     {
       project_id: projectId,
       name,
       tasks,
       ...options,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3458,11 +3236,7 @@ export async function createWorkflow(
  * GET /explore-design/workflows/{workflow_id}/dag
  */
 export async function getWorkflowDAG(workflowId: string): Promise<WorkflowDAG> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/dag`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/workflows/${workflowId}/dag`);
   return response.data;
 }
 
@@ -3482,11 +3256,9 @@ export async function executeWorkflow(
   status: WorkflowStatus;
   execution_started: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/execute`,
+  const response = await apiClient.post(
+    `${ED}/workflows/${workflowId}/execute`,
     options || {},
-    { headers }
   );
   return response.data;
 }
@@ -3507,10 +3279,8 @@ export async function getTaskLogs(
     sql_executed?: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/tasks/${taskId}/logs`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/workflows/${workflowId}/tasks/${taskId}/logs`,
   );
   return response.data;
 }
@@ -3523,11 +3293,9 @@ export async function cancelWorkflow(
   workflowId: string,
   reason?: string
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/cancel`,
+  const response = await apiClient.post(
+    `${ED}/workflows/${workflowId}/cancel`,
     { reason },
-    { headers }
   );
   return response.data;
 }
@@ -3540,11 +3308,9 @@ export async function retryTask(
   workflowId: string,
   taskId: string
 ): Promise<{ success: boolean; new_status: TaskStatus }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/tasks/${taskId}/retry`,
+  const response = await apiClient.post(
+    `${ED}/workflows/${workflowId}/tasks/${taskId}/retry`,
     {},
-    { headers }
   );
   return response.data;
 }
@@ -3612,16 +3378,12 @@ export async function getPolicies(filters?: {
     tags: Array<{ name: string; columns_tagged: number }>;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (filters?.type) params.append('type', filters.type);
-  if (filters?.database) params.append('database', filters.database);
-  if (filters?.schema) params.append('schema', filters.schema);
+  const params: Record<string, string> = {};
+  if (filters?.type) params.type = filters.type;
+  if (filters?.database) params.database = filters.database;
+  if (filters?.schema) params.schema = filters.schema;
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/policies?${params.toString()}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/policies`, { params });
   return response.data;
 }
 
@@ -3640,16 +3402,14 @@ export async function applyMaskingPolicy(
   },
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/apply`,
+  const response = await apiClient.post(
+    `${ED}/policies/masking/apply`,
     {
       project_id: projectId,
       policy_name: policyName,
       target,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3668,15 +3428,13 @@ export async function removeMaskingPolicy(
   },
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/remove`,
+  const response = await apiClient.post(
+    `${ED}/policies/masking/remove`,
     {
       project_id: projectId,
       target,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3696,9 +3454,8 @@ export async function applyRLSPolicy(
   filterColumn: string,
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/rls/apply`,
+  const response = await apiClient.post(
+    `${ED}/policies/rls/apply`,
     {
       project_id: projectId,
       policy_name: policyName,
@@ -3706,7 +3463,6 @@ export async function applyRLSPolicy(
       filter_column: filterColumn,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3730,16 +3486,14 @@ export async function detectSensitiveColumnsInTables(
     sensitive_found: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/detect-sensitive`,
+  const response = await apiClient.post(
+    `${ED}/policies/detect-sensitive`,
     {
       tables,
       patterns: options?.patterns ?? ['email', 'ssn', 'phone', 'address', 'credit_card', 'dob'],
       sample_data: options?.sample_data ?? true,
       sample_size: options?.sample_size ?? 100,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3763,15 +3517,13 @@ export async function bulkApplyTags(
   applied_count: number;
   event_ids?: string[];
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/tags/bulk-apply`,
+  const response = await apiClient.post(
+    `${ED}/policies/tags/bulk-apply`,
     {
       project_id: projectId,
       applications,
       create_events: createEvents ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3784,12 +3536,7 @@ export async function createMaskingPolicy(policy: MaskingPolicy): Promise<{
   success: boolean;
   policy_name: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/create`,
-    policy,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/policies/masking/create`, policy);
   return response.data;
 }
 
@@ -3801,12 +3548,7 @@ export async function createRLSPolicy(policy: RLSPolicy): Promise<{
   success: boolean;
   policy_name: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/rls/create`,
-    policy,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/policies/rls/create`, policy);
   return response.data;
 }
 
@@ -3863,11 +3605,7 @@ export interface ERDLayout {
  * GET /explore-design/projects/{project_id}/erd
  */
 export async function getERDLayout(projectId: string): Promise<ERDLayout> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/erd`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/projects/${projectId}/erd`);
   return response.data;
 }
 
@@ -3885,12 +3623,7 @@ export async function saveERDLayout(
     };
   }
 ): Promise<{ success: boolean }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.put(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/erd`,
-    layout,
-    { headers }
-  );
+  const response = await apiClient.put(`${ED}/projects/${projectId}/erd`, layout);
   return response.data;
 }
 
@@ -3909,16 +3642,14 @@ export async function autoLayoutERD(
 ): Promise<{
   tables: Array<{ id: string; position: { x: number; y: number } }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/erd/auto-layout`,
+  const response = await apiClient.post(
+    `${ED}/projects/${projectId}/erd/auto-layout`,
     {
       algorithm: options?.algorithm ?? 'dagre',
       direction: options?.direction ?? 'TB',
       node_spacing: options?.node_spacing ?? 100,
       rank_spacing: options?.rank_spacing ?? 150,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3944,14 +3675,12 @@ export async function createRelationship(
   relationship_id: string;
   event_id?: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/relationships`,
+  const response = await apiClient.post(
+    `${ED}/projects/${projectId}/relationships`,
     {
       ...relationship,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -3965,13 +3694,11 @@ export async function deleteRelationship(
   relationshipId: string,
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.delete(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/relationships/${relationshipId}`,
+  const response = await apiClient.delete(
+    `${ED}/projects/${projectId}/relationships/${relationshipId}`,
     {
-      headers,
       data: { create_event: createEvent ?? true },
-    }
+    },
   );
   return response.data;
 }
@@ -4008,19 +3735,16 @@ export async function getColumnLineage(
   upstream: LineageNode[];
   downstream: LineageNode[];
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  params.append('database', target.database);
-  params.append('schema', target.schema);
-  params.append('table', target.table);
-  params.append('column', target.column);
-  if (options?.direction) params.append('direction', options.direction);
-  if (options?.depth) params.append('depth', String(options.depth));
+  const params: Record<string, string> = {
+    database: target.database,
+    schema: target.schema,
+    table: target.table,
+    column: target.column,
+  };
+  if (options?.direction) params.direction = options.direction;
+  if (options?.depth) params.depth = String(options.depth);
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/lineage/column?${params.toString()}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/lineage/column`, { params });
   return response.data;
 }
 
@@ -4061,12 +3785,7 @@ export async function getImpactAnalysis(
     objects: string[];
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/impact-analysis`,
-    { changes },
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/impact-analysis`, { changes });
   return response.data;
 }
 
@@ -4087,9 +3806,6 @@ export interface AddPrimaryKeyRequest {
  * @returns Response from the backend API
  */
 export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
-  const headers = await getAuthHeaders();
-  const url = `${EXPLORE_DESIGN_BASE}/primary-key/add`;
-
   const payload = {
     project_id: data.project_id,
     database: data.database,
@@ -4098,22 +3814,11 @@ export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
     columns: data.columns,
   };
 
-  console.log('🔑 ADD Primary Key API Call:', {
-    url,
-    payload,
-  });
-
   try {
-    const response = await axios.post(url, payload, { headers });
-
-    console.log('✅ ADD Primary Key Response:', {
-      status: response.status,
-      data: response.data,
-    });
-
+    const response = await apiClient.post(`${ED}/primary-key/add`, payload);
     return response.data.data || response.data;
   } catch (error: any) {
-    console.error('❌ ADD Primary Key Error:', {
+    console.error('ADD Primary Key Error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
       status: error.response?.status,
@@ -4166,11 +3871,7 @@ export interface ManageTableRequest {
  * Generic table management helper (rename, add/drop column, change type, FK, etc.)
  */
 async function manageTable(payload: ManageTableRequest): Promise<any> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/guided/manage_table`,
-    { headers, params: payload }
-  );
+  const response = await apiClient.get(`${ED}/guided/manage_table`, { params: payload });
   return response.data;
 }
 
@@ -4334,7 +4035,7 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
   const { type, target, payload } = event;
   const { database, schema, table, column } = target;
 
-  console.log('🚀 Executing event action:', { type, target, payload });
+  // console.log('🚀 Executing event action:', { type, target, payload });
 
   try {
     switch (type) {
@@ -4546,9 +4247,8 @@ export async function getColumnPreview(
   column: string,
   sampleSize: number = 100
 ): Promise<ColumnPreviewData> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/preview`,
+  const response = await apiClient.post(
+    `${ED}/column/preview`,
     {
       database,
       schema,
@@ -4556,7 +4256,6 @@ export async function getColumnPreview(
       column,
       sample_size: sampleSize,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4572,9 +4271,8 @@ export async function getTablePreview(
   limit: number = 50,
   offset: number = 0
 ): Promise<TablePreviewData> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/table/preview`,
+  const response = await apiClient.post(
+    `${ED}/table/preview`,
     {
       database,
       schema,
@@ -4582,7 +4280,6 @@ export async function getTablePreview(
       limit,
       offset,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4597,16 +4294,14 @@ export async function getColumnProfile(
   table: string,
   column: string
 ): Promise<ColumnProfile> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/profile`,
+  const response = await apiClient.post(
+    `${ED}/column/profile`,
     {
       database,
       schema,
       table,
       column,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4626,15 +4321,13 @@ export async function getTableProfile(
   columns: ColumnProfile[];
   overall_quality_score: number;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/table/profile`,
+  const response = await apiClient.post(
+    `${ED}/table/profile`,
     {
       database,
       schema,
       table,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4652,9 +4345,8 @@ export async function markColumnSensitive(
   sensitiveType: string,
   createEvent: boolean = true
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/mark-sensitive`,
+  const response = await apiClient.post(
+    `${ED}/column/mark-sensitive`,
     {
       project_id: projectId,
       database,
@@ -4664,7 +4356,6 @@ export async function markColumnSensitive(
       sensitive_type: sensitiveType,
       create_event: createEvent,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4682,9 +4373,8 @@ export async function setColumnExclusion(
   excluded: boolean,
   reason?: string
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/exclude`,
+  const response = await apiClient.post(
+    `${ED}/column/exclude`,
     {
       project_id: projectId,
       database,
@@ -4694,7 +4384,6 @@ export async function setColumnExclusion(
       excluded,
       reason,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4710,12 +4399,7 @@ export async function fetchRelationships(
   database: string,
   schema: string
 ): Promise<FetchRelationshipsResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/fetch_relationships`,
-    { database, schema },
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/fetch_relationships`, { database, schema });
   return response.data;
 }
 
@@ -4753,9 +4437,8 @@ export async function addDesignEvent(
   status: string;
   created_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/add-event`,
+  const response = await apiClient.post(
+    `${ED}/add-event`,
     {
       project_id: projectId,
       event_id: eventId,
@@ -4764,7 +4447,6 @@ export async function addDesignEvent(
       payload,
       module_type: moduleType,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4804,14 +4486,13 @@ export async function getDesignEvents(
     applied: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (status) params.append('status', status);
-  if (eventType) params.append('event_type', eventType);
+  const params: Record<string, string> = {};
+  if (status) params.status = status;
+  if (eventType) params.event_type = eventType;
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
-    { headers }
+  const response = await apiClient.get(
+    `${ED}/projects/${projectId}/events`,
+    { params },
   );
   return response.data;
 }
@@ -4842,15 +4523,13 @@ export async function validateDesignEvents(
     invalid: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/validate-events`,
+  const response = await apiClient.post(
+    `${ED}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
       dry_run: dryRun,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4889,9 +4568,8 @@ export async function createDesignDeployment(
   status: string;
   created_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments`,
+  const response = await apiClient.post(
+    `${ED}/deployments`,
     {
       project_id: projectId,
       version,
@@ -4900,7 +4578,6 @@ export async function createDesignDeployment(
       rollback_on_error: rollbackOnError,
       created_by: createdBy,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4933,14 +4610,12 @@ export async function executeDesignDeployment(
     skipped: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/execute`,
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/execute`,
     {
       execution_mode: executionMode,
       dry_run: dryRun,
     },
-    { headers }
   );
   return response.data;
 }
@@ -4986,16 +4661,14 @@ export async function immediateDesignDeploy(
     skipped: number;
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deploy/immediate`,
+  const response = await apiClient.post(
+    `${ED}/deploy/immediate`,
     {
       project_id: projectId,
       events,
       rollback_on_error: rollbackOnError,
       created_by: createdBy,
     },
-    { headers }
   );
   return response.data;
 }
@@ -5042,9 +4715,8 @@ export async function scheduleDesignDeployment(
   scheduled_date: string;
   created_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/schedule-deployment`,
+  const response = await apiClient.post(
+    `${ED}/schedule-deployment`,
     {
       workflow_name: workflowName,
       scheduled_date: scheduledDate,
@@ -5056,7 +4728,6 @@ export async function scheduleDesignDeployment(
       module_type: moduleType,
       requires_approval: requiresApproval,
     },
-    { headers }
   );
   return response.data;
 }
@@ -5085,16 +4756,11 @@ export async function listScheduledDesignDeployments(
   }>;
   total: number;
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (projectId) params.append('project_id', projectId);
-  if (status) params.append('status', status);
-  params.append('limit', limit.toString());
+  const params: Record<string, string> = { limit: limit.toString() };
+  if (projectId) params.project_id = projectId;
+  if (status) params.status = status;
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments?${params.toString()}`,
-    { headers }
-  );
+  const response = await apiClient.get(`${ED}/scheduled-deployments`, { params });
   return response.data;
 }
 
@@ -5120,11 +4786,9 @@ export async function executeScheduledDesignDeployment(
     error?: string;
   }>;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/execute`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/execute`,
     {},
-    { headers }
   );
   return response.data;
 }
@@ -5144,14 +4808,12 @@ export async function rollbackDesignDeployment(
   rollback_deployment_id?: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/rollback`,
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/rollback`,
     {
       deployment_id: deploymentId,
       reason,
     },
-    { headers }
   );
   return response.data;
 }
@@ -5222,9 +4884,8 @@ export interface DeployWithVersionResponse {
 export async function deployWithVersion(
   request: DeployWithVersionRequest
 ): Promise<DeployWithVersionResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deploy/version`,
+  const response = await apiClient.post(
+    `${ED}/deploy/version`,
     {
       project_id: request.project_id,
       version_name: request.version_name,
@@ -5245,7 +4906,6 @@ export async function deployWithVersion(
       created_by: request.created_by,
       dry_run: request.dry_run ?? false,
     },
-    { headers }
   );
   return response.data;
 }
@@ -5272,21 +4932,19 @@ export async function rollbackVersionDeployment(
   target_database?: string;
   target_schema?: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/rollback-version`,
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/rollback-version`,
     {
       deployment_id: deploymentId,
       reason,
     },
-    { headers }
   );
   return response.data;
 }
 
 // ============================================================================
 // NEW API v1 — Re-export from services/api/
-// These use /api/v1/projects/* and /api/v1/explore-design/* endpoints
+// These use /projects/* and /explore-design/* endpoints
 // ============================================================================
 
 export * as projectsApi from '@/app/services/api/projectsApi';
@@ -5541,5 +5199,39 @@ export async function listAlerts(database: string, schema: string) {
 
 export async function dropAlert(name: string, database: string, schema: string) {
   const res = await apiClient.delete(`${V1_EXPLORE}/alerts/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// =====================================
+// Smart Key & Embedding Intelligence
+// =====================================
+
+// Smart Key & Embedding functions: detectPrimaryKeys, detectForeignKeys, suggestClusteringKeys
+// are defined earlier in this file (lines 208, 229, 249) — no duplicates needed here.
+
+/** Semantic search across table data using vector similarity */
+export async function semanticSearch(
+  query: string,
+  table: string,
+  textColumn: string,
+  embeddingColumn?: string,
+  limit?: number
+) {
+  const res = await apiClient.post(`${V1_EXPLORE}/smart/semantic-search`, {
+    query,
+    table,
+    text_column: textColumn,
+    embedding_column: embeddingColumn,
+    limit: limit ?? 10,
+  });
+  return res.data;
+}
+
+/** Generate embedding vector for text */
+export async function embedText(text: string, model?: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/smart/embed`, {
+    text,
+    model: model ?? 'e5-base-v2',
+  });
   return res.data;
 }

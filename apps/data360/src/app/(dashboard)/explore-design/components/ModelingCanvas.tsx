@@ -272,11 +272,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Create edges from default relationships
   useEffect(() => {
-    console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
-    console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
+    // console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
+    // console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
 
     if (defaultRelationships.length === 0 || tables.length === 0) {
-      console.log('[ModelingCanvas] Skipping - no relationships or tables');
+      // console.log('[ModelingCanvas] Skipping - no relationships or tables');
       return;
     }
 
@@ -285,7 +285,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     if (!firstTable) return;
 
     const { database } = firstTable;
-    console.log('[ModelingCanvas] Using database:', database);
+    // console.log('[ModelingCanvas] Using database:', database);
 
     // Group relationships by child_table + parent_table to create single edges with multiple column mappings
     const relationshipGroups = new Map<string, TableRelationship[]>();
@@ -298,7 +298,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       relationshipGroups.get(key)!.push(rel);
     });
 
-    console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
+    // console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
 
     // Create edges from grouped relationships
     const newEdges: Edge[] = [];
@@ -313,7 +313,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceExists = tables.some(t => t.id === sourceId);
       const targetExists = tables.some(t => t.id === targetId);
 
-      console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
+      // console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
 
       if (sourceExists && targetExists) {
         // Create label showing FK relationship (not ETL mapping)
@@ -343,11 +343,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           },
         });
       } else {
-        console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
+        // console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
       }
     });
 
-    console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
+    // console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
 
     // Preserve existing mapping edges and FK edges from events, add/update template FK edges
     setEdges(prev => {
@@ -500,7 +500,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   useEffect(() => {
     // Reset when project changes
     if (projectId !== prevProjectIdRef.current) {
-      console.log('[ModelingCanvas] Project changed, resetting state');
+      // console.log('[ModelingCanvas] Project changed, resetting state');
       edgesCreatedForProjectRef.current = null;
       prevProjectIdRef.current = projectId;
       // Also clear current state for new project
@@ -509,24 +509,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     }
 
     if (initialMappings.length === 0) {
-      console.log('[ModelingCanvas] No initial mappings to restore');
+      // console.log('[ModelingCanvas] No initial mappings to restore');
       return;
     }
 
     // Wait for tables to be available before restoring mappings
     if (tables.length === 0) {
-      console.log('[ModelingCanvas] Waiting for tables to load before restoring mappings');
+      // console.log('[ModelingCanvas] Waiting for tables to load before restoring mappings');
       return;
     }
 
     // Check if we've already created edges for this project with these mappings
     const mappingKey = `${projectId}-${initialMappings.length}-${tables.length}`;
     if (edgesCreatedForProjectRef.current === mappingKey) {
-      console.log('[ModelingCanvas] Edges already created for this project/mappings/tables combo, skipping');
+      // console.log('[ModelingCanvas] Edges already created for this project/mappings/tables combo, skipping');
       return;
     }
 
-    console.log('[ModelingCanvas] Restoring mappings from events:', initialMappings.length, 'mappings,', tables.length, 'tables');
+    // console.log('[ModelingCanvas] Restoring mappings from events:', initialMappings.length, 'mappings,', tables.length, 'tables');
 
     // Mark as processed
     edgesCreatedForProjectRef.current = mappingKey;
@@ -541,7 +541,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     });
     const dedupedMappings = Array.from(uniqueMappings.values());
 
-    console.log('[ModelingCanvas] Deduped mappings:', dedupedMappings.length, 'from', initialMappings.length);
+    // console.log('[ModelingCanvas] Deduped mappings:', dedupedMappings.length, 'from', initialMappings.length);
 
     // Convert initial mappings to columnMappingsList format
     const restoredMappings = dedupedMappings.map(m => ({
@@ -555,11 +555,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     setColumnMappingsList(restoredMappings);
 
     // Log available tables for debugging
-    console.log('[ModelingCanvas] Available tables:', tables.map(t => ({
-      id: t.id,
-      table: t.table,
-      schema: t.schema,
-    })));
+    // console.log('[ModelingCanvas] Available tables:', tables.map(t => ({
+      // id: t.id,
+      // table: t.table,
+      // schema: t.schema,
+    // })));
 
     // Update dynamic mappings for unmapped indicator
     const newDynamicMappings = new Map<string, Set<string>>();
@@ -592,7 +592,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       mappingsByKey.get(key)!.push(m);
     });
 
-    console.log('[ModelingCanvas] Mapping groups:', Array.from(mappingsByKey.keys()));
+    // console.log('[ModelingCanvas] Mapping groups:', Array.from(mappingsByKey.keys()));
 
     // Create an edge for each unique mapping (source table → target table.column)
     mappingsByKey.forEach((mappings, key) => {
@@ -609,22 +609,22 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       // Fallback: match by table name only if schema match fails
       if (!sourceTable) {
         sourceTable = tables.find(t => t.table === firstMapping.sourceTable);
-        console.log('[ModelingCanvas] Source table fallback match:', sourceTable?.id);
+        // console.log('[ModelingCanvas] Source table fallback match:', sourceTable?.id);
       }
       if (!targetTable) {
         targetTable = tables.find(t => t.table === firstMapping.targetTable);
-        console.log('[ModelingCanvas] Target table fallback match:', targetTable?.id);
+        // console.log('[ModelingCanvas] Target table fallback match:', targetTable?.id);
       }
 
-      console.log('[ModelingCanvas] Creating edge for:', {
-        key,
-        sourceTable: sourceTable?.id,
-        targetTable: targetTable?.id,
-        lookingFor: {
-          source: `${firstMapping.sourceSchema}.${firstMapping.sourceTable}`,
-          target: `${firstMapping.targetSchema}.${firstMapping.targetTable}`,
-        }
-      });
+      // console.log('[ModelingCanvas] Creating edge for:', {
+        // key,
+        // sourceTable: sourceTable?.id,
+        // targetTable: targetTable?.id,
+        // lookingFor: {
+          // source: `${firstMapping.sourceSchema}.${firstMapping.sourceTable}`,
+          // target: `${firstMapping.targetSchema}.${firstMapping.targetTable}`,
+        // }
+      // });
 
       if (sourceTable && targetTable) {
         // Collect all source columns that map to this target column
@@ -659,12 +659,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       }
     });
 
-    console.log('[ModelingCanvas] Created mapping edges:', mappingEdges.length, mappingEdges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.label,
-    })));
+    // console.log('[ModelingCanvas] Created mapping edges:', mappingEdges.length, mappingEdges.map(e => ({
+      // id: e.id,
+      // source: e.source,
+      // target: e.target,
+      // label: e.label,
+    // })));
 
     // Add mapping edges (keeping FK edges from defaultRelationships)
     if (mappingEdges.length > 0) {
@@ -672,7 +672,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Keep FK edges, add restored mapping edges
         const fkEdges = prev.filter(e => e.data?.edgeType === 'fk');
         const newEdges = [...fkEdges, ...mappingEdges];
-        console.log('[ModelingCanvas] Setting edges:', newEdges.length, '(', fkEdges.length, 'FK +', mappingEdges.length, 'mapping)');
+        // console.log('[ModelingCanvas] Setting edges:', newEdges.length, '(', fkEdges.length, 'FK +', mappingEdges.length, 'mapping)');
         return newEdges;
       });
     } else {
@@ -688,11 +688,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // ENFORCES: Source tables (user-added) → Target tables (DWH/default)
   const onConnect = useCallback(
     (params: Connection) => {
-      console.log('[ModelingCanvas] onConnect called:', {
-        source: params.source,
-        target: params.target,
-        targetTableIds: Array.from(targetTableIds),
-      });
+      // console.log('[ModelingCanvas] onConnect called:', {
+        // source: params.source,
+        // target: params.target,
+        // targetTableIds: Array.from(targetTableIds),
+      // });
 
       if (!params.source || !params.target) return;
 
@@ -711,12 +711,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceIsTarget = targetTableIds.has(params.source);
       const targetIsTarget = targetTableIds.has(params.target);
 
-      console.log('[ModelingCanvas] Connection validation:', {
-        sourceTable: sourceTable.table,
-        targetTable: targetTable.table,
-        sourceIsTarget,
-        targetIsTarget,
-      });
+      // console.log('[ModelingCanvas] Connection validation:', {
+        // sourceTable: sourceTable.table,
+        // targetTable: targetTable.table,
+        // sourceIsTarget,
+        // targetIsTarget,
+      // });
 
       // Validate: Source must be a source table (not DWH), Target must be a target table (DWH)
       if (sourceIsTarget && targetIsTarget) {
@@ -732,7 +732,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       if (sourceIsTarget && !targetIsTarget) {
         // User connected backwards: DWH → Source, swap them
         toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
-        console.log('[ModelingCanvas] Swapping direction - Source will be:', targetTable.table, 'Target will be:', sourceTable.table);
+        // console.log('[ModelingCanvas] Swapping direction - Source will be:', targetTable.table, 'Target will be:', sourceTable.table);
         setMappingSourceTable(targetTable);
         setMappingTargetTable(sourceTable);
         setPendingConnectionParams({
@@ -742,7 +742,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         });
       } else {
         // Correct direction: Source → DWH
-        console.log('[ModelingCanvas] Correct direction - Source:', sourceTable.table, 'Target:', targetTable.table);
+        // console.log('[ModelingCanvas] Correct direction - Source:', sourceTable.table, 'Target:', targetTable.table);
         setMappingSourceTable(sourceTable);
         setMappingTargetTable(targetTable);
         setPendingConnectionParams(params);
@@ -756,14 +756,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Handle column mapping from modal (ETL mapping, not FK relationship)
   const handleColumnMapping = useCallback(
     async (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
-      console.log('[ModelingCanvas] handleColumnMapping called:', {
-        sourceColumns,
-        targetColumn,
-        transformation,
-        mappingSourceTable: mappingSourceTable?.table,
-        mappingTargetTable: mappingTargetTable?.table,
-        pendingConnectionParams,
-      });
+      // console.log('[ModelingCanvas] handleColumnMapping called:', {
+        // sourceColumns,
+        // targetColumn,
+        // transformation,
+        // mappingSourceTable: mappingSourceTable?.table,
+        // mappingTargetTable: mappingTargetTable?.table,
+        // pendingConnectionParams,
+      // });
 
       if (!mappingSourceTable || !mappingTargetTable || !pendingConnectionParams) {
         console.error('[ModelingCanvas] handleColumnMapping - missing required data:', {
@@ -811,11 +811,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         ? `${sourceColumns.join(' + ')}${transformLabel} → ${targetColumn}`
         : `${sourceColumns[0]}${transformLabel} → ${targetColumn}`;
 
-      console.log('[ModelingCanvas] Creating mapping edge:', {
-        source: pendingConnectionParams.source,
-        target: pendingConnectionParams.target,
-        label: mappingLabel,
-      });
+      // console.log('[ModelingCanvas] Creating mapping edge:', {
+        // source: pendingConnectionParams.source,
+        // target: pendingConnectionParams.target,
+        // label: mappingLabel,
+      // });
 
       // Add edge with label showing column mapping (ETL style - blue/green, animated)
       // Use mappingSourceTable and mappingTargetTable IDs directly for reliable edge creation
@@ -829,7 +829,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Check if edge already exists (avoid duplicates)
         const existingEdge = eds.find(e => e.id === edgeId);
         if (existingEdge) {
-          console.log('[ModelingCanvas] Edge already exists, updating:', edgeId);
+          // console.log('[ModelingCanvas] Edge already exists, updating:', edgeId);
           // Update existing edge with new source columns
           return eds.map(e => e.id === edgeId ? {
             ...e,
@@ -862,14 +862,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         const sourceNodeExists = getNodes().some(n => n.id === sourceId);
         const targetNodeExists = getNodes().some(n => n.id === targetId);
 
-        console.log('[ModelingCanvas] Adding mapping edge:', {
-          newEdge,
-          sourceId,
-          targetId,
-          sourceNodeExists,
-          targetNodeExists,
-          existingEdgesCount: eds.length,
-        });
+        // console.log('[ModelingCanvas] Adding mapping edge:', {
+          // newEdge,
+          // sourceId,
+          // targetId,
+          // sourceNodeExists,
+          // targetNodeExists,
+          // existingEdgesCount: eds.length,
+        // });
 
         if (!sourceNodeExists || !targetNodeExists) {
           console.error('[ModelingCanvas] ERROR: Source or target node not found!', {

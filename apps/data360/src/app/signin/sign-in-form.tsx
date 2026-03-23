@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { SubmitHandler } from 'react-hook-form';
 import { PiArrowRightBold, PiUserBold, PiIdentificationBadgeBold, PiLockKeyBold, PiWarningCircleBold } from 'react-icons/pi';
 import { Checkbox, Password, Button, Input, Text } from 'rizzui';
@@ -28,8 +28,8 @@ export default function SignInForm() {
   const [reset, setReset] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || routes.accountOverview;
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
@@ -48,6 +48,7 @@ export default function SignInForm() {
         account_name: data.account_name,
         username: data.username,
         password: data.password,
+        callbackUrl,
         redirect: false,
       });
 
@@ -57,7 +58,7 @@ export default function SignInForm() {
         // Store access_token in localStorage for modules that read it directly
         try {
           const sessionRes = await fetch('/api/auth/session');
-          const session = await sessionRes.json();
+          const session = await sessionRes.json() as { user?: { access_token?: string } };
           const token = session?.user?.access_token;
           if (token) {
             localStorage.setItem('access_token', token);
@@ -66,7 +67,8 @@ export default function SignInForm() {
         } catch {
           // Non-blocking — modules will fall back to getSession()
         }
-        router.push('/account-overview');
+        const targetUrl = result.url || callbackUrl;
+        window.location.assign(targetUrl);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');

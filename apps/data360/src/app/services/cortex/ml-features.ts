@@ -1,25 +1,4 @@
-import { getAuthSession } from '@/lib/auth';
-import axios from 'axios';
-import { API_CONFIG } from '@/config/database.config';
-
-const API_BASE_URL = API_CONFIG.BASE_URL;
-
-// ============================================
-// AUTH HELPER
-// ============================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
-}
+import apiClient from '@/lib/api-client';
 
 // ============================================
 // TYPES
@@ -129,15 +108,13 @@ export const LANGUAGES = [
  */
 export async function generateCompletion(request: CompletionRequest): Promise<CompletionResponse> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/complete`,
+    const response = await apiClient.post(
+      '/cortex/complete',
       {
         prompt: request.prompt,
         model: request.model || 'mistral-7b',
         guardrails: request.guardrails || false,
-      },
-      { headers }
+      }
     );
 
     const data = response.data?.data || response.data;
@@ -156,11 +133,9 @@ export async function generateCompletion(request: CompletionRequest): Promise<Co
  */
 export async function analyzeSentiment(texts: string[]): Promise<SentimentResult[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/sentiment`,
-      { texts },
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/ml/sentiment',
+      { texts }
     );
 
     const data = response.data?.data || response.data;
@@ -187,16 +162,14 @@ export async function analyzeTableSentiment(
   schema?: string
 ): Promise<SentimentResult[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/sentiment`,
+    const response = await apiClient.post(
+      '/cortex/ml/sentiment',
       {
         table_name: tableName,
         text_column: textColumn,
         database,
         schema,
-      },
-      { headers }
+      }
     );
 
     const data = response.data?.data || response.data;
@@ -218,11 +191,9 @@ export async function analyzeTableSentiment(
  */
 export async function translateText(request: TranslationRequest): Promise<TranslationResult> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/translate`,
-      request,
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/ml/translate',
+      request
     );
 
     const data = response.data?.data || response.data;
@@ -243,14 +214,12 @@ export async function translateText(request: TranslationRequest): Promise<Transl
  */
 export async function summarizeText(request: SummarizeRequest): Promise<SummaryResult> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/summarize`,
+    const response = await apiClient.post(
+      '/cortex/ml/summarize',
       {
         text: request.text,
         max_length: request.max_length || 100,
-      },
-      { headers }
+      }
     );
 
     const data = response.data?.data || response.data;
@@ -277,11 +246,9 @@ export async function generateEmbeddings(
   model = 'e5-base-v2'
 ): Promise<EmbeddingResult[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/embeddings`,
-      { texts, model },
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/embeddings',
+      { texts, model }
     );
 
     const data = response.data?.data || response.data;
@@ -297,11 +264,7 @@ export async function generateEmbeddings(
  */
 export async function listDatabases(): Promise<DatabaseInfo[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/explore/databases`,
-      { headers }
-    );
+    const response = await apiClient.get('/cortex/explore/databases');
 
     const data = response.data?.data || response.data;
     return data.databases || data || [];
@@ -316,10 +279,8 @@ export async function listDatabases(): Promise<DatabaseInfo[]> {
  */
 export async function listSchemas(database: string): Promise<SchemaInfo[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/explore/schemas?database=${encodeURIComponent(database)}`,
-      { headers }
+    const response = await apiClient.get(
+      `/cortex/explore/schemas?database=${encodeURIComponent(database)}`
     );
 
     const data = response.data?.data || response.data;
@@ -335,11 +296,9 @@ export async function listSchemas(database: string): Promise<SchemaInfo[]> {
  */
 export async function listTables(database: string, schema: string): Promise<TableInfo[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/explore/tables`,
-      { database, schema },
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/explore/tables',
+      { database, schema }
     );
 
     const data = response.data?.data || response.data;

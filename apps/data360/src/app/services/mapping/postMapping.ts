@@ -1,22 +1,4 @@
-import axios from 'axios';
-import { getAuthSession } from '@/lib/auth';
-import { API_CONFIG } from '@/config/database.config';
-
-/**
- * Helper to get authentication headers with Snowflake account context
- */
-async function getAuthHeaders() {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
-}
+import apiClient from '@/lib/api-client';
 
 /**
  * The shape of the test mapping payload
@@ -55,10 +37,11 @@ export interface TestMappingResponse {
  * The endpoint expects a TestMappingPayload with project_id and mappings array.
  */
 export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
-    const headers = await getAuthHeaders();
-    const url = `${API_CONFIG.BASE_URL}/explore-design/guided/test_mapping/`;
     try {
-        const response = await axios.post<TestMappingResponse>(url, payload, { headers });
+        const response = await apiClient.post<TestMappingResponse>(
+            '/explore-design/guided/test_mapping/',
+            payload
+        );
         return response.data;
     } catch (error) {
         console.error('Error saving mapping:', error);

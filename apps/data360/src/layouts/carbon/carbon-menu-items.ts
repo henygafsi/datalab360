@@ -156,6 +156,11 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.gouvernance.projects,
         icon: PiFolderDuotone,
       },
+      {
+        name: 'Authentication',
+        href: routes.gouvernance.oauth,
+        icon: PiLockKeyDuotone,
+      },
     ],
   },
   // 6. Business Reporting

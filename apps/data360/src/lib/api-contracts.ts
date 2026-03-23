@@ -52,7 +52,7 @@ export const API_CONTRACTS = {
       method: 'POST' as const,
       path: '/connect/stages/{stage_name}/upload',
       getUrl: (stageName: string, overwrite?: boolean) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload`);
+        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${stageName}/upload`);
         if (overwrite !== undefined) {
           url.searchParams.set('overwrite', String(overwrite));
         }
@@ -72,7 +72,7 @@ export const API_CONTRACTS = {
           overwrite?: boolean;
         }
       ) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload-and-load`);
+        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${stageName}/upload-and-load`);
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined) {
             url.searchParams.set(key, String(value));
@@ -89,7 +89,7 @@ export const API_CONTRACTS = {
     listStageFiles: {
       method: 'GET' as const,
       path: '/connect/stages/{stage_name}/files',
-      getUrl: (stageName: string) => `${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files`,
+      getUrl: (stageName: string) => `${API_CONFIG.BASE_URL}/connect/stages/${stageName}/files`,
     },
   },
   exploreDesign: {

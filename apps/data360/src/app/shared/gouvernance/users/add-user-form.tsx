@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button, Input, Password } from 'rizzui';
 import { addUser } from '@/app/services/gouvernance/fetch_users';
 import { UserPlus, User, Mail, Lock, X } from 'lucide-react';
+import apiClient from '@/lib/api-client';
 
 type AddUserFormProps = {
   onAddUserSuccess?: () => void;
@@ -24,6 +25,8 @@ export default function AddUserForm({ onAddUserSuccess, onClose }: AddUserFormPr
 
     try {
       await addUser({ username, password, email });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
       onAddUserSuccess?.();
       onClose();
     } catch (err: any) {

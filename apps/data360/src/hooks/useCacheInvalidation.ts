@@ -151,7 +151,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
     }
 
     const apiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
-    const streamUrl = `${apiUrl}/api/cache/stream`;
+    const streamUrl = `${apiUrl}/cache-stream/stream`;
 
     log('🔌 Connecting to SSE:', streamUrl);
 

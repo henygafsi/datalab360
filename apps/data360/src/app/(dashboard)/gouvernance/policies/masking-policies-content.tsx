@@ -24,6 +24,7 @@ import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
+import apiClient from '@/lib/api-client';
 
 const MASKING_TYPES = [
   { label: 'Full Masking (****)', value: 'FULL' },
@@ -100,7 +101,7 @@ export default function MaskingPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing masking policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing masking policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -113,7 +114,7 @@ export default function MaskingPoliciesContent() {
 
     try {
       const details = await getMaskingPolicyDetails(policy.policy_name);
-      console.log('Masking policy details:', details);
+      // console.log('Masking policy details:', details);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -187,14 +188,16 @@ export default function MaskingPoliciesContent() {
         schema: DEFAULTS.SCHEMA,
         expiration_date: expirationDate || undefined,
       };
-      console.log('[Masking Create] Sending request:', requestData);
+      // console.log('[Masking Create] Sending request:', requestData);
 
       const result = await createMaskingPolicy(requestData);
-      console.log('[Masking Create] Response:', result);
+      // console.log('[Masking Create] Response:', result);
 
       toast.success('Masking policy created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('[Masking Create] Error:', error.response?.data || error);
@@ -221,6 +224,8 @@ export default function MaskingPoliciesContent() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Apply masking policy error:', error.response?.data || error);
@@ -262,6 +267,8 @@ export default function MaskingPoliciesContent() {
       toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteMaskingPolicy(policy.policy_name);
       toast.success('Policy deleted successfully', { id: 'delete-policy' });
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete masking policy error:', error.response?.data || error);

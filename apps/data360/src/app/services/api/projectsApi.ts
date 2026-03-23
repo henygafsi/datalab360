@@ -1,5 +1,5 @@
 /**
- * Unified Project Management API client — /api/v1/projects/*
+ * Unified Project Management API client — /projects/*
  * Handles: CRUD, lock/unlock, versions, deployments, runs, contributors, state, events.
  */
 import apiClient from '@/lib/api-client';
@@ -299,5 +299,70 @@ export async function listGlobalEvents(params?: GlobalEventsParams) {
   const { data } = await apiClient.get<EventListResponse>(`${PREFIX}/events/all`, {
     params,
   });
+  return data;
+}
+
+// ============================================================================
+// Unified Project Context — last-used tracking & cross-module list
+// ============================================================================
+
+export interface LastUsedProject {
+  module: string;
+  project_id: string | null;
+  project_name?: string;
+  project_type?: string;
+}
+
+export interface LastUsedRecent {
+  module: string;
+  project_id: string;
+  project_name: string;
+  project_type: string;
+  last_used: string | null;
+}
+
+export interface UnifiedProject {
+  project_id: string;
+  name: string;
+  type: string;
+  description: string | null;
+  status: string;
+  created_by: string;
+  created_at: string | null;
+  updated_at: string | null;
+  current_version_num: number | null;
+  deployment_version: number | null;
+  contributors_count: number;
+  icon: string;
+  page_url: string;
+  tags: string[];
+}
+
+export interface UnifiedProjectsResponse {
+  projects: UnifiedProject[];
+  by_type: Record<string, number>;
+  last_used: Record<string, string>;
+  total: number;
+}
+
+export async function getLastUsedProjects(module?: string) {
+  const params = module ? { module } : undefined;
+  const { data } = await apiClient.get<LastUsedProject | { recent: LastUsedRecent[] }>(
+    `${PREFIX}/last-used`,
+    { params },
+  );
+  return data;
+}
+
+export async function setLastUsedProject(module: string, projectId: string) {
+  const { data } = await apiClient.post<{ status: string; event_id: string }>(
+    `${PREFIX}/last-used`,
+    { module, project_id: projectId },
+  );
+  return data;
+}
+
+export async function getUnifiedProjects() {
+  const { data } = await apiClient.get<UnifiedProjectsResponse>(`${PREFIX}/unified`);
   return data;
 }

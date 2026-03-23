@@ -299,7 +299,7 @@ export default function SourceCatalog() {
   useEffect(() => {
     const loadDatabases = async () => {
       try {
-        const res = await apiClient.get('/explore-design/databases');
+        const res = await apiClient.get('/common/databases');
         const rawDbs = res.data?.databases || res.data || [];
         const safeDbs = Array.isArray(rawDbs) ? rawDbs : [];
         const dbs = safeDbs.map((d: any) =>

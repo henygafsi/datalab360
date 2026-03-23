@@ -310,13 +310,16 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
         />
       </div>
 
-      {/* Column Preview */}
-      <div className="border-t dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50">
-        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-          Columns Preview
+      {/* Column Preview — expanded, scrollable */}
+      <div className="border-t dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50 flex-1 min-h-0 flex flex-col">
+        <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2 flex items-center justify-between">
+          <span>Columns ({columns.length})</span>
+          {columns.length > 0 && (
+            <span className="text-[10px] font-normal text-slate-400">{columns.filter(c => c.isPrimaryKey).length} PK</span>
+          )}
         </div>
-        <div className="max-h-40 overflow-auto space-y-1">
-          {columns.slice(0, 10).map((col) => (
+        <div className="flex-1 overflow-auto space-y-0.5 min-h-0">
+          {columns.map((col) => (
             <div
               key={col.name}
               className={cn(
@@ -338,9 +341,9 @@ const TableOptionsSidebar: React.FC<TableOptionsSidebarProps> = ({
               </span>
             </div>
           ))}
-          {columns.length > 10 && (
-            <div className="text-xs text-slate-400 text-center py-1">
-              +{columns.length - 10} more columns
+          {columns.length === 0 && (
+            <div className="text-xs text-slate-400 text-center py-2 italic">
+              No columns loaded
             </div>
           )}
         </div>

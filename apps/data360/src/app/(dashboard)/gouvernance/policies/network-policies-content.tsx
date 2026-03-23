@@ -15,6 +15,7 @@ import {
   deleteNetworkPolicy,
   type NetworkPolicy,
 } from '@/app/services/gouvernance/policies';
+import apiClient from '@/lib/api-client';
 
 export default function NetworkPoliciesContent() {
   const [policies, setPolicies] = useState<NetworkPolicy[]>([]);
@@ -73,7 +74,7 @@ export default function NetworkPoliciesContent() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Policies cache invalidated - refreshing network policies...');
+      // console.log('[SSE] Policies cache invalidated - refreshing network policies...');
       loadPolicies(true);
     }
   }, [wasInvalidated, loading, loadPolicies]);
@@ -86,7 +87,7 @@ export default function NetworkPoliciesContent() {
 
     try {
       const details = await getNetworkPolicyDetails(policy.policy_name);
-      console.log('Network policy details:', details);
+      // console.log('Network policy details:', details);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -142,14 +143,15 @@ export default function NetworkPoliciesContent() {
         comment: comment.trim() || undefined,
         expiration_date: expirationDate || undefined,
       };
-      console.log('[Network Create] Sending request:', requestData);
+      // console.log('[Network Create] Sending request:', requestData);
 
       const result = await createNetworkPolicy(requestData);
-      console.log('[Network Create] Response:', result);
+      // console.log('[Network Create] Response:', result);
 
       toast.success('Network policy created successfully!');
       setShowCreateModal(false);
       resetForm();
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('[Network Create] Error:', error.response?.data || error);
@@ -163,6 +165,7 @@ export default function NetworkPoliciesContent() {
     try {
       await setNetworkPolicyAsDefault(policy.policy_name);
       toast.success('Network policy set as account default');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Set network policy as default error:', error.response?.data || error);
@@ -176,6 +179,7 @@ export default function NetworkPoliciesContent() {
     try {
       await deleteNetworkPolicy(policy.policy_name);
       toast.success('Policy deleted successfully');
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       console.error('Delete network policy error:', error.response?.data || error);

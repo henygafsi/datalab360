@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Button, Input } from 'rizzui';
 import { addRole } from '@/app/services/gouvernance/fetch_roles';
 import { ShieldPlus, Shield, X } from 'lucide-react';
+import apiClient from '@/lib/api-client';
 
 type AddRoleFormProps = {
   onAddRoleSuccess: () => void;
@@ -22,6 +23,8 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
 
     try {
       await addRole(roleName);
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
+      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
       onAddRoleSuccess();
       onClose();
     } catch (err: any) {
