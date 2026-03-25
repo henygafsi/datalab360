@@ -1200,7 +1200,7 @@ export default function DataQualityPage() {
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
               <Settings className="h-4 w-4 text-blue-500" /> Set Quality Threshold
             </h3>
-            <button type="button" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
+            <button type="button" aria-label="Close threshold settings" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
               <X className="h-4 w-4 text-gray-500" />
             </button>
           </div>
@@ -1277,6 +1277,8 @@ export default function DataQualityPage() {
       {/* ── Charts Section ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
         <button
+          aria-label="Toggle analytics and charts"
+          aria-expanded={showCharts}
           onClick={() => setShowCharts(!showCharts)}
           className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
@@ -1284,7 +1286,7 @@ export default function DataQualityPage() {
             <BarChart3 className="h-4 w-4 text-blue-500" />
             <span className="text-sm font-semibold text-gray-900 dark:text-white">Analytics & Charts</span>
           </div>
-          {showCharts ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+          {showCharts ? <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
         </button>
         {showCharts && (
           <div className="p-4 pt-0 border-t border-gray-200 dark:border-gray-700">
@@ -1309,6 +1311,8 @@ export default function DataQualityPage() {
       {/* ── Recommendations Panel ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
         <button
+          aria-label="Toggle recommendations"
+          aria-expanded={showRecs}
           onClick={() => setShowRecs(!showRecs)}
           className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
         >
@@ -1321,7 +1325,7 @@ export default function DataQualityPage() {
               </Badge>
             )}
           </div>
-          {showRecs ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+          {showRecs ? <ChevronUp className="h-4 w-4 text-gray-500 dark:text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
         </button>
         {showRecs && (
           <div className="px-4 pb-4 border-t border-gray-200 dark:border-gray-700">
@@ -1332,7 +1336,7 @@ export default function DataQualityPage() {
                 <SkeletonBar className="h-16 w-full rounded-lg" />
               </div>
             ) : recommendations.length === 0 ? (
-              <div className="flex items-center justify-center py-8 text-gray-400 dark:text-gray-400 text-sm gap-2">
+              <div className="flex items-center justify-center py-8 text-gray-500 dark:text-gray-400 text-sm gap-2">
                 <CheckCircle2 className="h-5 w-5 text-green-500" />
                 All quality checks passed. No recommendations at this time.
               </div>
@@ -1342,7 +1346,7 @@ export default function DataQualityPage() {
                   <RecommendationCard key={rec.id} rec={rec} onApply={handleRecApply} />
                 ))}
                 {recommendations.length > 15 && (
-                  <p className="text-xs text-gray-400 dark:text-gray-400 text-center py-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-1">
                     +{recommendations.length - 15} more recommendations
                   </p>
                 )}
@@ -1362,6 +1366,7 @@ export default function DataQualityPage() {
               <Lightbulb className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-500" />
               <Input
                 type="text"
+                aria-label="Natural language quality filter"
                 placeholder="Ask in natural language: e.g. 'show tables with null rate above 20%'"
                 value={nlQuery}
                 onChange={(e) => {
@@ -1381,17 +1386,18 @@ export default function DataQualityPage() {
                 inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
               />
               {nlQuery && (
-                <button onClick={() => { setNlQuery(''); setSearchQuery(''); setStatusFilter(null); }} className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <X className="h-3.5 w-3.5 text-gray-400 hover:text-gray-600" />
+                <button aria-label="Clear natural language filter" onClick={() => { setNlQuery(''); setSearchQuery(''); setStatusFilter(null); }} className="absolute right-2 top-1/2 -translate-y-1/2">
+                  <X className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400 hover:text-gray-600" />
                 </button>
               )}
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
               <Input
                 type="text"
+                aria-label="Search tables and columns"
                 placeholder="Search tables, columns..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -1400,10 +1406,11 @@ export default function DataQualityPage() {
               />
               {searchQuery && (
                 <button
+                  aria-label="Clear search"
                   onClick={() => setSearchQuery('')}
                   className="absolute right-2 top-1/2 -translate-y-1/2"
                 >
-                  <X className="h-3.5 w-3.5 text-gray-400 hover:text-gray-600" />
+                  <X className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400 hover:text-gray-600" />
                 </button>
               )}
             </div>

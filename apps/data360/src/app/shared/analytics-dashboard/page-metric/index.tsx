@@ -35,7 +35,7 @@ export default function PageMetrics({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'rounded-xl border border-muted bg-gray-0 dark:bg-gray-50',
+        'rounded-xl border border-muted bg-gray-0 dark:bg-gray-800',
         className
       )}
     >

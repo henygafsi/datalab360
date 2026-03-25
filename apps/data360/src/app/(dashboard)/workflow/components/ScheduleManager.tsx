@@ -382,7 +382,7 @@ const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }
           <History className="h-4 w-4" />
           Execution History
         </h4>
-        <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+        <button onClick={onClose} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded" aria-label="Close execution history">
           <X className="h-4 w-4" />
         </button>
       </div>

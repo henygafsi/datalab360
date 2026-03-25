@@ -68,7 +68,7 @@ function JobFeedCard({ data }: { data: JobType }) {
           openDrawer({
             view: <SingleJob data={data} />,
             placement: 'right',
-            containerClassName: 'max-w-full xl:max-w-[60%] dark:bg-gray-50',
+            containerClassName: 'max-w-full xl:max-w-[60%] dark:bg-gray-800',
           })
         }
       >

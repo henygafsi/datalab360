@@ -91,7 +91,7 @@ export default function PageTabs({
   };
 
   return (
-    <div className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-700">
+    <div role="tablist" aria-label="Dashboard pages" className="flex items-center gap-1 overflow-x-auto pb-1 border-b border-slate-200 dark:border-slate-700">
       {sortedPages.map((page) => {
         const isActive = page.page_id === activePageId;
         const isEditing = editingPageId === page.page_id;
@@ -99,6 +99,10 @@ export default function PageTabs({
         return (
           <div
             key={page.page_id}
+            role="tab"
+            aria-selected={isActive}
+            aria-controls={`tabpanel-${page.page_id}`}
+            tabIndex={isActive ? 0 : -1}
             className={cn(
               'group flex items-center gap-1 px-3 py-2 rounded-t-lg text-sm font-medium transition-all cursor-pointer border border-b-0',
               isActive

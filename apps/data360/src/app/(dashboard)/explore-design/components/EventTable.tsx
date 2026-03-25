@@ -144,6 +144,9 @@ const EventRow: React.FC<{
           event.status === 'failed' && 'bg-red-50 dark:bg-red-900/10'
         )}
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        role="button"
+        tabIndex={0}
       >
         {/* Expand Toggle */}
         <button className="p-0.5">
@@ -236,7 +239,7 @@ interface EventTableProps {
   projectId?: string | null;
 }
 
-const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }) => {
+const EventTable = React.memo(function EventTable({ className, compact, projectId }: EventTableProps) {
   const { events, pendingEvents, removeEvent, clearEvents, undoEvent, canUndo } = useEventStore(projectId);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'all'>('all');
@@ -588,6 +591,9 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                   <div
                     className="flex flex-col px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50"
                     onClick={() => handleToggleExpand(event.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggleExpand(event.id); } }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="flex items-center gap-2">
                       {/* Expand/Collapse Icon */}
@@ -784,6 +790,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
       </div>
     </div>
   );
-};
+});
 
 export default EventTable;

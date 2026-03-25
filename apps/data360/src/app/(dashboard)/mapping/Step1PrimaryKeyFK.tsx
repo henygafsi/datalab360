@@ -12,6 +12,7 @@ import { getTables } from '@/app/services/mapping/getTables';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { addPrimaryKey } from './addPrimaryKey';
 import { addGroupEvent, GroupData } from '@/app/services/mapping/saveGroups';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 // --- Interface Definitions ---
 interface ColumnDetail {
@@ -820,6 +821,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     }, [extraGroups, updateGroup, fetchGroupTargetSchemas, fetchGroupTargetTables]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <CardTitle>Step 1: Primary Key Management</CardTitle>
@@ -1047,6 +1049,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

@@ -467,9 +467,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
-        <span className="ml-3 text-slate-500 dark:text-slate-400">Loading dashboard...</span>
+      <div className="grid grid-cols-2 gap-4 animate-pulse" role="status" aria-label="Loading dashboard widgets">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+        ))}
+        <span className="sr-only">Loading dashboard widgets...</span>
       </div>
     );
   }
@@ -607,7 +609,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
 
       {/* Dashboard Grid */}
       {activePageId && (
-        <div data-dashboard-grid>
+        <div data-dashboard-grid role="tabpanel" id={`tabpanel-${activePageId}`} aria-label={activePage?.title || 'Dashboard page'}>
           <DashboardGrid
             widgets={pageWidgets}
             widgetResults={results}

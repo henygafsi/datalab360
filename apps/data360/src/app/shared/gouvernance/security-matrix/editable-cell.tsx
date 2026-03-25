@@ -93,6 +93,7 @@ export default function EditableCell({
     <Input
       ref={inputRef}
       size="sm"
+      aria-label={placeholder || 'Edit cell value'}
       value={localValue}
       onChange={(e) => setLocalValue(e.target.value)}
       onBlur={handleSave}

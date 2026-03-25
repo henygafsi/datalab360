@@ -49,6 +49,7 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
         </div>
         <button
           type="button"
+          aria-label="Close form"
           onClick={onClose}
           className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
         >

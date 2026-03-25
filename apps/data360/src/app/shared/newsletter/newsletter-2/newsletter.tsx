@@ -11,7 +11,7 @@ export default function NewsLetter({ className }: { className?: string }) {
     <div
       className={cn(
         className,
-        'rounded-2xl border border-gray-100 bg-white @container dark:bg-gray-50'
+        'rounded-2xl border border-gray-100 bg-white @container dark:bg-gray-800'
       )}
     >
       <div className="flex h-full w-full flex-col items-center justify-center p-6 @2xl:p-12 3xl:px-16 4xl:px-28">

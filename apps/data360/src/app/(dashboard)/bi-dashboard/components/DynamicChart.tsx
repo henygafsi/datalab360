@@ -54,7 +54,7 @@ interface DynamicChartProps {
  * combo, radar, treemap, funnel, heatmap, waterfall, histogram, gauge,
  * radial_bar, bubble, candlestick.
  */
-export function DynamicChart({ config }: DynamicChartProps) {
+const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
 
@@ -170,8 +170,8 @@ export function DynamicChart({ config }: DynamicChartProps) {
             }
             labelLine={false}
           >
-            {cleanData.map((_, i) => (
-              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+            {cleanData.map((entry, i) => (
+              <Cell key={`pie-${String(entry[effectiveXKey] ?? i)}`} fill={COLORS[i % COLORS.length]} />
             ))}
           </Pie>
           <Tooltip contentStyle={commonTooltipStyle} />
@@ -260,8 +260,8 @@ export function DynamicChart({ config }: DynamicChartProps) {
           aspectRatio={4 / 3}
           stroke={isDark ? '#1F2937' : '#fff'}
         >
-          {treemapData.map((entry, i) => (
-            <Cell key={i} fill={entry.fill} />
+          {treemapData.map((entry) => (
+            <Cell key={`tree-${entry.name}`} fill={entry.fill} />
           ))}
           <Tooltip contentStyle={commonTooltipStyle} />
         </Treemap>
@@ -286,8 +286,8 @@ export function DynamicChart({ config }: DynamicChartProps) {
           <Tooltip contentStyle={commonTooltipStyle} />
           <Funnel dataKey="value" data={funnelData} isAnimationActive>
             <LabelList position="right" fill={labelFill} stroke="none" dataKey="name" fontSize={11} />
-            {funnelData.map((entry, i) => (
-              <Cell key={i} fill={entry.fill} />
+            {funnelData.map((entry) => (
+              <Cell key={`funnel-${entry.name}`} fill={entry.fill} />
             ))}
           </Funnel>
         </FunnelChart>
@@ -376,7 +376,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
             const ratio = (val - minVal) / range;
             return (
               <div
-                key={i}
+                key={`heat-${String(row[effectiveXKey] ?? i)}`}
                 className="rounded p-2 text-center text-xs font-medium text-white truncate"
                 style={{ backgroundColor: heatColor(ratio), minHeight: 36 }}
                 title={`${row[effectiveXKey]}: ${val}`}
@@ -425,8 +425,8 @@ export function DynamicChart({ config }: DynamicChartProps) {
           <Tooltip contentStyle={commonTooltipStyle} formatter={(v: any, name: string) => name === 'base' ? null : v} />
           <Bar dataKey="base" stackId="waterfall" fill="transparent" />
           <Bar dataKey="top" stackId="waterfall" radius={[4, 4, 0, 0]}>
-            {waterfallData.map((entry, i) => (
-              <Cell key={i} fill={entry.fill} />
+            {waterfallData.map((entry) => (
+              <Cell key={`wf-${entry.name}`} fill={entry.fill} />
             ))}
           </Bar>
         </BarChart>
@@ -480,7 +480,7 @@ export function DynamicChart({ config }: DynamicChartProps) {
           <Tooltip contentStyle={commonTooltipStyle} />
           <Bar dataKey="_body" radius={[2, 2, 2, 2]}>
             {candleData.map((entry, i) => (
-              <Cell key={i} fill={entry._fill} />
+              <Cell key={`candle-${String(entry[effectiveXKey] ?? i)}`} fill={entry._fill} />
             ))}
           </Bar>
         </BarChart>
@@ -625,6 +625,8 @@ export function DynamicChart({ config }: DynamicChartProps) {
     </ResponsiveContainer>
     </ChartWrapper>
   );
-}
+});
+
+DynamicChart.displayName = 'DynamicChart';
 
 export default DynamicChart;

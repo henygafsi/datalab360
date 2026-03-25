@@ -14,6 +14,7 @@ import { getSession } from 'next-auth/react';
 import axios from 'axios';
 // Removed: import { getStepEventData } from './getStepEventData'; // Removed
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
     database: string;
@@ -283,6 +284,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
 
 
     return (
+        <ErrorBoundary>
         <Card className="p-6">
             <CardHeader>
                 <CardTitle>Step 3: Add Optional Columns</CardTitle>
@@ -475,6 +477,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                 )}
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

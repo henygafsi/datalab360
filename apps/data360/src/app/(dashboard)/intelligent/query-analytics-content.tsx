@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { Badge, Button, Loader } from 'rizzui';
+import { Badge, Button } from 'rizzui';
 import {
   PiMagnifyingGlass,
   PiWarningCircle,
@@ -144,8 +144,11 @@ export default function QueryAnalyticsContent() {
 
   if (loading && !summary) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+      <div className="space-y-4 p-4">
+        <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+        <div className="grid grid-cols-2 gap-4">
+          {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+        </div>
       </div>
     );
   }

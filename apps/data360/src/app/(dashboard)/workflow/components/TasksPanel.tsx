@@ -124,6 +124,7 @@ const TasksPanel: React.FC<TasksPanelProps> = ({ workflowId, onImported, classNa
             onClick={fetchTaskStatus}
             className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition"
             title="Refresh"
+            aria-label="Refresh task status"
           >
             <RefreshCw className={cn('h-3.5 w-3.5 text-slate-400', taskLoading && 'animate-spin')} />
           </button>

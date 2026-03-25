@@ -45,7 +45,7 @@ export default function StepTwo() {
 
   useEffect(() => {
     navigator.geolocation.getCurrentPosition(function (position) {
-      console.log('position', position);
+      // console.log('position', position);
       setLocation((prev) => ({
         ...prev,
         lat: position.coords.latitude,
@@ -67,7 +67,7 @@ export default function StepTwo() {
   };
 
   const onSubmit: SubmitHandler<LocationSchema> = (data) => {
-    console.log('data', data);
+    // console.log('data', data);
     setFormData((prev) => ({
       ...prev,
       lng: data.lng,

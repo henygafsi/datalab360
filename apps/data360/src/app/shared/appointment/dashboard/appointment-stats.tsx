@@ -86,7 +86,7 @@ export default function AppointmentStats({ className }: AppointmentStatsType) {
         variant="text"
         ref={sliderPrevBtn}
         onClick={() => scrollToTheLeft()}
-        className="!absolute -left-1 top-0 z-10 !h-full w-20 !justify-start rounded-none bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent px-0 ps-1 text-gray-500 hover:text-gray-900 dark:from-gray-50 dark:via-gray-50/70 3xl:hidden"
+        className="!absolute -left-1 top-0 z-10 !h-full w-20 !justify-start rounded-none bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent px-0 ps-1 text-gray-500 hover:text-gray-900 dark:from-gray-800 dark:via-gray-800/70 3xl:hidden"
       >
         <PiCaretLeftBold className="h-5 w-5" />
       </Button>
@@ -103,7 +103,7 @@ export default function AppointmentStats({ className }: AppointmentStatsType) {
         variant="text"
         ref={sliderNextBtn}
         onClick={() => scrollToTheRight()}
-        className="dark: !absolute -right-2 top-0 z-10 !h-full w-20 !justify-end rounded-none bg-gradient-to-l from-gray-0 via-gray-0/70 to-transparent px-0 pe-2 text-gray-500 hover:text-gray-900 dark:from-gray-50 dark:via-gray-50/70 3xl:hidden"
+        className="dark: !absolute -right-2 top-0 z-10 !h-full w-20 !justify-end rounded-none bg-gradient-to-l from-gray-0 via-gray-0/70 to-transparent px-0 pe-2 text-gray-500 hover:text-gray-900 dark:from-gray-800 dark:via-gray-800/70 3xl:hidden"
       >
         <PiCaretRightBold className="h-5 w-5" />
       </Button>
@@ -141,7 +141,7 @@ function StatCard({ className, transaction }: StatCardProps) {
       <div className="mb-4 flex items-center gap-5">
         <span
           className={cn(
-            'flex rounded-[14px] bg-[#2B7F75] p-2.5 text-gray-0 group-first:bg-gray-0 group-first:text-[#2B7F75] dark:text-gray-900 dark:group-first:bg-gray-900'
+            'flex rounded-[14px] bg-[#2B7F75] p-2.5 text-gray-0 group-first:bg-gray-0 group-first:text-[#2B7F75] dark:text-white dark:group-first:bg-gray-900'
           )}
         >
           <Icon className="h-auto w-[30px]" />

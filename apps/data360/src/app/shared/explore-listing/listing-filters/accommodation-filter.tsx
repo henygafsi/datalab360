@@ -100,7 +100,7 @@ export default function AccommodationFilter({
             setOpen(false);
             applyFilter('bed_and_baths', bedBaths);
           }}
-          className="mt-5 w-full rounded-md dark:bg-gray-50 dark:text-white"
+          className="mt-5 w-full rounded-md dark:bg-gray-800 dark:text-white"
         >
           Apply
         </Button>

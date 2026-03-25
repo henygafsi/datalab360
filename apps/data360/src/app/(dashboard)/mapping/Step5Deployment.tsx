@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
 import { getSession } from 'next-auth/react';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
     database: string;
@@ -333,6 +334,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
     }, [scheduledDate, scheduledTime, deploymentMethod, testStatus, projectId, username, toast, buildMappings, router]);
 
     return (
+        <ErrorBoundary>
         <Card className="p-6">
             <CardHeader>
                 <CardTitle>Step 5: Test & Schedule Deployment</CardTitle>
@@ -541,6 +543,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

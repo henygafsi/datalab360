@@ -257,7 +257,12 @@ export default function DatabricksProvisionTab() {
 
         {/* Data */}
         <div className="p-6">
-          {loading ? <div className="flex justify-center py-16"><Loader size="lg" /></div> : (
+          {loading ? (
+            <div className="space-y-3 py-6">
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+            </div>
+          ) : (
             <>
               {/* SQL Warehouses */}
               {activeTab === 'sql-warehouses' && (

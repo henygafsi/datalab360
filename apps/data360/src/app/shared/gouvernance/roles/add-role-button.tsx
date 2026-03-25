@@ -23,7 +23,7 @@ export default function AddRoleButton({
 }: React.PropsWithChildren<AddRoleButtonProps>) {
   const { openModal, closeModal } = useModal(); // Correctly use the hook here
 
-  console.log('AddRoleForm in AddRoleButton:', AddRoleForm); // <-- CHECK THIS LOG! Should be a function.
+  // console.log('AddRoleForm in AddRoleButton:', AddRoleForm); // <-- CHECK THIS LOG! Should be a function.
 
   return (
     <Button

@@ -22,6 +22,7 @@ import { getProjects } from './getProjects';
 import { getProjectLatestEvents } from './getProjectLatestEvents';
 import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface Project {
     project_id: string;
@@ -176,6 +177,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     }
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <div className="flex items-center justify-between">
@@ -251,6 +253,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                 )}
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

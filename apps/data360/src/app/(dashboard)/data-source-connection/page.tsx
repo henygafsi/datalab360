@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, FormEvent, ChangeEvent, useEffect } from 'react';
+import { useState, useMemo, FormEvent, ChangeEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Input, Button, Checkbox, Text, Password, Badge, Tooltip } from 'rizzui';
@@ -294,7 +294,7 @@ export default function DataSourceConnectionPage() {
       datalake_role: '',
   });
 
-  const logos: Record<string, string> = {
+  const logos: Record<string, string> = useMemo(() => ({
       s3: '/data-sources/aws-s3.png',
       snowflake: '/data-sources/snowflake-logo.png',
       azure: '/data-sources/azure-logo.png',
@@ -305,9 +305,9 @@ export default function DataSourceConnectionPage() {
       postgres: '/data-sources/postgres-logo.svg',
       mysql: '/data-sources/mysql-logo.svg',
       oracle: '/data-sources/oracle-logo.svg',
-  };
+  }), []);
 
-  const dataSources: { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[] = [
+  const dataSources = useMemo(() => [
     {
       id: 'snowflake',
       name: 'Snowflake',
@@ -362,7 +362,13 @@ export default function DataSourceConnectionPage() {
       icon: '/data-sources/oracle-logo.svg',
       description: 'Oracle Autonomous Database — Always Free cloud tier',
     },
-  ];
+  ] as { id: string; name: string; icon: string; description: string; comingSoon?: boolean }[], []);
+
+  // Memoize selected source lookup (avoids .find() on every render)
+  const selectedSourceInfo = useMemo(
+    () => dataSources.find(s => s.id === selectedSource),
+    [dataSources, selectedSource]
+  );
 
   // Check user permissions
   const userRole = session?.user?.role as keyof typeof ROLE_PERMISSIONS;
@@ -2449,6 +2455,30 @@ export default function DataSourceConnectionPage() {
       );
   };
 
+  const showHeaderBack = useMemo(
+    () => currentStep === 1 || showDatalakeBrowser,
+    [currentStep, showDatalakeBrowser]
+  );
+
+  // Memoize features list (static content, avoids re-creating array on every render)
+  const features = useMemo(() => [
+      {
+          icon: <HiOutlineCloudArrowUp className="h-6 w-6" />,
+          title: 'Secure Upload',
+          description: 'End-to-end encryption for all data transfers',
+      },
+      {
+          icon: <HiOutlineShieldCheck className="h-6 w-6" />,
+          title: 'Compliance Ready',
+          description: 'GDPR, SOC 2, and other compliance standards',
+      },
+      {
+          icon: <Database className="h-6 w-6" />,
+          title: 'Real-time Sync',
+          description: 'Automatic data synchronization and updates',
+      },
+  ], []);
+
   const renderForm = () => {
         if (currentStep === 0) {
             return (
@@ -2596,6 +2626,29 @@ export default function DataSourceConnectionPage() {
                         </div>
                     )}
 
+                    {/* Empty state CTA when no connections exist and not loading */}
+                    {activeConnections.length === 0 && !connectionsLoading && (
+                        <div className="text-center py-12 mb-8 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 bg-slate-50/50 dark:bg-slate-800/30">
+                            <div className="inline-flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg mb-4">
+                                <Database className="h-8 w-8 text-white" />
+                            </div>
+                            <p className="text-lg font-semibold text-slate-900 dark:text-white mb-2">No connections configured yet</p>
+                            <p className="text-slate-500 dark:text-slate-400 mb-6 max-w-md mx-auto">
+                                Connect your first data source to start building analytics workflows and exploring your data
+                            </p>
+                            <button
+                                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium shadow-lg shadow-blue-500/25"
+                                onClick={() => {
+                                    const cardsSection = document.getElementById('data-source-cards');
+                                    cardsSection?.scrollIntoView({ behavior: 'smooth' });
+                                }}
+                            >
+                                <HiOutlineCloudArrowUp className="h-5 w-5 inline mr-2" />
+                                Create First Connection
+                            </button>
+                        </div>
+                    )}
+
                     {/* Header - Conditionnel selon si on a des connexions */}
                     {(activeConnections.length === 0 || showAddConnection) && (
                         <>
@@ -2612,7 +2665,7 @@ export default function DataSourceConnectionPage() {
                             </div>
 
                             {/* Data Source Cards */}
-                            <div className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+                            <div id="data-source-cards" className="mx-auto grid max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
                                 {dataSources.map((source) => (
                                     <DataSourceCard
                                         key={source.id}
@@ -2634,23 +2687,7 @@ export default function DataSourceConnectionPage() {
 
                             {/* Features */}
                             <div className="mx-auto mt-16 grid max-w-4xl grid-cols-1 gap-6 md:grid-cols-3">
-                                {[
-                                    {
-                                        icon: <HiOutlineCloudArrowUp className="h-6 w-6" />,
-                                        title: 'Secure Upload',
-                                        description: 'End-to-end encryption for all data transfers',
-                                    },
-                                    {
-                                        icon: <HiOutlineShieldCheck className="h-6 w-6" />,
-                                        title: 'Compliance Ready',
-                                        description: 'GDPR, SOC 2, and other compliance standards',
-                                    },
-                                    {
-                                        icon: <Database className="h-6 w-6" />,
-                                        title: 'Real-time Sync',
-                                        description: 'Automatic data synchronization and updates',
-                                    },
-                                ].map((feature, index) => (
+                                {features.map((feature, index) => (
                                     <div
                                         key={index}
                                         className="rounded-xl border border-slate-200/50 bg-white/30 p-6 text-center backdrop-blur-sm dark:border-slate-700/50 dark:bg-slate-800/30"
@@ -2748,13 +2785,39 @@ export default function DataSourceConnectionPage() {
         return null;
     };
 
-    // Show loading state while checking authentication
+    // Show skeleton layout while checking authentication
     if (status === 'loading') {
         return (
-            <div className="flex items-center justify-center min-h-screen">
-                <div className="text-center">
-                    <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-blue-600 border-r-transparent mb-4"></div>
-                    <p className="text-slate-600 dark:text-slate-400">Loading...</p>
+            <div className="space-y-6 p-6">
+                {/* Header skeleton */}
+                <div className="flex items-center space-x-4">
+                    <div className="h-12 w-12 rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                    <div className="space-y-2">
+                        <div className="h-8 w-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        <div className="h-4 w-96 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                    </div>
+                </div>
+                {/* Connection cards skeleton */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {[1, 2, 3, 4, 5, 6].map(i => (
+                        <div key={i} className="rounded-2xl border-2 border-gray-200 dark:border-gray-700 p-8 space-y-4">
+                            <div className="flex justify-center">
+                                <div className="h-16 w-16 rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                            </div>
+                            <div className="h-5 w-32 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-4 w-48 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        </div>
+                    ))}
+                </div>
+                {/* Features skeleton */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-8">
+                    {[1, 2, 3].map(i => (
+                        <div key={i} className="rounded-xl border border-gray-200 dark:border-gray-700 p-6 space-y-3">
+                            <div className="h-12 w-12 mx-auto rounded-xl bg-gray-200 dark:bg-gray-700 animate-pulse" />
+                            <div className="h-4 w-24 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                            <div className="h-3 w-40 mx-auto bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                        </div>
+                    ))}
                 </div>
             </div>
         );
@@ -2764,8 +2827,6 @@ export default function DataSourceConnectionPage() {
     if (status === 'unauthenticated' || !canManageConnections) {
         return null;
     }
-
-    const showHeaderBack = currentStep === 1 || showDatalakeBrowser;
 
     return (
       <ErrorBoundary>
@@ -2797,7 +2858,7 @@ export default function DataSourceConnectionPage() {
                         </h1>
                         <p className="text-slate-600 dark:text-slate-400 truncate">
                             {selectedSource
-                                ? `Configure your ${dataSources.find(s => s.id === selectedSource)?.name} connection`
+                                ? `Configure your ${selectedSourceInfo?.name} connection`
                                 : "Connect and integrate your data sources with powerful cloud platforms"
                             }
                         </p>
@@ -2807,7 +2868,7 @@ export default function DataSourceConnectionPage() {
                 {selectedSource && !showHeaderBack && (
                     <div className="flex items-center space-x-3">
                         <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                            {dataSources.find(s => s.id === selectedSource)?.name}
+                            {selectedSourceInfo?.name}
                         </Badge>
                     </div>
                 )}

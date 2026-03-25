@@ -158,8 +158,8 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
     const sourceCount = steps.filter((s, i) => i < idx && (s.action_type === 'source' || s.action_type?.endsWith('_source'))).length;
     const nonSourceIdx = idx - steps.filter((s, i) => i <= idx && (s.action_type === 'source' || s.action_type?.endsWith('_source'))).length + (isSource ? 0 : steps.filter(s => s.action_type === 'source' || s.action_type?.endsWith('_source')).length);
     const defaultPos = isSource
-      ? { x: 50, y: 50 + sourceCount * 200 }
-      : { x: 50 + nonSourceIdx * 280, y: 120 };
+      ? { x: 50, y: 50 + sourceCount * 250 }
+      : { x: 100 + nonSourceIdx * 350, y: 150 };
     const position = (payload.position as { x: number; y: number }) || defaultPos;
     const stepName = step.step_name;
     const nodeId = (payload.nodeId as string) || step.step_id;
@@ -245,6 +245,31 @@ function stepsToReactFlow(steps: WorkflowStep[]): { nodes: Node[]; edges: Edge[]
       });
     }
   });
+
+  // Method 3: Infer edges from step_order when no explicit connections exist
+  // If a non-source step has no incoming edge, connect it to the previous step by order
+  if (edges.length === 0 && steps.length > 1) {
+    const sortedSteps = [...steps].sort((a, b) => (a.step_order ?? 0) - (b.step_order ?? 0));
+    for (let i = 1; i < sortedSteps.length; i++) {
+      const prevStep = sortedSteps[i - 1];
+      const currStep = sortedSteps[i];
+      const prevId = (prevStep.payload?.nodeId as string) || prevStep.step_id;
+      const currId = (currStep.payload?.nodeId as string) || currStep.step_id;
+      const currBlockDef = getBlockByType(currStep.action_type);
+      // Skip if current step is a source (sources have no input)
+      if (currStep.action_type === 'source' || currStep.action_type?.endsWith('_source')) continue;
+      edges.push({
+        id: `inferred-${prevId}-${currId}`,
+        source: prevId,
+        target: currId,
+        targetHandle: currBlockDef?.maxInputs === 2 ? 'input1' : undefined,
+        markerEnd: { type: MarkerType.ArrowClosed, color: '#94A3B8' },
+        style: { strokeWidth: 1.5, stroke: '#94A3B8', strokeDasharray: '5,5' },
+        animated: false,
+        label: 'inferred',
+      });
+    }
+  }
 
   return { nodes, edges };
 }

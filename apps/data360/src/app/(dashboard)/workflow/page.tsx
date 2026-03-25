@@ -10,10 +10,11 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity } from 'lucide-react';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity, ArrowRight } from 'lucide-react';
 import Breadcrumb from '@/components/ui/Breadcrumb';
-import { Loader, Button } from 'rizzui';
+import { Button } from 'rizzui';
 import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
 const ETLPipelineBuilder = dynamic(() => import('./ETLPipelineBuilder'), { ssr: false });
 import { ProjectContextPanel } from '@/app/shared/project-context';
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -53,6 +54,10 @@ interface ReactFlowEdge {
 let globalNodeIdCounter = 0;
 
 const WorkflowHomePage: React.FC = () => {
+  const searchParams = useSearchParams();
+  const sourceModule = searchParams?.get('source');
+  const sourceProjectId = searchParams?.get('project_id');
+
   const [workflows, setWorkflows] = useState<BackendWorkflow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1011,6 +1016,19 @@ const WorkflowHomePage: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* E&D Handoff Banner */}
+        {sourceModule === 'explore-design' && sourceProjectId && (
+          <div className="mx-4 mt-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center gap-2 text-sm">
+            <ArrowRight className="h-4 w-4 text-blue-500" />
+            <span className="text-blue-700 dark:text-blue-300">
+              Linked from Explore &amp; Design project.
+              <button className="underline ml-1" onClick={() => window.location.href = `/explore-design?project_id=${sourceProjectId}`}>
+                Return to E&amp;D
+              </button>
+            </span>
+          </div>
+        )}
 
         {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
         <ProjectContextPanel

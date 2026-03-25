@@ -112,27 +112,27 @@ export default function GrantsTable() {
     setError(null);
 
     try {
-      console.log('[Role Grants] 🔄 Starting data fetch...');
+      // console.log('[Role Grants] 🔄 Starting data fetch...');
       const startTime = Date.now();
 
       const roles = await getRoles();
 
       const fetchTime = Date.now() - startTime;
-      console.log(`[Role Grants] ✅ Data fetched successfully in ${fetchTime}ms`);
-      console.log(`[Role Grants]   - Roles: ${roles.length}`);
+      // console.log(`[Role Grants] ✅ Data fetched successfully in ${fetchTime}ms`);
+      // console.log(`[Role Grants]   - Roles: ${roles.length}`);
 
       if (mountedRef.current) {
         setTableData(roles);
       }
     } catch (err: any) {
-      console.error('[Grants Table] ❌ Error fetching grants:', err);
-      console.error('[Grants Table] Error type:', err.name);
-      console.error('[Grants Table] Error code:', err.code);
-      console.error('[Grants Table] Error message:', err.message);
+      // console.error('[Grants Table] ❌ Error fetching grants:', err);
+      // console.error('[Grants Table] Error type:', err.name);
+      // console.error('[Grants Table] Error code:', err.code);
+      // console.error('[Grants Table] Error message:', err.message);
 
       // Only redirect when real auth or 500 connection; not on 503/401 endpoint issues
       if (shouldRedirectToLoginOnError(err)) {
-        console.warn('[Grants Table] Auth/connection error, redirecting to login...', err.name);
+        // console.warn('[Grants Table] Auth/connection error, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }
@@ -277,7 +277,7 @@ export default function GrantsTable() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Grants cache invalidated - refreshing data...');
+      // console.log('[SSE] Grants cache invalidated - refreshing data...');
       fetchGrantsData(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -348,47 +348,47 @@ export default function GrantsTable() {
               // e.g., ["cortex", "semantic_models"] → ["intelligent"]
               const collapsedModules = collapseSubModulesToParents(newModules);
 
-              console.log('[Grants] ========== SAVE STARTED ==========');
-              console.log('[Grants] Selected modules (UI):', newModules);
-              console.log('[Grants] Collapsed modules (API):', collapsedModules);
-              console.log('[Grants] Role name:', modal.role!.role_name);
+              // console.log('[Grants] ========== SAVE STARTED ==========');
+              // console.log('[Grants] Selected modules (UI):', newModules);
+              // console.log('[Grants] Collapsed modules (API):', collapsedModules);
+              // console.log('[Grants] Role name:', modal.role!.role_name);
 
               const roleName = modal.role!.role_name;
 
               // Step 1: Send update to backend
-              console.log('[Grants] Step 1: Sending update to backend...');
+              // console.log('[Grants] Step 1: Sending update to backend...');
               const updateResponse = await updateGrants(roleName, collapsedModules);
-              console.log('[Grants] Step 1: Backend response:', updateResponse.data);
+              // console.log('[Grants] Step 1: Backend response:', updateResponse.data);
 
               // Step 2: Clear backend cache and refresh data from backend
-              console.log('[Grants] Step 2: Clearing cache and refreshing data from backend...');
+              // console.log('[Grants] Step 2: Clearing cache and refreshing data from backend...');
               try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
               const refreshStartTime = Date.now();
               await fetchGrantsData();
-              console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
+              // console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
 
               // Step 3: Verify what we got back (after state update)
               setTimeout(() => {
                 setTableData((currentData) => {
                   const updatedRole = currentData.find(r => r.role_name === roleName);
-                  console.log('[Grants] Step 3: Verification after refresh');
-                  console.log('[Grants]   - Expected modules:', collapsedModules);
-                  console.log('[Grants]   - Actual modules from backend:', updatedRole?.modules);
+                  // console.log('[Grants] Step 3: Verification after refresh');
+                  // console.log('[Grants]   - Expected modules:', collapsedModules);
+                  // console.log('[Grants]   - Actual modules from backend:', updatedRole?.modules);
 
                   const expected = collapsedModules.sort();
                   const actual = (updatedRole?.modules || []).sort();
                   const match = JSON.stringify(expected) === JSON.stringify(actual);
 
-                  console.log('[Grants]   - Match:', match);
+                  // console.log('[Grants]   - Match:', match);
 
                   if (!match) {
-                    console.error('[Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
-                    console.error('[Grants]   Expected:', expected);
-                    console.error('[Grants]   Got:', actual);
-                    console.error('[Grants]   → Backend returned 200 OK but did not persist the data!');
-                    console.error('[Grants]   → Check backend logs for database commit issues');
+                    // console.error('[Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
+                    // console.error('[Grants]   Expected:', expected);
+                    // console.error('[Grants]   Got:', actual);
+                    // console.error('[Grants]   → Backend returned 200 OK but did not persist the data!');
+                    // console.error('[Grants]   → Check backend logs for database commit issues');
                   } else {
-                    console.log('[Grants] ✅ Data persisted correctly');
+                    // console.log('[Grants] ✅ Data persisted correctly');
                   }
 
                   return currentData;
@@ -402,14 +402,14 @@ export default function GrantsTable() {
                 toast.success(`✅ Updated modules for ${roleName}`);
               }
 
-              console.log('[Grants] ========== SAVE COMPLETED ==========');
+              // console.log('[Grants] ========== SAVE COMPLETED ==========');
               setModal({ open: false });
             } catch (err: any) {
-              console.error('[Grants] ========== SAVE FAILED ==========');
-              console.error('[Grants] Error:', err);
-              console.error('[Grants] Error name:', err.name);
-              console.error('[Grants] Error message:', err.message);
-              console.error('[Grants] Error response:', err.response?.data);
+              // console.error('[Grants] ========== SAVE FAILED ==========');
+              // console.error('[Grants] Error:', err);
+              // console.error('[Grants] Error name:', err.name);
+              // console.error('[Grants] Error message:', err.message);
+              // console.error('[Grants] Error response:', err.response?.data);
               toast.error(err.message || 'Failed to update modules');
             }
           }}
@@ -433,10 +433,10 @@ function EditModal({
 }) {
   // Expand role modules to include sub-modules for UI display
   const initialModules = expandModulesToIncludeSubModules(role.modules || []);
-  console.log('[EditModal] Initial state:', {
-    roleModules: role.modules,
-    expandedModules: initialModules
-  });
+  // console.log('[EditModal] Initial state:', {
+  //   roleModules: role.modules,
+  //   expandedModules: initialModules
+  // });
   const [selectedModules, setSelectedModules] = useState<string[]>(initialModules);
   const [saving, setSaving] = useState(false);
 

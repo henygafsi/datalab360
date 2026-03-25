@@ -90,7 +90,7 @@ function ExchangeInput({
                       className={cn(
                         'flex cursor-pointer items-center gap-3 rounded-md p-1.5 pe-3 duration-200',
                         currency === selected
-                          ? 'bg-gray-100 dark:bg-gray-50/70'
+                          ? 'bg-gray-100 dark:bg-gray-800/70'
                           : 'hover:bg-gray-50 dark:hover:bg-gray-100'
                       )}
                       onClick={() => {

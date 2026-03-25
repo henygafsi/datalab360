@@ -35,7 +35,7 @@ export function Card({
   return (
     <div
       className={cn(
-        'relative rounded-lg border border-muted bg-gray-0 p-5 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg dark:bg-gray-50',
+        'relative rounded-lg border border-muted bg-gray-0 p-5 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg dark:bg-gray-800',
         className
       )}
     >

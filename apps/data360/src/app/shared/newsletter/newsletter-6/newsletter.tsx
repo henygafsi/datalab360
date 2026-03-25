@@ -11,7 +11,7 @@ export default function NewsLetter({ className }: { className?: string }) {
     <div
       className={cn(
         className,
-        'grid grid-cols-7 rounded-2xl border border-gray-100 p-3 @container dark:bg-gray-50'
+        'grid grid-cols-7 rounded-2xl border border-gray-100 p-3 @container dark:bg-gray-800'
       )}
     >
       <div className="relative col-span-3 hidden aspect-[36/45] @[674px]:inline-block">

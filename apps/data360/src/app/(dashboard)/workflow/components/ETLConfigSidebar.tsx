@@ -37,6 +37,10 @@ import type {
   ExportFileConfig,
 } from '@/app/services/etl/types';
 
+// Unique ID generator for list item keys (avoids key={index} anti-pattern)
+let _uidCounter = 0;
+const _uid = () => `_uid_${Date.now()}_${++_uidCounter}`;
+
 // ============================================
 // FORM COMPONENTS
 // ============================================
@@ -451,7 +455,7 @@ const FilterConfigForm: React.FC<{
   };
 
   const addCondition = () => {
-    updateConfig({ conditions: [...conditions, { column: '', operator: '=', value: '' }] });
+    updateConfig({ conditions: [...conditions, { _key: _uid(), column: '', operator: '=', value: '' }] });
   };
 
   const removeCondition = (index: number) => {
@@ -489,7 +493,7 @@ const FilterConfigForm: React.FC<{
         </div>
 
         {conditions.map((cond, i) => (
-          <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
+          <div key={cond._key || i} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
             <Select
               value={cond.column}
               onChange={(v) => updateCondition(i, { column: v })}
@@ -510,7 +514,7 @@ const FilterConfigForm: React.FC<{
             )}
             <button
               onClick={() => removeCondition(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
+              className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
             >
               <Minus className="h-4 w-4" />
             </button>
@@ -550,7 +554,7 @@ const AggregateConfigForm: React.FC<{
   };
 
   const addAggregation = () => {
-    updateConfig({ aggregations: [...aggregations, { column: '', function: 'SUM', alias: '' }] });
+    updateConfig({ aggregations: [...aggregations, { _key: _uid(), column: '', function: 'SUM', alias: '' }] });
   };
 
   const removeAggregation = (index: number) => {
@@ -585,7 +589,7 @@ const AggregateConfigForm: React.FC<{
         </div>
 
         {aggregations.map((agg, i) => (
-          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+          <div key={agg._key || i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
             <div className="flex items-center gap-2">
               <Select
                 value={agg.function}
@@ -600,7 +604,7 @@ const AggregateConfigForm: React.FC<{
               />
               <button
                 onClick={() => removeAggregation(i)}
-                className="p-1 text-red-500 hover:bg-red-100 rounded"
+                className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -692,7 +696,7 @@ const RenameConfigForm: React.FC<{
       </div>
 
       {entries.map(([oldName, newName], i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={oldName || i} className="flex items-center gap-2">
           <Select
             value={oldName}
             onChange={(v) => updateMapping(oldName, v, newName)}
@@ -707,7 +711,7 @@ const RenameConfigForm: React.FC<{
           />
           <button
             onClick={() => removeMapping(oldName)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
+            className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -777,7 +781,7 @@ const CastConfigForm: React.FC<{
       </div>
 
       {entries.map(([col, type], i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={col || i} className="flex items-center gap-2">
           <Select
             value={col}
             onChange={(v) => updateCast(col, v, type)}
@@ -792,7 +796,7 @@ const CastConfigForm: React.FC<{
           />
           <button
             onClick={() => removeCast(col)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
+            className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -821,7 +825,7 @@ const FormulaConfigForm: React.FC<{
   };
 
   const addFormula = () => {
-    updateConfig({ formulas: [...formulas, { name: '', expression: '' }] });
+    updateConfig({ formulas: [...formulas, { _key: _uid(), name: '', expression: '' }] });
   };
 
   const removeFormula = (index: number) => {
@@ -847,7 +851,7 @@ const FormulaConfigForm: React.FC<{
       </div>
 
       {formulas.map((formula, i) => (
-        <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+        <div key={formula._key || i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
           <div className="flex items-center gap-2">
             <Input
               value={formula.name}
@@ -856,7 +860,7 @@ const FormulaConfigForm: React.FC<{
             />
             <button
               onClick={() => removeFormula(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
+              className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
             >
               <Minus className="h-4 w-4" />
             </button>
@@ -895,7 +899,7 @@ const SortConfigForm: React.FC<{
   };
 
   const addSort = () => {
-    updateConfig({ order_by: [...orderBy, { column: '', direction: 'ASC' }] });
+    updateConfig({ order_by: [...orderBy, { _key: _uid(), column: '', direction: 'ASC' }] });
   };
 
   const removeSort = (index: number) => {
@@ -921,7 +925,7 @@ const SortConfigForm: React.FC<{
       </div>
 
       {orderBy.map((sort, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={sort._key || i} className="flex items-center gap-2">
           <Select
             value={sort.column}
             onChange={(v) => updateSort(i, { column: v })}
@@ -938,7 +942,7 @@ const SortConfigForm: React.FC<{
           />
           <button
             onClick={() => removeSort(i)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
+            className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
           >
             <Minus className="h-4 w-4" />
           </button>
@@ -1112,7 +1116,7 @@ const SegmentationConfigForm: React.FC<{
   };
 
   const addRule = () => {
-    updateConfig({ rules: [...rules, { name: '', condition: '' }] });
+    updateConfig({ rules: [...rules, { _key: _uid(), name: '', condition: '' }] });
   };
 
   const removeRule = (index: number) => {
@@ -1161,7 +1165,7 @@ const SegmentationConfigForm: React.FC<{
           </div>
 
           {rules.map((rule, i) => (
-            <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+            <div key={rule._key || i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
               <div className="flex items-center gap-2">
                 <Input
                   value={rule.name}
@@ -1170,7 +1174,7 @@ const SegmentationConfigForm: React.FC<{
                 />
                 <button
                   onClick={() => removeRule(i)}
-                  className="p-1 text-red-500 hover:bg-red-100 rounded"
+                  className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
                 >
                   <Minus className="h-4 w-4" />
                 </button>
@@ -2503,7 +2507,7 @@ const JsonExtractConfigForm: React.FC<{
   };
 
   const addPath = () => {
-    updateConfig({ extract_paths: [...extractPaths, { path: '', type: 'VARCHAR', output: '' }] });
+    updateConfig({ extract_paths: [...extractPaths, { _key: _uid(), path: '', type: 'VARCHAR', output: '' }] });
   };
 
   const removePath = (index: number) => {
@@ -2546,7 +2550,7 @@ const JsonExtractConfigForm: React.FC<{
         </div>
 
         {extractPaths.map((ep, i) => (
-          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+          <div key={ep._key || i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
             <div className="flex items-center gap-2">
               <Input
                 value={ep.path}
@@ -2555,7 +2559,7 @@ const JsonExtractConfigForm: React.FC<{
               />
               <button
                 onClick={() => removePath(i)}
-                className="p-1 text-red-500 hover:bg-red-100 rounded"
+                className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -3008,7 +3012,7 @@ const CaseWhenConfigForm: React.FC<{
   };
 
   const addCondition = () => {
-    updateConfig({ conditions: [...conditions, { when: '', then: '' }] });
+    updateConfig({ conditions: [...conditions, { _key: _uid(), when: '', then: '' }] });
   };
 
   const removeCondition = (index: number) => {
@@ -3041,7 +3045,7 @@ const CaseWhenConfigForm: React.FC<{
         </div>
 
         {conditions.map((cond, i) => (
-          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
+          <div key={cond._key || i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-slate-500 whitespace-nowrap">WHEN</span>
               <Input
@@ -3051,7 +3055,7 @@ const CaseWhenConfigForm: React.FC<{
               />
               <button
                 onClick={() => removeCondition(i)}
-                className="p-1 text-red-500 hover:bg-red-100 rounded"
+                className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -3174,7 +3178,7 @@ const SplitColumnConfigForm: React.FC<{
             {outputColumns.length > 2 && (
               <button
                 onClick={() => removeOutputColumn(i)}
-                className="p-1 text-red-500 hover:bg-red-100 rounded"
+                className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
               >
                 <Minus className="h-4 w-4" />
               </button>
@@ -3766,7 +3770,7 @@ const CreateUDFConfigForm: React.FC<{
   };
 
   const addParameter = () => {
-    updateConfig({ parameters: [...parameters, { name: '', type: 'VARCHAR' }] });
+    updateConfig({ parameters: [...parameters, { _key: _uid(), name: '', type: 'VARCHAR' }] });
   };
 
   const removeParameter = (index: number) => {
@@ -3854,7 +3858,7 @@ const CreateUDFConfigForm: React.FC<{
         </div>
 
         {parameters.map((param, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={param._key || i} className="flex items-center gap-2">
             <Input
               value={param.name}
               onChange={(v) => updateParameter(i, { name: v })}
@@ -3873,7 +3877,7 @@ const CreateUDFConfigForm: React.FC<{
             />
             <button
               onClick={() => removeParameter(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
+              className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
             >
               <Minus className="h-4 w-4" />
             </button>
@@ -3923,7 +3927,7 @@ const CreateProcedureConfigForm: React.FC<{
   };
 
   const addParameter = () => {
-    updateConfig({ parameters: [...parameters, { name: '', type: 'VARCHAR' }] });
+    updateConfig({ parameters: [...parameters, { _key: _uid(), name: '', type: 'VARCHAR' }] });
   };
 
   const removeParameter = (index: number) => {
@@ -3999,7 +4003,7 @@ const CreateProcedureConfigForm: React.FC<{
         </div>
 
         {parameters.map((param, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={param._key || i} className="flex items-center gap-2">
             <Input
               value={param.name}
               onChange={(v) => updateParameter(i, { name: v })}
@@ -4018,7 +4022,7 @@ const CreateProcedureConfigForm: React.FC<{
             />
             <button
               onClick={() => removeParameter(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
+              className="p-1 text-red-500 hover:bg-red-100 rounded" aria-label="Remove item"
             >
               <Minus className="h-4 w-4" />
             </button>

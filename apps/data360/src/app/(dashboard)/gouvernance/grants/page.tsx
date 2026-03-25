@@ -91,8 +91,11 @@ export default function GrantsManagementPage() {
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-muted p-6">
         {/* Tabs Header */}
         <div className="flex items-center justify-between mb-6 border-b border-slate-200 dark:border-slate-700">
-          <div className="flex gap-1">
+          <div className="flex gap-1" role="tablist" aria-label="Grant type tabs">
             <button
+              role="tab"
+              aria-selected={activeTab === 'role-grants'}
+              aria-controls="tabpanel-role-grants"
               onClick={() => setActiveTab('role-grants')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
                 activeTab === 'role-grants'
@@ -107,6 +110,9 @@ export default function GrantsManagementPage() {
               </Badge>
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'user-grants'}
+              aria-controls="tabpanel-user-grants"
               onClick={() => setActiveTab('user-grants')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
                 activeTab === 'user-grants'
@@ -121,6 +127,9 @@ export default function GrantsManagementPage() {
               </Badge>
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'policy-grants'}
+              aria-controls="tabpanel-policy-grants"
               onClick={() => setActiveTab('policy-grants')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
                 activeTab === 'policy-grants'
@@ -135,6 +144,9 @@ export default function GrantsManagementPage() {
               </Badge>
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'stage-grants'}
+              aria-controls="tabpanel-stage-grants"
               onClick={() => setActiveTab('stage-grants')}
               className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
                 activeTab === 'stage-grants'
@@ -153,7 +165,7 @@ export default function GrantsManagementPage() {
 
         {/* Tab Content */}
         {activeTab === 'role-grants' ? (
-          <div>
+          <div role="tabpanel" id="tabpanel-role-grants" aria-labelledby="tab-role-grants">
             <div className="mb-4">
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -169,7 +181,7 @@ export default function GrantsManagementPage() {
             <GrantsTable />
           </div>
         ) : activeTab === 'user-grants' ? (
-          <div>
+          <div role="tabpanel" id="tabpanel-user-grants" aria-labelledby="tab-user-grants">
             <div className="mb-4">
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -185,7 +197,7 @@ export default function GrantsManagementPage() {
             <UserGrantsTable />
           </div>
         ) : activeTab === 'stage-grants' ? (
-          <div>
+          <div role="tabpanel" id="tabpanel-stage-grants" aria-labelledby="tab-stage-grants">
             <div className="mb-4">
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
@@ -201,7 +213,7 @@ export default function GrantsManagementPage() {
             <StageGrantsTable />
           </div>
         ) : (
-          <div>
+          <div role="tabpanel" id="tabpanel-policy-grants" aria-labelledby="tab-policy-grants">
             <div className="mb-4">
               <div className="flex items-center gap-3 mb-1">
                 <h2 className="text-xl font-semibold text-gray-900 dark:text-white">

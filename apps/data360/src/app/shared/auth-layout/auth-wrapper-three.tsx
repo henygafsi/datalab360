@@ -35,7 +35,7 @@ export default function AuthWrapperThree({
         </Link>
         <div
           className={cn(
-            'mx-auto w-full max-w-md rounded-xl bg-white px-4 py-9 dark:bg-gray-50 sm:px-6 md:max-w-xl md:px-10 md:py-12 lg:max-w-[700px] lg:px-16 xl:rounded-2xl 3xl:rounded-3xl',
+            'mx-auto w-full max-w-md rounded-xl bg-white px-4 py-9 dark:bg-gray-800 sm:px-6 md:max-w-xl md:px-10 md:py-12 lg:max-w-[700px] lg:px-16 xl:rounded-2xl 3xl:rounded-3xl',
             className
           )}
         >

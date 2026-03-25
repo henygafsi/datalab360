@@ -79,11 +79,11 @@ export default function UserGrantsTable() {
     setError(null);
 
     try {
-      console.log('[User Grants] 🔄 Starting data fetch...');
-      console.log('[User Grants] API Calls:');
-      console.log('[User Grants]   1. GET /gouvernance/users (with roles and modules)');
-      console.log('[User Grants]   2. GET /gouvernance/roles (all available roles)');
-      console.log('[User Grants]   3. GET /gouvernance/grants (role-module permissions)');
+      // console.log('[User Grants] 🔄 Starting data fetch...');
+      // console.log('[User Grants] API Calls:');
+      // console.log('[User Grants]   1. GET /gouvernance/users (with roles and modules)');
+      // console.log('[User Grants]   2. GET /gouvernance/roles (all available roles)');
+      // console.log('[User Grants]   3. GET /gouvernance/grants (role-module permissions)');
       const startTime = Date.now();
 
       // Fetch all data in parallel (users, roles, and grants)
@@ -95,8 +95,8 @@ export default function UserGrantsTable() {
       ]);
 
       const fetchTime = Date.now() - startTime;
-      console.log(`[User Grants] Data fetched in ${fetchTime}ms`);
-      console.log(`[User Grants]   Users: ${usersData.length}, Roles: ${rolesData.length}, Grants: ${grantsData.length}`);
+      // console.log(`[User Grants] Data fetched in ${fetchTime}ms`);
+      // console.log(`[User Grants]   Users: ${usersData.length}, Roles: ${rolesData.length}, Grants: ${grantsData.length}`);
 
       // All roles from backend are assignable
       const assignableRoles = rolesData.map(r => r.role);
@@ -126,14 +126,14 @@ export default function UserGrantsTable() {
         setRoleGrants(grantsData); // Cache for modal
       }
     } catch (err: any) {
-      console.error('[User Grants Table] ❌ Error fetching data:', err);
-      console.error('[User Grants Table] Error type:', err.name);
-      console.error('[User Grants Table] Error code:', err.code);
-      console.error('[User Grants Table] Error message:', err.message);
+      // console.error('[User Grants Table] ❌ Error fetching data:', err);
+      // console.error('[User Grants Table] Error type:', err.name);
+      // console.error('[User Grants Table] Error code:', err.code);
+      // console.error('[User Grants Table] Error message:', err.message);
 
       // Only redirect when real auth (no token, expired) or 500 connection; not on 503/401 endpoint issues
       if (shouldRedirectToLoginOnError(err)) {
-        console.warn('[User Grants Table] Auth/connection error, redirecting to login...', err.name);
+        // console.warn('[User Grants Table] Auth/connection error, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }
@@ -179,7 +179,7 @@ export default function UserGrantsTable() {
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] User grants cache invalidated - refreshing data...');
+      // console.log('[SSE] User grants cache invalidated - refreshing data...');
       fetchUserGrantsData(true);
     }
   }, [wasInvalidated, loading, fetchUserGrantsData]);
@@ -352,11 +352,11 @@ export default function UserGrantsTable() {
     const currentUser = modal.user; // Capture user reference for closure
 
     try {
-      console.log('[User Grants] ========== SAVE STARTED ==========');
-      console.log('[User Grants] Username:', currentUser.username);
-      console.log('[User Grants] Display Name:', currentUser.displayName);
-      console.log('[User Grants] Selected roles:', modal.selectedRoles);
-      console.log('[User Grants] Previous roles:', currentUser.roles);
+      // console.log('[User Grants] ========== SAVE STARTED ==========');
+      // console.log('[User Grants] Username:', currentUser.username);
+      // console.log('[User Grants] Display Name:', currentUser.displayName);
+      // console.log('[User Grants] Selected roles:', modal.selectedRoles);
+      // console.log('[User Grants] Previous roles:', currentUser.roles);
 
       const username = currentUser.username;
       const displayName = currentUser.displayName;
@@ -366,31 +366,31 @@ export default function UserGrantsTable() {
       const rolesToSend = modal.selectedRoles.filter(r => r !== 'ALL');
       const expectedRoles = [...rolesToSend].sort();
 
-      console.log('[User Grants] Selected roles (UI):', modal.selectedRoles);
-      console.log('[User Grants] Roles to send (API):', rolesToSend);
+      // console.log('[User Grants] Selected roles (UI):', modal.selectedRoles);
+      // console.log('[User Grants] Roles to send (API):', rolesToSend);
 
       // Step 1: Send update to backend
-      console.log('[User Grants] Step 1: Sending update to backend...');
-      console.log('[User Grants] Step 1: Endpoint: PUT /gouvernance/users/' + username + '/roles');
-      console.log('[User Grants] Step 1: Payload:', { roles: rolesToSend });
+      // console.log('[User Grants] Step 1: Sending update to backend...');
+      // console.log('[User Grants] Step 1: Endpoint: PUT /gouvernance/users/' + username + '/roles');
+      // console.log('[User Grants] Step 1: Payload:', { roles: rolesToSend });
       const updateResponse = await updateUserRoles(username, rolesToSend);
-      console.log('[User Grants] Step 1: Backend response:', updateResponse);
+      // console.log('[User Grants] Step 1: Backend response:', updateResponse);
       try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
       try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
 
       // Step 2: Refresh data from backend
-      console.log('[User Grants] Step 2: Refreshing data from backend...');
+      // console.log('[User Grants] Step 2: Refreshing data from backend...');
       const refreshStartTime = Date.now();
       await fetchUserGrantsData(true);
-      console.log('[User Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
+      // console.log('[User Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
 
       // Step 3: Verify what we got back (after state update)
       setTimeout(() => {
         setTableData((currentData) => {
           const updatedUser = currentData.find(u => u.username === username);
-          console.log('[User Grants] Step 3: Verification after refresh');
-          console.log('[User Grants]   - Expected roles (sent to backend):', expectedRoles);
-          console.log('[User Grants]   - Actual roles from backend:', updatedUser?.roles);
+          // console.log('[User Grants] Step 3: Verification after refresh');
+          // console.log('[User Grants]   - Expected roles (sent to backend):', expectedRoles);
+          // console.log('[User Grants]   - Actual roles from backend:', updatedUser?.roles);
 
           // Filter out "ALL" from actual roles (might be legacy data)
           // Filter out "PUBLIC" (auto-added by Snowflake)
@@ -405,28 +405,28 @@ export default function UserGrantsTable() {
 
           const match = JSON.stringify(expectedNormalized) === JSON.stringify(actualNormalized);
 
-          console.log('[User Grants]   - Expected (normalized):', expectedNormalized);
-          console.log('[User Grants]   - Actual (without ALL/PUBLIC):', actualNormalized);
-          console.log('[User Grants]   - Match:', match);
+          // console.log('[User Grants]   - Expected (normalized):', expectedNormalized);
+          // console.log('[User Grants]   - Actual (without ALL/PUBLIC):', actualNormalized);
+          // console.log('[User Grants]   - Match:', match);
 
           if (!match) {
-            console.error('[User Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
-            console.error('[User Grants]   Expected:', expectedNormalized);
-            console.error('[User Grants]   Got:', actualNormalized);
+            // console.error('[User Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
+            // console.error('[User Grants]   Expected:', expectedNormalized);
+            // console.error('[User Grants]   Got:', actualNormalized);
 
             const missing = expectedNormalized.filter(r => !actualNormalized.includes(r));
             const extra = actualNormalized.filter(r => !expectedNormalized.includes(r));
 
             if (missing.length > 0) {
-              console.error('[User Grants]   Missing roles:', missing);
+              // console.error('[User Grants]   Missing roles:', missing);
             }
             if (extra.length > 0) {
-              console.error('[User Grants]   Extra roles:', extra);
+              // console.error('[User Grants]   Extra roles:', extra);
             }
 
-            console.error('[User Grants]   → Check backend logs for GRANT ROLE execution issues');
+            // console.error('[User Grants]   → Check backend logs for GRANT ROLE execution issues');
           } else {
-            console.log('[User Grants] ✅ Roles persisted correctly');
+            // console.log('[User Grants] ✅ Roles persisted correctly');
           }
 
           return currentData;
@@ -440,16 +440,16 @@ export default function UserGrantsTable() {
         toast.success(`✅ Updated roles for ${displayName}`);
       }
 
-      console.log('[User Grants] ========== SAVE COMPLETED ==========');
+      // console.log('[User Grants] ========== SAVE COMPLETED ==========');
       handleCloseModal();
     } catch (err: any) {
-      console.error('[User Grants] ❌ Error saving roles:', err);
-      console.error('[User Grants] Error type:', err.name);
-      console.error('[User Grants] Error message:', err.message);
-      console.error('[User Grants] Error response:', err.response?.data);
+      // console.error('[User Grants] ❌ Error saving roles:', err);
+      // console.error('[User Grants] Error type:', err.name);
+      // console.error('[User Grants] Error message:', err.message);
+      // console.error('[User Grants] Error response:', err.response?.data);
 
       if (shouldRedirectToLoginOnError(err)) {
-        console.warn('[User Grants Table] Auth/connection error during save, redirecting to login...', err.name);
+        // console.warn('[User Grants Table] Auth/connection error during save, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }

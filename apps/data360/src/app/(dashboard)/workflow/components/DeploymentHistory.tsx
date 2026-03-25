@@ -580,9 +580,9 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
                           Workflow Steps ({deployment.steps.length})
                         </div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
-                          {deployment.steps.map((step: WorkflowStep, index: number) => (
+                          {deployment.steps.map((step: WorkflowStep) => (
                             <div
-                              key={index}
+                              key={step.step_order}
                               className="flex items-center gap-2 p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 text-xs"
                             >
                               <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">

@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search, TestTube, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { postMapping } from '@/app/services/mapping/postMapping';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 // --- Interface Definitions ---
 interface TableSelection { database: string; schema: string; table: string; }
@@ -747,6 +748,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
     }, [mappingData.column_mappings, mappingData.primary_keys, mappingData.project_id, mappingData.target_database, mappingData.target_schema, mappingData.target_table, mappingData.groups, allColumnsDataMap, toast]);
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <CardTitle>Step 4: Interactive Column Mapping</CardTitle>
@@ -862,6 +864,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

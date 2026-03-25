@@ -25,6 +25,7 @@ export default function Filters<TData extends Record<string, any>>({
       <Flex align="center" className="w-auto flex-wrap">
         <Input
           type="search"
+          aria-label="Search users by name"
           placeholder="Search by name..."
           value={table.getState().globalFilter ?? ''}
           onClear={() => table.setGlobalFilter('')}

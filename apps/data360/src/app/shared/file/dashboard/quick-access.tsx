@@ -77,7 +77,7 @@ export default function QuickAccess({ className }: { className?: string }) {
           variant="text"
           ref={sliderPrevBtn}
           onClick={() => scrollToTheLeft()}
-          className="!absolute left-0 top-0 z-10 !h-full w-14 !justify-start rounded-none bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent px-0 text-gray-500 hover:text-gray-900 dark:from-gray-50 dark:via-gray-50/70 3xl:hidden"
+          className="!absolute left-0 top-0 z-10 !h-full w-14 !justify-start rounded-none bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent px-0 text-gray-500 hover:text-gray-900 dark:from-gray-800 dark:via-gray-800/70 3xl:hidden"
         >
           <PiCaretLeftBold className="size-5" />
         </Button>
@@ -96,7 +96,7 @@ export default function QuickAccess({ className }: { className?: string }) {
           variant="text"
           ref={sliderNextBtn}
           onClick={() => scrollToTheRight()}
-          className="!absolute right-0 top-0 z-10 !h-full w-14 !justify-end rounded-none bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-gray-900 dark:from-gray-50 dark:via-gray-50/70 3xl:hidden"
+          className="!absolute right-0 top-0 z-10 !h-full w-14 !justify-end rounded-none bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-gray-900 dark:from-gray-800 dark:via-gray-800/70 3xl:hidden"
         >
           <PiCaretRightBold className="size-5" />
         </Button>

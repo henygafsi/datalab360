@@ -19,7 +19,7 @@ export default function SignUpForm() {
   const [reset, setReset] = useState({});
   const isMedium = useMedia('(max-width: 1200px)', false);
   const onSubmit: SubmitHandler<SignUpSchema> = (data) => {
-    console.log(data);
+    // console.log(data);
     setReset({ ...initialValues, isAgreed: false });
   };
 

@@ -256,6 +256,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           disabled={isRefreshing}
           className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded transition disabled:opacity-50"
           title="Refresh"
+          aria-label="Refresh execution history"
         >
           <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
         </button>

@@ -96,7 +96,7 @@ function ModalCardSlider({ data }: any) {
 
 function ModalCardVideo({ data }: any) {
   return (
-    <div className="flex h-full items-center bg-black dark:bg-gray-50">
+    <div className="flex h-full items-center bg-black dark:bg-gray-800">
       <ReactPlayer url={data.video.link} controls width="100%" />
     </div>
   );

@@ -27,12 +27,13 @@ export default function ModuleMultiSelect({
             className="flex items-center gap-1 rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-800"
           >
             {m}
-            <button onClick={() => remove(m)}>&times;</button>
+            <button aria-label={`Remove ${m}`} onClick={() => remove(m)}>&times;</button>
           </span>
         ))}
       </div>
 
       <input
+        aria-label="Add module"
         className="w-full rounded border px-2 py-1 text-sm"
         placeholder="Type module & press Enter"
         value={input}

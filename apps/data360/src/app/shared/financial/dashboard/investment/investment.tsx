@@ -257,17 +257,17 @@ function CustomCircleChartStatic() {
   return (
     <div>
       <div className="relative mx-auto mb-16 mt-8 aspect-[310/232] w-full max-w-[310px] rounded-lg">
-        <div className="absolute bottom-0 left-0 flex aspect-square w-[64%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#4A3AFF] text-4xl font-bold text-gray-0 dark:text-gray-900">
+        <div className="absolute bottom-0 left-0 flex aspect-square w-[64%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#4A3AFF] text-4xl font-bold text-gray-0 dark:text-white">
           70%
         </div>
-        <div className="absolute right-0 top-0 flex aspect-square w-[48%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#C893FD] text-3xl font-bold text-gray-0 dark:text-gray-900">
+        <div className="absolute right-0 top-0 flex aspect-square w-[48%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#C893FD] text-3xl font-bold text-gray-0 dark:text-white">
           20%
         </div>
-        <div className="absolute bottom-[5%] right-[14%] flex aspect-square w-[35%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#1E1B39] text-2xl font-bold text-gray-0 dark:bg-gray-400 dark:text-gray-900">
+        <div className="absolute bottom-[5%] right-[14%] flex aspect-square w-[35%] items-center justify-center rounded-full border-4 border-gray-0 bg-[#1E1B39] text-2xl font-bold text-gray-0 dark:bg-gray-400 dark:text-white">
           10%
         </div>
       </div>
-      <div className="flex flex-col flex-wrap justify-center gap-2 text-sm text-gray-500 @[24rem]:mx-auto @[24rem]:flex-row @[24rem]:gap-x-6 @[24rem]:gap-y-3 dark:text-gray-900">
+      <div className="flex flex-col flex-wrap justify-center gap-2 text-sm text-gray-500 @[24rem]:mx-auto @[24rem]:flex-row @[24rem]:gap-x-6 @[24rem]:gap-y-3 dark:text-white">
         <div className="flex items-center gap-1">
           <span className="h-3 w-3 rounded-full bg-[#4A3AFF]" />
           Real State

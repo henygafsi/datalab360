@@ -177,6 +177,7 @@ const KpiCard = memo(function KpiCard({
             </span>
           )}
           <button
+            aria-label={expanded ? 'Collapse details' : 'Expand details'}
             onClick={() => setExpanded(!expanded)}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
             title={expanded ? 'Collapse' : 'Expand details'}
@@ -415,6 +416,7 @@ const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, opt
             <label className="text-xs text-gray-500 dark:text-gray-400">From</label>
             <input
               type="date"
+              aria-label="Start date"
               value={customStart}
               onChange={(e) => setCustomStart(e.target.value)}
               className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-primary"
@@ -424,6 +426,7 @@ const GlobalFilterBar = memo(function GlobalFilterBar({ filters, setFilters, opt
             <label className="text-xs text-gray-500 dark:text-gray-400">To</label>
             <input
               type="date"
+              aria-label="End date"
               value={customEnd}
               onChange={(e) => setCustomEnd(e.target.value)}
               className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-primary"
@@ -589,6 +592,7 @@ function AuditTable<T extends Record<string, any>>({
                     {col.filterable ? (
                       <input
                         type="text" placeholder="Filter…"
+                        aria-label={`Filter by ${col.label}`}
                         value={colFilters[col.key] || ''}
                         onChange={(e) => { setColFilters({ ...colFilters, [col.key]: e.target.value }); setPage(0); }}
                         className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary"
@@ -1027,13 +1031,17 @@ function CommandCenterDashboardInner() {
 
       {/* ── Tabs ──────────────────────────────────────────────────── */}
       <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
-        <div className="-mb-px flex space-x-4 overflow-x-auto">
+        <div className="-mb-px flex space-x-4 overflow-x-auto" role="tablist" aria-label="Account overview tabs">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={isActive}
+                aria-controls={`tabpanel-${tab.id}`}
+                id={`tab-${tab.id}`}
                 onClick={() => startTabTransition(() => setActiveTab(tab.id))}
                 className={cn(
                   'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors',
@@ -1054,7 +1062,7 @@ function CommandCenterDashboardInner() {
       <GlobalFilterBar filters={filters} setFilters={setFilters} options={filterOptions} lastUpdated={lastUpdated} autoRefreshCountdown={autoRefreshCountdown} />
 
       {/* ── Tab Content ───────────────────────────────────────────── */}
-      <div className="space-y-6">
+      <div className="space-y-6" role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
         {activeTab === 'overview' && <OverviewTab summary={summary} moduleHealth={moduleHealth} activityFeed={activityFeed} obsKpis={obsKpis} healthScore={healthScore} loading={tabLoading.overview} />}
         {activeTab === 'modules' && (
           <Suspense fallback={<LoadingSection />}>
@@ -1491,13 +1499,24 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
 
       {/* Reject Deployment Modal */}
       {rejectModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setRejectModal(null)}>
-          <div className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+          onClick={() => setRejectModal(null)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setRejectModal(null); setRejectReason(''); } }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reject-modal-title"
+            className="w-full max-w-md rounded-xl bg-white dark:bg-gray-900 p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="reject-modal-title" className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Reject Deployment</h3>
             <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
               Reject deployment for <span className="font-medium text-gray-900 dark:text-white">{rejectModal.projectName}</span>
             </p>
             <textarea
+              autoFocus
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Reason for rejection (optional)"

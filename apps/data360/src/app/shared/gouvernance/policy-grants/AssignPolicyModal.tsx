@@ -51,7 +51,7 @@ export default function AssignPolicyModal({
           setSelectedRoles([...policy.granted_roles]);
         })
         .catch((error) => {
-          console.error('Failed to fetch roles:', error);
+          // console.error('Failed to fetch roles:', error);
           toast.error('Failed to load roles');
         })
         .finally(() => {
@@ -79,9 +79,9 @@ export default function AssignPolicyModal({
       // The endpoint format is: PUT /gouvernance/policies/{policy_type}/{policy_name}/roles
       const policyName = policy.policy_name;
 
-      console.log('[Policy Grants] Assigning policy:', policyName);
-      console.log('[Policy Grants] Policy type:', policy.policy_type);
-      console.log('[Policy Grants] Selected roles:', selectedRoles);
+      // console.log('[Policy Grants] Assigning policy:', policyName);
+      // console.log('[Policy Grants] Policy type:', policy.policy_type);
+      // console.log('[Policy Grants] Selected roles:', selectedRoles);
 
       const response = await assignPolicyToRoles(
         policyName,
@@ -89,7 +89,7 @@ export default function AssignPolicyModal({
         selectedRoles
       );
 
-      console.log('[Policy Grants] Assignment response:', response);
+      // console.log('[Policy Grants] Assignment response:', response);
 
       toast.success(
         `✅ Policy ${policy.policy_name} assigned to ${selectedRoles.length} role(s)`
@@ -98,7 +98,7 @@ export default function AssignPolicyModal({
       onSuccess(selectedRoles);
       onClose();
     } catch (error: any) {
-      console.error('[Policy Grants] Failed to assign policy:', error);
+      // console.error('[Policy Grants] Failed to assign policy:', error);
       toast.error(error.message || 'Failed to assign policy');
     } finally {
       setSaving(false);
@@ -132,6 +132,7 @@ export default function AssignPolicyModal({
             )}
           </div>
           <button
+            aria-label="Close dialog"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
           >

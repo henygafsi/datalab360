@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Button, Input, Modal, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -45,7 +45,7 @@ interface SelectOption {
   label: string;
 }
 
-export default function SemanticModelsContent() {
+function SemanticModelsContent() {
   const [models, setModels] = useState<SemanticModel[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -883,3 +883,5 @@ tables:
     </div>
   );
 }
+
+export default memo(SemanticModelsContent);

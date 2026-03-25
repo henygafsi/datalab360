@@ -41,7 +41,7 @@ export default function ScheduleList({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'flex flex-col overflow-hidden rounded-lg border border-muted bg-gray-0 @lg:flex-row dark:bg-gray-50',
+        'flex flex-col overflow-hidden rounded-lg border border-muted bg-gray-0 @lg:flex-row dark:bg-gray-800',
         className
       )}
     >
@@ -113,7 +113,7 @@ function Slider({
         <div className="absolute left-0 top-1/2 flex h-0 w-full -translate-y-1/2 items-center bg-black/50">
           <div className="max-auto relative w-full">
             <Tooltip
-              className="dark:bg-gray-200 dark:text-gray-900"
+              className="dark:bg-gray-200 dark:text-white"
               placement="top"
               content={<span>{percentage}%</span>}
             >

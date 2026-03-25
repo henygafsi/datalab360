@@ -407,7 +407,7 @@ function buildLayout(dagNodes: DagNode[]): { initialNodes: Node[]; initialEdges:
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-const DagViewer: React.FC<DagViewerProps> = ({ className, projectId }) => {
+const DagViewer = React.memo(function DagViewer({ className, projectId }: DagViewerProps) {
   const { events } = useEventStore(projectId);
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -584,6 +584,6 @@ const DagViewer: React.FC<DagViewerProps> = ({ className, projectId }) => {
       )}
     </div>
   );
-};
+});
 
 export default DagViewer;

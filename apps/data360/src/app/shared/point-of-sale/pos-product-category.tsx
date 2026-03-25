@@ -78,13 +78,13 @@ export default function POSProductCategory() {
 
       <span
         className={cn(
-          'invisible absolute start-0 top-0 z-[2] h-full w-10 bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent opacity-0 duration-200 dark:from-gray-50 dark:via-gray-50/70 rtl:bg-gradient-to-l',
+          'invisible absolute start-0 top-0 z-[2] h-full w-10 bg-gradient-to-r from-gray-0 via-gray-0/70 to-transparent opacity-0 duration-200 dark:from-gray-800 dark:via-gray-800/70 rtl:bg-gradient-to-l',
           isScrollableToLeft && 'visible opacity-100'
         )}
       />
       <span
         className={cn(
-          'invisible absolute end-0 top-0 z-[2] h-full w-10 bg-gradient-to-l from-gray-0 via-gray-0/70 to-transparent opacity-0 duration-200 dark:from-gray-50 dark:via-gray-50/70 rtl:bg-gradient-to-r',
+          'invisible absolute end-0 top-0 z-[2] h-full w-10 bg-gradient-to-l from-gray-0 via-gray-0/70 to-transparent opacity-0 duration-200 dark:from-gray-800 dark:via-gray-800/70 rtl:bg-gradient-to-r',
           isScrollableToRight && 'visible opacity-100'
         )}
       />

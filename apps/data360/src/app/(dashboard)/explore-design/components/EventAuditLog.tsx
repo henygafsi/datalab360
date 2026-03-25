@@ -16,7 +16,7 @@ interface EventAuditLogProps {
   entries: AuditEntry[];
 }
 
-export default function EventAuditLog({ entries }: EventAuditLogProps) {
+const EventAuditLog = React.memo(function EventAuditLog({ entries }: EventAuditLogProps) {
   const [filterUser, setFilterUser] = useState('');
   const [filterType, setFilterType] = useState('');
 
@@ -136,4 +136,5 @@ export default function EventAuditLog({ entries }: EventAuditLogProps) {
       </div>
     </div>
   );
-}
+});
+export default EventAuditLog;

@@ -2,7 +2,7 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Button, Badge, Input, Modal, Text, Tooltip, Loader } from 'rizzui';
+import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
@@ -37,7 +37,7 @@ import {
   listAlerts,
   dropAlert,
 } from '@/app/services/explore-design';
-import { listDDLActions } from '@/app/services/api/exploreDesignApi';
+import { listDDLActions, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors } from '@/app/services/api/projectsApi';
 import { useAuth } from '@/hooks/useAuth';
 import type { ContributorRole } from '@/app/services/api/types';
@@ -140,6 +140,7 @@ const SchemaBadge: React.FC<{
       className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs group"
     >
       <button
+        aria-label={isExpanded ? 'Collapse schema details' : 'Expand schema details'}
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-transform"
         onClick={() => setIsExpanded(!isExpanded)}
       >
@@ -152,12 +153,14 @@ const SchemaBadge: React.FC<{
         <span className="font-medium">{schemaName}</span>
       </span>
       <button
+        aria-label="Schema settings"
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
         onClick={onSettings}
       >
         <Settings className="h-3 w-3" />
       </button>
       <button
+        aria-label="Remove schema"
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
         onClick={onRemove}
       >
@@ -264,6 +267,7 @@ const BulkActionsBar: React.FC<{
         <div className="w-px h-6 bg-slate-600" />
 
         <button
+          aria-label="Clear selection"
           className="p-2 rounded-full hover:bg-slate-700 transition-colors"
           onClick={onClearSelection}
         >
@@ -349,6 +353,7 @@ const CompactSourceSelector: React.FC<{
       {selectedDatabase && (
         <div className="relative flex-1 max-w-[300px]">
           <button
+            aria-label="Select schemas"
             className="w-full flex items-center justify-between gap-2 px-2 py-1.5 text-xs border rounded dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
             onClick={() => setShowSchemaDropdown(!showSchemaDropdown)}
           >
@@ -396,6 +401,7 @@ const CompactSourceSelector: React.FC<{
                         <span>{schema}</span>
                       </button>
                       <button
+                        aria-label={`Settings for ${schema}`}
                         className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-600"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -498,6 +504,7 @@ const GlobalSearch: React.FC<{
         <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
         <input
           type="text"
+          aria-label="Search tables and columns"
           placeholder="Search tables, columns..."
           className="w-full pl-8 pr-3 py-1.5 text-sm border rounded dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-blue-500 focus:border-transparent"
           value={value}
@@ -507,6 +514,7 @@ const GlobalSearch: React.FC<{
         />
         {value && (
           <button
+            aria-label="Clear search"
             className="absolute right-2 top-1/2 transform -translate-y-1/2"
             onClick={() => onChange('')}
           >
@@ -552,7 +560,15 @@ function RecentDeploymentErrorsSlot() {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  if (loading) return <div className="flex justify-center items-center min-h-[400px]"><Loader size="xl" /></div>;
+  if (loading) return (
+    <div className="space-y-4 p-6">
+      <div className="h-8 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+      <div className="grid grid-cols-3 gap-4">
+        {[1,2,3].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+      </div>
+      <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+    </div>
+  );
   if (errors.length === 0) return <div className="p-4 text-sm text-slate-500">No recent deployment errors.</div>;
   return (
     <div className="p-4 space-y-2 max-h-[300px] overflow-auto">
@@ -644,11 +660,19 @@ export default function ExploreDesignPage() {
     column: ColumnInfo | null;
   }>({ isOpen: false, column: null });
 
-  // Table preview modal
+  // Table preview modal (legacy — kept for fallback)
   const [tablePreviewModal, setTablePreviewModal] = useState(false);
 
-  // Table profile modal
+  // Table profile modal (legacy — kept for fallback)
   const [tableProfileModal, setTableProfileModal] = useState(false);
+
+  // Inline preview & profile panels (replace modals)
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [showInlineProfile, setShowInlineProfile] = useState(false);
+  const [inlinePreviewData, setInlinePreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number } | null>(null);
+  const [inlineProfileData, setInlineProfileData] = useState<{ row_count: number; column_count: number; columns: any[]; aggregate_quality_score: number } | null>(null);
+  const [isLoadingInlinePreview, setIsLoadingInlinePreview] = useState(false);
+  const [isLoadingInlineProfile, setIsLoadingInlineProfile] = useState(false);
 
   // Data Engineering modals
   const [dynamicTableModal, setDynamicTableModal] = useState(false);
@@ -862,6 +886,13 @@ export default function ExploreDesignPage() {
       try {
         const dbList = await getDatabases();
         setDatabases(Array.isArray(dbList) ? dbList : []);
+        // Auto-select CP_DATA360 (or first available) when no database is selected
+        if (Array.isArray(dbList) && dbList.length > 0) {
+          setSelectedDatabase(prev => {
+            if (prev) return prev; // Already selected — don't override
+            return dbList.find((d: string) => d === 'CP_DATA360') || dbList[0];
+          });
+        }
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
         // Check if it's an auth error
@@ -1063,6 +1094,14 @@ export default function ExploreDesignPage() {
       try {
         const schemaList = await getSchemas(selectedDatabase);
         setSchemas(schemaList || []);
+        // Auto-select first schema when none are selected (cascade: db → schemas → tables)
+        if (Array.isArray(schemaList) && schemaList.length > 0) {
+          setSelectedSchemas(prev => {
+            if (prev.size > 0) return prev; // Already has selections — don't override
+            const defaultSchema = schemaList.find((s: string) => s === 'RETAIL_DW') || schemaList[0];
+            return new Map([[defaultSchema, selectedDatabase]]);
+          });
+        }
       } catch (error) {
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
@@ -1238,6 +1277,63 @@ export default function ExploreDesignPage() {
     loadColumns();
   }, [selectedTable, allTableConfigs]);
 
+  // Reset inline panels when selected table changes
+  useEffect(() => {
+    setShowInlinePreview(false);
+    setShowInlineProfile(false);
+    setInlinePreviewData(null);
+    setInlineProfileData(null);
+  }, [selectedTable?.id]);
+
+  // Fetch inline preview data when toggled on
+  useEffect(() => {
+    if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingInlinePreview(true);
+      try {
+        const data = await tablePreview(selectedProjectId, selectedTable.database, selectedTable.schema, selectedTable.table, { limit: 5 });
+        if (!cancelled) {
+          setInlinePreviewData({ columns: data.columns, rows: data.rows as Record<string, any>[], total_rows: data.row_count });
+        }
+      } catch (err) {
+        console.error('[E&D] Inline preview failed:', err);
+        if (!cancelled) setInlinePreviewData(null);
+      } finally {
+        if (!cancelled) setIsLoadingInlinePreview(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [showInlinePreview, selectedTable?.id, selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch inline profile data when toggled on
+  useEffect(() => {
+    if (!showInlineProfile || !selectedTable || !selectedProjectId) return;
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingInlineProfile(true);
+      try {
+        const data = await fetchTableProfile(selectedProjectId, selectedTable.database, selectedTable.schema, selectedTable.table);
+        if (!cancelled) {
+          setInlineProfileData({
+            row_count: data.row_count,
+            column_count: data.column_count,
+            columns: data.columns ?? [],
+            aggregate_quality_score: (data as any).aggregate_quality_score ?? 100,
+          });
+        }
+      } catch (err) {
+        console.error('[E&D] Inline profile failed:', err);
+        if (!cancelled) setInlineProfileData(null);
+      } finally {
+        if (!cancelled) setIsLoadingInlineProfile(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [showInlineProfile, selectedTable?.id, selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Detect sensitive columns by name patterns
   const detectSensitiveColumn = (name: string): boolean => {
     const sensitivePatterns = [
@@ -1404,10 +1500,11 @@ export default function ExploreDesignPage() {
         }
       }
 
-      // Update selected project
+      // Update selected project + persist for auto-restore
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
       setBackendMappings([]);
+      try { localStorage.setItem('d360_last_project_id', projectId); } catch {};
 
       // Determine user's role for this project
       try {
@@ -1650,10 +1747,15 @@ export default function ExploreDesignPage() {
           }
         } else {
           toast.dismiss(loadingToast);
+          // No schema/database info from events — auto-select first available database
+          if (databases.length > 0 && !selectedDatabase) {
+            const defaultDb = databases.find(d => d === 'CP_DATA360') || databases[0];
+            setSelectedDatabase(defaultDb);
+          }
           if (backendEvents.length > 0) {
             toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
           } else {
-            toast.error(`Project "${projectName}" selected (no saved data)`);
+            toast.success(`Project "${projectName}" selected — choose a database to start`);
           }
         }
       } catch (error) {
@@ -2122,10 +2224,6 @@ export default function ExploreDesignPage() {
       "flex flex-col",
       isFullscreen ? "h-screen" : "h-[calc(100vh-84px)]"
     )}>
-      {/* Breadcrumb */}
-      <div className="text-xs text-slate-500 dark:text-slate-400 px-4 pt-2 pb-1">
-        <a href="/" className="hover:text-blue-600">Home</a> / <span className="text-slate-700 dark:text-slate-300">Explore & Design</span>
-      </div>
       {/* Offline Warning Banner */}
       {isOffline && (
         <div className="px-4 py-3 bg-red-50 dark:bg-red-900/30 border-b border-red-200 dark:border-red-800">
@@ -2154,14 +2252,29 @@ export default function ExploreDesignPage() {
       {/* Header - Compact (hidden in fullscreen) */}
       {!isFullscreen && (
       <div className="px-3 lg:px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
-        <nav className="flex items-center text-xs text-gray-500 dark:text-gray-400 gap-1 mb-1">
-          <span>Home</span>
-          <span>/</span>
-          <span>Explore &amp; Design</span>
-          {selectedProjectId && selectedProjectName && (
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+          <span
+            className="hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer"
+            onClick={() => { setSelectedProjectId(null); setSelectedProjectName(''); }}
+          >
+            Projects
+          </span>
+          {selectedProjectName && (
             <>
-              <span>/</span>
-              <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">{selectedProjectName}</span>
+              <ChevronRight className="h-3 w-3" />
+              <span className="text-gray-700 dark:text-gray-300 font-medium">{selectedProjectName}</span>
+            </>
+          )}
+          {selectedDatabase && (
+            <>
+              <ChevronRight className="h-3 w-3" />
+              <span>{selectedDatabase}</span>
+            </>
+          )}
+          {viewMode && (
+            <>
+              <ChevronRight className="h-3 w-3" />
+              <span className="capitalize">{viewMode}</span>
             </>
           )}
         </nav>
@@ -2225,6 +2338,7 @@ export default function ExploreDesignPage() {
             {/* Undo/Redo */}
             <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
               <Button
+                aria-label="Undo"
                 variant="outline"
                 size="sm"
                 onClick={() => undoEvent()}
@@ -2236,6 +2350,7 @@ export default function ExploreDesignPage() {
             </Tooltip>
             <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
               <Button
+                aria-label="Redo"
                 variant="outline"
                 size="sm"
                 onClick={() => redoEvent()}
@@ -2249,6 +2364,7 @@ export default function ExploreDesignPage() {
             {/* Event Templates */}
             <Tooltip content="Event Templates — save & reuse patterns">
               <Button
+                aria-label="Event templates"
                 variant="outline"
                 size="sm"
                 onClick={() => setShowTemplateLibrary(true)}
@@ -2261,6 +2377,7 @@ export default function ExploreDesignPage() {
             {/* DAG Viewer */}
             <Tooltip content="Dependency Graph (DAG)">
               <Button
+                aria-label="Dependency graph"
                 variant="outline"
                 size="sm"
                 onClick={() => setShowDagViewer(!showDagViewer)}
@@ -2399,6 +2516,7 @@ export default function ExploreDesignPage() {
           <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded p-0.5">
             <Tooltip content={showSidebar ? 'Hide Sources' : 'Show Sources'}>
               <button
+                aria-label={showSidebar ? 'Hide sources panel' : 'Show sources panel'}
                 onClick={() => setShowSidebar(!showSidebar)}
                 className={cn(
                   'p-1 rounded transition-colors',
@@ -2412,6 +2530,7 @@ export default function ExploreDesignPage() {
             </Tooltip>
             <Tooltip content={showEventPanel ? 'Hide Events' : 'Show Events'}>
               <button
+                aria-label={showEventPanel ? 'Hide events panel' : 'Show events panel'}
                 onClick={() => setShowEventPanel(!showEventPanel)}
                 className={cn(
                   'p-1 rounded transition-colors',
@@ -2435,14 +2554,14 @@ export default function ExploreDesignPage() {
           projectName={selectedProjectName}
           variant="explore-design"
           defaultExpanded={false}
-          hideWhenEmpty={!selectedProjectId}
+          hideWhenEmpty={false}
           deploymentSlot={selectedProjectId ? (
             <div className="p-4">
               <p className="text-sm text-slate-600 dark:text-slate-400">
                 Pending events: {displayablePendingEvents.length}. Use the Deploy button in the toolbar to validate and deploy.
               </p>
               <button
-                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}`}
+                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}&database=${selectedDatabase}&schema=${Array.from(selectedSchemas.keys())[0] || ''}`}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors mt-2"
               >
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -2516,6 +2635,7 @@ export default function ExploreDesignPage() {
                 <div className="flex items-center gap-0.5">
                   <Tooltip content={allSelected ? 'Deselect All' : 'Select All'}>
                     <button
+                      aria-label={allSelected ? 'Deselect all tables' : 'Select all tables'}
                       className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => {
                         if (allSelected) {
@@ -2534,6 +2654,7 @@ export default function ExploreDesignPage() {
                   </Tooltip>
                   <Tooltip content="Hide Panel">
                     <button
+                      aria-label="Hide sources panel"
                       className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => setShowSidebar(false)}
                     >
@@ -2548,6 +2669,7 @@ export default function ExploreDesignPage() {
                 <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                 <Input
                   size="sm"
+                  aria-label="Search tables"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search tables..."
@@ -2555,6 +2677,7 @@ export default function ExploreDesignPage() {
                 />
                 {searchQuery && (
                   <button
+                    aria-label="Clear table search"
                     className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                     onClick={() => setSearchQuery('')}
                   >
@@ -2767,18 +2890,28 @@ export default function ExploreDesignPage() {
                       <div className="px-5 py-4">
                         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150 bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
-                            onClick={() => setTablePreviewModal(true)}
+                            className={cn(
+                              "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
+                              showInlinePreview
+                                ? "bg-blue-100 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600 ring-1 ring-blue-400/50"
+                                : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            )}
+                            onClick={() => { setShowInlinePreview(p => !p); if (!showInlinePreview) setShowInlineProfile(false); }}
                           >
                             <Eye className="h-5 w-5 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Preview Data</span>
+                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">{showInlinePreview ? 'Hide Preview' : 'Preview Data'}</span>
                           </button>
                           <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150 bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800"
-                            onClick={() => setTableProfileModal(true)}
+                            className={cn(
+                              "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
+                              showInlineProfile
+                                ? "bg-purple-100 dark:bg-purple-900/40 border-purple-400 dark:border-purple-600 ring-1 ring-purple-400/50"
+                                : "bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800 hover:bg-slate-50 dark:hover:bg-slate-800"
+                            )}
+                            onClick={() => { setShowInlineProfile(p => !p); if (!showInlineProfile) setShowInlinePreview(false); }}
                           >
                             <BarChart3 className="h-5 w-5 text-purple-600" />
-                            <span className="text-xs font-medium text-purple-700 dark:text-purple-400">Data Profile</span>
+                            <span className="text-xs font-medium text-purple-700 dark:text-purple-400">{showInlineProfile ? 'Hide Profile' : 'Data Profile'}</span>
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
@@ -2998,6 +3131,7 @@ export default function ExploreDesignPage() {
                                 {/* Preview & Profile Button */}
                                 <Tooltip content="Preview Data & Profile">
                                   <button
+                                    aria-label="Preview data and profile"
                                     className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                                     onClick={() => setColumnPreviewModal({ isOpen: true, column: col })}
                                   >
@@ -3007,6 +3141,7 @@ export default function ExploreDesignPage() {
                                 {/* Primary Key Button */}
                                 <Tooltip content={col.isPrimaryKey ? "Remove Primary Key" : "Set as Primary Key"}>
                                   <button
+                                    aria-label={col.isPrimaryKey ? "Remove primary key" : "Set as primary key"}
                                     className={cn(
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       col.isPrimaryKey && "bg-amber-100 dark:bg-amber-900/30"
@@ -3039,6 +3174,7 @@ export default function ExploreDesignPage() {
                                 {/* Sensitive Column Button */}
                                 <Tooltip content={col.isSensitive ? "Manage Sensitive Marking" : "Mark as Sensitive"}>
                                   <button
+                                    aria-label={col.isSensitive ? "Manage sensitive marking" : "Mark as sensitive"}
                                     className={cn(
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       col.isSensitive && "bg-red-100 dark:bg-red-900/30"
@@ -3051,6 +3187,7 @@ export default function ExploreDesignPage() {
                                 {/* Exclude from Modeling Button */}
                                 <Tooltip content={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in Modeling" : "Exclude from Modeling"}>
                                   <button
+                                    aria-label={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in modeling" : "Exclude from modeling"}
                                     className={cn(
                                       "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
                                       excludedColumns.get(selectedTable?.id || '')?.has(col.name) && "bg-slate-200 dark:bg-slate-700"
@@ -3068,6 +3205,7 @@ export default function ExploreDesignPage() {
                                 {/* Rename Column Button */}
                                 <Tooltip content="Rename Column">
                                   <button
+                                    aria-label="Rename column"
                                     className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                                     onClick={() => {
                                       if (readOnlyGuard()) return;
@@ -3098,6 +3236,145 @@ export default function ExploreDesignPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Inline Data Preview Panel */}
+                    {showInlinePreview && (
+                      <div className="mt-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-2.5 flex items-center justify-between border-b border-blue-100 dark:border-blue-800">
+                          <div className="flex items-center gap-2">
+                            <Eye className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Data Preview</span>
+                            {inlinePreviewData && (
+                              <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 text-[10px]">
+                                {inlinePreviewData.total_rows.toLocaleString()} total rows
+                              </Badge>
+                            )}
+                          </div>
+                          <button
+                            aria-label="Close preview"
+                            onClick={() => setShowInlinePreview(false)}
+                            className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-800/50 text-blue-400 hover:text-blue-600 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto max-h-60">
+                          {isLoadingInlinePreview ? (
+                            <div className="flex items-center justify-center py-8">
+                              <RefreshCw className="h-5 w-5 animate-spin text-blue-400" />
+                              <span className="ml-2 text-sm text-slate-500">Loading preview...</span>
+                            </div>
+                          ) : inlinePreviewData && inlinePreviewData.rows.length > 0 ? (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-slate-50 dark:bg-slate-800 border-b dark:border-slate-700">
+                                  <th className="px-2.5 py-1.5 text-left font-medium text-slate-500 w-8">#</th>
+                                  {inlinePreviewData.columns.map((col: string) => (
+                                    <th key={col} className="px-2.5 py-1.5 text-left font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{col}</th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {inlinePreviewData.rows.slice(0, 5).map((row: Record<string, any>, i: number) => (
+                                  <tr key={i} className={cn("border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50", i % 2 === 1 && "bg-slate-50/50 dark:bg-slate-800/20")}>
+                                    <td className="px-2.5 py-1.5 text-slate-400 font-mono">{i + 1}</td>
+                                    {inlinePreviewData.columns.map((col: string) => {
+                                      const val = row[col];
+                                      const isNull = val === null || val === undefined;
+                                      return (
+                                        <td key={col} className={cn("px-2.5 py-1.5 font-mono truncate max-w-[180px]", isNull ? "text-slate-400 italic" : "text-slate-700 dark:text-slate-300")} title={isNull ? 'NULL' : String(val)}>
+                                          {isNull ? <span className="text-slate-400 italic">null</span> : String(val)}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : (
+                            <div className="py-6 text-center text-sm text-slate-400">No preview data available</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Inline Data Profile Panel */}
+                    {showInlineProfile && (
+                      <div className="mt-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
+                        <div className="bg-purple-50 dark:bg-purple-900/20 px-4 py-2.5 flex items-center justify-between border-b border-purple-100 dark:border-purple-800">
+                          <div className="flex items-center gap-2">
+                            <BarChart3 className="h-4 w-4 text-purple-600" />
+                            <span className="text-sm font-medium text-purple-700 dark:text-purple-300">Data Profile</span>
+                            {inlineProfileData && (
+                              <>
+                                <Badge className="bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400 text-[10px]">
+                                  {inlineProfileData.row_count.toLocaleString()} rows
+                                </Badge>
+                                <Badge className={cn("text-[10px]",
+                                  inlineProfileData.aggregate_quality_score >= 80
+                                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                                    : inlineProfileData.aggregate_quality_score >= 60
+                                      ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
+                                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                )}>
+                                  Quality: {inlineProfileData.aggregate_quality_score}%
+                                </Badge>
+                              </>
+                            )}
+                          </div>
+                          <button
+                            aria-label="Close profile"
+                            onClick={() => setShowInlineProfile(false)}
+                            className="p-1 rounded hover:bg-purple-100 dark:hover:bg-purple-800/50 text-purple-400 hover:text-purple-600 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="max-h-72 overflow-y-auto">
+                          {isLoadingInlineProfile ? (
+                            <div className="flex items-center justify-center py-8">
+                              <RefreshCw className="h-5 w-5 animate-spin text-purple-400" />
+                              <span className="ml-2 text-sm text-slate-500">Profiling columns...</span>
+                            </div>
+                          ) : inlineProfileData && inlineProfileData.columns.length > 0 ? (
+                            <div className="divide-y dark:divide-slate-800">
+                              {inlineProfileData.columns.map((col: any) => {
+                                const nullPct = inlineProfileData.row_count > 0 ? ((col.null_count ?? 0) / inlineProfileData.row_count) * 100 : 0;
+                                const distinctPct = inlineProfileData.row_count > 0 ? ((col.distinct_count ?? 0) / inlineProfileData.row_count) * 100 : 0;
+                                const qualityScore = col.quality_score ?? 100;
+                                return (
+                                  <div key={col.column_name} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                                    <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200 min-w-[140px] truncate">{col.column_name}</span>
+                                    <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-mono px-1 py-0">{col.data_type}</Badge>
+                                    <div className="flex items-center gap-3 ml-auto text-[10px]">
+                                      <span className="text-slate-500">{(col.distinct_count ?? 0).toLocaleString()} distinct ({distinctPct.toFixed(1)}%)</span>
+                                      {(col.null_count ?? 0) > 0 && (
+                                        <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[9px]">
+                                          {nullPct.toFixed(1)}% null
+                                        </Badge>
+                                      )}
+                                      <div className="flex items-center gap-1">
+                                        <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                          <div
+                                            className={cn("h-full rounded-full", qualityScore >= 80 ? "bg-green-500" : qualityScore >= 60 ? "bg-yellow-500" : "bg-red-500")}
+                                            style={{ width: `${qualityScore}%` }}
+                                          />
+                                        </div>
+                                        <span className={cn("font-medium", qualityScore >= 80 ? "text-green-600" : qualityScore >= 60 ? "text-yellow-600" : "text-red-600")}>
+                                          {qualityScore}%
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="py-6 text-center text-sm text-slate-400">No profile data available</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center h-full text-slate-500">
@@ -3286,6 +3563,7 @@ export default function ExploreDesignPage() {
                 </div>
               )}
 
+              <ErrorBoundary>
               <ModelingCanvas
                 tables={tables.filter(t => modelingTableIds.has(t.id))}
                 tableColumns={tableColumnsMap}
@@ -3411,6 +3689,7 @@ export default function ExploreDesignPage() {
                 targetTableIds={targetTableIds}
                 initialMappings={initialColumnMappings}
               />
+              </ErrorBoundary>
             </div>
           )}
         </div>
@@ -3432,7 +3711,9 @@ export default function ExploreDesignPage() {
       {/* DAG Dependency Graph */}
       {showDagViewer && selectedProjectId && (
         <div className="border-t dark:border-slate-800">
-          <DagViewer projectId={selectedProjectId} className="m-3" />
+          <ErrorBoundary>
+            <DagViewer projectId={selectedProjectId} className="m-3" />
+          </ErrorBoundary>
         </div>
       )}
 
@@ -3582,12 +3863,14 @@ export default function ExploreDesignPage() {
         onClose={() => setShowDeploymentModal(false)}
         customSize="900px"
       >
-        <DeploymentValidation
-          onClose={() => setShowDeploymentModal(false)}
-          database={selectedDatabase || 'CP_DATA360'}
-          schemas={Array.from(selectedSchemas.keys())}
-          projectId={selectedProjectId!}
-        />
+        <ErrorBoundary>
+          <DeploymentValidation
+            onClose={() => setShowDeploymentModal(false)}
+            database={selectedDatabase || 'CP_DATA360'}
+            schemas={Array.from(selectedSchemas.keys())}
+            projectId={selectedProjectId!}
+          />
+        </ErrorBoundary>
       </Modal>
 
       {/* Self-Serve Ingestion Modal */}
@@ -4006,14 +4289,15 @@ export default function ExploreDesignPage() {
                 {selectedDatabase}.{dataEngModal.schema}
               </Badge>
             </h3>
-            <button onClick={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+            <button aria-label="Close dialog" onClick={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
               <X className="h-5 w-5 text-slate-400" />
             </button>
           </div>
 
           {dataEngModal.loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader size="lg" />
+            <div className="space-y-3 py-6 px-2">
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
             </div>
           ) : dataEngModal.items.length === 0 ? (
             <div className="text-center py-12 text-slate-500 dark:text-slate-400">
@@ -4047,6 +4331,7 @@ export default function ExploreDesignPage() {
                         <>
                           <Tooltip content="Suspend">
                             <button
+                              aria-label="Suspend dynamic table"
                               className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                               onClick={() => handleDataEngAction(name, 'suspend')}
                             >
@@ -4055,6 +4340,7 @@ export default function ExploreDesignPage() {
                           </Tooltip>
                           <Tooltip content="Resume">
                             <button
+                              aria-label="Resume dynamic table"
                               className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                               onClick={() => handleDataEngAction(name, 'resume')}
                             >
@@ -4063,6 +4349,7 @@ export default function ExploreDesignPage() {
                           </Tooltip>
                           <Tooltip content="Refresh Now">
                             <button
+                              aria-label="Refresh dynamic table"
                               className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                               onClick={() => handleDataEngAction(name, 'refresh')}
                             >
@@ -4071,6 +4358,7 @@ export default function ExploreDesignPage() {
                           </Tooltip>
                           <Tooltip content="Drop">
                             <button
+                              aria-label="Drop dynamic table"
                               className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
                               onClick={() => handleDataEngAction(name, 'drop')}
                             >
@@ -4084,6 +4372,7 @@ export default function ExploreDesignPage() {
                         <>
                           <Tooltip content="View Change Data">
                             <button
+                              aria-label="View change data"
                               className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
                               onClick={() => handleDataEngAction(name, 'view_data')}
                             >
@@ -4092,6 +4381,7 @@ export default function ExploreDesignPage() {
                           </Tooltip>
                           <Tooltip content="Drop">
                             <button
+                              aria-label="Drop stream"
                               className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
                               onClick={() => handleDataEngAction(name, 'drop')}
                             >
@@ -4104,6 +4394,7 @@ export default function ExploreDesignPage() {
                       {dataEngModal.type === 'alerts' && (
                         <Tooltip content="Drop">
                           <button
+                            aria-label="Drop alert"
                             className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
                             onClick={() => handleDataEngAction(name, 'drop')}
                           >

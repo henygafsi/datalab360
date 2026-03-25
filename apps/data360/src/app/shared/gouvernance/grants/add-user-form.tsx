@@ -30,8 +30,9 @@ export default function AddUserForm({ onAddUser }: AddUserFormProps) {
       <div className="mb-6 flex items-center justify-between">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-gray-700">First Name</label>
+            <label htmlFor="add-user-first-name" className="block text-gray-700">First Name</label>
             <input
+              id="add-user-first-name"
               type="text"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
@@ -40,8 +41,9 @@ export default function AddUserForm({ onAddUser }: AddUserFormProps) {
             />
           </div>
           <div>
-            <label className="block text-gray-700">Last Name</label>
+            <label htmlFor="add-user-last-name" className="block text-gray-700">Last Name</label>
             <input
+              id="add-user-last-name"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -50,8 +52,9 @@ export default function AddUserForm({ onAddUser }: AddUserFormProps) {
             />
           </div>
           <div>
-            <label className="block text-gray-700">Email</label>
+            <label htmlFor="add-user-email" className="block text-gray-700">Email</label>
             <input
+              id="add-user-email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}

@@ -22,7 +22,7 @@ export default function ForgetPasswordForm() {
   const isMedium = useMedia('(max-width: 1200px)', false);
 
   const onSubmit: SubmitHandler<ForgetPasswordSchema> = (data) => {
-    console.log('Forgot password form data->', data);
+    // console.log('Forgot password form data->', data);
     toast.success(
       <Text>
         Reset link sent to this email:{' '}

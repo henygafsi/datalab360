@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 import {
   Table2, Key, Shield, Lock, RefreshCw, Clock, History, Layers,
   MoreVertical, Edit2, Trash2, Eye, Link2, Copy, ArrowRight,
-  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag
+  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag,
+  BarChart3
 } from 'lucide-react';
 
 // Column info for the node
@@ -40,6 +41,12 @@ export interface TableNodeData {
   onContextMenu?: (e: React.MouseEvent, action: string) => void;
   onExpand?: () => void;
   compact?: boolean;
+  config?: {
+    hasRLS?: boolean;
+    tags?: string[];
+    qualityScore?: number | null;
+    rowCount?: number | null;
+  };
 }
 
 // Ingestion mode icons
@@ -198,6 +205,39 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             {data.schema}
           </div>
+          {/* Governance & Metadata Badges */}
+          {(data.config?.hasRLS || (data.config?.tags && data.config.tags.length > 0) || data.config?.qualityScore != null || data.config?.rowCount != null) && (
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {data.config?.hasRLS && (
+                <div className="flex items-center gap-0.5 text-[9px] text-purple-600 dark:text-purple-400" title="RLS Policy Applied">
+                  <Lock className="h-2.5 w-2.5" />
+                  <span>RLS</span>
+                </div>
+              )}
+              {data.config?.tags && data.config.tags.length > 0 && (
+                <div className="flex items-center gap-0.5 text-[9px] text-yellow-600 dark:text-yellow-400" title={`${data.config.tags.length} tags`}>
+                  <Tag className="h-2.5 w-2.5" />
+                  <span>{data.config.tags.length}</span>
+                </div>
+              )}
+              {data.config?.qualityScore != null && (
+                <div className={cn("flex items-center gap-0.5 text-[9px]",
+                  data.config.qualityScore >= 80 ? "text-green-600 dark:text-green-400" :
+                  data.config.qualityScore >= 50 ? "text-amber-600 dark:text-amber-400" :
+                  "text-red-600 dark:text-red-400"
+                )} title={`Quality: ${data.config.qualityScore}%`}>
+                  <BarChart3 className="h-2.5 w-2.5" />
+                  <span>{data.config.qualityScore}%</span>
+                </div>
+              )}
+              {data.config?.rowCount != null && (
+                <div className="flex items-center gap-0.5 text-[9px] text-gray-500 dark:text-gray-400" title={`${data.config.rowCount.toLocaleString()} rows`}>
+                  <Table2 className="h-2.5 w-2.5" />
+                  <span>{data.config.rowCount > 1000000 ? `${(data.config.rowCount/1000000).toFixed(1)}M` : data.config.rowCount > 1000 ? `${(data.config.rowCount/1000).toFixed(1)}K` : data.config.rowCount}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Columns */}

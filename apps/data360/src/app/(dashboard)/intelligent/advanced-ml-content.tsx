@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Button, Input, Loader, Badge, Modal, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
 import {
@@ -55,7 +55,7 @@ const SUB_TABS = [
   { id: 'top-insights' as SubTab, label: 'Top Insights', icon: PiTrendUp, color: 'from-green-500 to-emerald-600' },
 ];
 
-export default function AdvancedMLContent() {
+function AdvancedMLContent() {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('model-registry');
 
   return (
@@ -101,6 +101,8 @@ export default function AdvancedMLContent() {
   );
 }
 
+export default memo(AdvancedMLContent);
+
 // ===== Model Registry Section (unified view of all trained models) =====
 function ModelRegistrySection() {
   const [loading, setLoading] = useState(true);
@@ -128,7 +130,14 @@ function ModelRegistrySection() {
     loadAll();
   }, []);
 
-  if (loading) return <div className="flex justify-center py-12"><Loader size="lg" /></div>;
+  if (loading) return (
+    <div className="space-y-4 p-4">
+      <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+      <div className="grid grid-cols-2 gap-4">
+        {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+      </div>
+    </div>
+  );
 
   const totalModels = finetuneJobs.length + classificationModels.length + documentAIModels.length + topInsightsInstances.length;
 
@@ -319,7 +328,12 @@ function FineTuningSection() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+        <div className="space-y-4 p-4">
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="grid grid-cols-2 gap-4">
+            {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+          </div>
+        </div>
       ) : jobs.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiGearDuotone className="w-12 h-12 mx-auto mb-3 text-slate-300" />
@@ -500,7 +514,12 @@ function ClassificationSection() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+        <div className="space-y-4 p-4">
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="grid grid-cols-2 gap-4">
+            {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+          </div>
+        </div>
       ) : models.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiChartBar className="w-12 h-12 mx-auto mb-3 text-slate-300" />
@@ -792,7 +811,12 @@ function DocumentAISection() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+        <div className="space-y-4 p-4">
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="grid grid-cols-2 gap-4">
+            {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+          </div>
+        </div>
       ) : models.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiFilePdf className="w-12 h-12 mx-auto mb-3 text-slate-300" />
@@ -1015,7 +1039,12 @@ function TopInsightsSection() {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+        <div className="space-y-4 p-4">
+          <div className="h-6 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+          <div className="grid grid-cols-2 gap-4">
+            {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+          </div>
+        </div>
       ) : instances.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiTrendUp className="w-12 h-12 mx-auto mb-3 text-slate-300" />

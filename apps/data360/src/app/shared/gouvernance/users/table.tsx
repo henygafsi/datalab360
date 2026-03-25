@@ -69,12 +69,12 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
     try {
       const users = await getUsers(); // getUsers now handles token internally
       if (mountedRef.current) {
-        console.log('Fetched users for table (in table.tsx):', users);
+        // console.log('Fetched users for table (in table.tsx):', users);
         setData(users);
       }
     } catch (err: unknown) {
       if (mountedRef.current) {
-        console.error('Failed to load users:', err);
+        // console.error('Failed to load users:', err);
         setError(err instanceof Error ? err.message : 'Failed to load users');
       }
     } finally {
@@ -98,7 +98,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
   // Auto-refresh when SSE cache invalidation event is received
   useEffect(() => {
     if (wasInvalidated && !loading) {
-      console.log('[SSE] Users cache invalidated - refreshing data...');
+      // console.log('[SSE] Users cache invalidated - refreshing data...');
       fetchUsersData(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -131,7 +131,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                 try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
                 await fetchUsersData();
               } catch (error: any) {
-                console.error('Error deleting user:', error);
+                // console.error('Error deleting user:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
                 await fetchUsersData();
@@ -155,7 +155,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                   toast.success(`✅ ${successCount} utilisateur(s) supprimé(s) avec succès`);
                 } else if (successCount > 0 && failedCount > 0) {
                   toast.success(`⚠️ ${successCount} utilisateur(s) supprimé(s), ${failedCount} échec(s)`);
-                  console.warn('Failed deletions:', result.failed);
+                  // console.warn('Failed deletions:', result.failed);
                 } else {
                   toast.error(`❌ Échec de la suppression de tous les utilisateurs`);
                 }
@@ -163,7 +163,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                 try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
                 await fetchUsersData();
               } catch (error: any) {
-                console.error('Error deleting multiple users:', error);
+                // console.error('Error deleting multiple users:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
                 await fetchUsersData();
@@ -192,7 +192,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                 try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
                 await fetchUsersData();
               } catch (error: any) {
-                console.error('Error toggling user status:', error);
+                // console.error('Error toggling user status:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
                 await fetchUsersData();

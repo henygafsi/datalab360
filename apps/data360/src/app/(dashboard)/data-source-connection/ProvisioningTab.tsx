@@ -368,7 +368,10 @@ export default function ProvisioningTab() {
         {/* Data Tables */}
         <div className="p-6">
           {dataLoading ? (
-            <div className="flex justify-center py-16"><Loader size="lg" /></div>
+            <div className="space-y-3 py-6">
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+            </div>
           ) : (
             <>
               {/* Databases & Schemas */}

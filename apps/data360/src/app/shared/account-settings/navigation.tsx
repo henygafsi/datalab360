@@ -55,7 +55,7 @@ export default function ProfileSettingsNav() {
   return (
     <div
       className={cn(
-        'sticky z-20 -mx-4 -mt-4 border-b border-muted bg-white px-4 py-0 font-medium text-gray-500 dark:bg-gray-50 sm:-mt-2 md:-mx-5 md:px-5 lg:-mx-8 lg:mt-0 lg:px-8 xl:-mx-6 xl:px-6 2xl:top-20 3xl:-mx-[33px] 3xl:px-[33px] 4xl:-mx-10 4xl:px-10',
+        'sticky z-20 -mx-4 -mt-4 border-b border-muted bg-white px-4 py-0 font-medium text-gray-500 dark:bg-gray-800 sm:-mt-2 md:-mx-5 md:px-5 lg:-mx-8 lg:mt-0 lg:px-8 xl:-mx-6 xl:px-6 2xl:top-20 3xl:-mx-[33px] 3xl:px-[33px] 4xl:-mx-10 4xl:px-10',
         layout === LAYOUT_OPTIONS.LITHIUM
           ? 'top-[66px] sm:top-[70px] md:top-[73px]'
           : layout === LAYOUT_OPTIONS.BERYLLIUM
@@ -72,7 +72,7 @@ export default function ProfileSettingsNav() {
           variant="text"
           ref={sliderPrevBtn}
           onClick={() => scrollToTheLeft()}
-          className="!absolute left-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-start bg-gradient-to-r from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-50 dark:via-gray-50 lg:hidden"
+          className="!absolute left-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-start bg-gradient-to-r from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 lg:hidden"
         >
           <PiCaretLeftBold className="w-5" />
         </Button>
@@ -107,7 +107,7 @@ export default function ProfileSettingsNav() {
           variant="text"
           ref={sliderNextBtn}
           onClick={() => scrollToTheRight()}
-          className="!absolute right-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-end bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-50 dark:via-gray-50 lg:hidden"
+          className="!absolute right-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-end bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 lg:hidden"
         >
           <PiCaretRightBold className="w-5" />
         </Button>

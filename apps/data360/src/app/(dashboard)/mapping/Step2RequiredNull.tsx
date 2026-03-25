@@ -29,6 +29,7 @@ import { storeSelectedColumns } from './storeSelectedColumns';
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
 import { getSession } from 'next-auth/react';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
@@ -521,6 +522,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
     }
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <CardTitle>Step 2: Define Required Columns</CardTitle>
@@ -795,6 +797,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

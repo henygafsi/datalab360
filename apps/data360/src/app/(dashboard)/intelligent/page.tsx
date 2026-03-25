@@ -213,7 +213,7 @@ export default function IntelligentPage() {
       {/* Main Content Card with Tabs */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
         {/* Tabs */}
-        <div className="flex gap-2 p-4 border-b border-muted dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
+        <div role="tablist" className="flex gap-2 p-4 border-b border-muted dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/50">
           {TABS.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -221,6 +221,8 @@ export default function IntelligentPage() {
             return (
               <button
                 key={tab.id}
+                role="tab"
+                aria-selected={isActive}
                 onClick={() => setActiveTab(tab.id)}
                 className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
                   isActive
@@ -246,7 +248,7 @@ export default function IntelligentPage() {
         </div>
 
         {/* Tab Content */}
-        <div className="p-6">
+        <div role="tabpanel" className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
