@@ -106,8 +106,12 @@ function generateMergeSQL(
   mappings: ColumnMapping[],
   scdConfig?: SqlPreviewPanelProps['scdConfig'],
   whereClause?: string,
+  sourceTable?: TableReference | null,
 ): string {
   const fullTarget = `${table.database}.${table.schema}.${table.table}`;
+  const fullSource = sourceTable
+    ? `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`
+    : 'source_stage';
   const sourceAlias = 'src';
   const targetAlias = 'tgt';
   const businessKey = scdConfig?.businessKeyColumn || 'ID';
@@ -144,7 +148,7 @@ INSERT INTO ${fullTarget} (
 )
 SELECT
     ${selectList}
-FROM source_stage ${sourceAlias}${whereFilter};`;
+FROM ${fullSource} ${sourceAlias}${whereFilter};`;
   }
 
   if (mode === 'incremental') {
@@ -153,7 +157,7 @@ MERGE INTO ${fullTarget} AS ${targetAlias}
 USING (
     SELECT
         ${selectList}
-    FROM source_stage ${sourceAlias}${whereFilter}
+    FROM ${fullSource} ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
 ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
 
@@ -183,7 +187,7 @@ MERGE INTO ${fullTarget} AS ${targetAlias}
 USING (
     SELECT
         ${selectList}
-    FROM source_stage ${sourceAlias}${whereFilter}
+    FROM ${fullSource} ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
 ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
    AND ${targetAlias}.${flagCol} = TRUE
@@ -217,7 +221,7 @@ MERGE INTO ${fullTarget} AS ${targetAlias}
 USING (
     SELECT
         ${selectList}
-    FROM source_stage ${sourceAlias}${whereFilter}
+    FROM ${fullSource} ${sourceAlias}${whereFilter}
 ) AS ${sourceAlias}
 ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
 
@@ -237,6 +241,34 @@ WHEN NOT MATCHED THEN INSERT (
 );`;
   }
 
+  if (mode === 'scd_type3') {
+    const trackingCols = scdConfig?.trackingColumns || cols.filter(c => c.sourceColumn !== '*' && c.targetColumn !== 'ID').map(c => c.targetColumn);
+    const prevCols = trackingCols.map(c => `${c}_PREV`);
+
+    return `-- SCD Type 3 Merge (Previous/Current)
+MERGE INTO ${fullTarget} AS ${targetAlias}
+USING (
+    SELECT
+        ${selectList}
+    FROM ${fullSource} ${sourceAlias}${whereFilter}
+) AS ${sourceAlias}
+ON ${targetAlias}.${businessKey} = ${sourceAlias}.${businessKey}
+
+WHEN MATCHED THEN UPDATE SET
+${trackingCols
+  .map((c, i) => `    ${targetAlias}.${prevCols[i]} = ${targetAlias}.${c},\n    ${targetAlias}.${c} = ${sourceAlias}.${c}`)
+  .join(',\n')},
+    ${targetAlias}.LAST_UPDATED = CURRENT_TIMESTAMP()
+
+WHEN NOT MATCHED THEN INSERT (
+    ${colList}${trackingCols.length > 0 ? ',\n    ' + prevCols.join(',\n    ') : ''},
+    LAST_UPDATED
+) VALUES (
+    ${cols.filter(c => c.sourceColumn !== '*').map(c => `${sourceAlias}.${c.targetColumn}`).join(',\n    ')}${trackingCols.length > 0 ? ',\n    ' + trackingCols.map(() => 'NULL').join(',\n    ') : ''},
+    CURRENT_TIMESTAMP()
+);`;
+  }
+
   if (mode === 'snapshot') {
     return `-- Snapshot Insert (Point-in-time)
 INSERT INTO ${fullTarget} (
@@ -246,14 +278,14 @@ INSERT INTO ${fullTarget} (
 SELECT
     ${selectList},
     CURRENT_TIMESTAMP() AS SNAPSHOT_TS
-FROM source_stage ${sourceAlias}${whereFilter};`;
+FROM ${fullSource} ${sourceAlias}${whereFilter};`;
   }
 
   // Default fallback
   return `-- ${mode.replace('_', ' ').toUpperCase()} mode
 SELECT
     ${selectList}
-FROM source_stage ${sourceAlias}${whereFilter};`;
+FROM ${fullSource} ${sourceAlias}${whereFilter};`;
 }
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -275,11 +307,17 @@ const SqlPreviewPanel: React.FC<SqlPreviewPanelProps> = ({
   const [isFetchingServer, setIsFetchingServer] = useState(false);
   const [isServerMode, setIsServerMode] = useState(false);
 
+  // Reset server SQL when mode/mappings/where changes so preview stays in sync
+  React.useEffect(() => {
+    setServerSql(null);
+    setIsServerMode(false);
+  }, [ingestionMode, columnMappings, whereClause, whereClauses]);
+
   // Generate SQL client-side as fallback
   const clientSql = useMemo(() => {
     if (!table) return '';
-    return generateMergeSQL(table, ingestionMode, columnMappings, scdConfig, whereClause);
-  }, [table, ingestionMode, columnMappings, scdConfig, whereClause]);
+    return generateMergeSQL(table, ingestionMode, columnMappings, scdConfig, whereClause, sourceTable);
+  }, [table, ingestionMode, columnMappings, scdConfig, whereClause, sourceTable]);
 
   const generatedSql = isServerMode && serverSql ? serverSql.sql : clientSql;
 

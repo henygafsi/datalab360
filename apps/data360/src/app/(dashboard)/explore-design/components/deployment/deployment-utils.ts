@@ -49,7 +49,16 @@ export const EVENT_PRIORITY: Record<EventType, number> = {
   'TABLE_INCLUDED': 7,
   'INGESTION_MODE_SET': 8,
   'SCD_CONFIGURED': 8,
+  'SCD_CONFIG_SET': 8,
+  'WHERE_CLAUSE_SET': 8,
+  'QUALITY_GATE_SET': 8,
   'TABLE_RENAMED': 9,
+  // AI-assisted events (metadata only, no DDL)
+  'AI_CLASSIFICATION_APPLIED': 0,
+  'AI_TYPE_CHANGE_APPLIED': 0,
+  'AI_RELATION_ACCEPTED': 0,
+  'AI_TEMPLATE_APPLIED': 0,
+  'AI_COLUMNS_ADDED': 0,
 };
 
 // DDL-relevant event types (actual schema changes that generate SQL)

@@ -956,6 +956,7 @@ export default function ExploreDesignPage() {
     canUndo,
     canRedo,
     cleanupEmptyEvents,
+    clearEvents,
     addEvent,
     loadProjectEvents,
     saveProjectEvents,
@@ -1154,12 +1155,11 @@ export default function ExploreDesignPage() {
     setShowConflictModal(false);
   }, [currentConflict, events, selectedProjectId, updateEventStatus, addEvent]);
 
-  // Clean up empty events on mount (one-time cleanup of any legacy empty events)
+  // On mount: clear stale events and remove legacy localStorage key
   useEffect(() => {
-    const removedCount = cleanupEmptyEvents();
-    if (removedCount > 0) {
-      // Cleanup complete
-    }
+    clearEvents();
+    localStorage.removeItem('explore-design-events');
+    cleanupEmptyEvents();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stats - exclude default DWH tables from catalog stats
@@ -5018,8 +5018,6 @@ export default function ExploreDesignPage() {
             columns={tableColumns}
             ingestionMode={catalogIngestionMode}
             onModeChange={setCatalogIngestionMode}
-            columns={tableColumns}
-            projectId={selectedProjectId}
           />
         </Modal>
       )}

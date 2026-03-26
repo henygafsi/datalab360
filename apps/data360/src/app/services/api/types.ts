@@ -716,10 +716,11 @@ export interface ExecuteIngestionRequest {
 }
 
 export interface ExecuteIngestionResponse {
-  status: 'success' | 'failed';
+  operation_id?: string;
+  status: 'success' | 'failed' | 'SUCCESS' | 'FAILED';
   source: string;
   target: string;
-  ingestion_mode: IngestionMode;
+  ingestion_mode: IngestionMode | string;
   rows_affected: number;
 }
 
@@ -1681,23 +1682,27 @@ export interface IngestionDryRunResult {
   source: string;
   target: string;
   ingestion_mode: string;
+  target_exists?: boolean;
 }
 
 // --- Quality Gates ---
 
 export interface QualityGateConfig {
-  gate_id: string;
-  gate_type: 'null_rate' | 'min_rows' | 'max_rows' | 'schema_match' | 'freshness' | 'unique_rate' | 'custom_sql';
+  gate_id?: string;
+  gate_type: 'null_rate' | 'min_rows' | 'max_rows' | 'row_count' | 'schema_match' | 'freshness' | 'unique_rate' | 'uniqueness' | 'format_regex' | 'min_value' | 'max_value' | 'allowed_values' | 'custom_sql';
   column?: string;
   threshold?: number;
   expected_value?: string;
   custom_sql?: string;
   block_on_fail?: boolean;
+  pattern?: string;
+  allowed_values?: string[];
 }
 
 export interface QualityGatesRunRequest {
   database: string;
-  schema_name: string;
+  schema_name?: string;
+  schema?: string;
   table: string;
   gates: QualityGateConfig[];
 }
@@ -1705,9 +1710,13 @@ export interface QualityGatesRunRequest {
 export interface QualityGateResult {
   gate_id: string;
   gate_type: string;
+  check_type?: string;
+  column?: string;
   status: 'passed' | 'failed' | 'error';
+  passed?: boolean;
   actual_value?: number | string;
   threshold?: number | string;
+  severity?: 'ERROR' | 'WARNING';
   message?: string;
 }
 
@@ -1716,9 +1725,10 @@ export interface QualityGatesRunResult {
   gates_run: number;
   passed: number;
   failed: number;
+  warnings?: number;
   blocked: boolean;
   results: QualityGateResult[];
-  duration_ms: number;
+  duration_ms?: number;
 }
 
 // --- Ingestion Runs ---
@@ -2219,15 +2229,26 @@ export interface ScdAlternative {
 }
 
 export interface RecommendScdResult {
-  database: string;
-  schema: string;
   table: string;
-  recommended_type: string;
+  recommendation: string;
   confidence: number;
-  reasoning: string;
-  alternatives: ScdAlternative[];
-  implementation_hints: Record<string, unknown>;
-  cortex_credits: number;
+  rationale: string[];
+  analysis: {
+    total_columns: number;
+    varchar_columns: number;
+    has_audit_columns: boolean;
+    has_effective_date: boolean;
+    write_frequency: string;
+  };
+  decision_matrix: Record<string, string>;
+  // Legacy fields (backward compat)
+  database?: string;
+  schema?: string;
+  recommended_type?: string;
+  reasoning?: string;
+  alternatives?: ScdAlternative[];
+  implementation_hints?: Record<string, unknown>;
+  cortex_credits?: number;
 }
 
 // ============================================================================
@@ -2328,17 +2349,20 @@ export interface IngestionModeOptimizerResult {
     has_timestamp_columns: boolean;
     timestamp_columns: string[];
     has_primary_key: boolean;
-    estimated_daily_inserts_pct: number;
-    estimated_daily_updates_pct: number;
+    estimated_daily_inserts_pct?: number;
+    estimated_daily_updates_pct?: number;
+    table_size_mb?: number;
   };
   recommendation: {
     mode: string;
-    watermark_column: string;
+    watermark_column: string | null;
     reason: string;
     estimated_scan_reduction_pct: number;
   };
-  alternatives: IngestionModeAlternative[];
-  cortex_credits: number;
+  current_mode?: string | null;
+  resolved_from?: 'snowflake' | 'events';
+  alternatives?: IngestionModeAlternative[];
+  cortex_credits?: number;
 }
 
 // ============================================================================

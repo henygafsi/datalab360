@@ -80,11 +80,21 @@ interface ColumnDef {
   isNullable?: boolean;
 }
 
+interface ColumnMappingInput {
+  sourceColumn: string;
+  targetColumn: string;
+  transformation?: string;
+}
+
 interface IngestionConfigPanelProps {
   table: TableReference | null;
   ingestionMode: IngestionMode;
   onModeChange: (mode: IngestionMode) => void;
   columns?: ColumnDef[];
+  /** Column mappings (source → target) for SQL preview and dry-run */
+  columnMappings?: ColumnMappingInput[];
+  /** Source table reference for SQL preview */
+  sourceTable?: TableReference | null;
   projectId?: string | null;
   className?: string;
 }
@@ -97,6 +107,8 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
   ingestionMode,
   onModeChange,
   columns = [],
+  columnMappings = [],
+  sourceTable,
   projectId,
   className,
 }) => {
@@ -226,7 +238,8 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       });
       const mode = result.recommendation.mode as IngestionMode;
       handleModeChange(mode);
-      toast.success(`AI recommends "${mode}" — ${result.recommendation.reason}`);
+      const source = result.resolved_from === 'events' ? ' (based on planned DDL)' : '';
+      toast.success(`AI recommends "${mode}" — ${result.recommendation.reason}${source}`);
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to get AI suggestion');
     } finally {
@@ -245,9 +258,10 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
         table: table.table,
         business_context: `Table ${table.table} in schema ${table.schema}`,
       });
-      const recommended = result.recommended_type as IngestionMode;
+      const recommended = (result.recommendation || result.recommended_type || 'scd_type2').toLowerCase().replace('type_', 'type') as IngestionMode;
       handleModeChange(recommended);
-      toast.success(`AI recommends "${recommended}" (${Math.round(result.confidence * 100)}% confidence) — ${result.reasoning}`);
+      const reasoning = result.rationale?.join('; ') || result.reasoning || '';
+      toast.success(`AI recommends "${recommended}" (${Math.round(result.confidence * 100)}% confidence) — ${reasoning}`);
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to get SCD recommendation');
     } finally {
@@ -942,8 +956,10 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       <div className="px-4 pb-2">
         <SqlPreviewPanel
           table={table}
+          sourceTable={sourceTable}
           ingestionMode={ingestionMode}
-          scdConfig={ingestionMode.startsWith('scd') ? scdConfig : undefined}
+          columnMappings={columnMappings}
+          scdConfig={ingestionMode?.startsWith('scd') ? scdConfig : undefined}
           whereClause={whereClauseSql || undefined}
           whereClauses={whereConditions.length > 0 ? whereConditions : undefined}
           projectId={projectId}
@@ -955,9 +971,9 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
         <QualityGatesPanel
           columns={allColumns}
           projectId={projectId}
-          database={table?.database}
-          schemaName={table?.schema}
-          tableName={table?.table}
+          database={sourceTable?.database || table?.database}
+          schemaName={sourceTable?.schema || table?.schema}
+          tableName={sourceTable?.table || table?.table}
           blockOnFail={true}
         />
       </div>
@@ -965,11 +981,17 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
       {/* C4 — Ingestion Dry-Run Preview */}
       <div className="px-4 pb-2">
         <IngestionDryRunPanel
-          tableName={table?.table || ''}
+          tableName={sourceTable?.table || table?.table || ''}
+          targetTableName={sourceTable ? table?.table : undefined}
           ingestionMode={ingestionMode}
           projectId={projectId}
-          sourceDatabase={table?.database}
-          sourceSchema={table?.schema}
+          sourceDatabase={sourceTable?.database || table?.database}
+          sourceSchema={sourceTable?.schema || table?.schema}
+          targetDatabase={table?.database}
+          targetSchema={table?.schema}
+          mappings={columnMappings.length > 0
+            ? columnMappings.map(m => ({ source_columns: [m.sourceColumn], target_column: m.targetColumn }))
+            : undefined}
           whereClauses={whereConditions.length > 0 ? whereConditions : undefined}
         />
       </div>

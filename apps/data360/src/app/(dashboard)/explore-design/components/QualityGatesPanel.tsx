@@ -238,6 +238,7 @@ const QualityGatesPanel: React.FC<QualityGatesPanelProps> = ({
         const apiResult = await runQualityGates(projectId, {
           database,
           schema_name: schemaName,
+          schema: schemaName,
           table: tableName,
           gates: runningGates
             .filter((g) => g.enabled)
@@ -253,9 +254,14 @@ const QualityGatesPanel: React.FC<QualityGatesPanelProps> = ({
           if (!g.enabled) return { ...g, status: 'skipped' as GateStatus };
           const apiGate = apiResult.results.find((r) => r.gate_id === g.id);
           if (!apiGate) return { ...g, status: 'passed' as GateStatus };
+          // Use `passed` boolean if available, fall back to `status` string
+          const gateStatus = apiGate.passed === false ? 'failed'
+            : apiGate.passed === true ? 'passed'
+            : apiGate.status === 'error' ? 'failed'
+            : apiGate.status;
           return {
             ...g,
-            status: apiGate.status === 'error' ? 'failed' as GateStatus : apiGate.status as GateStatus,
+            status: gateStatus as GateStatus,
             actualValue: apiGate.actual_value,
             error: apiGate.message,
           };

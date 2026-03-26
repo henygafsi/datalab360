@@ -23,6 +23,7 @@ import {
   Check,
   Loader2,
   ChevronDown,
+  ChevronRight,
   Layers,
   Copy,
 } from 'lucide-react';
@@ -518,6 +519,15 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
       return <Binary className="h-4 w-4 text-green-500" />;
     }
     return <Database className="h-4 w-4 text-slate-500" />;
+  };
+
+  const [expandedColumns, setExpandedColumns] = useState<Set<string>>(new Set());
+  const toggleExpanded = (col: string) => {
+    setExpandedColumns(prev => {
+      const next = new Set(prev);
+      next.has(col) ? next.delete(col) : next.add(col);
+      return next;
+    });
   };
 
   const sortedColumns = profileData?.columns ? [...profileData.columns].sort((a, b) => {

@@ -1,13 +1,21 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { Button } from 'rizzui';
+import { Button, Badge, Tooltip } from 'rizzui';
+import { toast } from 'react-hot-toast';
 import {
   X, Eye, Settings, Shield, Beaker, GitBranch, Network, Rocket,
-  CheckCircle2, Loader2, ArrowLeft, ArrowRight,
+  CheckCircle2, Loader2, ArrowLeft, ArrowRight, AlertCircle, AlertTriangle,
+  History, RotateCcw, Zap, Cloud, Server, Check,
 } from 'lucide-react';
-import { useEventStore } from '../stores/event-store';
+import { useEventStore, type DesignEvent, type EventType } from '../stores/event-store';
+import {
+  sortEventsForDeployment, filterExecutableEvents, generateSnowflakeSQL,
+  validateEventLocally, extractMappedTablesOverview, extractIngestionConfigs,
+} from './deployment/deployment-utils';
+import { getApiErrorMessage } from '@/lib/api-client';
+import { getCortexRecommend } from '@/app/services/cortex/';
 import { useSession } from 'next-auth/react';
 // v1 API — /api/v1/explore-design/* and /projects/*
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
@@ -74,8 +82,6 @@ function inferDDLType(eventType: EventType): DDLType {
     default: return 'ALTER_ADD_COLUMN'; // Default for PKs, FKs, policies
   }
 }
-import { getCortexRecommend } from '@/app/services/cortex/';
-import { getApiErrorMessage } from '@/lib/api-client';
 import PreCheckGate from './PreCheckGate';
 import SqlDiffViewer from './SqlDiffViewer';
 import DryRunPanel from './DryRunPanel';
@@ -100,6 +106,8 @@ interface ValidationResult {
   errors: string[];
   warnings: string[];
 }
+
+const SCHEDULED_DEPLOYMENTS_KEY = 'explore-design-scheduled-deployments';
 
 // Scheduled deployment interface (stored locally for future backend)
 interface ScheduledDeploymentLocal {
@@ -341,13 +349,14 @@ export default function DeploymentValidation({
   onClose,
   database,
   schemas,
-  projectId,
+  projectId: rawProjectId,
 }: DeploymentValidationProps) {
   const { data: session } = useSession();
   const currentUser = session?.user?.name || session?.user?.email || 'unknown';
 
   // Event store
-  const safeProjectId = projectId || 'default';
+  const projectId = rawProjectId || 'default';
+  const safeProjectId = projectId;
   const { events, pendingEvents, updateEventStatus, cleanupAppliedEvents } =
     useEventStore(safeProjectId);
 

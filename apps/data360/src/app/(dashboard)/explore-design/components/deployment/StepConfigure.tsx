@@ -1,15 +1,19 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Badge, Input, Select } from 'rizzui';
 import {
   Shield, Zap, Users, Calendar, Server, Settings, Sparkles, Loader2,
+  ArrowRight, ChevronDown, ChevronRight, RefreshCw, Clock, History, Layers, Database,
 } from 'lucide-react';
 import { useDeploymentContext } from './DeploymentContext';
+import { INGESTION_EVENT_TYPES } from './deployment-utils';
 import { useAiFeatures } from '../../stores/ai-store';
 import { aiWarehouseSizing, aiDeploySchedule } from '@/app/services/api/exploreDesignApi';
 import type { WarehouseSizingResult, DeployScheduleResult } from '@/app/services/api/types';
+import type { IngestionMode } from '../../../mapping/components/TableDetailPanel';
+import IngestionConfigPanel from '../IngestionConfigPanel';
 
 const CRON_OPTIONS = [
   { label: 'Every 5 minutes', value: 'EVERY_5_MIN' },
@@ -27,8 +31,17 @@ const APPROVER_OPTIONS = [
   { label: 'Data Steward', value: 'DATA_STEWARD' },
 ];
 
+const INGESTION_MODES: Array<{ value: IngestionMode; label: string; icon: typeof RefreshCw; desc: string }> = [
+  { value: 'full_refresh', label: 'Full Refresh', icon: RefreshCw, desc: 'Complete reload' },
+  { value: 'incremental', label: 'Incremental', icon: Clock, desc: 'Delta changes' },
+  { value: 'snapshot', label: 'Snapshot', icon: Layers, desc: 'Point-in-time' },
+  { value: 'scd_type1', label: 'SCD Type 1', icon: History, desc: 'No history' },
+  { value: 'scd_type2', label: 'SCD Type 2', icon: History, desc: 'Full history' },
+  { value: 'scd_type3', label: 'SCD Type 3', icon: History, desc: 'Limited history' },
+];
+
 export default function StepConfigure() {
-  const { config, updateConfig, projectId } = useDeploymentContext();
+  const { config, updateConfig, projectId, events, pendingEvents } = useDeploymentContext();
   const { isEnabled } = useAiFeatures();
   const [sizingLoading, setSizingLoading] = useState(false);
   const [sizingResult, setSizingResult] = useState<WarehouseSizingResult | null>(null);
@@ -37,6 +50,58 @@ export default function StepConfigure() {
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [scheduleResult, setScheduleResult] = useState<DeployScheduleResult | null>(null);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  const [expandedMapping, setExpandedMapping] = useState<string | null>(null);
+
+  // Build mapped tables from COLUMN_MAPPING_CREATED and INGESTION_MODE_SET events
+  const mappedTables = useMemo(() => {
+    const tableMap = new Map<string, {
+      sourceDb: string; sourceSchema: string; sourceTable: string;
+      targetDb: string; targetSchema: string; targetTable: string;
+      mappings: Array<{ sourceColumns: string[]; targetColumn: string; transformation?: string }>;
+      ingestionMode: IngestionMode;
+    }>();
+
+    // Extract mappings
+    events.filter(e => e.type === 'COLUMN_MAPPING_CREATED').forEach(e => {
+      const src = e.payload?.source;
+      const tgt = e.payload?.target;
+      if (!src?.table || !tgt?.table) return;
+      const key = `${src.schema}.${src.table}→${tgt.schema}.${tgt.table}`;
+      if (!tableMap.has(key)) {
+        tableMap.set(key, {
+          sourceDb: src.database || '', sourceSchema: src.schema || '', sourceTable: src.table,
+          targetDb: tgt.database || '', targetSchema: tgt.schema || '', targetTable: tgt.table || tgt.column?.split('.')[0] || '',
+          mappings: [],
+          ingestionMode: 'full_refresh',
+        });
+      }
+      tableMap.get(key)!.mappings.push({
+        sourceColumns: src.columns || [src.column || ''],
+        targetColumn: tgt.column || '',
+        transformation: e.payload?.transformation,
+      });
+    });
+
+    // Apply ingestion mode overrides from events
+    events.filter(e => e.type === 'INGESTION_MODE_SET').forEach(e => {
+      const tbl = e.target?.table;
+      for (const [, entry] of tableMap) {
+        if (entry.targetTable === tbl || entry.sourceTable === tbl) {
+          entry.ingestionMode = (e.payload?.mode || e.payload?.ingestionMode || 'full_refresh') as IngestionMode;
+        }
+      }
+    });
+
+    // Apply config overrides
+    for (const [key, entry] of tableMap) {
+      if (config.ingestionModeOverrides[key]) {
+        entry.ingestionMode = config.ingestionModeOverrides[key];
+      }
+    }
+
+    return Array.from(tableMap.entries());
+  }, [events, config.ingestionModeOverrides]);
 
   const warehouseSizingEnabled = isEnabled('warehouse_sizing');
   const scheduleOptimizerEnabled = isEnabled('schedule_optimizer');
@@ -226,6 +291,88 @@ export default function StepConfigure() {
                 {opt.label}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Ingestion Configuration per Mapped Table */}
+      {mappedTables.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+            <Database className="h-4 w-4 text-teal-500" />
+            Ingestion Configuration
+            <Badge size="sm" className="bg-teal-100 text-teal-600 text-[10px]">{mappedTables.length} table(s)</Badge>
+          </h3>
+          <div className="space-y-2">
+            {mappedTables.map(([key, entry]) => {
+              const isExpanded = expandedMapping === key;
+              const currentMode = entry.ingestionMode;
+              const tableRef = {
+                database: entry.targetDb || entry.sourceDb,
+                schema: entry.targetSchema,
+                table: entry.targetTable,
+              };
+              const columns = entry.mappings.map(m => ({
+                name: m.targetColumn,
+                dataType: 'VARCHAR',
+              }));
+              return (
+                <div key={key} className="border dark:border-slate-700 rounded-lg overflow-hidden">
+                  {/* Table header */}
+                  <button
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors text-left"
+                    onClick={() => setExpandedMapping(isExpanded ? null : key)}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {isExpanded ? <ChevronDown className="h-3.5 w-3.5 text-slate-400" /> : <ChevronRight className="h-3.5 w-3.5 text-slate-400" />}
+                      <span className="text-xs font-mono text-slate-600 dark:text-slate-400 truncate">
+                        {entry.sourceSchema}.{entry.sourceTable}
+                      </span>
+                      <ArrowRight className="h-3 w-3 text-slate-400 flex-shrink-0" />
+                      <span className="text-xs font-mono font-medium text-slate-800 dark:text-slate-200 truncate">
+                        {entry.targetSchema}.{entry.targetTable}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Badge size="sm" className="bg-blue-100 text-blue-600 text-[10px]">
+                        {entry.mappings.length} col(s)
+                      </Badge>
+                      <Badge size="sm" className="bg-slate-100 text-slate-600 text-[10px]">
+                        {INGESTION_MODES.find(m => m.value === currentMode)?.label || currentMode}
+                      </Badge>
+                    </div>
+                  </button>
+
+                  {/* Expanded: full IngestionConfigPanel */}
+                  {isExpanded && (
+                    <div className="border-t dark:border-slate-700">
+                      <IngestionConfigPanel
+                        table={tableRef}
+                        sourceTable={{
+                          database: entry.sourceDb,
+                          schema: entry.sourceSchema,
+                          table: entry.sourceTable,
+                        }}
+                        ingestionMode={currentMode}
+                        onModeChange={(mode) => {
+                          updateConfig('ingestionModeOverrides', {
+                            ...config.ingestionModeOverrides,
+                            [key]: mode,
+                          });
+                        }}
+                        columns={columns}
+                        columnMappings={entry.mappings.map(m => ({
+                          sourceColumn: m.sourceColumns[0] || '',
+                          targetColumn: m.targetColumn,
+                          transformation: m.transformation,
+                        }))}
+                        projectId={projectId}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

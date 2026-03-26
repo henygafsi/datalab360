@@ -6,7 +6,7 @@ import { Button, Badge, Tooltip } from 'rizzui';
 import {
   Play, CheckCircle2, XCircle, Loader2, ChevronDown, ChevronRight,
   Table2, Clock, AlertTriangle, Beaker, ArrowDown, ArrowUp, Minus,
-  Database, RefreshCw,
+  Database, RefreshCw, FileCode, Copy,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { dryRunIngestion } from '@/app/services/api/exploreDesignApi';
@@ -35,12 +35,16 @@ interface IngestionDryRunResult {
     deletes: number;
     unchanged: number;
   };
+  sqlPreview?: string;
   errors: string[];
   warnings: string[];
 }
 
 interface IngestionDryRunPanelProps {
+  /** Source table name (the table that exists and has data) */
   tableName: string;
+  /** Target table name (may not exist yet). Defaults to tableName if not provided. */
+  targetTableName?: string;
   ingestionMode: string;
   projectId?: string | null;
   sourceDatabase?: string;
@@ -49,6 +53,8 @@ interface IngestionDryRunPanelProps {
   targetSchema?: string;
   /** API-spec WHERE conditions to pass to dry-run */
   whereClauses?: WhereClauseCondition[];
+  /** Column mappings to include in the dry-run request */
+  mappings?: Array<{ source_columns: string[]; target_column: string }>;
   onRunDryRun?: () => Promise<IngestionDryRunResult>;
   className?: string;
 }
@@ -85,9 +91,11 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
   projectId,
   sourceDatabase,
   sourceSchema,
+  targetTableName,
   targetDatabase,
   targetSchema,
   whereClauses,
+  mappings,
   onRunDryRun,
   className,
 }) => {
@@ -110,23 +118,31 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
           source_table: tableName,
           target_database: targetDatabase || sourceDatabase || '',
           target_schema: targetSchema || sourceSchema || '',
-          target_table: tableName,
+          target_table: targetTableName || tableName,
           ingestion_mode: ingestionMode as IngestionMode,
           sample_size: 10,
+          mappings: mappings,
           where_clauses: whereClauses,
         });
         // Backend returns flat rows with _ACTION column — transform to component shape
         const dataCols = apiResult.columns.filter((c) => c !== '_ACTION');
-        const sampleRows: SamplePreviewRow[] = apiResult.rows.map((row) => ({
-          action: (row._ACTION as RowAction) || 'UNKNOWN',
-          data: Object.fromEntries(
-            dataCols.map((col) => [col, row[col] as string | number | boolean | null]),
-          ),
-        }));
+        // Filter out rows where all values are null (design-phase placeholders)
+        const hasRealData = apiResult.rows.some((row) =>
+          dataCols.some((col) => row[col] != null)
+        );
+        const sampleRows: SamplePreviewRow[] = hasRealData
+          ? apiResult.rows.map((row) => ({
+              action: (row._ACTION as RowAction) || 'INSERT',
+              data: Object.fromEntries(
+                dataCols.map((col) => [col, row[col] as string | number | boolean | null]),
+              ),
+            }))
+          : []; // No real data — tables don't exist yet
         const inserts = sampleRows.filter((r) => r.action === 'INSERT').length;
         const updates = sampleRows.filter((r) => r.action === 'UPDATE').length;
         const deletes = sampleRows.filter((r) => r.action === 'DELETE').length;
         const unchanged = sampleRows.filter((r) => r.action === 'UNCHANGED' || r.action === 'NO_CHANGE').length;
+        const isDesignPhase = apiResult.sample_size === 0 || apiResult.target_exists === false || !hasRealData;
         res = {
           status: 'success',
           rowsProcessed: apiResult.sample_size,
@@ -134,8 +150,11 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
           sampleRows,
           columns: dataCols,
           summary: { inserts, updates, deletes, unchanged },
+          sqlPreview: apiResult.sql_preview || undefined,
           errors: [],
-          warnings: [],
+          warnings: isDesignPhase
+            ? ['Tables not yet deployed — SQL preview shows the planned query']
+            : [],
         };
       } else {
         throw new Error('No projectId or onRunDryRun provided');
@@ -151,7 +170,7 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
     } finally {
       setIsRunning(false);
     }
-  }, [onRunDryRun, projectId, tableName, ingestionMode, sourceDatabase, sourceSchema, targetDatabase, targetSchema, whereClauses]);
+  }, [onRunDryRun, projectId, tableName, ingestionMode, sourceDatabase, sourceSchema, targetDatabase, targetSchema, whereClauses, mappings]);
 
   return (
     <div className={cn('border dark:border-slate-700 rounded-lg overflow-hidden', className)}>
@@ -172,7 +191,11 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
                   : 'bg-red-100 text-red-600',
               )}
             >
-              {result.sampleRows.length} rows previewed
+              {result.sampleRows.length > 0
+                ? `${result.sampleRows.length} rows previewed`
+                : result.sqlPreview
+                ? 'SQL generated'
+                : 'No data'}
             </Badge>
           )}
           {isExpanded ? (
@@ -248,7 +271,33 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
                 )}
               </div>
 
-              {/* Sample Preview Table */}
+              {/* SQL Preview (key output — always shown when available) */}
+              {result.sqlPreview && (
+                <div className="border-b dark:border-slate-700">
+                  <div className="px-4 py-2 flex items-center justify-between bg-slate-800">
+                    <span className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
+                      <FileCode className="h-3 w-3" />
+                      Planned SQL — {ingestionMode.replace(/_/g, ' ')}
+                    </span>
+                    <button
+                      className="text-xs text-slate-400 hover:text-white transition-colors"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(result.sqlPreview!);
+                          toast.success('SQL copied');
+                        } catch { toast.error('Failed to copy'); }
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                  <pre className="p-3 bg-slate-900 text-green-400 text-xs font-mono overflow-x-auto whitespace-pre leading-relaxed max-h-[200px]">
+                    {result.sqlPreview}
+                  </pre>
+                </div>
+              )}
+
+              {/* Sample Preview Table (only when rows have real data) */}
               {result.sampleRows.length > 0 && (
                 <div className="overflow-auto max-h-[350px]">
                   <table className="w-full text-xs">
@@ -312,28 +361,30 @@ const IngestionDryRunPanel: React.FC<IngestionDryRunPanelProps> = ({
               )}
 
               {/* Truncation indicator */}
-              {result.rowsProcessed > result.sampleRows.length && (
+              {result.rowsProcessed > result.sampleRows.length && result.sampleRows.length > 0 && (
                 <div className="px-4 py-2 text-center text-xs text-slate-500 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
                   ... {(result.rowsProcessed - result.sampleRows.length).toLocaleString()} more rows
                 </div>
               )}
 
-              {/* Errors/Warnings */}
+              {/* Warnings */}
+              {result.warnings.length > 0 && (
+                <div className="p-4 border-t dark:border-slate-700">
+                  {result.warnings.map((w, i) => (
+                    <div key={i} className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-600 mb-1 last:mb-0 flex items-center gap-1.5">
+                      <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+                      {w}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Errors */}
               {result.errors.length > 0 && (
                 <div className="p-4 border-t dark:border-slate-700">
                   {result.errors.map((err, i) => (
                     <div key={i} className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs text-red-600 mb-1 last:mb-0">
                       {err}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {result.warnings.length > 0 && (
-                <div className="p-4 border-t dark:border-slate-700">
-                  {result.warnings.map((w, i) => (
-                    <div key={i} className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-600 mb-1 last:mb-0">
-                      <AlertTriangle className="h-3 w-3 inline mr-1" />
-                      {w}
                     </div>
                   ))}
                 </div>
