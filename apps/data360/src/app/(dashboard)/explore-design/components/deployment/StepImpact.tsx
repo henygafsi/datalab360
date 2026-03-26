@@ -46,8 +46,8 @@ export default function StepImpact() {
     exploreDesignApi.enhancedImpactAnalysis(projectId, {
       database: firstDdl.target.database,
       schema: firstDdl.target.schema,
-      table_name: firstDdl.target.table,
-      ddl_type: firstDdl.type,
+      table: firstDdl.target.table,
+      column: firstDdl.target.column || undefined,
     })
       .then(result => setResults(prev => ({ ...prev, enhancedImpactResult: result })))
       .catch(() => { /* server-side unavailable */ })
@@ -113,7 +113,7 @@ export default function StepImpact() {
           <div className="px-4 py-3 bg-slate-50 dark:bg-slate-800/50 flex items-center justify-between">
             <span className="font-medium text-sm flex items-center gap-2">
               <Shield className="h-4 w-4 text-indigo-500" />
-              Enhanced Impact Report — {impact.table_name}
+              Enhanced Impact — {impact.table}
             </span>
             <div className="flex items-center gap-2">
               <Badge className={cn(
@@ -154,9 +154,10 @@ export default function StepImpact() {
 
           {/* Summary bar */}
           <div className="px-4 py-2 bg-slate-50 dark:bg-slate-800/50 flex items-center gap-4 text-xs text-slate-500">
-            <span className="text-red-500">High: {impact.summary.high_risk}</span>
-            <span className="text-amber-500">Medium: {impact.summary.medium_risk}</span>
-            <span className="text-green-500">Low: {impact.summary.low_risk}</span>
+            <span className="text-red-500">High: {impact.high_risk}</span>
+            <span className="text-amber-500">Medium: {impact.medium_risk}</span>
+            <span className="text-green-500">Low: {impact.low_risk}</span>
+            <span className="text-slate-400">Total: {impact.total}</span>
           </div>
         </div>
       )}

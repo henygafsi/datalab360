@@ -1571,6 +1571,45 @@ export interface SnapshotResponse {
 export interface DryRunRequest {
   warehouse?: string;
   sample_rows?: number;
+  event_ids?: string[];
+}
+
+// Full Dry-Run (DDL + Ingestion in one call)
+export interface FullDryRunIngestionInput {
+  source_database: string;
+  source_schema: string;
+  source_table: string;
+  target_database: string;
+  target_schema: string;
+  target_table: string;
+  ingestion_mode: string;
+  sample_size?: number;
+  mappings?: Array<{ source_columns: string[]; target_column: string }>;
+  where_clauses?: WhereClauseCondition[];
+  config?: Record<string, unknown>;
+}
+
+export interface FullDryRunRequest {
+  warehouse?: string;
+  sample_rows?: number;
+  ingestions?: FullDryRunIngestionInput[];
+}
+
+export interface FullDryRunIngestionResult {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  sample_size: number;
+  sql_preview: string;
+  source: string;
+  target: string;
+  ingestion_mode: string;
+}
+
+export interface FullDryRunResult {
+  project_id: string;
+  deployment: DryRunResult;
+  ingestions: FullDryRunIngestionResult[];
+  total_ingestions: number;
 }
 
 export interface DryRunSampleRow {
@@ -1580,6 +1619,7 @@ export interface DryRunSampleRow {
 export interface DryRunEventResult {
   event_id: string;
   ddl_sql: string;
+  rewritten_sql?: string;
   status: 'SUCCESS' | 'FAILED';
   sample_rows?: DryRunSampleRow[] | null;
   error?: string;
@@ -1588,6 +1628,7 @@ export interface DryRunEventResult {
 export interface DryRunResult {
   project_id: string;
   clone_schema: string | null;
+  schema_existed?: boolean;
   total_events: number;
   passed: number;
   failed: number;
@@ -1733,25 +1774,28 @@ export interface QualityGatesRunResult {
 
 // --- Ingestion Runs ---
 
+export interface IngestionRunTableRef {
+  database: string;
+  schema: string;
+  table: string;
+}
+
 export interface IngestionRun {
-  run_id: string;
-  project_id: string;
-  source_table: string;
-  target_table: string;
-  ingestion_mode: IngestionMode;
+  operation_id: string;
+  source: IngestionRunTableRef;
+  target: IngestionRunTableRef;
+  ingestion_mode: string;
   status: 'PENDING' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
-  started_at: string;
-  completed_at?: string;
-  duration_ms?: number;
-  rows_inserted: number;
-  rows_updated: number;
-  rows_deleted: number;
-  rows_failed: number;
-  error_message?: string;
-  triggered_by: string;
+  rows_affected: number | null;
+  created_by: string;
+  created_at: string;
+  executed_at?: string;
+  duration_seconds: number | null;
+  error_message: string | null;
 }
 
 export interface IngestionRunsResponse {
+  project_id: string;
   runs: IngestionRun[];
   total: number;
   limit: number;
@@ -1787,24 +1831,58 @@ export interface ConflictCheckResult {
 // PART 7 — Phase A: Event Validation
 // ============================================================================
 
+// Mode B — specific pair (all 8 fields)
 export interface ValidateFkTypesRequest {
-  source_database: string;
-  source_schema: string;
-  source_table: string;
-  source_column: string;
-  target_database: string;
-  target_schema: string;
-  target_table: string;
-  target_column: string;
+  source_database?: string;
+  source_schema?: string;
+  source_table?: string;
+  source_column?: string;
+  target_database?: string;
+  target_schema?: string;
+  target_table?: string;
+  target_column?: string;
 }
 
+// Mode B — single-pair result
 export interface ValidateFkTypesResult {
+  source: {
+    table: string;
+    column: string;
+    data_type: string;
+    family: string;
+    resolved_from?: 'snowflake' | 'events';
+  };
+  target: {
+    table: string;
+    column: string;
+    data_type: string;
+    family: string;
+    resolved_from?: 'snowflake' | 'events';
+  };
   compatible: boolean;
-  source_type: string;
-  source_family: string;
-  target_type: string;
-  target_family: string;
   message: string;
+  // Legacy flat fields
+  source_type?: string;
+  source_family?: string;
+  target_type?: string;
+  target_family?: string;
+}
+
+// Mode A — project-wide FK scan
+export interface FkCheckItem {
+  event_id: string;
+  source: { table: string; column: string; data_type: string; family: string };
+  target: { table: string; column: string; data_type: string; family: string };
+  compatible: boolean;
+  message: string;
+}
+
+export interface ValidateFkTypesProjectResult {
+  project_id: string;
+  fk_checks: FkCheckItem[];
+  total: number;
+  all_compatible: boolean;
+  incompatible_count: number;
 }
 
 export interface CascadeRenameRequest {
@@ -1832,32 +1910,37 @@ export interface CascadeDropResult {
 }
 
 export interface EnhancedImpactDetail {
-  object_type: string;
   object_name: string;
+  object_type: 'VIEW' | 'STREAM' | 'TASK' | 'PROCEDURE' | 'FUNCTION' | 'POLICY' | 'DDL_EVENT' | string;
+  database: string;
+  schema_name: string;
   risk_level: 'HIGH' | 'MEDIUM' | 'LOW';
+  reason: string;
   recommendation: string;
-  last_accessed: string | null;
+  event_id?: string;
+  last_accessed?: string | null;
 }
 
 export interface EnhancedImpactAnalysisRequest {
   database: string;
   schema: string;
-  table_name: string;
-  ddl_type: string;
+  table: string;
+  column?: string;
 }
 
 export interface EnhancedImpactAnalysisResult {
-  table_name: string;
-  ddl_type: string;
+  table: string;
+  column: string | null;
+  schema_exists: boolean;
+  impacts: EnhancedImpactDetail[];
+  total: number;
+  high_risk: number;
+  medium_risk: number;
+  low_risk: number;
   risk_score: number;
   safe_to_proceed: boolean;
-  impacts: EnhancedImpactDetail[];
-  summary: {
-    high_risk: number;
-    medium_risk: number;
-    low_risk: number;
-    total_score: number;
-  };
+  recent_access_count: number | null;
+  access_warning?: string | null;
 }
 
 // ============================================================================

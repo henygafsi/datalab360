@@ -132,20 +132,22 @@ const IngestionResultsPanel: React.FC<IngestionResultsPanelProps> = ({
         ROLLED_BACK: 'cancelled',
       };
       setApiRuns(
-        result.runs.map((r) => ({
-          id: r.run_id,
+        result.runs.map((r: any) => ({
+          id: r.operation_id || r.run_id,
           status: statusMap[r.status] || 'running',
-          startedAt: r.started_at,
-          completedAt: r.completed_at,
-          durationMs: r.duration_ms,
-          rowsProcessed: r.rows_inserted + r.rows_updated + r.rows_deleted + r.rows_failed,
-          rowsInserted: r.rows_inserted,
-          rowsUpdated: r.rows_updated,
-          rowsDeleted: r.rows_deleted,
-          rowsFailed: r.rows_failed,
-          error: r.error_message,
+          startedAt: r.created_at || r.started_at,
+          completedAt: r.executed_at || r.completed_at,
+          durationMs: r.duration_seconds != null ? r.duration_seconds * 1000 : r.duration_ms,
+          rowsProcessed: r.rows_affected ?? (r.rows_inserted || 0) + (r.rows_updated || 0) + (r.rows_deleted || 0) + (r.rows_failed || 0),
+          rowsInserted: r.rows_affected ?? r.rows_inserted ?? 0,
+          rowsUpdated: r.rows_updated ?? 0,
+          rowsDeleted: r.rows_deleted ?? 0,
+          rowsFailed: r.status === 'FAILED' ? 1 : r.rows_failed ?? 0,
+          error: r.error_message ?? undefined,
           ingestionMode: r.ingestion_mode,
-          tableName: r.target_table,
+          tableName: r.source && r.target
+            ? `${r.source.table} → ${r.target.table}`
+            : r.target_table || r.source_table || '?',
         })),
       );
     } catch (err) {

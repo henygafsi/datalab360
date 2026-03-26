@@ -330,75 +330,71 @@ const SplitView: React.FC<{
   }, [diffLines]);
 
   return (
-    <div className="overflow-auto max-h-[500px]">
+    <div className="max-h-[500px] overflow-y-auto bg-slate-900">
       {/* Column Headers */}
-      <div className="flex sticky top-0 z-10 bg-slate-800 border-b border-slate-700">
-        <div className="flex-1 px-3 py-1.5 text-xs font-medium text-red-400 border-r border-slate-700">
+      <div className="grid grid-cols-2 sticky top-0 z-10 bg-slate-800 border-b border-slate-700">
+        <div className="px-3 py-1.5 text-xs font-medium text-red-400 border-r border-slate-700">
           {beforeLabel}
         </div>
-        <div className="flex-1 px-3 py-1.5 text-xs font-medium text-green-400">
+        <div className="px-3 py-1.5 text-xs font-medium text-green-400">
           {afterLabel}
         </div>
       </div>
 
-      {/* Rows */}
-      <div className="flex">
-        {/* Left Column */}
-        <pre className="flex-1 text-sm font-mono bg-slate-900 border-r border-slate-700">
-          {pairs.map((pair, idx) => (
+      {/* Rows — each row is a grid so both sides stay vertically aligned */}
+      <pre className="text-sm font-mono leading-relaxed">
+        {pairs.map((pair, idx) => (
+          <div key={idx} className="grid grid-cols-2">
+            {/* Left Cell */}
             <div
-              key={idx}
               className={cn(
-                'flex px-2 py-0.5',
+                'overflow-x-auto border-r border-slate-700',
                 pair.left.type === 'removed' && 'bg-red-900/30',
                 pair.left.type === 'empty' && 'bg-slate-900/50',
               )}
             >
-              <span className="select-none text-slate-600 w-8 text-right pr-2 flex-shrink-0">
-                {pair.left.lineNum ?? ''}
-              </span>
-              <span
-                className={cn(
-                  'flex-1',
-                  pair.left.type === 'removed' && 'text-red-300',
-                  pair.left.type === 'unchanged' && 'text-slate-300',
-                  pair.left.type === 'empty' && 'text-transparent',
-                )}
-              >
-                {pair.left.content || '\u00A0'}
-              </span>
+              <div className="flex px-2 py-0.5 whitespace-pre min-w-max">
+                <span className="select-none text-slate-600 w-8 text-right pr-2 flex-shrink-0">
+                  {pair.left.lineNum ?? ''}
+                </span>
+                <span
+                  className={cn(
+                    pair.left.type === 'removed' && 'text-red-300',
+                    pair.left.type === 'unchanged' && 'text-slate-300',
+                    pair.left.type === 'empty' && 'text-transparent',
+                  )}
+                >
+                  {pair.left.content || '\u00A0'}
+                </span>
+              </div>
             </div>
-          ))}
-        </pre>
 
-        {/* Right Column */}
-        <pre className="flex-1 text-sm font-mono bg-slate-900">
-          {pairs.map((pair, idx) => (
+            {/* Right Cell */}
             <div
-              key={idx}
               className={cn(
-                'flex px-2 py-0.5',
+                'overflow-x-auto',
                 pair.right.type === 'added' && 'bg-green-900/30',
                 pair.right.type === 'empty' && 'bg-slate-900/50',
               )}
             >
-              <span className="select-none text-slate-600 w-8 text-right pr-2 flex-shrink-0">
-                {pair.right.lineNum ?? ''}
-              </span>
-              <span
-                className={cn(
-                  'flex-1',
-                  pair.right.type === 'added' && 'text-green-300',
-                  pair.right.type === 'unchanged' && 'text-slate-300',
-                  pair.right.type === 'empty' && 'text-transparent',
-                )}
-              >
-                {pair.right.content || '\u00A0'}
-              </span>
+              <div className="flex px-2 py-0.5 whitespace-pre min-w-max">
+                <span className="select-none text-slate-600 w-8 text-right pr-2 flex-shrink-0">
+                  {pair.right.lineNum ?? ''}
+                </span>
+                <span
+                  className={cn(
+                    pair.right.type === 'added' && 'text-green-300',
+                    pair.right.type === 'unchanged' && 'text-slate-300',
+                    pair.right.type === 'empty' && 'text-transparent',
+                  )}
+                >
+                  {pair.right.content || '\u00A0'}
+                </span>
+              </div>
             </div>
-          ))}
-        </pre>
-      </div>
+          </div>
+        ))}
+      </pre>
     </div>
   );
 };

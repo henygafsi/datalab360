@@ -772,14 +772,8 @@ export default function ExploreDesignPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
 
-  // Persist last selected project to localStorage for restore on refresh
-  const lastProjectId = typeof window !== 'undefined'
-    ? localStorage.getItem('explore-design-last-project-id')
-    : null;
-  const lastProjectName = typeof window !== 'undefined'
-    ? localStorage.getItem('explore-design-last-project-name')
-    : null;
-  const autoProjectId = urlProjectId || lastProjectId;
+  // Only auto-select from URL query param (deep-linking), NOT from localStorage
+  const autoProjectId = urlProjectId || null;
 
   // Role-based access: viewer = read-only, editor/owner = full access
   const [userRole, setUserRole] = useState<ContributorRole | null>(null);
@@ -1155,11 +1149,21 @@ export default function ExploreDesignPage() {
     setShowConflictModal(false);
   }, [currentConflict, events, selectedProjectId, updateEventStatus, addEvent]);
 
-  // On mount: clear stale events and remove legacy localStorage key
+  // On mount: clear ALL stale state — events, selections, localStorage keys, DDL refs
   useEffect(() => {
     clearEvents();
+    setSelectedDatabase('');
+    setSchemas([]);
+    setSelectedSchemas(new Map());
+    setTables([]);
+    setSelectedTable(null);
+    setTableColumns([]);
     localStorage.removeItem('explore-design-events');
-    cleanupEmptyEvents();
+    localStorage.removeItem('explore-design-last-project-id');
+    localStorage.removeItem('explore-design-last-project-name');
+    localStorage.removeItem('d360_last_project_id');
+    ddlEventMapRef.current.clear();
+    prevEventIdsRef.current.clear();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stats - exclude default DWH tables from catalog stats
@@ -1255,10 +1259,10 @@ export default function ExploreDesignPage() {
     }
   }, [isOffline, connectionError, router]);
 
-  // Load databases on mount (only when connected)
+  // Load databases only after a project is selected
   useEffect(() => {
+    if (!selectedProjectId) return;
     const loadDatabases = async () => {
-      // Don't load if offline
       if (isOffline) {
         return;
       }
@@ -1288,7 +1292,7 @@ export default function ExploreDesignPage() {
       }
     };
     loadDatabases();
-  }, [isOffline, router]);
+  }, [selectedProjectId, isOffline, router]);
 
   // Load masking policies on mount
   useEffect(() => {
@@ -1489,14 +1493,7 @@ export default function ExploreDesignPage() {
       try {
         const schemaList = await getSchemas(selectedDatabase);
         setSchemas(schemaList || []);
-        // Auto-select first schema when none are selected (cascade: db → schemas → tables)
-        if (Array.isArray(schemaList) && schemaList.length > 0) {
-          setSelectedSchemas(prev => {
-            if (prev.size > 0) return prev; // Already has selections — don't override
-            const defaultSchema = schemaList.find((s: string) => s === 'RETAIL_DW') || schemaList[0];
-            return new Map([[defaultSchema, selectedDatabase]]);
-          });
-        }
+      
       } catch (error) {
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
@@ -1914,13 +1911,29 @@ export default function ExploreDesignPage() {
         }
       }
 
-      // Update selected project + persist to localStorage for auto-restore
+      // Clear ALL state from previous project BEFORE setting the new one
+      clearEvents();
+      ddlEventMapRef.current.clear();
+      prevEventIdsRef.current.clear();
+      setSelectedDatabase('');
+      setSchemas([]);
+      setSelectedSchemas(new Map());
+      setTables([]);
+      setSelectedTable(null);
+      setTableColumns([]);
+      setBackendMappings([]);
+      setModelingTableIds(new Set());
+      setTargetTableIds(new Set());
+      setDefaultRelationships([]);
+      setDefaultModelingTablesLoaded(false);
+      setModelingChoice(null);
+      setDwhTargetDatabase(null);
+      setDwhTargetSchema(null);
+      setTableColumnsMap(new Map());
+
+      // Set new project
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
-      localStorage.setItem('explore-design-last-project-id', projectId);
-      localStorage.setItem('explore-design-last-project-name', projectName);
-      setBackendMappings([]);
-      try { localStorage.setItem('d360_last_project_id', projectId); } catch {};
 
       // Determine user's role for this project
       try {
@@ -2748,8 +2761,8 @@ export default function ExploreDesignPage() {
   return (
     <ErrorBoundary>
     <div className={cn(
-      "flex flex-col",
-      isFullscreen ? "h-screen" : "h-[calc(100vh-84px)]"
+      "flex flex-col -mx-6 -mt-6 -mb-12 md:-mx-8 lg:-mx-10 lg:-mb-16 xl:-mx-12 2xl:-mx-16",
+      isFullscreen ? "h-screen" : "h-[calc(100dvh-64px)]"
     )}>
       {/* Offline Warning Banner */}
       {isOffline && (
@@ -2900,95 +2913,29 @@ export default function ExploreDesignPage() {
               </Button>
             </Tooltip>
 
-            {/* Event Templates (local) */}
-            <Tooltip content="Event Templates — save & reuse patterns">
-              <Button
-                aria-label="Event templates"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowTemplateLibrary(true)}
-                className="p-1.5"
-              >
-                <BookTemplate className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            {/* Server Event Templates (API-backed) */}
-            {selectedProjectId && (
-              <Tooltip content="Apply Server Template">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowEventTemplatePicker(true)}
-                  className="p-1.5"
-                >
-                  <Layers className="h-3.5 w-3.5" />
-                </Button>
+            {/* Tools group — compact icon buttons */}
+            <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded p-0.5">
+              <Tooltip content="Event Templates">
+                <button onClick={() => setShowTemplateLibrary(true)} className="p-1.5 rounded hover:bg-white dark:hover:bg-slate-700 transition-colors">
+                  <BookTemplate className="h-3.5 w-3.5 text-slate-500" />
+                </button>
               </Tooltip>
-            )}
-
-            {/* Audit Trail */}
-            {selectedProjectId && (
-              <Tooltip content="Audit Trail">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAuditTrail(true)}
-                  className="p-1.5"
-                >
-                  <History className="h-3.5 w-3.5" />
-                </Button>
+              <Tooltip content="DAG Viewer">
+                <button onClick={() => setShowDagViewer(!showDagViewer)} className={cn('p-1.5 rounded transition-colors', showDagViewer ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
+                  <Workflow className={cn('h-3.5 w-3.5', showDagViewer ? 'text-violet-600' : 'text-slate-500')} />
+                </button>
               </Tooltip>
-            )}
-
-            {/* DAG Viewer */}
-            <Tooltip content="Dependency Graph (DAG)">
-              <Button
-                aria-label="Dependency graph"
-                variant="outline"
-                size="sm"
-                onClick={() => setShowDagViewer(!showDagViewer)}
-                className={cn('p-1.5', showDagViewer && 'bg-violet-100 dark:bg-violet-900/30')}
-              >
-                <Workflow className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            {/* Impact Analysis */}
-            <Tooltip content="Impact Analysis">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowImpactAnalysis(!showImpactAnalysis)}
-                className={cn('p-1.5', showImpactAnalysis && 'bg-amber-100 dark:bg-amber-900/30')}
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            {/* Ingestion Results */}
-            <Tooltip content="Ingestion Runs">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowIngestionResults(!showIngestionResults)}
-                className={cn('p-1.5', showIngestionResults && 'bg-teal-100 dark:bg-teal-900/30')}
-              >
-                <BarChart3 className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            {/* AI Intelligence */}
-            <Tooltip content="AI Intelligence">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowAiPanel(!showAiPanel)}
-                className={cn('p-1.5', showAiPanel && 'bg-purple-100 dark:bg-purple-900/30')}
-              >
-                <Sparkles className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
+              <Tooltip content="Ingestion Runs">
+                <button onClick={() => setShowIngestionResults(!showIngestionResults)} className={cn('p-1.5 rounded transition-colors', showIngestionResults ? 'bg-teal-100 dark:bg-teal-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
+                  <BarChart3 className={cn('h-3.5 w-3.5', showIngestionResults ? 'text-teal-600' : 'text-slate-500')} />
+                </button>
+              </Tooltip>
+              <Tooltip content="AI Intelligence">
+                <button onClick={() => setShowAiPanel(!showAiPanel)} className={cn('p-1.5 rounded transition-colors', showAiPanel ? 'bg-purple-100 dark:bg-purple-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
+                  <Sparkles className={cn('h-3.5 w-3.5', showAiPanel ? 'text-purple-600' : 'text-slate-500')} />
+                </button>
+              </Tooltip>
+            </div>
 
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
 
@@ -3059,19 +3006,6 @@ export default function ExploreDesignPage() {
               {displayablePendingEvents.length > 0 && (
                 <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{displayablePendingEvents.length}</Badge>
               )}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-1 border-emerald-300 text-emerald-700 hover:bg-emerald-50 px-2.5 py-1"
-              onClick={() => {
-                if (readOnlyGuard()) return;
-                setShowIngestionModal(true);
-              }}
-              disabled={isReadOnly}
-            >
-              <Columns3 className="h-3.5 w-3.5" />
-              <span className="text-xs">Ingestion</span>
             </Button>
           </div>
         </div>
@@ -3166,8 +3100,8 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Compact Source Selector - Horizontal bar */}
-      {!isFullscreen && (
+      {/* Compact Source Selector - Horizontal bar (hidden until project selected) */}
+      {!isFullscreen && selectedProjectId && (
         <CompactSourceSelector
           databases={databases}
           selectedDatabase={selectedDatabase}
@@ -3184,7 +3118,7 @@ export default function ExploreDesignPage() {
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* LEFT Panel - Tables List (collapsible) */}
         {showSidebar && viewMode === 'catalog' && (() => {
           const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
@@ -4392,38 +4326,6 @@ export default function ExploreDesignPage() {
         )}
       </div>
 
-      {/* ── Phase 2-6 Panels ──────────────────────────────────────── */}
-
-      {/* DAG Dependency Graph */}
-      {showDagViewer && selectedProjectId && (
-        <div className="border-t dark:border-slate-800">
-          <ErrorBoundary>
-            <DagViewer projectId={selectedProjectId} className="m-3" />
-          </ErrorBoundary>
-        </div>
-      )}
-
-      {/* Impact Analysis */}
-      {showImpactAnalysis && selectedProjectId && (
-        <div className="border-t dark:border-slate-800">
-          <ImpactAnalysisPanel projectId={selectedProjectId} className="m-3" />
-        </div>
-      )}
-
-      {/* Ingestion Results */}
-      {showIngestionResults && selectedProjectId && (
-        <div className="border-t dark:border-slate-800">
-          <IngestionResultsPanel projectId={selectedProjectId} className="m-3" />
-        </div>
-      )}
-
-      {/* AI Intelligence Panel */}
-      {showAiPanel && (
-        <div className="border-t dark:border-slate-800 p-3">
-          <AiFeatureToggle />
-        </div>
-      )}
-
       {/* Bulk Actions Bar */}
       <BulkActionsBar
         selectedCount={selectedTables.size}
@@ -4540,6 +4442,54 @@ export default function ExploreDesignPage() {
               Cancel
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* DAG Dependency Graph Modal */}
+      <Modal isOpen={showDagViewer && !!selectedProjectId} onClose={() => setShowDagViewer(false)} size="full" className="max-w-6xl">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Workflow className="h-5 w-5 text-violet-600" />
+              Dependency Graph (DAG)
+            </h3>
+            <button onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          {selectedProjectId && <DagViewer projectId={selectedProjectId} className="h-[70vh]" />}
+        </div>
+      </Modal>
+
+      {/* Ingestion Results Modal */}
+      <Modal isOpen={showIngestionResults && !!selectedProjectId} onClose={() => setShowIngestionResults(false)} size="full" className="max-w-5xl">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-teal-500" />
+              Ingestion Runs
+            </h3>
+            <button onClick={() => setShowIngestionResults(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          {selectedProjectId && <IngestionResultsPanel projectId={selectedProjectId} className="max-h-[70vh] overflow-auto" />}
+        </div>
+      </Modal>
+
+      {/* AI Intelligence Modal */}
+      <Modal isOpen={showAiPanel} onClose={() => setShowAiPanel(false)} size="lg">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-500" />
+              AI Intelligence
+            </h3>
+            <button onClick={() => setShowAiPanel(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          <AiFeatureToggle />
         </div>
       </Modal>
 

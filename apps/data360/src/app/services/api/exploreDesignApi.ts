@@ -81,6 +81,8 @@ import type {
   // New Feature Endpoints
   DryRunRequest,
   DryRunResult,
+  FullDryRunRequest,
+  FullDryRunResult,
   PostVerifyRequest,
   PostVerifyResult,
   ImpactAnalysisRequest,
@@ -95,6 +97,7 @@ import type {
   // Phase A — Event Validation
   ValidateFkTypesRequest,
   ValidateFkTypesResult,
+  ValidateFkTypesProjectResult,
   CascadeRenameRequest,
   CascadeRenameResult,
   CascadeDropRequest,
@@ -695,6 +698,17 @@ export async function dryRunDeployment(
   return data;
 }
 
+export async function fullDryRun(
+  projectId: string,
+  body?: FullDryRunRequest,
+) {
+  const { data } = await apiClient.post<FullDryRunResult>(
+    `${PREFIX}/${projectId}/full-dry-run`,
+    body ?? {},
+  );
+  return data;
+}
+
 // ============================================================================
 // Post-Verify (schema comparison after deploy)
 // ============================================================================
@@ -789,6 +803,7 @@ export async function checkConflicts(
 // Phase A — Event Validation
 // ============================================================================
 
+// Mode B — validate a specific FK pair
 export async function validateFkTypes(
   projectId: string,
   body: ValidateFkTypesRequest,
@@ -796,6 +811,17 @@ export async function validateFkTypes(
   const { data } = await apiClient.post<ValidateFkTypesResult>(
     `${PREFIX}/${projectId}/validate/fk-types`,
     body,
+  );
+  return data;
+}
+
+// Mode A — project-wide FK scan (empty body)
+export async function validateAllFkTypes(
+  projectId: string,
+) {
+  const { data } = await apiClient.post<ValidateFkTypesProjectResult>(
+    `${PREFIX}/${projectId}/validate/fk-types`,
+    {},
   );
   return data;
 }

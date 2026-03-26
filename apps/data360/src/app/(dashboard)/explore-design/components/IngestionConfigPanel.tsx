@@ -96,6 +96,8 @@ interface IngestionConfigPanelProps {
   /** Source table reference for SQL preview */
   sourceTable?: TableReference | null;
   projectId?: string | null;
+  /** When true, only show Mode tab (hide DDL, Snowpipe, Batch) */
+  modeOnly?: boolean;
   className?: string;
 }
 
@@ -110,6 +112,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
   columnMappings = [],
   sourceTable,
   projectId,
+  modeOnly = false,
   className,
 }) => {
   const { addEvent } = useEventStore();
@@ -280,18 +283,21 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
 
   return (
     <div className={cn('flex flex-col h-full', className)}>
-      {/* Header */}
-      <div className="px-4 py-3 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
-        <h3 className="font-semibold flex items-center gap-2">
-          <Settings className="h-4 w-4" />
-          Ingestion Configuration
-        </h3>
-        <p className="text-xs text-slate-500 mt-1">
-          {table.database}.{table.schema}.{table.table}
-        </p>
-      </div>
+      {/* Header — hidden in modeOnly (parent shows context) */}
+      {!modeOnly && (
+        <div className="px-4 py-3 border-b dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+          <h3 className="font-semibold flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Ingestion Configuration
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            {table.database}.{table.schema}.{table.table}
+          </p>
+        </div>
+      )}
 
-      {/* Tabs */}
+      {/* Tabs — hidden when modeOnly */}
+      {!modeOnly && (
       <div className="flex border-b dark:border-slate-700">
         {[
           { key: 'mode', label: 'Mode', icon: Layers },
@@ -314,6 +320,7 @@ const IngestionConfigPanel: React.FC<IngestionConfigPanelProps> = ({
           </button>
         ))}
       </div>
+      )}
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-4">

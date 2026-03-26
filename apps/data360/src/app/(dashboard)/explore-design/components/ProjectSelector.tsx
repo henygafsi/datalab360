@@ -273,50 +273,22 @@ export default function ProjectSelector({
   const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
   const autoSelectedRef = useRef(false);
 
-  // Auto-select project from URL query param OR most recent project
+  // Auto-select ONLY from URL query param (deep-linking)
   useEffect(() => {
-    if (autoSelectedRef.current || loading || projects.length === 0) return;
-
-    // Priority 1: URL query param
-    if (autoSelectProjectId) {
-      const match = projects.find((p) => p.project_id === autoSelectProjectId);
-      if (match) {
-        autoSelectedRef.current = true;
-        onProjectSelect(match.project_id, match.name);
-        return;
-      }
+    if (autoSelectedRef.current || loading || !autoSelectProjectId) return;
+    const match = projects.find((p) => p.project_id === autoSelectProjectId);
+    if (match) {
+      autoSelectedRef.current = true;
+      onProjectSelect(match.project_id, match.name);
     }
+  }, [loading, projects, autoSelectProjectId, onProjectSelect]);
 
-    // Priority 2: Last used project from localStorage
-    const lastProjectId = localStorage.getItem('d360_last_project_id');
-    if (lastProjectId) {
-      const match = projects.find((p) => p.project_id === lastProjectId);
-      if (match) {
-        autoSelectedRef.current = true;
-        onProjectSelect(match.project_id, match.name);
-        return;
-      }
-    }
-
-    // Priority 3: Most recent project (first in list, sorted by created_at desc)
-    if (!selectedProjectId) {
-      const sorted = [...projects].sort((a, b) =>
-        (b.created_at || '').localeCompare(a.created_at || '')
-      );
-      if (sorted.length > 0) {
-        autoSelectedRef.current = true;
-        onProjectSelect(sorted[0].project_id, sorted[0].name);
-        return;
-      }
-    }
-  }, [loading, projects, autoSelectProjectId, selectedProjectId, onProjectSelect]);
-
-  // Show modal only when no projects exist at all
+  // Always open modal when no project is selected (user must pick)
   useEffect(() => {
-    if (!loading && !selectedProjectId && !autoSelectProjectId && projects.length === 0) {
+    if (!loading && !selectedProjectId) {
       setShowModal(true);
     }
-  }, [loading, selectedProjectId, autoSelectProjectId, projects.length]);
+  }, [loading, selectedProjectId]);
 
   return (
     <>

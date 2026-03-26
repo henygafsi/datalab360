@@ -232,7 +232,7 @@ export default function StepConfigure() {
         )}
       </div>
 
-      {/* Version Type */}
+      {/* Version Type
       <div>
         <h3 className="text-sm font-semibold mb-2">Version Bump</h3>
         <div className="flex gap-2">
@@ -253,7 +253,7 @@ export default function StepConfigure() {
         </div>
       </div>
 
-      {/* Changelog */}
+      {/* Changelog 
       <div>
         <label className="text-sm font-semibold block mb-2">Changelog Summary</label>
         <Input
@@ -262,7 +262,7 @@ export default function StepConfigure() {
           value={config.changelogSummary}
           onChange={(e) => updateConfig('changelogSummary', e.target.value)}
         />
-      </div>
+      </div>*/}
 
       {/* Approvers (if with_approval) */}
       {config.deploymentType === 'with_approval' && (
@@ -367,6 +367,7 @@ export default function StepConfigure() {
                           transformation: m.transformation,
                         }))}
                         projectId={projectId}
+                        modeOnly
                       />
                     </div>
                   )}

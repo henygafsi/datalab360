@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils';
 import { Button, Badge } from 'rizzui';
 import {
   ChevronDown, ChevronRight, FileCode, Database, Download, Copy,
-  Eye, EyeOff,
+  Eye, EyeOff, Pencil, Check, X,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useDeploymentContext } from './DeploymentContext';
@@ -20,6 +20,9 @@ export default function StepReview() {
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
   const [showSQL, setShowSQL] = useState(false);
   const [showRollback, setShowRollback] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<string | null>(null);
+  const [editedSQL, setEditedSQL] = useState('');
+  const [sqlOverrides, setSqlOverrides] = useState<Map<string, string>>(new Map());
 
   const ddlPendingEvents = useMemo(
     () => pendingEvents.filter(e => DDL_EVENT_TYPES.includes(e.type)),
@@ -61,7 +64,17 @@ export default function StepReview() {
     };
   }, [events, ddlPendingEvents]);
 
-  const allSQL = useMemo(() => generateDeploymentScript(pendingEvents, projectId, database), [pendingEvents, projectId, database]);
+  const allSQL = useMemo(() => {
+    if (sqlOverrides.size === 0) {
+      return generateDeploymentScript(pendingEvents, projectId, database);
+    }
+    const header = `-- =============================================\n-- Data Model Changes - Deployment Script\n-- Generated: ${new Date().toISOString()}\n-- Project: ${projectId}\n-- Database: ${database || 'N/A'}\n-- Events: ${pendingEvents.length}\n-- =============================================\n\n`;
+    return header + pendingEvents.map((e, idx) => {
+      const eventSql = sqlOverrides.get(e.id) ?? generateSnowflakeSQL(e).sql;
+      return `-- [${idx + 1}/${pendingEvents.length}] ${e.type} on ${e.target.table}\n${eventSql}`;
+    }).join('\n\n');
+  }, [pendingEvents, projectId, database, sqlOverrides]);
+
   const allRollbackSQL = useMemo(() => generateRollbackScript(pendingEvents, projectId), [pendingEvents, projectId]);
 
   const toggleExpand = (id: string) => {
@@ -88,6 +101,36 @@ export default function StepReview() {
       await navigator.clipboard.writeText(allSQL);
       toast.success('SQL copied to clipboard');
     } catch { toast.error('Failed to copy SQL'); }
+  };
+
+  const handleStartEdit = (eventId: string, currentSql: string) => {
+    setEditingEvent(eventId);
+    setEditedSQL(currentSql);
+  };
+
+  const handleSaveEdit = (eventId: string) => {
+    setSqlOverrides(prev => {
+      const next = new Map(prev);
+      next.set(eventId, editedSQL);
+      return next;
+    });
+    setEditingEvent(null);
+    setEditedSQL('');
+    toast.success('SQL override saved');
+  };
+
+  const handleCancelEdit = () => {
+    setEditingEvent(null);
+    setEditedSQL('');
+  };
+
+  const handleRevertOverride = (eventId: string) => {
+    setSqlOverrides(prev => {
+      const next = new Map(prev);
+      next.delete(eventId);
+      return next;
+    });
+    toast.success('Reverted to generated SQL');
   };
 
   return (
@@ -133,7 +176,11 @@ export default function StepReview() {
               <div className="divide-y dark:divide-slate-700">
                 {tableEvents.map(event => {
                   const isExpanded = expandedEvents.has(event.id);
-                  const { sql, rollbackSql } = generateSnowflakeSQL(event);
+                  const generatedSql = generateSnowflakeSQL(event).sql;
+                  const { rollbackSql } = generateSnowflakeSQL(event);
+                  const sql = sqlOverrides.get(event.id) ?? generatedSql;
+                  const hasOverride = sqlOverrides.has(event.id);
+                  const isEditing = editingEvent === event.id;
                   return (
                     <div key={event.id}>
                       <button
@@ -150,12 +197,67 @@ export default function StepReview() {
                           {formatEventType(event.type)}
                         </Badge>
                         <span className="text-xs text-slate-500 truncate">{getEventSummary(event)}</span>
+                        {hasOverride && (
+                          <Badge size="sm" className="bg-purple-100 text-purple-600 text-[10px] shrink-0 ml-auto">
+                            edited
+                          </Badge>
+                        )}
                       </button>
                       {isExpanded && (
                         <div className="px-4 pb-3 pl-10">
-                          <pre className="text-xs bg-slate-900 text-green-400 p-3 rounded-lg overflow-x-auto">{sql}</pre>
-                          {rollbackSql && (
-                            <pre className="text-xs bg-slate-900 text-red-400 p-3 rounded-lg overflow-x-auto mt-2">{rollbackSql}</pre>
+                          {isEditing ? (
+                            <div className="space-y-2">
+                              <textarea
+                                className="w-full text-xs font-mono bg-slate-900 text-green-400 p-3 rounded-lg border border-slate-600 focus:border-blue-500 focus:outline-none resize-y min-h-[120px]"
+                                value={editedSQL}
+                                onChange={e => setEditedSQL(e.target.value)}
+                                rows={Math.max(6, editedSQL.split('\n').length + 1)}
+                              />
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  size="sm"
+                                  className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                                  onClick={() => handleSaveEdit(event.id)}
+                                >
+                                  <Check className="h-3.5 w-3.5" /> Save
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5"
+                                  onClick={handleCancelEdit}
+                                >
+                                  <X className="h-3.5 w-3.5" /> Cancel
+                                </Button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <pre className="text-xs bg-slate-900 text-green-400 p-3 rounded-lg overflow-x-auto">{sql}</pre>
+                              {rollbackSql && (
+                                <pre className="text-xs bg-slate-900 text-red-400 p-3 rounded-lg overflow-x-auto">{rollbackSql}</pre>
+                              )}
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="gap-1.5 text-xs"
+                                  onClick={() => handleStartEdit(event.id, sql)}
+                                >
+                                  <Pencil className="h-3 w-3" /> Edit SQL
+                                </Button>
+                                {hasOverride && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 text-xs text-amber-600 border-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
+                                    onClick={() => handleRevertOverride(event.id)}
+                                  >
+                                    Revert to Generated
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
                           )}
                         </div>
                       )}
