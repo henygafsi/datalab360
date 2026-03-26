@@ -43,21 +43,21 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
             <ShieldPlus className="h-5 w-5 text-primary" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Add New Role</h3>
-            <p className="text-xs text-gray-500">Define a new role for access control</p>
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Add New Role</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Define a new role for access control</p>
           </div>
         </div>
         <button
           type="button"
           aria-label="Close form"
           onClick={onClose}
-          className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-200"
         >
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="h-px bg-gray-100" />
+      <div className="h-px bg-gray-100 dark:bg-gray-700" />
 
       {/* Form */}
       <form onSubmit={handleFormSubmit} className="space-y-5 px-5 pt-5 pb-6">
@@ -71,7 +71,7 @@ export default function AddRoleForm({ onAddRoleSuccess, onClose }: AddRoleFormPr
         />
 
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">
+          <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-600 dark:text-red-400">
             {error}
           </div>
         )}

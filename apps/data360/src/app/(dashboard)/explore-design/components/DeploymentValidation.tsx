@@ -932,6 +932,7 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
   const [selectedSchemaVersionId, setSelectedSchemaVersionId] = useState<string | null>(null);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+  const [isRollingBack, setIsRollingBack] = useState(false);
   const [deploymentPhase, setDeploymentPhase] = useState<'schema' | 'ingestion' | 'complete'>('schema');
   const [schemaDeploymentResult, setSchemaDeploymentResult] = useState<DeploymentResult | null>(null);
 
@@ -2276,8 +2277,11 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                     variant="outline"
                     size="sm"
                     className="text-xs text-amber-600 border-amber-300 hover:bg-amber-50 gap-1"
+                    disabled={isRollingBack}
                     onClick={async () => {
+                      if (isRollingBack) return;
                       if (confirm('Are you sure you want to rollback to the previous schema version?')) {
+                        setIsRollingBack(true);
                         try {
                           toast.loading('Rolling back schema...');
                           const result = await rollbackVersion(projectId, {
@@ -2294,6 +2298,8 @@ const DeploymentValidation: React.FC<DeploymentValidationProps> = ({
                         } catch (error: any) {
                           toast.dismiss();
                           toast.error(`Rollback error: ${getApiErrorMessage(error)}`);
+                        } finally {
+                          setIsRollingBack(false);
                         }
                       }
                     }}

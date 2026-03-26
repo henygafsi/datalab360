@@ -2,9 +2,9 @@
 // ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
 
-/** Legacy explore-design prefix (relative, apiClient adds baseURL) */
-const ED = '/explore-design';
-/** New v1 explore-design prefix (uses apiClient with built-in auth) */
+/** Explore-design prefix — unified to match backend router at /api/v1/explore-design */
+const ED = '/api/v1/explore-design';
+/** Alias for V1 explore-design prefix (same as ED) */
 const V1_EXPLORE = '/api/v1/explore-design';
 
 // Types

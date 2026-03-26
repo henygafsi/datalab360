@@ -83,6 +83,7 @@ const TAB_ENDPOINTS: Record<string, string> = {
   cost: 'cost-metrics',
   security: 'security-posture',
   dmf: 'dmf-results',
+  pii: 'pii-detection',
 };
 
 const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -95,6 +96,7 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   cost: DollarSign,
   security: Shield,
   dmf: FileSearch,
+  pii: Shield,
 };
 
 const TAB_LABELS: Record<string, string> = {
@@ -107,6 +109,7 @@ const TAB_LABELS: Record<string, string> = {
   cost: 'Storage',
   security: 'Security',
   dmf: 'DMF Results',
+  pii: 'PII Detection',
 };
 
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
@@ -688,6 +691,30 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'MEASUREMENT_TIME', label: 'Checked' },
         { key: 'STATUS', label: 'Status', format: (v) => <StatusBadge status={v} /> },
       ];
+    case 'pii':
+      return [
+        { key: 'TABLE_NAME', label: 'Table' },
+        { key: 'COLUMN_NAME', label: 'Column' },
+        { key: 'PII_TYPE', label: 'PII Type', format: (v) => {
+          const t = String(v || '');
+          const color = t.includes('EMAIL') || t.includes('PHONE') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
+            : t.includes('SSN') || t.includes('CREDIT') ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+            : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+          return <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', color)}>{t}</span>;
+        }},
+        { key: 'CONFIDENCE', label: 'Confidence', format: (v) => {
+          const pct = Number(v || 0);
+          const color = pct >= 90 ? 'text-red-600 dark:text-red-400' : pct >= 70 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400';
+          return <span className={cn('font-semibold', color)}>{pct.toFixed(0)}%</span>;
+        }},
+        { key: 'SAMPLE_COUNT', label: 'Matches', format: (v) => Number(v || 0).toLocaleString() },
+        { key: 'POLICY_APPLIED', label: 'Protected', format: (v) => {
+          const applied = v === true || v === 'true' || v === 'YES';
+          return applied
+            ? <span className="text-green-600 dark:text-green-400 font-medium text-xs">Protected</span>
+            : <span className="text-red-600 dark:text-red-400 font-medium text-xs">Exposed</span>;
+        }},
+      ];
     default:
       return [];
   }
@@ -704,6 +731,7 @@ function getTabEmptyMsg(tab: string): string {
     cost: 'No storage data available',
     security: 'No security posture data available',
     dmf: 'No DMF results. Associate DMFs to tables via Governance > Policies.',
+    pii: 'No PII scan results. Run SYSTEM$CLASSIFY or click "Scan for PII" to detect sensitive data.',
   };
   return msgs[tab] || 'No data available';
 }
@@ -905,6 +933,8 @@ export default function DataQualityPage() {
   const [showThresholdModal, setShowThresholdModal] = useState(false);
   const [thresholdForm, setThresholdForm] = useState({ table_name: '', metric: 'completeness', threshold: 90, alert_on_breach: true });
   const [runningCheck, setRunningCheck] = useState(false);
+  const [piiScanning, setPiiScanning] = useState(false);
+  const [autoProtecting, setAutoProtecting] = useState(false);
 
   // react-hook-form for threshold form
   const {
@@ -1505,6 +1535,109 @@ export default function DataQualityPage() {
             );
           })}
         </div>
+
+        {/* PII Detection action bar */}
+        {activeTab === 'pii' && (
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-amber-50/50 dark:bg-amber-900/10">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Shield className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">PII Scanner</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Detect personally identifiable information using Snowflake SYSTEM$CLASSIFY and regex patterns</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={piiScanning}
+                  className="gap-1.5 text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                  onClick={async () => {
+                    setPiiScanning(true);
+                    try {
+                      await apiClient.post('/gouvernance/classification/classify', { table_name: 'CP_DATA360.PUBLIC.*' });
+                      toast.success('PII scan triggered — refreshing results');
+                      // Reload PII tab data after scan
+                      setTimeout(() => loadTabData('pii', true, 1, pageSize), 2000);
+                    } catch (err: any) {
+                      toast.error(err?.response?.data?.detail || 'PII scan failed');
+                    } finally {
+                      setPiiScanning(false);
+                    }
+                  }}
+                >
+                  <Search className={cn('h-3.5 w-3.5', piiScanning && 'animate-spin')} />
+                  {piiScanning ? 'Scanning...' : 'Scan for PII'}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 text-xs"
+                  disabled={autoProtecting}
+                  onClick={async () => {
+                    if (autoProtecting) return;
+                    const piiRows = tabData.pii || [];
+                    const exposedCols = piiRows.filter((r: any) => !r.POLICY_APPLIED || r.POLICY_APPLIED === 'false' || r.POLICY_APPLIED === 'NO');
+                    if (exposedCols.length === 0) {
+                      toast.success('All PII columns are already protected');
+                      return;
+                    }
+                    setAutoProtecting(true);
+                    toast.loading(`Applying masking to ${exposedCols.length} exposed columns...`, { id: 'auto-protect' });
+                    try {
+                      for (const col of exposedCols.slice(0, 10)) {
+                        await apiClient.post('/gouvernance/masking-policies/apply', {
+                          table_name: col.TABLE_NAME,
+                          column_name: col.COLUMN_NAME,
+                          policy_type: 'auto',
+                        }).catch(() => {});
+                      }
+                      toast.success(`Masking applied to ${Math.min(exposedCols.length, 10)} columns`, { id: 'auto-protect' });
+                      loadTabData('pii', true, 1, pageSize);
+                    } catch {
+                      toast.error('Auto-protect failed', { id: 'auto-protect' });
+                    } finally {
+                      setAutoProtecting(false);
+                    }
+                  }}
+                >
+                  <Shield className="h-3.5 w-3.5" />
+                  {autoProtecting ? 'Protecting...' : 'Auto-Protect'}
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-3">
+              {(() => {
+                const piiRows = tabData.pii || [];
+                const types = new Set(piiRows.map((r: any) => r.PII_TYPE)).size;
+                const flagged = piiRows.length;
+                const protectedCount = piiRows.filter((r: any) => r.POLICY_APPLIED === true || r.POLICY_APPLIED === 'true' || r.POLICY_APPLIED === 'YES').length;
+                const exposed = flagged - protectedCount;
+                return (
+                  <>
+                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">PII Types</p>
+                      <p className="text-lg font-bold text-gray-900 dark:text-white">{flagged > 0 ? types : '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Columns Flagged</p>
+                      <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{flagged > 0 ? flagged : '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Protected</p>
+                      <p className="text-lg font-bold text-green-600 dark:text-green-400">{flagged > 0 ? protectedCount : '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
+                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Exposed</p>
+                      <p className="text-lg font-bold text-red-600 dark:text-red-400">{flagged > 0 ? exposed : '—'}</p>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        )}
 
         {/* Tab Content */}
         <div className="min-h-[300px]">

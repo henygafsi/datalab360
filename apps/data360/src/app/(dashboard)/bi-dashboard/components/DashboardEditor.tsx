@@ -105,6 +105,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
   const [snapshotting, setSaving] = useState(false);
   const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
+  const [isExporting, setIsExporting] = useState(false);
 
   // Sync from API data
   useEffect(() => {
@@ -554,7 +555,10 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             variant="outline"
             size="sm"
             className="gap-1.5"
+            disabled={isExporting}
             onClick={async () => {
+              if (isExporting) return;
+              setIsExporting(true);
               try {
                 const dashboardEl = document.querySelector('[data-dashboard-grid]') || document.querySelector('.react-grid-layout');
                 if (!dashboardEl) {
@@ -567,6 +571,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
                 }
               } catch {
                 toast.error('Export failed');
+              } finally {
+                setIsExporting(false);
               }
             }}
           >

@@ -26,7 +26,7 @@ import { DATABASE_CONFIG } from '@/config/database.config';
  * - Provides consistent error handling
  * - Lets components handle errors (no auto-redirect)
  */
-async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
+async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: any): Promise<T> {
   const { data } = await apiClient.request<T>({
     url: endpoint,
     method,
@@ -366,18 +366,18 @@ export async function createServiceUser(body: {
   default_role?: string;
   comment?: string;
 }): Promise<{ message: string; username: string }> {
-  return apiCall('/gouvernance/oauth/service-users', { method: 'POST', data: body });
+  return apiCall('/gouvernance/oauth/service-users', 'POST', body);
 }
 
 export async function assignRSAKey(body: {
   username: string;
   rsa_public_key: string;
 }): Promise<{ message: string; username: string }> {
-  return apiCall('/gouvernance/oauth/assign-rsa-key', { method: 'POST', data: body });
+  return apiCall('/gouvernance/oauth/assign-rsa-key', 'POST', body);
 }
 
 export async function revokeRSAKey(username: string): Promise<{ message: string }> {
-  return apiCall(`/gouvernance/oauth/revoke-rsa-key/${encodeURIComponent(username)}`, { method: 'DELETE' });
+  return apiCall(`/gouvernance/oauth/revoke-rsa-key/${encodeURIComponent(username)}`, 'DELETE');
 }
 
 // Re-export types for convenience

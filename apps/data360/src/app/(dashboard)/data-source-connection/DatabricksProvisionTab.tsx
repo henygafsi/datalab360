@@ -63,6 +63,7 @@ export default function DatabricksProvisionTab() {
   const [catForm, setCatForm] = useState({ name: '', comment: '' });
   const [schForm, setSchForm] = useState({ catalog_name: '', name: '', comment: '' });
   const [clForm, setClForm] = useState({ cluster_name: '', spark_version: '14.3.x-scala2.12', node_type_id: 'Standard_DS3_v2', num_workers: 1, autotermination_minutes: 30 });
+  const [actionInFlight, setActionInFlight] = useState<string | null>(null);
 
   const handleConnect = async (e: FormEvent) => {
     e.preventDefault(); setConnecting(true);
@@ -278,9 +279,9 @@ export default function DatabricksProvisionTab() {
                         <td className={tdc}>{wh.auto_stop_mins ? `${wh.auto_stop_mins}m` : '-'}</td>
                         <td className={tdc}>
                           <div className="flex items-center space-x-1">
-                            <Tooltip content="Start"><Button size="sm" variant="outline" className="border-green-300 text-green-600 dark:border-green-700 dark:text-green-400 p-1.5" onClick={async () => { try { await dbxStartSqlWarehouse(wh.id, creds); toast.success('Starting...'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } }}><Play className="h-3.5 w-3.5" /></Button></Tooltip>
-                            <Tooltip content="Stop"><Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600 dark:border-yellow-700 dark:text-yellow-400 p-1.5" onClick={async () => { try { await dbxStopSqlWarehouse(wh.id, creds); toast.success('Stopping...'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } }}><Pause className="h-3.5 w-3.5" /></Button></Tooltip>
-                            <Tooltip content="Delete"><Button size="sm" variant="outline" className="border-red-300 text-red-600 dark:border-red-700 dark:text-red-400 p-1.5" onClick={async () => { if (!confirm(`Delete warehouse "${wh.name}"?`)) return; try { await dbxDeleteSqlWarehouse(wh.id, creds.host, creds.token); toast.success('Deleted'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } }}><Trash2 className="h-3.5 w-3.5" /></Button></Tooltip>
+                            <Tooltip content="Start"><Button size="sm" variant="outline" className="border-green-300 text-green-600 dark:border-green-700 dark:text-green-400 p-1.5" disabled={actionInFlight !== null} onClick={async () => { if (actionInFlight) return; setActionInFlight(wh.id + '-start'); try { await dbxStartSqlWarehouse(wh.id, creds); toast.success('Starting...'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } finally { setActionInFlight(null); } }}><Play className="h-3.5 w-3.5" /></Button></Tooltip>
+                            <Tooltip content="Stop"><Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600 dark:border-yellow-700 dark:text-yellow-400 p-1.5" disabled={actionInFlight !== null} onClick={async () => { if (actionInFlight) return; setActionInFlight(wh.id + '-stop'); try { await dbxStopSqlWarehouse(wh.id, creds); toast.success('Stopping...'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } finally { setActionInFlight(null); } }}><Pause className="h-3.5 w-3.5" /></Button></Tooltip>
+                            <Tooltip content="Delete"><Button size="sm" variant="outline" className="border-red-300 text-red-600 dark:border-red-700 dark:text-red-400 p-1.5" disabled={actionInFlight !== null} onClick={async () => { if (actionInFlight) return; if (!confirm(`Delete warehouse "${wh.name}"?`)) return; setActionInFlight(wh.id + '-delete'); try { await dbxDeleteSqlWarehouse(wh.id, creds.host, creds.token); toast.success('Deleted'); loadTab('sql-warehouses'); } catch (e: any) { toast.error(_errMsg(e)); } finally { setActionInFlight(null); } }}><Trash2 className="h-3.5 w-3.5" /></Button></Tooltip>
                           </div>
                         </td>
                       </tr>
@@ -351,8 +352,8 @@ export default function DatabricksProvisionTab() {
                         <td className={tdc}>{cl.autoscale ? `${cl.autoscale.min_workers}-${cl.autoscale.max_workers}` : cl.num_workers || '-'}</td>
                         <td className={tdc}>
                           <div className="flex items-center space-x-1">
-                            <Tooltip content="Start"><Button size="sm" variant="outline" className="border-green-300 text-green-600 dark:border-green-700 dark:text-green-400 p-1.5" onClick={async () => { try { await dbxStartCluster(cl.cluster_id, creds); toast.success('Starting...'); loadTab('clusters'); } catch (e: any) { toast.error(_errMsg(e)); } }}><Play className="h-3.5 w-3.5" /></Button></Tooltip>
-                            <Tooltip content="Terminate"><Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600 dark:border-yellow-700 dark:text-yellow-400 p-1.5" onClick={async () => { try { await dbxTerminateCluster(cl.cluster_id, creds); toast.success('Terminating...'); loadTab('clusters'); } catch (e: any) { toast.error(_errMsg(e)); } }}><Pause className="h-3.5 w-3.5" /></Button></Tooltip>
+                            <Tooltip content="Start"><Button size="sm" variant="outline" className="border-green-300 text-green-600 dark:border-green-700 dark:text-green-400 p-1.5" disabled={actionInFlight !== null} onClick={async () => { if (actionInFlight) return; setActionInFlight(cl.cluster_id + '-start'); try { await dbxStartCluster(cl.cluster_id, creds); toast.success('Starting...'); loadTab('clusters'); } catch (e: any) { toast.error(_errMsg(e)); } finally { setActionInFlight(null); } }}><Play className="h-3.5 w-3.5" /></Button></Tooltip>
+                            <Tooltip content="Terminate"><Button size="sm" variant="outline" className="border-yellow-300 text-yellow-600 dark:border-yellow-700 dark:text-yellow-400 p-1.5" disabled={actionInFlight !== null} onClick={async () => { if (actionInFlight) return; setActionInFlight(cl.cluster_id + '-terminate'); try { await dbxTerminateCluster(cl.cluster_id, creds); toast.success('Terminating...'); loadTab('clusters'); } catch (e: any) { toast.error(_errMsg(e)); } finally { setActionInFlight(null); } }}><Pause className="h-3.5 w-3.5" /></Button></Tooltip>
                           </div>
                         </td>
                       </tr>

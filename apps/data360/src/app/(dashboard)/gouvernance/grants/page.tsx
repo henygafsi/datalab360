@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Badge, Button } from 'rizzui';
+import { useState, useEffect, useCallback } from 'react';
+import { Badge, Button, Loader } from 'rizzui';
 import {
   HiOutlineKey,
   HiOutlineCog6Tooth,
@@ -17,11 +17,31 @@ import StageGrantsTable from '@/app/shared/gouvernance/stage-grants/table';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { HiOutlineCube } from 'react-icons/hi2';
+import apiClient from '@/lib/api-client';
 
-type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants';
+type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles';
 
 export default function GrantsManagementPage() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
+  const [d360Roles, setD360Roles] = useState<any[]>([]);
+  const [d360RolesLoading, setD360RolesLoading] = useState(false);
+  const [d360Templates, setD360Templates] = useState<any[]>([]);
+
+  // Fetch D360 roles when tab is active
+  useEffect(() => {
+    if (activeTab !== 'd360-roles') return;
+    let mounted = true;
+    setD360RolesLoading(true);
+    Promise.all([
+      apiClient.get('/gouvernance/d360-roles').then(res => res.data?.roles || res.data?.data || []).catch(() => []),
+      apiClient.get('/gouvernance/d360-roles/templates').then(res => res.data?.templates || res.data?.data || []).catch(() => []),
+    ]).then(([roles, templates]) => {
+      if (!mounted) return;
+      setD360Roles(Array.isArray(roles) ? roles : []);
+      setD360Templates(Array.isArray(templates) ? templates : []);
+    }).finally(() => { if (mounted) setD360RolesLoading(false); });
+    return () => { mounted = false; };
+  }, [activeTab]);
 
   return (
     <ErrorBoundary>
@@ -160,6 +180,23 @@ export default function GrantsManagementPage() {
                 Snowflake
               </Badge>
             </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === 'd360-roles'}
+              aria-controls="tabpanel-d360-roles"
+              onClick={() => setActiveTab('d360-roles')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'd360-roles'
+                  ? 'border-b-2 border-orange-600 text-orange-600 dark:border-orange-400 dark:text-orange-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineCog6Tooth className="h-4 w-4" />
+              D360 Roles
+              <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+                Granular
+              </Badge>
+            </button>
           </div>
         </div>
 
@@ -211,6 +248,91 @@ export default function GrantsManagementPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can read, write, or own data loading stages. Stages are used for file uploads and data ingestion.</p>
             </div>
             <StageGrantsTable />
+          </div>
+        ) : activeTab === 'd360-roles' ? (
+          <div role="tabpanel" id="tabpanel-d360-roles" aria-labelledby="tab-d360-roles">
+            <div className="mb-4">
+              <div className="flex items-center gap-3 mb-1">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  D360 Granular Roles
+                </h2>
+                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+                  <HiOutlineCog6Tooth className="w-3 h-3 mr-1 inline" />
+                  Page-Level RBAC
+                </Badge>
+              </div>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
+            </div>
+            {d360RolesLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader variant="spinner" size="lg" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {/* Templates row */}
+                {d360Templates.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 self-center">Templates:</span>
+                    {d360Templates.map((t: any, i: number) => (
+                      <Badge key={i} className="bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 text-xs cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/40">
+                        {t.name || t.TEMPLATE_NAME || `Template ${i + 1}`}
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                {/* Roles table */}
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role Name</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permissions</th>
+                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+                        <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                      {d360Roles.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
+                            <HiOutlineCog6Tooth className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                            No D360 roles defined yet. Create one or apply a standard template.
+                          </td>
+                        </tr>
+                      ) : (
+                        d360Roles.map((role: any, i: number) => (
+                          <tr key={role.role_name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{role.role_name || role.ROLE_NAME || '—'}</td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{role.description || role.DESCRIPTION || '—'}</td>
+                            <td className="px-4 py-3">
+                              <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">
+                                {role.permission_count ?? role.PERMISSION_COUNT ?? '—'}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{role.created_at || role.CREATED_AT || '—'}</td>
+                            <td className="px-4 py-3 text-right">
+                              <Button size="sm" variant="outline" className="text-xs h-7 px-2"
+                                onClick={() => {
+                                  apiClient.get(`/gouvernance/d360-roles/${encodeURIComponent(role.role_name || role.ROLE_NAME)}/permissions`)
+                                    .then(res => {
+                                      const perms = res.data?.permissions || res.data?.data || [];
+                                      alert(`${(role.role_name || role.ROLE_NAME)} has ${Array.isArray(perms) ? perms.length : 0} permissions`);
+                                    })
+                                    .catch(() => alert('Failed to load permissions'));
+                                }}
+                              >
+                                View
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div role="tabpanel" id="tabpanel-policy-grants" aria-labelledby="tab-policy-grants">

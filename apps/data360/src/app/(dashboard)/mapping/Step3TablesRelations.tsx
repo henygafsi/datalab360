@@ -51,8 +51,8 @@ const TableNode: React.FC<{ data: TableNodeData }> = memo(({ data }) => {
     );
 
     return (
-        <Card className="w-96 shadow-xl rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-50">
-            <CardHeader className="p-2 border-b bg-slate-100 flex flex-row items-center justify-between">
+        <Card className="w-96 shadow-xl rounded-lg overflow-hidden border-2 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800">
+            <CardHeader className="p-2 border-b bg-slate-100 dark:bg-slate-700 flex flex-row items-center justify-between">
                 <CardTitle className="text-base font-semibold truncate">
                     <Badge variant={isSource ? "secondary" : "default"}>{isSource ? 'Source' : 'Target'}</Badge> {tableName}
                 </CardTitle>
@@ -73,11 +73,11 @@ const TableNode: React.FC<{ data: TableNodeData }> = memo(({ data }) => {
             <CardContent className="p-1 max-h-96 overflow-y-auto">
                 <ul className="space-y-1 p-1">
                     {filteredColumns.map((col) => (
-                        <li key={col.name} className="relative flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-slate-200/50 transition-colors">
+                        <li key={col.name} className="relative flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-slate-200/50 dark:hover:bg-slate-600/50 transition-colors">
                             {isSource && <Handle type="source" position={Position.Right} id={col.name} className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white !shadow-md hover:!bg-blue-600 !translate-x-1/2" />}
                             {!isSource && <Handle type="target" position={Position.Left} id={col.name} className="!w-3 !h-3 !bg-green-500 !border-2 !border-white !shadow-md hover:!bg-green-600 !-translate-x-1/2" />}
                             <Label className="flex-grow flex items-center justify-between cursor-default">
-                                <span className="font-medium text-slate-800 text-sm truncate">{col.name}</span>
+                                <span className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">{col.name}</span>
                                 <span className="text-xs text-slate-500 ml-2">({col.data_type})</span>
                             </Label>
                             <div className="flex-shrink-0 ml-2 flex items-center gap-1">

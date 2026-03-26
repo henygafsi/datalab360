@@ -159,7 +159,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
     }
     setLoading(true);
     try {
-      await apiClient.post('/api/v1/explore-design/alerts', {
+      await apiClient.post('/explore-design/alerts', {
         name, warehouse, schedule, condition, action,
         comment: comment || undefined,
         database: sourceTable?.database,
@@ -344,7 +344,7 @@ export default function AlertModal({ isOpen, onClose, sourceTable, warehouses = 
             <Button
               isLoading={loading}
               onClick={handleCreate}
-              disabled={mode === 'templates' || !name || !warehouse}
+              disabled={loading || mode === 'templates' || !name || !warehouse}
               className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-md"
             >
               Create Alert

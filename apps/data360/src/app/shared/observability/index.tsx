@@ -62,6 +62,7 @@ const tabs: TabItem[] = [
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone, description: 'GDPR & SOC 2 reports' },
   { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Snowflake tasks, dependencies & lineage graph' },
   { id: 'cross-module', label: 'Cross-Modules & Objects', icon: PiGitBranch, description: 'Lineage, dependencies & module explorer' },
+  { id: 'impact-analysis', label: 'Impact Analysis', icon: PiWarningCircleBold, description: 'Assess change impact before modifying tables, columns, or policies' },
 ];
 
 // ── Domain icon mapping ──
@@ -1140,6 +1141,211 @@ function TasksLineageTab() {
 
 // ── Main Dashboard ──
 
+// ── Impact Analysis Tab (wired to lineage + dependency APIs) ──
+function ImpactAnalysisTab() {
+  const [impactType, setImpactType] = useState<'table' | 'column' | 'policy' | 'role'>('table');
+  const [impactDb, setImpactDb] = useState('CP_DATA360');
+  const [impactSchema, setImpactSchema] = useState('PUBLIC');
+  const [impactObject, setImpactObject] = useState('');
+  const [impactLoading, setImpactLoading] = useState(false);
+  const [impactResult, setImpactResult] = useState<any>(null);
+
+  const runImpactAnalysis = useCallback(async () => {
+    if (!impactObject.trim()) {
+      toast.error('Enter an object name to analyze');
+      return;
+    }
+    setImpactLoading(true);
+    setImpactResult(null);
+    try {
+      // Fetch downstream lineage for the specified object
+      const lineageRes = await apiClient.get('/observability/data-lineage', {
+        params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
+      });
+      const lineageData = lineageRes.data?.data || lineageRes.data?.lineage || lineageRes.data || [];
+      const rows = Array.isArray(lineageData) ? lineageData : [];
+
+      // Fetch object dependencies
+      const depsRes = await apiClient.get('/observability/object-dependencies', {
+        params: { database: impactDb },
+      }).catch(() => ({ data: { dependencies: [] } }));
+      const deps = depsRes.data?.dependencies || depsRes.data?.data || [];
+      const depsArr = Array.isArray(deps) ? deps : [];
+
+      // Compute impact metrics from lineage
+      const downstreamTables = new Set<string>();
+      const affectedUsers = new Set<string>();
+      rows.forEach((r: any) => {
+        if (r.DIRECT_OBJECTS_ACCESSED) downstreamTables.add(String(r.DIRECT_OBJECTS_ACCESSED));
+        if (r.TARGET_TABLE || r.DOWNSTREAM_TABLE) downstreamTables.add(String(r.TARGET_TABLE || r.DOWNSTREAM_TABLE));
+        if (r.USER_NAME) affectedUsers.add(String(r.USER_NAME));
+      });
+      depsArr.forEach((d: any) => {
+        const ref = d.REFERENCED_OBJECT_NAME || d.referenced_object;
+        if (ref && String(ref).toUpperCase().includes(impactObject.toUpperCase())) {
+          downstreamTables.add(d.REFERENCING_OBJECT_NAME || d.referencing_object || '');
+        }
+      });
+
+      const queryCount = rows.length;
+      const risk = downstreamTables.size > 10 ? 'Critical' : downstreamTables.size > 3 ? 'High' : downstreamTables.size > 0 ? 'Medium' : 'Low';
+
+      setImpactResult({
+        downstreamTables: downstreamTables.size,
+        affectedQueries: queryCount,
+        impactedUsers: affectedUsers.size,
+        riskLevel: risk,
+        details: rows.slice(0, 20),
+        downstream: Array.from(downstreamTables).slice(0, 20),
+        users: Array.from(affectedUsers),
+      });
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || err?.message || 'Impact analysis failed');
+    } finally {
+      setImpactLoading(false);
+    }
+  }, [impactDb, impactSchema, impactObject]);
+
+  const typeCards = [
+    { id: 'table' as const, label: 'Table Drop', icon: PiTable, color: 'text-blue-500', q: 'What breaks if I drop this table?' },
+    { id: 'column' as const, label: 'Column Change', icon: PiColumns, color: 'text-amber-500', q: 'Impact of renaming, retyping, or removing a column.' },
+    { id: 'policy' as const, label: 'Policy Change', icon: PiShieldCheck, color: 'text-green-500', q: 'Which users/roles lose access if I change this policy?' },
+    { id: 'role' as const, label: 'Role Revoke', icon: PiUsersThree, color: 'text-purple-500', q: 'Which users and objects are affected by revoking a role?' },
+  ];
+
+  const riskColor = (r: string) =>
+    r === 'Critical' ? 'text-red-600 dark:text-red-400' :
+    r === 'High' ? 'text-amber-600 dark:text-amber-400' :
+    r === 'Medium' ? 'text-yellow-600 dark:text-yellow-400' :
+    'text-green-600 dark:text-green-400';
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Change Impact Analysis</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Assess the blast radius of schema changes, column drops, or policy modifications before applying them.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            disabled={impactLoading}
+            onClick={runImpactAnalysis}
+            className="px-3 py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50"
+          >
+            {impactLoading ? <Loader variant="spinner" size="sm" /> : <PiMagnifyingGlass className="w-3.5 h-3.5" />}
+            {impactLoading ? 'Analyzing...' : 'Analyze Change'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {typeCards.map((tc) => {
+          const Icon = tc.icon;
+          const selected = impactType === tc.id;
+          return (
+            <div
+              key={tc.id}
+              onClick={() => setImpactType(tc.id)}
+              className={cn(
+                'border rounded-lg p-4 bg-white dark:bg-gray-800 cursor-pointer transition-colors',
+                selected ? 'border-blue-400 dark:border-blue-600 ring-1 ring-blue-400/30' : 'border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-600',
+              )}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Icon className={cn('w-5 h-5', tc.color)} />
+                <span className="text-sm font-medium text-gray-900 dark:text-white">{tc.label}</span>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{tc.q}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white">Select Object to Analyze</h4>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Database</label>
+              <input type="text" value={impactDb} onChange={(e) => setImpactDb(e.target.value)} placeholder="Select database..." className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Schema</label>
+              <input type="text" value={impactSchema} onChange={(e) => setImpactSchema(e.target.value)} placeholder="Select schema..." className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Object</label>
+              <input type="text" value={impactObject} onChange={(e) => setImpactObject(e.target.value)} placeholder="Table, view, or column..." className="w-full px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
+          <h4 className="text-sm font-medium text-gray-900 dark:text-white">Impact Results</h4>
+        </div>
+        {impactLoading ? (
+          <div className="p-8 flex items-center justify-center">
+            <Loader variant="spinner" size="lg" />
+          </div>
+        ) : !impactResult ? (
+          <div className="p-8 text-center">
+            <PiTreeStructureDuotone className="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+            <p className="text-gray-500 dark:text-gray-400 font-medium">No analysis run yet</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Select an object and click &quot;Analyze Change&quot; to see downstream dependencies, affected queries, and impacted users.</p>
+          </div>
+        ) : (
+          <div className="space-y-0">
+            {/* Downstream objects list */}
+            {impactResult.downstream?.length > 0 && (
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Downstream Objects</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {impactResult.downstream.map((obj: string, i: number) => (
+                    <span key={i} className="px-2 py-0.5 text-xs rounded bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-800">{obj}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {impactResult.users?.length > 0 && (
+              <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Impacted Users</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {impactResult.users.map((u: string, i: number) => (
+                    <span key={i} className="px-2 py-0.5 text-xs rounded bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-800">{u}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="border-t border-gray-200 dark:border-gray-700 grid grid-cols-1 md:grid-cols-4 divide-x divide-gray-200 dark:divide-gray-700">
+          <div className="px-4 py-3 text-center">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Downstream Tables</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.downstreamTables ?? '—'}</p>
+          </div>
+          <div className="px-4 py-3 text-center">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Affected Queries</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.affectedQueries ?? '—'}</p>
+          </div>
+          <div className="px-4 py-3 text-center">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Impacted Users</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-white mt-1">{impactResult?.impactedUsers ?? '—'}</p>
+          </div>
+          <div className="px-4 py-3 text-center">
+            <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Risk Level</p>
+            <p className={cn('text-lg font-bold mt-1', impactResult ? riskColor(impactResult.riskLevel) : 'text-gray-900 dark:text-white')}>{impactResult?.riskLevel ?? '—'}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('compliance');
   const [, startTabTransition] = useTransition();
@@ -1259,6 +1465,9 @@ export default function ObservabilityDashboard() {
 
         {/* Cross-Modules & Objects Tab (merged: lineage + relations + cross-module) */}
         {activeTab === 'cross-module' && <CrossModuleLineageTab />}
+
+        {/* Impact Analysis Tab */}
+        {activeTab === 'impact-analysis' && <ImpactAnalysisTab />}
       </div>
     </div>
   );

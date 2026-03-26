@@ -118,7 +118,7 @@ interface GlobalSearchResult {
 }
 
 // View modes
-type ViewMode = 'catalog' | 'modeling';
+type ViewMode = 'catalog' | 'modeling' | 'semantic';
 
 // Type for masking policy display (mapped from MaskingPolicy)
 interface MaskingPolicyDisplay {
@@ -2331,6 +2331,18 @@ export default function ExploreDesignPage() {
                 <Workflow className="h-3.5 w-3.5" />
                 Modeling
               </button>
+              <button
+                className={cn(
+                  'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                  viewMode === 'semantic'
+                    ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-700'
+                )}
+                onClick={() => setViewMode('semantic')}
+              >
+                <Database className="h-3.5 w-3.5" />
+                Semantic
+              </button>
             </div>
 
             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
@@ -2743,7 +2755,103 @@ export default function ExploreDesignPage() {
           "flex-1 flex flex-col overflow-hidden min-w-0",
           viewMode === 'catalog' && "bg-slate-50 dark:bg-slate-900/50"
         )}>
-          {viewMode === 'catalog' ? (
+          {viewMode === 'semantic' && (
+            // Semantic View - Semantic models and views
+            <div className="flex-1 overflow-auto p-6 space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                    <Database className="h-5 w-5 text-teal-600" />
+                    Semantic Layer
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly semantic models with dimensions, measures, and time grains for Cortex Analyst.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="gap-1.5 text-xs">
+                    <Upload className="h-3.5 w-3.5" />
+                    Import YAML
+                  </Button>
+                  <Button size="sm" className="gap-1.5 text-xs bg-teal-600 hover:bg-teal-700 text-white">
+                    <Plus className="h-3.5 w-3.5" />
+                    New Semantic Model
+                  </Button>
+                </div>
+              </div>
+
+              {/* Semantic model builder info */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Layers className="w-5 h-5 text-teal-500" />
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">Tables & Columns</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Select tables from your catalog, define column descriptions, data types, and business names.</p>
+                </div>
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <BarChart3 className="w-5 h-5 text-blue-500" />
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">Dimensions & Measures</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Tag columns as dimensions, measures, or time dimensions. Add synonyms and sample values.</p>
+                </div>
+                <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Sparkles className="w-5 h-5 text-purple-500" />
+                    <span className="text-sm font-semibold text-gray-900 dark:text-white">Verified Queries</span>
+                  </div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Add verified question-SQL pairs to improve Cortex Analyst accuracy and test your model.</p>
+                </div>
+              </div>
+
+              {/* Semantic models list */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden bg-white dark:bg-gray-900">
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-white">Semantic Models</h4>
+                  <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">
+                    {selectedDatabase || 'All databases'}
+                  </Badge>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50/50 dark:bg-gray-800/50">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Model Name</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Tables</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Dimensions</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Measures</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Time Dims</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
+                        <Database className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
+                        <p>No semantic models defined yet.</p>
+                        <p className="text-xs mt-1">Create a semantic model to power Cortex Analyst natural language queries.</p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* YAML preview section */}
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
+                  <h4 className="text-sm font-medium text-gray-900 dark:text-white">YAML Preview</h4>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Select a semantic model to preview and edit its YAML definition</p>
+                </div>
+                <div className="p-4 min-h-[200px] flex items-center justify-center">
+                  <div className="text-center">
+                    <FileText className="h-8 w-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
+                    <p className="text-sm text-gray-400 dark:text-gray-500">No model selected</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {viewMode === 'catalog' && (
             // Catalog View - Table Details in CENTER
             <>
               {/* Show sidebar toggle when hidden */}
@@ -3385,7 +3493,9 @@ export default function ExploreDesignPage() {
                 )}
               </div>
             </>
-          ) : (
+          )}
+
+          {viewMode === 'modeling' && (
             // Modeling View
             <div className="flex-1 overflow-hidden relative">
               {/* Fullscreen Header */}
