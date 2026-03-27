@@ -482,6 +482,18 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const [mappingTargetTable, setMappingTargetTable] = useState<TableItem | null>(null);
   const [pendingConnectionParams, setPendingConnectionParams] = useState<Connection | null>(null);
 
+  // FK picker modal state
+  const [fkPickerState, setFkPickerState] = useState<{
+    sourceTable: TableItem;
+    targetTable: TableItem;
+    sourceCols: ColumnInfo[];
+    targetCols: ColumnInfo[];
+    selectedSourceCol: string;
+    selectedTargetCol: string;
+    sourceId: string;
+    targetId: string;
+  } | null>(null);
+
   // Track all ETL column mappings for the summary panel (FK relationships are handled separately)
   const [columnMappingsList, setColumnMappingsList] = useState<Array<{
     id: string;
@@ -725,58 +737,30 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // targetIsTarget,
       // });
 
-      // DWH ↔ DWH: treat as FK relationship, not column mapping
+      // DWH ↔ DWH: treat as FK relationship — open picker modal
       if (sourceIsTarget && targetIsTarget) {
-        // Open FK creation flow between two DWH tables
         const sourceCols = tableColumns.get(params.source) || [];
         const targetCols = tableColumns.get(params.target) || [];
         if (sourceCols.length === 0 || targetCols.length === 0) {
           toast.error('Both tables must have columns to create a foreign key.');
           return;
         }
-        // Use the first PK of target as default referenced column
         const targetPk = targetCols.find(c => c.isPrimaryKey);
-        if (!targetPk) {
-          toast.error(`Target table "${targetTable.table}" has no primary key. Set one first.`);
-          return;
-        }
-        // Find a matching column in source by name convention (e.g. COD_VENDEUR)
-        const fkColumn = sourceCols.find(c =>
+        // Auto-suggest: find matching column by naming convention
+        const suggestedSource = sourceCols.find(c =>
           c.name.toLowerCase().includes(targetTable.table.toLowerCase().replace('dim_', '')) ||
-          c.name.toLowerCase() === targetPk.name.toLowerCase()
-        ) || sourceCols[0];
-
-        // Fire FK event
-        addEventRef.current({
-          type: 'FOREIGN_KEY_ADDED',
-          projectId: projectId || undefined,
-          target: { database: sourceTable.database, schema: sourceTable.schema, table: sourceTable.table },
-          payload: {
-            columns: [fkColumn.name],
-            referencedTable: { database: targetTable.database, schema: targetTable.schema, table: targetTable.table },
-            referencedColumns: [targetPk.name],
-            sourceColumn: fkColumn.name,
-            targetTable: targetTable.table,
-            targetColumn: targetPk.name,
-          },
+          (targetPk && c.name.toLowerCase() === targetPk.name.toLowerCase())
+        );
+        setFkPickerState({
+          sourceTable: sourceTable,
+          targetTable: targetTable,
+          sourceCols,
+          targetCols,
+          selectedSourceCol: suggestedSource?.name || sourceCols[0]?.name || '',
+          selectedTargetCol: targetPk?.name || targetCols[0]?.name || '',
+          sourceId: params.source,
+          targetId: params.target,
         });
-
-        // Add visual edge
-        setEdges(prev => [
-          ...prev,
-          {
-            id: `fk-${params.source}-${params.target}`,
-            source: params.source!,
-            target: params.target!,
-            type: 'smoothstep',
-            animated: true,
-            style: { stroke: '#f59e0b' },
-            label: `${fkColumn.name} → ${targetPk.name}`,
-            labelStyle: { fontSize: 10, fill: '#64748b' },
-          },
-        ]);
-
-        toast.success(`FK: ${sourceTable.table}.${fkColumn.name} → ${targetTable.table}.${targetPk.name}`);
         return;
       }
 
@@ -1644,6 +1628,104 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
             }}
           />
         </div>
+      )}
+
+      {/* FK Column Picker Modal */}
+      {fkPickerState && (
+        <Modal isOpen onClose={() => setFkPickerState(null)} customSize="440px">
+          <div className="p-5">
+            <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-amber-500" />
+              Create Foreign Key
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              {fkPickerState.sourceTable.table} → {fkPickerState.targetTable.table}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 block">
+                  Source Column ({fkPickerState.sourceTable.table})
+                </label>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700"
+                  value={fkPickerState.selectedSourceCol}
+                  onChange={(e) => setFkPickerState(prev => prev ? { ...prev, selectedSourceCol: e.target.value } : null)}
+                >
+                  {fkPickerState.sourceCols.map(c => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-center">
+                <ArrowLeftRight className="h-4 w-4 text-slate-400" />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 block">
+                  Referenced Column ({fkPickerState.targetTable.table})
+                </label>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700"
+                  value={fkPickerState.selectedTargetCol}
+                  onChange={(e) => setFkPickerState(prev => prev ? { ...prev, selectedTargetCol: e.target.value } : null)}
+                >
+                  {fkPickerState.targetCols.map(c => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <Button variant="outline" size="sm" onClick={() => setFkPickerState(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+                onClick={() => {
+                  const st = fkPickerState;
+                  const constraintName = `FK_${st.sourceTable.table}_${st.selectedSourceCol}`;
+                  addEventRef.current({
+                    type: 'FOREIGN_KEY_ADDED',
+                    projectId: projectId || undefined,
+                    target: { database: st.sourceTable.database, schema: st.sourceTable.schema, table: st.sourceTable.table },
+                    payload: {
+                      constraintName,
+                      columns: [st.selectedSourceCol],
+                      referencedTable: { database: st.targetTable.database, schema: st.targetTable.schema, table: st.targetTable.table },
+                      referencedColumns: [st.selectedTargetCol],
+                    },
+                  });
+                  setEdges(prev => [
+                    ...prev,
+                    {
+                      id: `fk-${st.sourceId}-${st.targetId}-${st.selectedSourceCol}`,
+                      source: st.sourceId,
+                      target: st.targetId,
+                      type: 'smoothstep',
+                      animated: true,
+                      style: { stroke: '#f59e0b' },
+                      label: `${st.selectedSourceCol} → ${st.selectedTargetCol}`,
+                      labelStyle: { fontSize: 10, fill: '#64748b' },
+                      markerEnd: { type: MarkerType.ArrowClosed, color: '#f59e0b' },
+                    },
+                  ]);
+                  toast.success(`FK: ${st.sourceTable.table}.${st.selectedSourceCol} → ${st.targetTable.table}.${st.selectedTargetCol}`);
+                  setFkPickerState(null);
+                }}
+              >
+                Create FK
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

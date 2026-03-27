@@ -469,8 +469,16 @@ const findMergeableEvent = (
     if (existing.status !== 'pending') continue;
     if (!isSameTarget(existing.target, newEvent.target)) continue;
 
-    // Same type events can be consolidated
+    // Same type events can be consolidated (except FK events — each constraint is unique)
     if (existing.type === newEvent.type) {
+      if (existing.type === 'FOREIGN_KEY_ADDED' || existing.type === 'FOREIGN_KEY_REMOVED') {
+        // FK events are unique per constraint name, not per target table
+        if (existing.payload?.constraintName && newEvent.payload?.constraintName &&
+            existing.payload.constraintName === newEvent.payload.constraintName) {
+          return { index: i, event: existing };
+        }
+        continue; // Different FK constraint — don't merge
+      }
       return { index: i, event: existing };
     }
 

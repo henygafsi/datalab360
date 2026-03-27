@@ -384,6 +384,8 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   // Apply suggested name from naming checker
   const applyTableNameSuggestion = useCallback((suggested: string) => {
     setTableName(suggested);
+    setTableNameValue('tableName', suggested);
+    clearTableNameErrors('tableName');
     setTableNameCheck({ name: suggested, valid: true, suggested: null });
   }, []);
 
@@ -663,6 +665,8 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
             value={tableName}
             onChange={(e) => {
               setTableName(e.target.value);
+              setTableNameValue('tableName', e.target.value);
+              if (tableNameErrors.tableName) clearTableNameErrors('tableName');
               if (tableNameCheck) setTableNameCheck(null);
             }}
             onBlur={handleTableNameBlur}

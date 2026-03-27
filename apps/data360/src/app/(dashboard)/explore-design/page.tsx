@@ -875,13 +875,7 @@ export default function ExploreDesignPage() {
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
 
   // View mode
-  const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('explore-design-view-mode');
-      if (saved === 'modeling' || saved === 'catalog') return saved;
-    }
-    return 'catalog';
-  });
+  const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   // Persist viewMode to localStorage
   useEffect(() => {
     localStorage.setItem('explore-design-view-mode', viewMode);
@@ -1421,18 +1415,6 @@ export default function ExploreDesignPage() {
           isTemplate: true,
         };
 
-        // Best-effort FK type check (non-blocking — template FKs are assumed valid)
-        if (selectedProjectId) {
-          validateFkTypes(selectedProjectId, {
-            source_database: db, source_schema: schema, source_table: fk.childTable, source_column: fk.childColumn,
-            target_database: db, target_schema: schema, target_table: fk.parentTable, target_column: fk.parentColumn,
-          }).then((res) => {
-            if (!res.compatible) {
-              toast.error(`FK type mismatch: ${fk.childTable}.${fk.childColumn} (${res.source_type}) → ${fk.parentTable}.${fk.parentColumn} (${res.target_type})`);
-            }
-          }).catch(() => { /* non-blocking */ });
-        }
-
         addEvent({ type: 'FOREIGN_KEY_ADDED', projectId: selectedProjectId, target, payload });
         fkEvents.push({ target, payload });
       }
@@ -1442,34 +1424,41 @@ export default function ExploreDesignPage() {
         try {
           // Schema
           await addProjectEvent(selectedProjectId, {
-            module_name: 'explore-design',
+            module_name: 'EXPLORE_DESIGN',
             event_type: 'SCHEMA_CREATED',
             status: 'pending',
             details: { target: schemaTarget, payload: schemaPayload },
             entity_id: `schema-${db}-${schema}`,
             entity_type: 'design_event',
           });
-          // Tables
+          // Tables — sequential with individual error handling
           for (const te of tableEvents) {
-            await addProjectEvent(selectedProjectId, {
-              module_name: 'explore-design',
-              event_type: 'TABLE_CREATED',
-              status: 'pending',
-              details: { target: te.target, payload: te.payload },
-              entity_id: `table-${te.target.table}`,
-              entity_type: 'design_event',
-            });
+            try {
+              await addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: 'TABLE_CREATED',
+                status: 'pending',
+                details: { target: te.target, payload: te.payload },
+                entity_id: `table-${te.target.table}`,
+                entity_type: 'design_event',
+              });
+            } catch { /* continue on error */ }
           }
-          // Foreign keys
+          // Foreign keys — sequential with individual error handling
           for (const fke of fkEvents) {
-            await addProjectEvent(selectedProjectId, {
-              module_name: 'explore-design',
-              event_type: 'FOREIGN_KEY_ADDED',
-              status: 'pending',
-              details: { target: fke.target, payload: fke.payload },
-              entity_id: `fk-${fke.target.table}-${fke.payload.columns[0]}`,
-              entity_type: 'design_event',
-            });
+            try {
+              await addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: 'FOREIGN_KEY_ADDED',
+                status: 'pending',
+                details: { target: fke.target, payload: fke.payload },
+                entity_id: `fk-${fke.payload.constraintName}`,
+                entity_type: 'design_event',
+              });
+              console.log(`[Template FK] ✅ Persisted: ${fke.payload.constraintName}`);
+            } catch (fkErr: any) {
+              console.error(`[Template FK] ❌ Failed: ${fke.payload.constraintName}`, fkErr?.response?.status, fkErr?.response?.data);
+            }
           }
         } catch (err) {
           console.warn('[Template] Failed to persist template events to backend:', err);
@@ -1898,7 +1887,7 @@ export default function ExploreDesignPage() {
           await Promise.all(
             unsyncedEvents.map(e =>
               addProjectEvent(selectedProjectId, {
-                module_name: 'explore-design',
+                module_name: 'EXPLORE_DESIGN',
                 event_type: e.type,
                 status: e.status || 'pending',
                 details: { target: e.target, payload: e.payload },
@@ -1958,7 +1947,7 @@ export default function ExploreDesignPage() {
       // Load events for the new project from backend
       try {
         // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write
-        const eventsResponse = await listProjectEvents(projectId, { module_name: 'EXPLORE-DESIGN' });
+        const eventsResponse = await listProjectEvents(projectId, {});
 
         // Extract unique database and schemas from ALL events
         // Track schemas per database: Map<database, Set<schema>>
@@ -2572,15 +2561,23 @@ export default function ExploreDesignPage() {
         selectedTable.schema,
         selectedTable.table
       );
-      const classifications = result?.classifications || result?.data?.classifications || result || {};
+      // Convert array response to Record<columnName, category>
+      const classArray = result?.classifications || result?.data?.classifications || [];
+      const classRecord: Record<string, string> = {};
+      if (Array.isArray(classArray)) {
+        classArray.forEach((c: any) => {
+          if (c.column && c.category) classRecord[c.column] = c.category;
+        });
+      }
       setColumnClassifications(prev => {
         const next = new Map(prev);
-        next.set(selectedTable.id, classifications);
+        next.set(selectedTable.id, classRecord);
         return next;
       });
-      toast.success(`AI classified ${Object.keys(classifications).length} columns`);
+      toast.success(`AI classified ${Object.keys(classRecord).length} columns`);
     } catch (err: any) {
-      toast.error(err?.response?.data?.detail || 'AI classification failed');
+      const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
+      toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
     } finally {
       setIsClassifying(false);
     }
@@ -3496,7 +3493,7 @@ export default function ExploreDesignPage() {
 
                       {/* Quick Actions Grid */}
                       <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
                           <button
                             className={cn(
                               "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
@@ -3588,13 +3585,13 @@ export default function ExploreDesignPage() {
                             <Key className="h-5 w-5 text-amber-500" />
                             <span className="text-xs font-medium">Primary Key</span>
                           </button>
-                          <button
+                          {/*<button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => toast('Column naming rules — coming soon')}
                           >
                             <Columns3 className="h-5 w-5 text-slate-500" />
                             <span className="text-xs font-medium">Column Names</span>
-                          </button>
+                          </button>*/}
                         </div>
                       </div>
                     </div>
@@ -3727,11 +3724,13 @@ export default function ExploreDesignPage() {
                                   const cls = columnClassifications.get(selectedTable?.id || '')?.[col.name];
                                   if (!cls) return null;
                                   const upper = cls.toUpperCase();
-                                  if (upper === 'PII') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
+                                  if (upper === 'PII' || upper === 'PII_CANDIDATE') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
                                   if (upper === 'MEASURE') return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[9px] font-medium">Measure</Badge>;
                                   if (upper === 'DIMENSION') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[9px] font-medium">Dimension</Badge>;
                                   if (upper === 'DATE_KEY') return <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[9px] font-medium">Date</Badge>;
-                                  if (upper === 'IDENTIFIER') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">ID</Badge>;
+                                  if (upper === 'IDENTIFIER' || upper === 'FOREIGN_KEY') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">FK</Badge>;
+                                  if (upper === 'FLAG') return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[9px] font-medium">Flag</Badge>;
+                                  if (upper === 'AUDIT') return <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] font-medium">Audit</Badge>;
                                   return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px]">{cls}</Badge>;
                                 })()}
                               </div>
@@ -4242,7 +4241,7 @@ export default function ExploreDesignPage() {
                   if (selectedProjectId) {
                     try {
                       await addProjectEvent(selectedProjectId, {
-                        module_name: 'explore-design',
+                        module_name: 'EXPLORE_DESIGN',
                         event_type: 'COLUMN_MAPPING_CREATED',
                         status: 'pending',
                         details: {
@@ -4831,7 +4830,7 @@ export default function ExploreDesignPage() {
             if (selectedProjectId) {
               modelingChoicesByProject.current.set(selectedProjectId, { choice });
               addProjectEvent(selectedProjectId, {
-                module_name: 'explore-design',
+                module_name: 'EXPLORE_DESIGN',
                 event_type: 'MODELING_TEMPLATE_CHOSEN',
                 status: 'completed',
                 details: { choice },
@@ -4906,7 +4905,7 @@ export default function ExploreDesignPage() {
               schema,
             });
             addProjectEvent(selectedProjectId, {
-              module_name: 'explore-design',
+              module_name: 'EXPLORE_DESIGN',
               event_type: 'MODELING_TEMPLATE_CHOSEN',
               status: 'completed',
               details: { choice: 'dwh_template', targetDatabase: database, targetSchema: schema },

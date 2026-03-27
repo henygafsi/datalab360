@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Modal, Button, Badge } from 'rizzui';
 import {
   Database, Layers, Sparkles, ArrowRight, Box, Grid3X3,
-  Table2, GitBranch, Loader2, Workflow,
+  Table2, GitBranch, Workflow,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -22,11 +22,9 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
   projectName,
 }) => {
   const [selected, setSelected] = useState<ModelingChoice | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
 
   const handleConfirm = () => {
     if (!selected) return;
-    setIsLoading(true);
     onSelect(selected);
   };
 
@@ -55,7 +53,7 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
           {/* DWH Template */}
           <button
             onClick={() => setSelected('dwh_template')}
-            disabled={isLoading}
+
             className={cn(
               'relative group text-left rounded-xl border-2 p-5 transition-all duration-200',
               selected === 'dwh_template'
@@ -136,7 +134,7 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
           {/* Start from Scratch */}
           <button
             onClick={() => setSelected('scratch')}
-            disabled={isLoading}
+
             className={cn(
               'relative group text-left rounded-xl border-2 p-5 transition-all duration-200',
               selected === 'scratch'
@@ -221,31 +219,22 @@ const ModelingTemplateModal: React.FC<ModelingTemplateModalProps> = ({
                 : 'bg-slate-300 dark:bg-slate-700 cursor-not-allowed',
           )}
           onClick={handleConfirm}
-          disabled={!selected || isLoading}
+          disabled={!selected}
         >
-          {isLoading ? (
+          {selected === 'dwh_template' ? (
             <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              {selected === 'dwh_template' ? 'Loading DWH Template...' : 'Preparing Canvas...'}
+              <Database className="h-4 w-4" />
+              Load DWH Template
+            </>
+          ) : selected === 'scratch' ? (
+            <>
+              <Grid3X3 className="h-4 w-4" />
+              Start with Empty Canvas
             </>
           ) : (
-            <>
-              {selected === 'dwh_template' ? (
-                <>
-                  <Database className="h-4 w-4" />
-                  Load DWH Template
-                </>
-              ) : selected === 'scratch' ? (
-                <>
-                  <Grid3X3 className="h-4 w-4" />
-                  Start with Empty Canvas
-                </>
-              ) : (
-                'Select an option to continue'
-              )}
-              {selected && <ArrowRight className="h-4 w-4 ml-1" />}
-            </>
+            'Select an option to continue'
           )}
+          {selected && <ArrowRight className="h-4 w-4 ml-1" />}
         </Button>
       </div>
     </Modal>
