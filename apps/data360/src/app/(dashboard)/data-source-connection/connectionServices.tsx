@@ -559,7 +559,7 @@ export async function databricksIngest(body: {
     tables?: string[];
 }): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
     try {
-        const response = await apiClient.post('/connect/databricks/ingest', body);
+        const response = await apiClient.post('/connect/databricks/ingest', body, { timeout: 600000 });
         return response.data;
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Databricks ingest failed'));

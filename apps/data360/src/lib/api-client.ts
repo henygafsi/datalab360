@@ -13,7 +13,7 @@ import {
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 120000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
+  timeout: 600000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
   headers: {
     'Content-Type': 'application/json',
   },
@@ -170,12 +170,9 @@ apiClient.interceptors.response.use(
       return Promise.reject(new TimeoutError('Request took too long. The server may be slow or unavailable.'));
     }
 
-    // Handle network errors (server disconnected) → redirect to sign-in so user can retry when back
+    // Handle network errors (server disconnected) → show error, do NOT redirect
     if (!error.response) {
       console.error('[API Client] Network error (server disconnected?):', error.message);
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/') && (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error'))) {
-        window.location.href = '/signin';
-      }
       return Promise.reject(new NetworkError('Unable to connect to the server. Please check your connection.'));
     }
 
