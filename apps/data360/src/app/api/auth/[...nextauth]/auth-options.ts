@@ -6,7 +6,7 @@ import { pagesOptions } from './pages-options';
 import { login, LoginData, LoginResponse } from '@/app/services/auth/login';
 
 // Snowflake token typically expires in 1 hour, but we'll use a conservative 55 minutes
-const SNOWFLAKE_TOKEN_LIFETIME_MS = 55 * 60 * 1000;
+const SNOWFLAKE_TOKEN_LIFETIME_MS = 1144 * 60 * 1000;
 
 export const authOptions: NextAuthOptions = {
   debug: process.env.NEXTAUTH_DEBUG === 'true',
