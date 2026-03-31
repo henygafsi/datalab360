@@ -457,7 +457,7 @@ const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartPr
       ? dataKeys
       : [dataKeys[0] || 'open', dataKeys[1] || 'high', dataKeys[2] || 'low', dataKeys[3] || 'close'];
 
-    const candleData = cleanData.map((row) => {
+    const candleData = cleanData.map((row: Record<string, unknown>) => {
       const open = Number(row[openKey]) || 0;
       const close = Number(row[closeKey]) || 0;
       const high = Number(row[highKey]) || Math.max(open, close);
@@ -480,7 +480,7 @@ const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartPr
           <Tooltip contentStyle={commonTooltipStyle} />
           <Bar dataKey="_body" radius={[2, 2, 2, 2]}>
             {candleData.map((entry, i) => (
-              <Cell key={`candle-${String(entry[effectiveXKey] ?? i)}`} fill={entry._fill} />
+              <Cell key={`candle-${String((entry as Record<string, unknown>)[effectiveXKey] ?? i)}`} fill={entry._fill} />
             ))}
           </Bar>
         </BarChart>
@@ -629,4 +629,5 @@ const DynamicChart = React.memo(function DynamicChart({ config }: DynamicChartPr
 
 DynamicChart.displayName = 'DynamicChart';
 
+export { DynamicChart };
 export default DynamicChart;

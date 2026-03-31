@@ -19,7 +19,7 @@ const nextConfig = {
     return [
       {
         source: '/api/mapping/:path*',
-        destination: 'http://127.0.0.1:8000/mapping/:path*',
+        destination: `${process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443'}/mapping/:path*`,
       },
     ];
   },

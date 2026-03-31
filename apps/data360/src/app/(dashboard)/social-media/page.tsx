@@ -12,7 +12,7 @@ import {
   PiSmiley,
   PiUsers,
   PiImage,
-  PiTrendingUp,
+  PiTrendUp,
   PiHeart,
   PiChat,
   PiShare,
@@ -151,7 +151,7 @@ function OverviewTab() {
           title="Follower Growth"
           value="+1.2K"
           subtitle="7-day change"
-          icon={<PiTrendingUp className="w-6 h-6" />}
+          icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
         />
         <KPICard
@@ -263,7 +263,7 @@ function CampaignsTab() {
           title="Total Revenue"
           value="$185K"
           subtitle="Generated"
-          icon={<PiTrendingUp className="w-6 h-6" />}
+          icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
         />
         <KPICard
@@ -359,7 +359,7 @@ function SentimentTab() {
           title="Trend"
           value="+5%"
           subtitle="Month-over-month"
-          icon={<PiTrendingUp className="w-6 h-6" />}
+          icon={<PiTrendUp className="w-6 h-6" />}
           color="blue"
         />
       </div>
@@ -427,7 +427,7 @@ function AudienceTab() {
           title="New Followers"
           value="+3.2K"
           subtitle="Last 30 days"
-          icon={<PiTrendingUp className="w-6 h-6" />}
+          icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
         />
         <KPICard
@@ -515,7 +515,7 @@ function ContentTab() {
           title="Best Performing"
           value="8.9K"
           subtitle="Engagement"
-          icon={<PiTrendingUp className="w-6 h-6" />}
+          icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
         />
         <KPICard
@@ -640,7 +640,7 @@ export default function SocialMediaDashboardPage() {
               Connect Account
             </Button>
             <Button variant="outline" className="gap-2" onClick={handleRefresh} disabled={refreshing}>
-              <PiTrendingUp className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <PiTrendUp className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               {refreshing ? 'Refreshing...' : 'Refresh'}
             </Button>
             <Button variant="outline" className="gap-2" onClick={handleExport}>

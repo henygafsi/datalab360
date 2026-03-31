@@ -9,7 +9,7 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://127.0.0.1:8000';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://www.api.datalab360.io:8443';
 
 export const ROW_PER_PAGE_OPTIONS = [
   {
