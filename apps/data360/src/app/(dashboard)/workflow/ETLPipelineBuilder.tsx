@@ -643,7 +643,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       case 'split_column': {
         const upstreamCols = getUpstreamColumns();
-        const parts = config.output_columns || [];
+        const parts: string[] = config.output_columns || [];
         return [...upstreamCols, ...(Array.isArray(parts) ? parts : [])];
       }
 
@@ -651,7 +651,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       case 'json_flatten':
       case 'json_extract': {
         const upstreamCols = getUpstreamColumns();
-        const extractedCols = config.output_columns || config.columns || [];
+        const extractedCols: string[] = config.output_columns || config.columns || [];
         return [...upstreamCols, ...(Array.isArray(extractedCols) ? extractedCols : [])];
       }
 
@@ -664,7 +664,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // PIVOT / UNPIVOT: Schema-changing — use config output columns or pass through
       case 'pivot':
       case 'unpivot': {
-        const outputCols = config.output_columns || config.columns || [];
+        const outputCols: string[] = config.output_columns || config.columns || [];
         return Array.isArray(outputCols) && outputCols.length > 0
           ? outputCols
           : getUpstreamColumns();
@@ -1128,8 +1128,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Also set execution state when pipeline is running
   const runningNodeState = useMemo(() => {
-    if (!isExecuting) return {};
-    const state: Record<string, { executionStatus: 'running' }> = {};
+    if (!isExecuting) return {} as Record<string, {
+      executionStatus: 'pending' | 'running' | 'completed' | 'failed';
+      rowsAffected?: number;
+      durationMs?: number;
+      error?: string;
+      stepIndex?: number;
+    }>;
+    const state: Record<string, {
+      executionStatus: 'pending' | 'running' | 'completed' | 'failed';
+      rowsAffected?: number;
+      durationMs?: number;
+      error?: string;
+      stepIndex?: number;
+    }> = {};
     nodes.forEach(n => { state[n.id] = { executionStatus: 'running' }; });
     return state;
   }, [isExecuting, nodes]);

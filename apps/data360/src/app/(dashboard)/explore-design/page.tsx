@@ -1269,7 +1269,7 @@ export default function ExploreDesignPage() {
         if (Array.isArray(dbList) && dbList.length > 0) {
           setSelectedDatabase(prev => {
             if (prev) return prev; // Already selected — don't override
-            return dbList.find((d: string) => d === 'CP_DATA360') || dbList[0];
+            return dbList[0];
           });
         }
       } catch (error: any) {
@@ -1552,7 +1552,7 @@ export default function ExploreDesignPage() {
               if (cols && cols.length > 0) {
                 const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
                   name: col.COLUMN_NAME || col.name,
-                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
+                  dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
                   isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
                   isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
                   isSensitive: false,
@@ -2118,10 +2118,20 @@ export default function ExploreDesignPage() {
                 const src = event.payload?.source;
                 if (src?.database && src?.schema && src?.table) {
                   mappingTableIds.add(`${src.database}.${src.schema}.${src.table}`);
+                  // Also add source schema to schemasByDatabase so it gets restored as selected
+                  if (!schemasByDatabase.has(src.database)) {
+                    schemasByDatabase.set(src.database, new Set());
+                  }
+                  schemasByDatabase.get(src.database)!.add(src.schema);
                 }
                 const tgt = event.payload?.target;
                 if (tgt?.database && tgt?.schema && tgt?.table) {
                   mappingTableIds.add(`${tgt.database}.${tgt.schema}.${tgt.table}`);
+                  // Also add target schema to schemasByDatabase
+                  if (!schemasByDatabase.has(tgt.database)) {
+                    schemasByDatabase.set(tgt.database, new Set());
+                  }
+                  schemasByDatabase.get(tgt.database)!.add(tgt.schema);
                 }
               }
               // Rebuild user-created tables from TABLE_CREATED events
@@ -2216,6 +2226,54 @@ export default function ExploreDesignPage() {
 
             console.log('🔄 Tables from COLUMN_MAPPING events:', Array.from(mappingTableIds));
 
+            // Fetch columns for mapping-referenced tables that aren't already in restoredColumnsMap
+            const mappingTablesNeedingColumns = Array.from(mappingTableIds).filter(id => !restoredColumnsMap.has(id));
+            if (mappingTablesNeedingColumns.length > 0) {
+              const colPromises = mappingTablesNeedingColumns.map(async (tableId) => {
+                const parts = tableId.split('.');
+                if (parts.length !== 3) return null;
+                const [db, schema, table] = parts;
+                try {
+                  const cols = await getTableColumns(db, schema, table);
+                  if (cols && cols.length > 0) {
+                    const formatted: ColumnInfo[] = cols.map((col: any) => ({
+                      name: col.COLUMN_NAME || col.name || col.column_name || 'unknown',
+                      dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
+                      isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true || col.is_primary_key === true,
+                      isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false || col.is_nullable !== false,
+                      isSensitive: false,
+                    }));
+                    return { tableId, columns: formatted };
+                  }
+                  return null;
+                } catch (err) {
+                  console.error(`[Restore] Failed to load columns for mapping table ${tableId}:`, err);
+                  return null;
+                }
+              });
+              const colResults = await Promise.all(colPromises);
+              colResults.forEach(result => {
+                if (result) {
+                  restoredColumnsMap.set(result.tableId, result.columns);
+                  // Also add as a table entry if not already present
+                  if (!restoredTables.some(t => t.id === result.tableId)) {
+                    const parts = result.tableId.split('.');
+                    restoredTables.push({
+                      id: result.tableId,
+                      database: parts[0],
+                      schema: parts[1],
+                      table: parts[2],
+                      columnCount: result.columns.length,
+                      hasPrimaryKey: result.columns.some((c: any) => c.isPrimaryKey),
+                      status: 'configured' as const,
+                      sensitiveColumns: 0,
+                    });
+                  }
+                }
+              });
+              console.log('🔄 [Restore] Fetched columns for mapping tables:', colResults.filter(Boolean).length);
+            }
+
             // Final modeling tables = added - removed + mapping tables
             const modelingTables = new Set([
               ...Array.from(addedTableIds).filter(id => !removedTableIds.has(id)),
@@ -2264,7 +2322,7 @@ export default function ExploreDesignPage() {
           toast.dismiss(loadingToast);
           // No schema/database info from events — auto-select first available database
           if (databases.length > 0 && !selectedDatabase) {
-            const defaultDb = databases.find(d => d === 'CP_DATA360') || databases[0];
+            const defaultDb = databases[0];
             setSelectedDatabase(defaultDb);
           }
           if (backendEvents.length > 0) {
@@ -4501,7 +4559,7 @@ export default function ExploreDesignPage() {
         <ErrorBoundary>
           <DeploymentValidation
             onClose={() => setShowDeploymentModal(false)}
-            database={selectedDatabase || 'CP_DATA360'}
+            database={selectedDatabase /*|| 'CP_DATA360'*/}
             schemas={Array.from(selectedSchemas.keys())}
             projectId={selectedProjectId!}
           />

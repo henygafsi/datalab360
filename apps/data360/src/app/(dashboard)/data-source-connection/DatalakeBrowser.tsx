@@ -25,8 +25,7 @@ import {
   type StageFilePreviewResponse
 } from './connectionServices';
 
-type Provider = 'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql';
-type Provider = 'snowflake' | 'azure' | 'aws' | 'gcp' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'salesforce' | 'sap' | 'oracle' | 'hubspot' | 'servicenow' | 'custom_api';
+type Provider = 'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'salesforce' | 'sap' | 'oracle' | 'hubspot' | 'servicenow' | 'custom_api';
 type ViewMode = 'grid' | 'table';
 
 const BROWSER_ONLY_PROVIDERS: Provider[] = ['snowflake', 'azure', 'aws', 'gcs'];

@@ -135,7 +135,7 @@ export const DWH_TEMPLATE_TABLES: DwhTemplateTable[] = [
       { name: 'CATEGORY', dataType: 'VARCHAR(256)', nullable: true, primaryKey: false },
       { name: 'SUBCATEGORY', dataType: 'VARCHAR(256)', nullable: true, primaryKey: false },
       { name: 'BRAND', dataType: 'VARCHAR(256)', nullable: true, primaryKey: false },
-      { name: 'SUPPLIER_ID', dataType: 'NUMBER(38,0)', nullable: true, primaryKey: false },
+      { name: 'SUPPLIER_ID', dataType: 'VARCHAR(20)', nullable: true, primaryKey: false },
     ],
   },
 
@@ -282,7 +282,7 @@ export const DWH_TEMPLATE_TABLES: DwhTemplateTable[] = [
     columns: [
       { name: 'COD_MAGASIN', dataType: 'VARCHAR(20)', nullable: false, primaryKey: true },
       { name: 'NUM_TICKET', dataType: 'VARCHAR(38)', nullable: false, primaryKey: true },
-      { name: 'NUM_TICKET_LIGNE', dataType: 'VARCHAR(38)', nullable: false, primaryKey: true },
+      { name: 'NUM_TICKET_LIGNE', dataType: 'NUMBER(38,0)', nullable: false, primaryKey: true },
       { name: 'DAT_FACTURE', dataType: 'DATE', nullable: true, primaryKey: false },
       { name: 'COD_CAISSE', dataType: 'VARCHAR(10)', nullable: true, primaryKey: false },
       { name: 'TYP_MODE_PAIEMENT', dataType: 'VARCHAR(50)', nullable: true, primaryKey: false },

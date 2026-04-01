@@ -1109,7 +1109,7 @@ const SegmentationConfigForm: React.FC<{
   availableColumns: string[];
 }> = ({ data, onChange, errors, availableColumns }) => {
   const config = data.config || data;
-  const rules: Array<{ name: string; condition: string }> = config.rules || [];
+  const rules: Array<{ _key?: string; name: string; condition: string }> = config.rules || [];
 
   const updateConfig = (updates: Partial<SegmentationConfig>) => {
     onChange({ ...data, config: { ...config, ...updates } });
@@ -2500,7 +2500,7 @@ const JsonExtractConfigForm: React.FC<{
   availableColumns: string[];
 }> = ({ data, onChange, errors, availableColumns }) => {
   const config = data.config || data;
-  const extractPaths: Array<{ path: string; type: string; output: string }> = config.extract_paths || [];
+  const extractPaths: Array<{ _key?: string; path: string; type: string; output: string }> = config.extract_paths || [];
 
   const updateConfig = (updates: Record<string, any>) => {
     onChange({ ...data, config: { ...config, ...updates } });
@@ -3005,7 +3005,7 @@ const CaseWhenConfigForm: React.FC<{
   availableColumns: string[];
 }> = ({ data, onChange, errors, availableColumns }) => {
   const config = data.config || data;
-  const conditions: Array<{ when: string; then: string }> = config.conditions || [];
+  const conditions: Array<{ _key?: string; when: string; then: string }> = config.conditions || [];
 
   const updateConfig = (updates: Record<string, any>) => {
     onChange({ ...data, config: { ...config, ...updates } });
@@ -3763,7 +3763,7 @@ const CreateUDFConfigForm: React.FC<{
   errors: Record<string, string>;
 }> = ({ data, onChange, errors }) => {
   const config = data.config || data;
-  const parameters: Array<{ name: string; type: string }> = config.parameters || [];
+  const parameters: Array<{ _key?: string; name: string; type: string }> = config.parameters || [];
 
   const updateConfig = (updates: Record<string, any>) => {
     onChange({ ...data, config: { ...config, ...updates } });
@@ -3920,7 +3920,7 @@ const CreateProcedureConfigForm: React.FC<{
   errors: Record<string, string>;
 }> = ({ data, onChange, errors }) => {
   const config = data.config || data;
-  const parameters: Array<{ name: string; type: string }> = config.parameters || [];
+  const parameters: Array<{ _key?: string; name: string; type: string }> = config.parameters || [];
 
   const updateConfig = (updates: Record<string, any>) => {
     onChange({ ...data, config: { ...config, ...updates } });
