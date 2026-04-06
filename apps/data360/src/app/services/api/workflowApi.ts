@@ -135,15 +135,19 @@ export async function executeWorkflow(workflowId: string, body?: ExecuteWorkflow
 }
 
 export async function compileWorkflow(workflowId: string) {
+  // No request body — POST with empty body to avoid FastAPI 422
   const { data } = await apiClient.post<CompileWorkflowResponse>(
     `${PREFIX}/${workflowId}/compile`,
+    {},
   );
   return data;
 }
 
 export async function validateWorkflow(workflowId: string) {
+  // No request body — POST with empty body to avoid FastAPI 422
   const { data } = await apiClient.post<ValidateWorkflowResponse>(
     `${PREFIX}/${workflowId}/validate`,
+    {},
   );
   return data;
 }

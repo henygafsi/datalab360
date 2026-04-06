@@ -125,6 +125,20 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
         .join(', ');
     }
 
+    // Formula: formulas[] → backend expects { formulas: [{ name, expression }] }
+    // For single formula also derive flat expression + output_column as fallback
+    if (nodeType === 'formula' && Array.isArray(config.formulas) && config.formulas.length > 0) {
+      derived.formulas = config.formulas.map((f: any) => ({
+        name: f.name || f.alias || 'COMPUTED',
+        expression: f.expression || '',
+      }));
+      if (!config.expression) {
+        const f = config.formulas[0];
+        derived.expression = f.expression || '';
+        derived.output_column = f.name || f.alias || 'COMPUTED';
+      }
+    }
+
     // Limit: limit → row_count
     if (nodeType === 'limit' && config.limit && !config.row_count) {
       derived.row_count = config.limit;
@@ -823,13 +837,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       const stepInputs = nodesToStepInputs(nodes, edges);
 
       if (activeWorkflowId) {
-        // Update existing: delete all steps then re-add
+        // Update existing steps, add new ones
         const existing = await workflowApi.listSteps(activeWorkflowId);
-        for (const step of existing.steps || []) {
-          await workflowApi.deleteStep(activeWorkflowId, step.step_id);
-        }
-        for (const input of stepInputs) {
-          await workflowApi.addStep(activeWorkflowId, input);
+        const existingSteps = existing.steps || [];
+
+        for (let i = 0; i < stepInputs.length; i++) {
+          if (i < existingSteps.length) {
+            await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
+              step_name: stepInputs[i].step_name,
+              payload: stepInputs[i].payload,
+            });
+          } else {
+            await workflowApi.addStep(activeWorkflowId, stepInputs[i]);
+          }
         }
         toast.success('Pipeline updated');
       } else {
@@ -866,7 +886,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // Delete all steps to effectively clear the workflow
       const existing = await workflowApi.listSteps(activeWorkflowId);
       for (const step of existing.steps || []) {
-        await workflowApi.deleteStep(activeWorkflowId, step.step_id);
+        await workflowApi.deleteStep(activeWorkflowId, step.step_id).catch((err: any) => {
+          if (err?.response?.status !== 404) throw err;
+        });
       }
       setWorkflows((prev) => prev.filter((w) => w.id !== activeWorkflowId));
       handleNewPipeline();
@@ -893,24 +915,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (!activeWorkflowId) {
         setPipelineError('Save the pipeline first before executing.');
         return;
-      }
-
-      // Auto-save before execute to ensure backend has latest steps
-      try {
-        const stepInputs = nodesToStepInputs(nodes, edges);
-        const existing = await workflowApi.listSteps(activeWorkflowId);
-        // Only re-save if step count changed or it's a manual execute
-        if (!dryRun || (existing.steps || []).length !== stepInputs.length) {
-          for (const step of existing.steps || []) {
-            await workflowApi.deleteStep(activeWorkflowId, step.step_id);
-          }
-          for (const input of stepInputs) {
-            await workflowApi.addStep(activeWorkflowId, input);
-          }
-        }
-      } catch (saveErr: any) {
-        console.warn('Auto-save before execute failed:', saveErr);
-        // Continue with execute — steps may already be current
       }
 
       setIsExecuting(true);
@@ -956,20 +960,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     if (!activeWorkflowId) {
       setPipelineError('Save the pipeline first before validating.');
       return;
-    }
-
-    // Auto-save before validate
-    try {
-      const stepInputs = nodesToStepInputs(nodes, edges);
-      const existing = await workflowApi.listSteps(activeWorkflowId);
-      for (const step of existing.steps || []) {
-        await workflowApi.deleteStep(activeWorkflowId, step.step_id);
-      }
-      for (const input of stepInputs) {
-        await workflowApi.addStep(activeWorkflowId, input);
-      }
-    } catch (saveErr: any) {
-      console.warn('Auto-save before validate failed:', saveErr);
     }
 
     try {

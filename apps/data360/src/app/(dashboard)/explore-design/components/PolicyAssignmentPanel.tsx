@@ -174,33 +174,34 @@ const MaskingPolicySection: React.FC<{
     setFormError(null);
     setApplying(true);
 
-    // Template tables: fire local event instead of calling backend
-    if (isTemplateTable) {
-      addEvent({
-        type: 'MASKING_POLICY_APPLIED',
-        projectId: projectId || undefined,
-        target: {
-          database: table.database,
-          schema: table.schema,
-          table: table.table,
-          column: targetColumn,
-        },
-        payload: {
-          policyName: selectedPolicy,
-          columns: [targetColumn],
-        },
-      });
-      toast.success(`Masking policy "${selectedPolicy}" queued for ${targetColumn} (will apply on deploy)`);
-      onApply({
-        type: 'masking',
-        name: selectedPolicy,
-        target: targetColumn,
-      });
-      setSelectedPolicy('');
-      setApplying(false);
-      return;
-    }
+    // Always add as an event — actual apply happens at deploy time
+    addEvent({
+      type: 'MASKING_POLICY_APPLIED',
+      projectId: projectId || undefined,
+      target: {
+        database: table.database,
+        schema: table.schema,
+        table: table.table,
+        column: targetColumn,
+      },
+      payload: {
+        policyName: selectedPolicy,
+        policyDatabase: 'CP_DATA360',
+        policySchema: 'GOUVERNANCE',
+        columns: [targetColumn],
+      },
+    });
+    toast.success(`Masking policy "${selectedPolicy}" queued for ${targetColumn} (will apply on deploy)`);
+    onApply({
+      type: 'masking',
+      name: selectedPolicy,
+      target: targetColumn,
+    });
+    setSelectedPolicy('');
+    setApplying(false);
 
+    // Legacy: direct backend call (kept for reference, no longer used)
+    if (false) {
     try {
       // Check if column already has a masking policy
       if (existingPolicy) {
@@ -212,7 +213,6 @@ const MaskingPolicySection: React.FC<{
           table: table.table,
           column: targetColumn,
         });
-        toast.success(`Replaced masking policy on ${targetColumn}: "${existingPolicy.policy_name}" → "${selectedPolicy}"`);
       } else {
         // Use apply endpoint
         await applyMaskingPolicy({
@@ -271,6 +271,7 @@ const MaskingPolicySection: React.FC<{
     } finally {
       setApplying(false);
     }
+    } // end if (false) — legacy direct backend call
   };
 
   const handleConfirmReplace = async () => {

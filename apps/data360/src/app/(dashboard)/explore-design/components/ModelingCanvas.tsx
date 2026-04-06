@@ -1008,6 +1008,15 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         setShowAddSimpleColumnModal(true);
         break;
       case 'add_column':
+        // Simple column add — reuse the add_new_column flow
+        setSelectedTableForPanel(table);
+        setSelectedTableColumns(columns);
+        setNewColumnName('');
+        setNewColumnType('VARCHAR');
+        setNewColumnNullable(true);
+        setNewColumnIsPK(false);
+        setShowAddSimpleColumnModal(true);
+        break;
       case 'add_computed_column':
         openAddColumnModal(table);
         break;
@@ -1432,9 +1441,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           }}
           table={selectedTableForPanel}
           columns={selectedTableColumns}
+          projectId={projectId}
           onColumnAdd={(column: ComputedColumn) => {
-            // Column will be added via event store during deployment
-            toast.success(`Computed column "${column.name}" queued for deployment`);
+            // Update columns map locally so the table node shows the new column
+            if (onColumnsMapUpdate && selectedTableForPanel) {
+              const tableId = `${selectedTableForPanel.database}.${selectedTableForPanel.schema}.${selectedTableForPanel.table}`;
+              onColumnsMapUpdate((prev) => {
+                const existing = prev.get(tableId) || [];
+                const newCol: ColumnInfo = {
+                  name: column.name,
+                  dataType: column.dataType,
+                  isNullable: true,
+                  isPrimaryKey: false,
+                };
+                const updated = new Map(prev);
+                updated.set(tableId, [...existing, newCol]);
+                return updated;
+              });
+            }
           }}
         />
       )}
@@ -1485,19 +1509,21 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 const table = selectedTableForPanel;
                 const tableId = `${table.database}.${table.schema}.${table.table}`;
 
-                // Add event
+                // Add event with projectId
                 addEvent({
                   type: 'ADD_COLUMN',
+                  projectId: projectId || undefined,
                   target: { database: table.database, schema: table.schema, table: table.table },
                   payload: {
                     columnName: newColumnName.trim(),
+                    columnType: newColumnType,
                     dataType: newColumnType,
                     nullable: newColumnNullable,
                     isPrimaryKey: newColumnIsPK,
                   },
                 });
 
-                // Update columns map locally
+                // Update columns map locally so the table node shows the new column
                 if (onColumnsMapUpdate) {
                   onColumnsMapUpdate((prev) => {
                     const existing = prev.get(tableId) || [];
@@ -1520,6 +1546,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 if (newColumnIsPK) {
                   addEvent({
                     type: 'PRIMARY_KEY_SET',
+                    projectId: projectId || undefined,
                     target: { database: table.database, schema: table.schema, table: table.table },
                     payload: { columns: [newColumnName.trim()] },
                   });

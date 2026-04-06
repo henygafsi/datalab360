@@ -11,6 +11,10 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useEventStore, DesignEvent, EventType } from '../stores/event-store';
+import { getDatabases } from '@/app/services/mapping/getDatabases';
+import { getSchemas } from '@/app/services/mapping/getSchema';
+import { getTables } from '@/app/services/mapping/getTables';
+import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -181,17 +185,17 @@ const BUILT_IN_TEMPLATES: EventTemplate[] = [
     events: [
       {
         type: 'MASKING_POLICY_APPLIED',
-        payload: { policyName: 'MASK_EMAIL', policyType: 'SHA2_HASH', columns: ['EMAIL'], description: 'Hash email for analytics' },
+        payload: { policyName: 'MASK_EMAIL', policyDatabase: 'CP_DATA360', policySchema: 'GOUVERNANCE', policyType: 'SHA2_HASH', columns: ['EMAIL'], description: 'Hash email for analytics' },
         target: { database: '', schema: '', table: '' },
       },
       {
         type: 'MASKING_POLICY_APPLIED',
-        payload: { policyName: 'MASK_PHONE', policyType: 'PARTIAL_MASK', columns: ['PHONE'], maskPattern: '***-***-XXXX' },
+        payload: { policyName: 'MASK_PHONE', policyDatabase: 'CP_DATA360', policySchema: 'GOUVERNANCE', policyType: 'PARTIAL_MASK', columns: ['PHONE'], maskPattern: '***-***-XXXX' },
         target: { database: '', schema: '', table: '' },
       },
       {
         type: 'MASKING_POLICY_APPLIED',
-        payload: { policyName: 'MASK_SSN', policyType: 'FULL_MASK', columns: ['SSN'], description: 'Full masking for SSN' },
+        payload: { policyName: 'MASK_SSN', policyDatabase: 'CP_DATA360', policySchema: 'GOUVERNANCE', policyType: 'FULL_MASK', columns: ['SSN'], description: 'Full masking for SSN' },
         target: { database: '', schema: '', table: '' },
       },
     ],
@@ -275,6 +279,22 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
   // Key: `${templateId}:${eventIdx}`, Value: column name(s) the user picked
   const [columnOverrides, setColumnOverrides] = useState<Record<string, string>>({});
 
+  // Cascading target selectors: Database → Schema → Table → Column
+  const [selectedDb, setSelectedDb] = useState('');
+  const [selectedSchema, setSelectedSchema] = useState('');
+  const [selectedTable, setSelectedTable] = useState('');
+  const [selectedColumn, setSelectedColumn] = useState('');
+
+  // API-fetched options for cascade
+  const [dbOptions, setDbOptions] = useState<string[]>([]);
+  const [schemaOptions, setSchemaOptions] = useState<string[]>([]);
+  const [tableOptionsForSchema, setTableOptionsForSchema] = useState<string[]>([]);
+  const [columnOptions, setColumnOptions] = useState<string[]>([]);
+  const [loadingDb, setLoadingDb] = useState(false);
+  const [loadingSchema, setLoadingSchema] = useState(false);
+  const [loadingTable, setLoadingTable] = useState(false);
+  const [loadingColumns, setLoadingColumns] = useState(false);
+
   // Derive tables from props or from events in the store
   const tableOptions = useMemo(() => {
     if (availableTables && availableTables.length > 0) return availableTables;
@@ -290,21 +310,67 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
     return Array.from(seen.values());
   }, [availableTables, events]);
 
-  // Derive available columns for the currently selected target table (from ADD_COLUMN events)
-  const availableColumns = useMemo(() => {
-    if (!selectedTargetTable) return [] as string[];
-    const cols: string[] = [];
-    for (const ev of events) {
-      if (ev.type !== 'ADD_COLUMN') continue;
-      const t = ev.target;
-      const key = `${t.database}.${t.schema}.${t.table}`;
-      if (key === selectedTargetTable) {
-        const name = ev.payload?.columnName || ev.payload?.name;
-        if (name && !cols.includes(name)) cols.push(name);
-      }
+  // Fetch databases on mount
+  React.useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    setLoadingDb(true);
+    getDatabases()
+      .then((dbs) => { if (!cancelled) setDbOptions(dbs); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingDb(false); });
+    return () => { cancelled = true; };
+  }, [isOpen]);
+
+  // Fetch schemas when database changes
+  React.useEffect(() => {
+    if (!selectedDb) { setSchemaOptions([]); return; }
+    let cancelled = false;
+    setLoadingSchema(true);
+    getSchemas(selectedDb)
+      .then((schemas) => { if (!cancelled) setSchemaOptions(schemas); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingSchema(false); });
+    return () => { cancelled = true; };
+  }, [selectedDb]);
+
+  // Fetch tables when schema changes
+  React.useEffect(() => {
+    if (!selectedDb || !selectedSchema) { setTableOptionsForSchema([]); return; }
+    let cancelled = false;
+    setLoadingTable(true);
+    getTables(selectedDb, selectedSchema)
+      .then((tables) => { if (!cancelled) setTableOptionsForSchema(tables); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingTable(false); });
+    return () => { cancelled = true; };
+  }, [selectedDb, selectedSchema]);
+
+  // Fetch columns when table changes
+  React.useEffect(() => {
+    if (!selectedDb || !selectedSchema || !selectedTable) { setColumnOptions([]); return; }
+    let cancelled = false;
+    setLoadingColumns(true);
+    getTableColumns(selectedDb, selectedSchema, selectedTable)
+      .then((cols) => {
+        if (!cancelled) setColumnOptions(cols.map((c) => c.name || c.COLUMN_NAME || '').filter(Boolean));
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoadingColumns(false); });
+    return () => { cancelled = true; };
+  }, [selectedDb, selectedSchema, selectedTable]);
+
+  // Sync cascading selects → selectedTargetTable (used by handleConfirmApply)
+  React.useEffect(() => {
+    if (selectedDb && selectedSchema && selectedTable) {
+      setSelectedTargetTable(`${selectedDb}.${selectedSchema}.${selectedTable}`);
+    } else {
+      setSelectedTargetTable('');
     }
-    return cols;
-  }, [events, selectedTargetTable]);
+  }, [selectedDb, selectedSchema, selectedTable]);
+
+  // availableColumns from API (replaces event-derived columns)
+  const availableColumns = columnOptions;
 
   // Check if an event type targets specific columns (needs column picker)
   const isColumnTargetedEvent = (type: EventType): boolean =>
@@ -372,22 +438,18 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
     });
   }, []);
 
-  // Step 1: Click "Apply" → expand template events for selection + show target picker
+  // Step 1: Click "Apply" → expand template to show cascade selectors + events
   const handleApplyClick = useCallback((templateId: string) => {
-    // Auto-expand the template so user can see & pick events
     setExpandedTemplateId(templateId);
+    setPickingTargetFor(templateId);
 
-    if (tableOptions.length === 1) {
-      const t = tableOptions[0];
-      setSelectedTargetTable(`${t.database}.${t.schema}.${t.table}`);
-      setPickingTargetFor(templateId);
-    } else if (tableOptions.length === 0) {
-      toast.error('No tables available. Add tables to the project first.');
-    } else {
-      setSelectedTargetTable('');
-      setPickingTargetFor(templateId);
-    }
-  }, [tableOptions]);
+    // Initialize cascade with current context
+    setSelectedDb(currentDatabase || '');
+    setSelectedSchema(currentSchema || '');
+    setSelectedTable('');
+    setSelectedColumn('');
+    setSelectedTargetTable('');
+  }, [currentDatabase, currentSchema]);
 
   // Step 2: Confirm target → apply only selected events
   const handleConfirmApply = useCallback(
@@ -640,7 +702,16 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
                       <div key={template.id} className="px-6">
                         <div
                           className="py-3 flex items-start gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/30 -mx-6 px-6"
-                          onClick={() => setExpandedTemplateId(isExpanded ? null : template.id)}
+                          onClick={() => {
+                            setExpandedTemplateId(isExpanded ? null : template.id);
+                            if (!isExpanded) {
+                              // Initialize cascade selectors with defaults when expanding
+                              setSelectedDb(currentDatabase || '');
+                              setSelectedSchema(currentSchema || '');
+                              setSelectedTable('');
+                              setSelectedColumn('');
+                            }
+                          }}
                         >
                           <button className="p-0.5 mt-1">
                             {isExpanded ? (
@@ -712,58 +783,9 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
                           </div>
                         </div>
 
-                        {/* Target table picker */}
-                        {pickingTargetFor === template.id && (
-                          <div className="pb-3 ml-7">
-                            <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 border border-purple-200 dark:border-purple-800">
-                              <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2 flex items-center gap-1.5">
-                                <Table2 className="h-3.5 w-3.5" />
-                                Select target table for &quot;{template.name}&quot;
-                              </p>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={selectedTargetTable}
-                                  onChange={(e) => setSelectedTargetTable(e.target.value)}
-                                  className="flex-1 px-3 py-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono"
-                                >
-                                  <option value="">-- Choose a table --</option>
-                                  {tableOptions.map((t) => {
-                                    const val = `${t.database}.${t.schema}.${t.table}`;
-                                    return (
-                                      <option key={val} value={val}>
-                                        {t.schema}.{t.table}
-                                      </option>
-                                    );
-                                  })}
-                                </select>
-                                <Button
-                                  size="sm"
-                                  className="gap-1 bg-purple-600 hover:bg-purple-700 text-white"
-                                  onClick={() => handleConfirmApply(template)}
-                                  disabled={!selectedTargetTable || isApplying}
-                                >
-                                  {isApplying ? (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  ) : (
-                                    <Check className="h-3.5 w-3.5" />
-                                  )}
-                                  Confirm
-                                </Button>
-                                <button
-                                  onClick={() => { setPickingTargetFor(null); setSelectedTargetTable(''); }}
-                                  className="p-1.5 text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100"
-                                >
-                                  <X className="h-3.5 w-3.5" />
-                                </button>
-                              </div>
-                              <p className="text-[10px] text-purple-500 mt-1.5">
-                                {getSelectedIndices(template).size} of {template.eventCount} event(s) will be applied to the selected table
-                              </p>
-                            </div>
-                          </div>
-                        )}
+                        {/* Target picker is now integrated into the expanded section above */}
 
-                        {/* Expanded: show events with selection checkboxes */}
+                        {/* Expanded: target selectors + events with selection checkboxes */}
                         {isExpanded && (() => {
                           const sel = getSelectedIndices(template);
                           const allChecked = sel.size === template.events.length;
@@ -772,6 +794,86 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
                           return (
                             <div className="pb-3 ml-7">
                               <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3">
+                                {/* Cascading target selectors: Database → Schema → Table → Column */}
+                                <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg p-3 mb-3 border border-purple-200 dark:border-purple-800">
+                                  <p className="text-xs font-semibold text-purple-700 dark:text-purple-300 mb-2 flex items-center gap-1.5">
+                                    <Database className="h-3.5 w-3.5" />
+                                    Target location
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <label className="text-[10px] font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                                        Database {loadingDb && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                      </label>
+                                      <select
+                                        value={selectedDb}
+                                        onChange={(e) => { setSelectedDb(e.target.value); setSelectedSchema(''); setSelectedTable(''); setSelectedColumn(''); }}
+                                        className="w-full px-2 py-1.5 text-xs border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono"
+                                      >
+                                        <option value="">-- Database --</option>
+                                        {dbOptions.map((db) => (
+                                          <option key={db} value={db}>{db}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                                        Schema {loadingSchema && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                      </label>
+                                      <select
+                                        value={selectedSchema}
+                                        onChange={(e) => { setSelectedSchema(e.target.value); setSelectedTable(''); setSelectedColumn(''); }}
+                                        disabled={!selectedDb || loadingSchema}
+                                        className="w-full px-2 py-1.5 text-xs border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono disabled:opacity-50"
+                                      >
+                                        <option value="">{loadingSchema ? 'Loading...' : '-- Schema --'}</option>
+                                        {schemaOptions.map((s) => (
+                                          <option key={s} value={s}>{s}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label className="text-[10px] font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                                        Table {loadingTable && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                      </label>
+                                      <select
+                                        value={selectedTable}
+                                        onChange={(e) => { setSelectedTable(e.target.value); setSelectedColumn(''); }}
+                                        disabled={!selectedSchema || loadingTable}
+                                        className="w-full px-2 py-1.5 text-xs border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono disabled:opacity-50"
+                                      >
+                                        <option value="">{loadingTable ? 'Loading...' : '-- Table --'}</option>
+                                        {tableOptionsForSchema.map((t) => (
+                                          <option key={t} value={t}>{t}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                    {template.events.some((e) => isColumnTargetedEvent(e.type)) && (
+                                      <div>
+                                        <label className="text-[10px] font-medium text-slate-500 mb-0.5 flex items-center gap-1">
+                                          Column {loadingColumns && <Loader2 className="h-2.5 w-2.5 animate-spin" />}
+                                        </label>
+                                        <select
+                                          value={selectedColumn}
+                                          onChange={(e) => setSelectedColumn(e.target.value)}
+                                          disabled={!selectedTable || loadingColumns}
+                                          className="w-full px-2 py-1.5 text-xs border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono disabled:opacity-50"
+                                        >
+                                          <option value="">{loadingColumns ? 'Loading...' : '-- Column (optional) --'}</option>
+                                          {availableColumns.map((c) => (
+                                            <option key={c} value={c}>{c}</option>
+                                          ))}
+                                        </select>
+                                      </div>
+                                    )}
+                                  </div>
+                                  {selectedDb && (
+                                    <p className="text-[10px] font-mono text-purple-600 dark:text-purple-400 mt-1.5 truncate">
+                                      {selectedDb}{selectedSchema ? `.${selectedSchema}` : ''}{selectedTable ? `.${selectedTable}` : ''}{selectedColumn ? ` → ${selectedColumn}` : ''}
+                                    </p>
+                                  )}
+                                </div>
+
                                 <div className="flex items-center justify-between mb-2">
                                   <p className="text-xs font-medium text-slate-500">Select events to apply:</p>
                                   <button
@@ -870,6 +972,26 @@ const TemplateLibrary: React.FC<TemplateLibraryProps> = ({
                                     ))}
                                   </div>
                                 )}
+
+                                {/* Confirm apply button */}
+                                <div className="flex items-center gap-2 mt-3 pt-3 border-t dark:border-slate-700">
+                                  <Button
+                                    size="sm"
+                                    className="gap-1 bg-purple-600 hover:bg-purple-700 text-white"
+                                    onClick={() => handleConfirmApply(template)}
+                                    disabled={!selectedTargetTable || isApplying || sel.size === 0}
+                                  >
+                                    {isApplying ? (
+                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    ) : (
+                                      <Check className="h-3.5 w-3.5" />
+                                    )}
+                                    Apply {sel.size} event(s)
+                                  </Button>
+                                  {!selectedTargetTable && (
+                                    <p className="text-[10px] text-amber-600">Select a database, schema and table above</p>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           );

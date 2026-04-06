@@ -207,9 +207,13 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
 
     case 'MASKING_POLICY_APPLIED': {
       const maskColumns = event.payload.columns || [];
+      // Fully qualified policy reference: CP_DATA360.GOUVERNANCE.<policy_name>
+      const policyDb = event.payload.policyDatabase || 'CP_DATA360';
+      const policySchema = event.payload.policySchema || 'GOUVERNANCE';
+      const policyFQN = `${policyDb}.${policySchema}.${event.payload.policyName}`;
       return {
         sql: maskColumns.map((col: string) =>
-          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${event.payload.policyName};`
+          `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} SET MASKING POLICY ${policyFQN};`
         ).join('\n'),
         rollbackSql: maskColumns.map((col: string) =>
           `ALTER TABLE ${tableRef} MODIFY COLUMN ${col} UNSET MASKING POLICY;`
@@ -275,8 +279,15 @@ export function generateSnowflakeSQL(event: DesignEvent): { sql: string; rollbac
 
     case 'ADD_COLUMN': {
       const colName = event.payload.columnName || event.payload.name;
-      const colType = event.payload.dataType || event.payload.type || 'VARCHAR';
+      const colType = event.payload.dataType || event.payload.columnType || event.payload.type || 'VARCHAR';
       const nullable = event.payload.isNullable !== false ? '' : ' NOT NULL';
+      const isComputed = event.payload.isComputed || !!event.payload.computedExpression;
+      if (isComputed && event.payload.computedExpression) {
+        return {
+          sql: `ALTER TABLE ${tableRef} ADD COLUMN ${colName} ${colType} AS (${event.payload.computedExpression});`,
+          rollbackSql: `ALTER TABLE ${tableRef} DROP COLUMN ${colName};`,
+        };
+      }
       return {
         sql: `ALTER TABLE ${tableRef} ADD COLUMN ${colName} ${colType}${nullable};`,
         rollbackSql: `ALTER TABLE ${tableRef} DROP COLUMN ${colName};`,

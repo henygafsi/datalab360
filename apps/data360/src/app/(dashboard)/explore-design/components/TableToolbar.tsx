@@ -201,7 +201,7 @@ const TableToolbar: React.FC<TableToolbarProps> = ({
             </Button>
           </Tooltip>
 
-          <Tooltip content="Apply masking policy to columns">
+          <Tooltip content="Apply masking or aggregation policy">
             <Button
               variant="outline"
               size="sm"
@@ -210,23 +210,10 @@ const TableToolbar: React.FC<TableToolbarProps> = ({
               disabled={selectedColumns.size === 0}
             >
               <Shield className="h-4 w-4" />
-              Masking
+              Policies
               {selectedColumns.size > 0 && (
                 <Badge size="sm" className="ml-auto">{selectedColumns.size}</Badge>
               )}
-            </Button>
-          </Tooltip>
-
-          <Tooltip content="Apply aggregation policy">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 justify-start"
-              onClick={() => setShowAggregationModal(true)}
-              disabled={selectedColumns.size === 0}
-            >
-              <Database className="h-4 w-4" />
-              Aggregation
             </Button>
           </Tooltip>
 
@@ -425,80 +412,115 @@ const TableToolbar: React.FC<TableToolbarProps> = ({
         </div>
       </Modal>
 
-      {/* Masking Modal */}
+      {/* Policies Modal (Masking + Aggregation) */}
       <Modal isOpen={showMaskingModal} onClose={() => setShowMaskingModal(false)}>
         <div className="p-6 max-w-md">
-          <h3 className="text-lg font-bold mb-2">Apply Masking Policy</h3>
-          <p className="text-sm text-slate-500 mb-4">
+          <h3 className="text-lg font-bold mb-2">Apply Policy</h3>
+          <p className="text-sm text-slate-500 mb-3">
             Apply to {selectedColumns.size} selected column(s)
           </p>
-          <div className="space-y-2 mb-4">
-            {maskingPolicies.map((policy) => (
-              <button
-                key={policy.name}
-                className={cn(
-                  'w-full flex items-center justify-between p-3 border rounded-lg text-left',
-                  selectedMaskingPolicy === policy.name
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                )}
-                onClick={() => setSelectedMaskingPolicy(policy.name)}
-              >
-                <div>
-                  <p className="font-medium flex items-center gap-2">
-                    <Shield className="h-4 w-4 text-green-500" />
-                    {policy.name}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">{policy.description}</p>
-                </div>
-                <Badge className="bg-slate-100 text-slate-600">{policy.type}</Badge>
-              </button>
-            ))}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowMaskingModal(false)}>Cancel</Button>
-            <Button onClick={handleMasking} disabled={!selectedMaskingPolicy}>Apply</Button>
-          </div>
-        </div>
-      </Modal>
 
-      {/* Aggregation Modal */}
-      <Modal isOpen={showAggregationModal} onClose={() => setShowAggregationModal(false)}>
-        <div className="p-6 max-w-md">
-          <h3 className="text-lg font-bold mb-2">Apply Aggregation Policy</h3>
-          <p className="text-sm text-slate-500 mb-4">
-            Apply to {selectedColumns.size} selected column(s)
-          </p>
-          <div className="space-y-2 mb-4">
-            {aggregationPolicies.map((policy) => (
-              <button
-                key={policy.name}
-                className={cn(
-                  'w-full flex items-center justify-between p-3 border rounded-lg text-left',
-                  selectedAggregationPolicy === policy.name
-                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
-                )}
-                onClick={() => setSelectedAggregationPolicy(policy.name)}
-              >
-                <div>
-                  <p className="font-medium flex items-center gap-2">
-                    <Database className="h-4 w-4 text-cyan-500" />
-                    {policy.name}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">{policy.description}</p>
-                </div>
-                <Badge className="bg-cyan-100 text-cyan-600">{policy.type}</Badge>
-              </button>
-            ))}
+          {/* Tabs */}
+          <div className="flex gap-1 mb-4 border-b dark:border-slate-700">
+            <button
+              className={cn(
+                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                !showAggregationModal
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              )}
+              onClick={() => setShowAggregationModal(false)}
+            >
+              <div className="flex items-center gap-1.5">
+                <Shield className="h-3.5 w-3.5" />
+                Masking
+              </div>
+            </button>
+            <button
+              className={cn(
+                'px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors',
+                showAggregationModal
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              )}
+              onClick={() => setShowAggregationModal(true)}
+            >
+              <div className="flex items-center gap-1.5">
+                <Database className="h-3.5 w-3.5" />
+                Aggregation
+              </div>
+            </button>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowAggregationModal(false)}>Cancel</Button>
-            <Button onClick={() => {
-              toast.success(`Aggregation policy applied`);
-              setShowAggregationModal(false);
-            }} disabled={!selectedAggregationPolicy}>Apply</Button>
-          </div>
+
+          {/* Masking tab content */}
+          {!showAggregationModal && (
+            <>
+              <div className="space-y-2 mb-4">
+                {maskingPolicies.map((policy) => (
+                  <button
+                    key={policy.name}
+                    className={cn(
+                      'w-full flex items-center justify-between p-3 border rounded-lg text-left',
+                      selectedMaskingPolicy === policy.name
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    )}
+                    onClick={() => setSelectedMaskingPolicy(policy.name)}
+                  >
+                    <div>
+                      <p className="font-medium flex items-center gap-2">
+                        <Shield className="h-4 w-4 text-green-500" />
+                        {policy.name}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">{policy.description}</p>
+                    </div>
+                    <Badge className="bg-slate-100 text-slate-600">{policy.type}</Badge>
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowMaskingModal(false)}>Cancel</Button>
+                <Button onClick={handleMasking} disabled={!selectedMaskingPolicy}>Apply</Button>
+              </div>
+            </>
+          )}
+
+          {/* Aggregation tab content */}
+          {showAggregationModal && (
+            <>
+              <div className="space-y-2 mb-4">
+                {aggregationPolicies.map((policy) => (
+                  <button
+                    key={policy.name}
+                    className={cn(
+                      'w-full flex items-center justify-between p-3 border rounded-lg text-left',
+                      selectedAggregationPolicy === policy.name
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
+                        : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800'
+                    )}
+                    onClick={() => setSelectedAggregationPolicy(policy.name)}
+                  >
+                    <div>
+                      <p className="font-medium flex items-center gap-2">
+                        <Database className="h-4 w-4 text-cyan-500" />
+                        {policy.name}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-1">{policy.description}</p>
+                    </div>
+                    <Badge className="bg-cyan-100 text-cyan-600">{policy.type}</Badge>
+                  </button>
+                ))}
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setShowMaskingModal(false)}>Cancel</Button>
+                <Button onClick={() => {
+                  toast.success(`Aggregation policy applied`);
+                  setShowMaskingModal(false);
+                  setShowAggregationModal(false);
+                }} disabled={!selectedAggregationPolicy}>Apply</Button>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

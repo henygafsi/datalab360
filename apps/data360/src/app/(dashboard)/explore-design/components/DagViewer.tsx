@@ -18,6 +18,7 @@ import ReactFlow, {
   type Edge,
   type NodeProps,
 } from 'reactflow';
+// @ts-ignore — CSS side-effect import
 import 'reactflow/dist/style.css';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
 
@@ -81,15 +82,13 @@ function buildGraph(events: DesignEvent[]): { dagNodes: DagNode[]; hasCycles: bo
   const dagNodes: DagNode[] = [];
 
   // Collect unique schemas (by schema name) and tables (by full key)
+  // Only schemas from explicit SCHEMA_CREATED events appear as "CREATE SCHEMA" nodes.
+  // Schemas that are merely referenced (selected/browsed) are NOT shown as created.
   const schemaSet = new Map<string, string>(); // "db.schema" → schema name
   const tableSet = new Map<string, { db: string; sch: string; tbl: string }>(); // "db.schema.table" → info
 
   function registerTable(db: string, sch: string, tbl: string) {
     if (!tbl) return;
-    if (sch) {
-      const sKey = `${db}.${sch}`;
-      if (!schemaSet.has(sKey)) schemaSet.set(sKey, sch);
-    }
     const tKey = `${db}.${sch}.${tbl}`;
     // Guard: don't register a "table" that is actually just the schema name
     if (tbl === sch) return;
@@ -100,6 +99,11 @@ function buildGraph(events: DesignEvent[]): { dagNodes: DagNode[]; hasCycles: bo
     const db = ev.target?.database || '';
     const sch = ev.target?.schema || '';
     const tbl = ev.target?.table || '';
+    // Only register schema for actual SCHEMA_CREATED events
+    if (ev.type === 'SCHEMA_CREATED' && sch) {
+      const sKey = `${db}.${sch}`;
+      if (!schemaSet.has(sKey)) schemaSet.set(sKey, sch);
+    }
     registerTable(db, sch, tbl);
     // FK referenced tables
     if (ev.payload?.referencedTable?.table) {
@@ -108,7 +112,7 @@ function buildGraph(events: DesignEvent[]): { dagNodes: DagNode[]; hasCycles: bo
     }
   }
 
-  // Layer 0: Virtual schema nodes
+  // Layer 0: Virtual schema nodes (only for explicitly created schemas)
   const vSchemaIds = new Map<string, string>();
   Array.from(schemaSet.entries()).forEach(([key, schName]) => {
     const vId = `vschema__${key}`;

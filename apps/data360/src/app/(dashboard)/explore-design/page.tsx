@@ -916,6 +916,16 @@ export default function ExploreDesignPage() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [showIngestionResults, setShowIngestionResults] = useState(false);
 
+  // Input modals (replace browser prompt())
+  const [renameTableModal, setRenameTableModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
+  const [renameColumnModal, setRenameColumnModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
+  const [addColumnModal, setAddColumnModal] = useState(false);
+  const [addColName, setAddColName] = useState('');
+  const [addColType, setAddColType] = useState('VARCHAR');
+  const [addColComputed, setAddColComputed] = useState(false);
+  const [addColFormula, setAddColFormula] = useState('');
+  const [primaryKeyModal, setPrimaryKeyModal] = useState(false);
+
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
@@ -2304,6 +2314,12 @@ export default function ExploreDesignPage() {
                   setDefaultModelingTablesLoaded(true);
                 }
               }
+            } else if (modelingTables.size > 0 || backendEvents.some((e: any) => e.type === 'TABLE_CREATED' || e.type === 'SCHEMA_CREATED' || e.type === 'ADD_COLUMN')) {
+              // Project already has modeling work but no explicit MODELING_TEMPLATE_CHOSEN event
+              // Infer "from_scratch" so the template modal doesn't pop up again
+              const inferredChoice: ModelingChoice = 'scratch';
+              modelingChoicesByProject.current.set(projectId, { choice: inferredChoice });
+              setModelingChoice(inferredChoice);
             }
 
             // Count total schemas across all databases
@@ -3551,7 +3567,7 @@ export default function ExploreDesignPage() {
 
                       {/* Quick Actions Grid */}
                       <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
                           <button
                             className={cn(
                               "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
@@ -3580,15 +3596,7 @@ export default function ExploreDesignPage() {
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => {
                               if (readOnlyGuard()) return;
-                              const newName = prompt('Enter new table name:', selectedTable.table);
-                              if (newName && newName !== selectedTable.table) {
-                                handleRenameTable(
-                                  selectedTable.database,
-                                  selectedTable.schema,
-                                  selectedTable.table,
-                                  newName
-                                );
-                              }
+                              setRenameTableModal({ open: true, currentName: selectedTable.table });
                             }}
                           >
                             <FileText className="h-5 w-5 text-slate-600 dark:text-slate-400" />
@@ -3605,39 +3613,15 @@ export default function ExploreDesignPage() {
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => setShowCatalogPolicyPanel(true)}
                           >
-                            <Shield className="h-5 w-5 text-green-500" />
-                            <span className="text-xs font-medium">Masking</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => setShowCatalogPolicyPanel(true)}
-                          >
-                            <Layers className="h-5 w-5 text-purple-500" />
-                            <span className="text-xs font-medium">Aggregation</span>
+                            <Shield className="h-5 w-5 text-blue-500" />
+                            <span className="text-xs font-medium">Policies</span>
                           </button>
                           <button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => {
                               if (readOnlyGuard()) return;
                               if (!selectedTable) return;
-
-                              // Allow user to select multiple columns for composite PK
-                              const columnsString = prompt(
-                                'Enter column name(s) for primary key.\nFor composite key, separate with commas (e.g., "id,code"):',
-                                tableColumns.find(c => c.isPrimaryKey)?.name || ''
-                              );
-
-                              if (columnsString) {
-                                const columns = columnsString.split(',').map(c => c.trim()).filter(c => c);
-                                if (columns.length > 0) {
-                                  handleAddPrimaryKey(
-                                    selectedTable.database,
-                                    selectedTable.schema,
-                                    selectedTable.table,
-                                    columns
-                                  );
-                                }
-                              }
+                              setPrimaryKeyModal(true);
                             }}
                           >
                             <Key className="h-5 w-5 text-amber-500" />
@@ -3700,29 +3684,7 @@ export default function ExploreDesignPage() {
                                 return;
                               }
 
-                              // Prompt for column name and type
-                              const columnName = prompt('Enter column name:');
-                              if (!columnName) return;
-
-                              const columnType = prompt('Enter column type (e.g., VARCHAR, NUMBER, DATE, BOOLEAN):', 'VARCHAR');
-                              if (!columnType) return;
-
-                              // Create ADD_COLUMN event
-                              addEvent({
-                                type: 'ADD_COLUMN',
-                                projectId: selectedProjectId,
-                                target: {
-                                  database: selectedTable.database,
-                                  schema: selectedTable.schema,
-                                  table: selectedTable.table,
-                                },
-                                payload: {
-                                  columnName: columnName.trim(),
-                                  columnType: columnType.trim().toUpperCase(),
-                                },
-                              });
-
-                              toast.success(`Add column "${columnName}" added to pending changes`);
+                              setAddColumnModal(true);
                             }}
                           >
                             <Plus className="h-3.5 w-3.5" />
@@ -3875,16 +3837,7 @@ export default function ExploreDesignPage() {
                                     onClick={() => {
                                       if (readOnlyGuard()) return;
                                       if (!selectedTable) return;
-                                      const newName = prompt(`Rename column "${col.name}" to:`, col.name);
-                                      if (newName && newName !== col.name) {
-                                        handleRenameColumn(
-                                          selectedTable.database,
-                                          selectedTable.schema,
-                                          selectedTable.table,
-                                          col.name,
-                                          newName
-                                        );
-                                      }
+                                      setRenameColumnModal({ open: true, currentName: col.name });
                                     }}
                                   >
                                     <FileText className="h-4 w-4 text-slate-400 hover:text-blue-500" />
@@ -5179,6 +5132,189 @@ export default function ExploreDesignPage() {
           )}
         </div>
       </Modal>
+      {/* Rename Table Modal */}
+      <Modal isOpen={renameTableModal.open} onClose={() => setRenameTableModal({ open: false, currentName: '' })}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-4">Rename Table</h3>
+          <Input
+            label="New table name"
+            defaultValue={renameTableModal.currentName}
+            placeholder="Enter new table name"
+            autoFocus
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                const newName = (e.target as HTMLInputElement).value.trim();
+                if (newName && newName !== renameTableModal.currentName && selectedTable) {
+                  handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
+                  setRenameTableModal({ open: false, currentName: '' });
+                }
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setRenameTableModal({ open: false, currentName: '' })}>Cancel</Button>
+            <Button onClick={() => {
+              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new table name"]');
+              const newName = input?.value?.trim();
+              if (newName && newName !== renameTableModal.currentName && selectedTable) {
+                handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
+                setRenameTableModal({ open: false, currentName: '' });
+              }
+            }}>Rename</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Rename Column Modal */}
+      <Modal isOpen={renameColumnModal.open} onClose={() => setRenameColumnModal({ open: false, currentName: '' })}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-1">Rename Column</h3>
+          <p className="text-sm text-slate-500 mb-4">Rename &quot;{renameColumnModal.currentName}&quot;</p>
+          <Input
+            label="New column name"
+            defaultValue={renameColumnModal.currentName}
+            placeholder="Enter new column name"
+            autoFocus
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                const newName = (e.target as HTMLInputElement).value.trim();
+                if (newName && newName !== renameColumnModal.currentName && selectedTable) {
+                  handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
+                  setRenameColumnModal({ open: false, currentName: '' });
+                }
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setRenameColumnModal({ open: false, currentName: '' })}>Cancel</Button>
+            <Button onClick={() => {
+              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new column name"]');
+              const newName = input?.value?.trim();
+              if (newName && newName !== renameColumnModal.currentName && selectedTable) {
+                handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
+                setRenameColumnModal({ open: false, currentName: '' });
+              }
+            }}>Rename</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Column Modal */}
+      <Modal isOpen={addColumnModal} onClose={() => { setAddColumnModal(false); setAddColName(''); setAddColType('VARCHAR'); setAddColComputed(false); setAddColFormula(''); }}>
+        <div className="p-6 max-w-md">
+          <h3 className="text-lg font-bold mb-4">Add Column</h3>
+          <div className="space-y-3">
+            <Input
+              label="Column name"
+              placeholder="e.g., USER_ID"
+              autoFocus
+              value={addColName}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddColName(e.target.value)}
+            />
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Column type</label>
+              <select
+                value={addColType}
+                onChange={(e) => setAddColType(e.target.value)}
+                className="w-full px-3 py-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-700"
+              >
+                <option value="VARCHAR">VARCHAR</option>
+                <option value="NUMBER">NUMBER</option>
+                <option value="INTEGER">INTEGER</option>
+                <option value="FLOAT">FLOAT</option>
+                <option value="BOOLEAN">BOOLEAN</option>
+                <option value="DATE">DATE</option>
+                <option value="TIMESTAMP">TIMESTAMP</option>
+                <option value="VARIANT">VARIANT</option>
+              </select>
+            </div>
+            <div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={addColComputed}
+                  onChange={(e) => setAddColComputed(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Computed column</span>
+              </label>
+            </div>
+            {addColComputed && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Formula expression</label>
+                <textarea
+                  value={addColFormula}
+                  onChange={(e) => setAddColFormula(e.target.value)}
+                  placeholder="e.g., QUANTITE * PRIX_UNITAIRE"
+                  rows={2}
+                  className="w-full px-3 py-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono"
+                />
+                <p className="text-[10px] text-slate-400 mt-1">SQL expression computed at ingestion time</p>
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => { setAddColumnModal(false); setAddColName(''); setAddColType('VARCHAR'); setAddColComputed(false); setAddColFormula(''); }}>Cancel</Button>
+            <Button onClick={() => {
+              const colName = addColName.trim();
+              if (!colName) { toast.error('Column name is required'); return; }
+              if (addColComputed && !addColFormula.trim()) { toast.error('Formula is required for computed columns'); return; }
+              if (!selectedTable || !selectedProjectId) return;
+              addEvent({
+                type: 'ADD_COLUMN',
+                projectId: selectedProjectId,
+                target: { database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table },
+                payload: {
+                  columnName: colName,
+                  columnType: addColType.toUpperCase(),
+                  ...(addColComputed ? { isComputed: true, computedExpression: addColFormula.trim() } : {}),
+                },
+              });
+              toast.success(`${addColComputed ? 'Computed column' : 'Column'} "${colName}" added to pending changes`);
+              setAddColumnModal(false);
+              setAddColName('');
+              setAddColType('VARCHAR');
+              setAddColComputed(false);
+              setAddColFormula('');
+            }}>Add Column</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Primary Key Modal */}
+      <Modal isOpen={primaryKeyModal} onClose={() => setPrimaryKeyModal(false)}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-1">Set Primary Key</h3>
+          <p className="text-sm text-slate-500 mb-4">Select columns for the primary key</p>
+          <div className="space-y-1.5 max-h-60 overflow-auto mb-4">
+            {tableColumns.map((col) => (
+              <label key={col.name} className="flex items-center gap-2 px-3 py-2 rounded-lg border dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                <input
+                  type="checkbox"
+                  defaultChecked={col.isPrimaryKey}
+                  value={col.name}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  data-pk-checkbox
+                />
+                <span className="text-sm font-mono">{col.name}</span>
+                <span className="text-xs text-slate-400 ml-auto">{col.dataType}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPrimaryKeyModal(false)}>Cancel</Button>
+            <Button onClick={() => {
+              const checkboxes = document.querySelectorAll<HTMLInputElement>('[data-pk-checkbox]:checked');
+              const columns = Array.from(checkboxes).map(cb => cb.value);
+              if (columns.length === 0) { toast.error('Select at least one column'); return; }
+              if (!selectedTable) return;
+              handleAddPrimaryKey(selectedTable.database, selectedTable.schema, selectedTable.table, columns);
+              setPrimaryKeyModal(false);
+            }}>Set Primary Key</Button>
+          </div>
+        </div>
+      </Modal>
+
       {/* Cross-module links */}
       <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>

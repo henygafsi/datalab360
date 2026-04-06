@@ -511,19 +511,29 @@ export async function getMaskingPolicyDetails(
   }
 }
 
-export async function getMaskingPolicies(): Promise<MaskingPolicy[]> {
+export async function getMaskingPolicies(
+  database?: string,
+  schema?: string,
+): Promise<MaskingPolicy[]> {
   const url = `${POLICIES_API}/masking/list`;
-  // console.log('🔍 GET Masking Policies API Call:', { url });
+  const params: Record<string, string> = {};
+  if (database) params.database = database;
+  else params.database = DEFAULTS.DATABASE;
+  if (schema) params.schema = schema;
+  else params.schema = DEFAULT_GOVERNANCE_SCHEMA;
+
+  console.log('🔍 GET Masking Policies API Call:', { url, params });
 
   // Backend returns StandardResponse: { status, message, data: { policies: [...] } }
-  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url);
+  const response = await apiClient.get<StandardResponse<{ policies: BackendPolicy[] }>>(url, { params });
 
   const responseData = response.data.data;
-  // console.log('✅ GET Masking Policies Response:', {
-    // status: response.status,
-    // message: response.data.message,
-    // policiesCount: responseData?.policies?.length
-  // });
+  console.log('✅ GET Masking Policies Response:', {
+    status: response.status,
+    message: response.data.message,
+    policiesCount: responseData?.policies?.length,
+    rawData: responseData,
+  });
 
   // Defensive check: ensure we always return an array
   const backendPolicies = responseData?.policies;
