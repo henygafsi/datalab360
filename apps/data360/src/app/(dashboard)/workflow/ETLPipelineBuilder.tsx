@@ -118,9 +118,10 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
       }
     }
 
-    // Sort: order_by[] → flat string
-    if (nodeType === 'sort' && Array.isArray(config.order_by)) {
-      derived.order_by = config.order_by
+    // Sort: keep order_by array for reload, add flat order_by_str for backend
+    if (nodeType === 'sort' && Array.isArray(config.order_by) && config.order_by.length > 0) {
+      derived.order_by = config.order_by; // keep structured array
+      derived.order_by_str = config.order_by
         .map((o: any) => typeof o === 'object' ? `${o.column} ${o.direction || 'ASC'}` : o)
         .join(', ');
     }
@@ -844,6 +845,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         for (let i = 0; i < stepInputs.length; i++) {
           if (i < existingSteps.length) {
             await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
+              action_type: stepInputs[i].action_type,
               step_name: stepInputs[i].step_name,
               payload: stepInputs[i].payload,
             });
