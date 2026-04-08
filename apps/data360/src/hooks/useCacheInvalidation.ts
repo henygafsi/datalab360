@@ -151,7 +151,9 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
     }
 
     const apiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
-    const streamUrl = `${apiUrl}/cache-stream/stream`;
+    // EventSource can't send Authorization headers — pass token as query param
+    const token = (session as any)?.user?.access_token || '';
+    const streamUrl = `${apiUrl}/cache-stream/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
     log('🔌 Connecting to SSE:', streamUrl);
 
