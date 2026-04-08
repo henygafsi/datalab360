@@ -39,7 +39,7 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 // Workflow API services
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, listContributors } from '@/app/services/api/projectsApi';
-import { getApiErrorMessage } from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import type { ContributorRole } from '@/app/services/api/types';
 import type {
   Workflow,
@@ -318,10 +318,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'tasks'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'tasks' | 'results'>('runs');
   const [showMembers, setShowMembers] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showErrorPanel, setShowErrorPanel] = useState(false);
+
+  // Results preview state
+  const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number; table: string } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
 
   // Role-based access
   const { username: currentUsername } = useAuth();
@@ -902,6 +907,45 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   }, [activeWorkflowId, activeWorkflowName, handleNewPipeline]);
 
   // ============================================
+  // RESULTS PREVIEW
+  // ============================================
+
+  const loadResultsPreview = useCallback(async () => {
+    // Find the destination node to get database/schema/table
+    const destNode = nodes.find((n) => n.type === 'destination');
+    const config = destNode?.data?.config || destNode?.data || {};
+    const database = config.database_name || config.database;
+    const schema = config.schema_name || config.schema;
+    const table = config.table_name || config.table;
+
+    if (!database || !schema || !table) {
+      // No destination configured — show execution summary only
+      setPreviewData(null);
+      setPreviewError(null);
+      setActiveTab('results');
+      setShowRightPanel(true);
+      return;
+    }
+
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setActiveTab('results');
+    setShowRightPanel(true);
+
+    try {
+      const { data } = await apiClient.get('/workflow/preview-table', {
+        params: { database, schema, table, limit: 100 },
+      });
+      setPreviewData(data);
+    } catch (err: any) {
+      console.error('Failed to load results preview:', err);
+      setPreviewError(getApiErrorMessage(err) || 'Failed to load table preview');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [nodes]);
+
+  // ============================================
   // EXECUTION
   // ============================================
 
@@ -936,6 +980,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           if (response.status === 'completed' || response.status === 'success') {
             toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
+            // Auto-load destination table preview
+            loadResultsPreview();
           } else if (response.status === 'failed') {
             const errorDetail = response.error
               ? extractErrorString(response.error)
@@ -1470,30 +1516,54 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
         {/* Right panel — conditional, PUSHES canvas */}
         {showRightPanel && (
-        <div className="w-80 flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
-          {/* Tabs */}
-          <div className="flex border-b border-slate-200 dark:border-slate-700">
-            {[
-              { id: 'runs', label: 'Runs', icon: History },
-              { id: 'schedules', label: 'Schedules', icon: Calendar },
-              { id: 'sql', label: 'SQL', icon: Code },
-              { id: 'ai', label: 'AI', icon: Sparkles },
-              { id: 'tasks', label: 'Tasks', icon: Clock },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={cn(
-                  'flex-1 px-3 py-2 text-sm font-medium flex items-center justify-center gap-1',
-                  activeTab === tab.id
-                    ? 'text-blue-600 border-b-2 border-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <tab.icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            ))}
+        <div className={cn(
+          'flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col',
+          activeTab === 'results' ? 'w-[480px]' : 'w-96'
+        )}>
+          {/* Tabs — two rows: primary + secondary */}
+          <div className="border-b border-slate-200 dark:border-slate-700">
+            <div className="flex">
+              {[
+                { id: 'results', label: 'Results', icon: Eye },
+                { id: 'runs', label: 'Runs', icon: History },
+                { id: 'sql', label: 'SQL', icon: Code },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={cn(
+                    'flex-1 px-3 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
+                    activeTab === tab.id
+                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
+                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                  )}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex border-t border-slate-100 dark:border-slate-700/50">
+              {[
+                { id: 'schedules', label: 'Schedules', icon: Calendar },
+                { id: 'ai', label: 'AI', icon: Sparkles },
+                { id: 'tasks', label: 'Tasks', icon: Clock },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={cn(
+                    'flex-1 px-3 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
+                    activeTab === tab.id
+                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
+                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                  )}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Persistent error banner (replaces disappearing toasts) */}
@@ -1518,6 +1588,127 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           {/* Tab content */}
           <div className="flex-1 overflow-auto p-4">
+            {activeTab === 'results' && (
+              <div className="space-y-3 -mx-4 -mt-4">
+                {/* Execution summary */}
+                {lastExecution && (
+                  <div className="px-4 pt-4 space-y-2">
+                    <div className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium',
+                      lastExecution.status === 'completed' || lastExecution.status === 'success'
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                        : lastExecution.status === 'failed'
+                        ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                        : 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+                    )}>
+                      {lastExecution.status === 'completed' || lastExecution.status === 'success'
+                        ? <CheckCircle className="h-4 w-4" />
+                        : lastExecution.status === 'failed'
+                        ? <AlertCircle className="h-4 w-4" />
+                        : <Loader2 className="h-4 w-4 animate-spin" />}
+                      <span className="capitalize">{lastExecution.status}</span>
+                      <span className="text-xs opacity-75 ml-auto">
+                        {lastExecution.rows_affected != null && `${lastExecution.rows_affected} rows`}
+                        {lastExecution.steps_executed != null && ` · ${lastExecution.steps_executed}/${lastExecution.steps_total} steps`}
+                      </span>
+                    </div>
+
+                    {/* Step-by-step results */}
+                    {lastExecution.execution_details?.steps_results?.length > 0 && (
+                      <div className="space-y-1">
+                        {lastExecution.execution_details.steps_results.map((step: any, i: number) => (
+                          <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-700/50">
+                            <span className={cn(
+                              'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                              step.status === 'completed' || step.status === 'success' ? 'bg-green-500' : 'bg-red-500'
+                            )} />
+                            <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                              {step.cte_alias || step.step_id || `Step ${i + 1}`}
+                            </span>
+                            {step.rows_affected != null && (
+                              <span className="ml-auto text-slate-500">{step.rows_affected} rows</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Table data preview */}
+                {previewLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+                    <span className="ml-2 text-sm text-slate-500">Loading preview...</span>
+                  </div>
+                ) : previewError ? (
+                  <div className="mx-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <p className="text-xs text-red-600 dark:text-red-400">{previewError}</p>
+                    <button
+                      onClick={loadResultsPreview}
+                      className="mt-2 text-xs text-red-700 dark:text-red-300 underline"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                ) : previewData ? (
+                  <div className="px-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {previewData.table}
+                      </h4>
+                      <span className="text-[11px] text-slate-500">
+                        {previewData.rows.length} of {previewData.total_rows} rows
+                      </span>
+                    </div>
+                    <div className="border border-slate-200 dark:border-slate-700 rounded-lg overflow-auto max-h-[500px]">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-50 dark:bg-slate-700/50 sticky top-0">
+                          <tr>
+                            {previewData.columns.map((col) => (
+                              <th key={col} className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap border-b border-slate-200 dark:border-slate-600">
+                                {col}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {previewData.rows.map((row, i) => (
+                            <tr key={i} className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-700/30">
+                              {previewData.columns.map((col) => (
+                                <td key={col} className="px-3 py-1.5 text-slate-700 dark:text-slate-300 whitespace-nowrap max-w-[200px] truncate">
+                                  {row[col] != null ? String(row[col]) : <span className="text-slate-400 italic">null</span>}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <button
+                      onClick={loadResultsPreview}
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                ) : !lastExecution ? (
+                  <div className="px-4 py-8 text-center">
+                    <Eye className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
+                    <p className="text-sm text-slate-500 dark:text-slate-400">No results yet</p>
+                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                      Execute the workflow to see the destination table data here.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="px-4 py-4 text-center">
+                    <p className="text-sm text-slate-500">No destination table configured.</p>
+                    <p className="text-xs text-slate-400 mt-1">Add a Destination block to preview output data.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {activeTab === 'runs' && (
               <ETLExecutionHistory
                 key={executionRefreshKey}
@@ -1577,19 +1768,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             {activeTab === 'ai' && (
               <div className="space-y-3">
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Corrections, avertissements et optimisations (Workflow & Explore & Design).
+                  Corrections, warnings, and optimizations for your workflow.
                 </p>
                 {validation ? (
                   <>
                     {validation.error && (
                       <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
-                        <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Erreurs</div>
+                        <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Errors</div>
                         <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
                       </div>
                     )}
                     {!validation.valid && !validation.error && (
                       <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
-                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Avertissements</div>
+                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</div>
                         <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
                       </div>
                     )}
@@ -1604,11 +1795,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                       ) : (
                         <Sparkles className="h-4 w-4" />
                       )}
-                      {aiSuggestionsLoading ? 'Analyse…' : 'Suggestions IA (Cortex)'}
+                      {aiSuggestionsLoading ? 'Analyzing...' : 'AI Suggestions (Cortex)'}
                     </button>
                     {aiSuggestions != null && (
                       <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">Réponse IA</div>
+                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">AI Response</div>
                         <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
                           {aiSuggestions}
                         </div>
@@ -1617,7 +1808,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   </>
                 ) : (
                   <p className="text-sm text-slate-500 text-center py-4">
-                    Cliquez sur &quot;Validate&quot; pour voir erreurs, avertissements et demander des suggestions IA.
+                    Click &quot;Validate&quot; to see errors, warnings, and request AI suggestions.
                   </p>
                 )}
               </div>
