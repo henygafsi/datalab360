@@ -145,6 +145,29 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
       derived.row_count = config.limit;
     }
 
+    // Select: columns array → comma-separated string for backend template
+    if (nodeType === 'select' && Array.isArray(config.columns) && config.columns.length > 0) {
+      derived.columns = config.columns.join(', ');
+    }
+
+    // Rename: mappings object → flat old_name/new_name for backend template
+    if (nodeType === 'rename' && config.mappings && typeof config.mappings === 'object') {
+      const entries = Object.entries(config.mappings);
+      if (entries.length > 0) {
+        derived.old_name = entries[0][0];
+        derived.new_name = entries[0][1];
+      }
+    }
+
+    // Cast: casts object → flat column/target_type for backend template
+    if (nodeType === 'cast' && config.casts && typeof config.casts === 'object') {
+      const entries = Object.entries(config.casts);
+      if (entries.length > 0) {
+        derived.column = entries[0][0];
+        derived.target_type = entries[0][1];
+      }
+    }
+
     return {
       action_type: convertLegacyType(nodeType) as WorkflowActionType,
       step_name: stepName,
@@ -569,16 +592,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         return [...leftCols, ...filteredRight];
       }
 
-      // AGGREGATE: Returns group_by columns + aggregation aliases
+      // AGGREGATE: Returns ALL upstream columns + aggregation aliases (window function approach)
       case 'aggregate':
       case 'aggregate_kpi': {
-        const groupBy = config.group_by || [];
+        const upstreamCols = getUpstreamColumns();
         const aggregations = config.aggregations || [];
         const aggAliases = aggregations
           .map((agg: { alias?: string; column?: string; function?: string }) =>
             agg.alias || `${agg.function}_${agg.column}`)
           .filter(Boolean);
-        return [...groupBy, ...aggAliases];
+        return [...upstreamCols, ...aggAliases];
       }   
 
       // SELECT: Returns only the selected columns
