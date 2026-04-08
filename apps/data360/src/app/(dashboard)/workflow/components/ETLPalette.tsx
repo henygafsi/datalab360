@@ -146,7 +146,7 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700">
         <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
           <span className="text-xl">🧩</span>
-          ETL Blocks
+          Workflow Blocks
         </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
           Drag blocks to the canvas to build your workflow

@@ -39,7 +39,7 @@ export default function HybridTableModal({ isOpen, onClose, context }: Props) {
     if (!columns.some(c => c.primary_key)) { toast.error('At least one column must be a primary key'); return; }
     setLoading(true);
     try {
-      await apiClient.post('/api/v1/explore-design/hybrid-tables', {
+      await apiClient.post('/explore-design/hybrid-tables', {
         name, columns, database: context?.database, schema: context?.schema,
       });
       toast.success(`Hybrid table "${name}" created`);

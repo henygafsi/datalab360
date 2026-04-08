@@ -42,7 +42,7 @@ import type {
   BulkUpdateEventsResponse,
 } from './types';
 
-const PREFIX = '/api/v1/projects';
+const PREFIX = '/projects';
 
 // ============================================================================
 // Project CRUD

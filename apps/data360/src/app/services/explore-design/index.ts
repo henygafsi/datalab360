@@ -2,10 +2,10 @@
 // ////dependency//// service → lib.api-client (centralized auth+interceptors)
 import apiClient from '@/lib/api-client';
 
-/** Explore-design prefix — unified to match backend router at /api/v1/explore-design */
-const ED = '/api/v1/explore-design';
+/** Explore-design prefix — unified to match backend router at /explore-design */
+const ED = '/explore-design';
 /** Alias for V1 explore-design prefix (same as ED) */
-const V1_EXPLORE = '/api/v1/explore-design';
+const V1_EXPLORE = '/explore-design';
 
 // Types
 export type IngestionMode =
@@ -438,7 +438,7 @@ export interface ExploreProjectsResponse {
 export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
   // Try v1 endpoint first
   try {
-    const { data } = await apiClient.get('/api/v1/projects', {
+    const { data } = await apiClient.get('/projects', {
       params: { project_type: 'explore_design' },
     });
     // Map v1 response shape to legacy shape
@@ -3207,7 +3207,7 @@ export interface WorkflowDAG {
 
 /**
  * Create a new workflow
- * POST /explore-design/workflows
+ * POST /explore-design/workflow
  */
 export async function createWorkflow(
   projectId: string,
@@ -3220,7 +3220,7 @@ export async function createWorkflow(
   }
 ): Promise<{ workflow_id: string; status: WorkflowStatus }> {
   const response = await apiClient.post(
-    `${ED}/workflows`,
+    `${ED}/workflow`,
     {
       project_id: projectId,
       name,
@@ -3233,16 +3233,16 @@ export async function createWorkflow(
 
 /**
  * Get workflow DAG
- * GET /explore-design/workflows/{workflow_id}/dag
+ * GET /explore-design/workflow/{workflow_id}/dag
  */
 export async function getWorkflowDAG(workflowId: string): Promise<WorkflowDAG> {
-  const response = await apiClient.get(`${ED}/workflows/${workflowId}/dag`);
+  const response = await apiClient.get(`${ED}/workflow/${workflowId}/dag`);
   return response.data;
 }
 
 /**
  * Execute workflow
- * POST /explore-design/workflows/{workflow_id}/execute
+ * POST /explore-design/workflow/{workflow_id}/execute
  */
 export async function executeWorkflow(
   workflowId: string,
@@ -3257,7 +3257,7 @@ export async function executeWorkflow(
   execution_started: string;
 }> {
   const response = await apiClient.post(
-    `${ED}/workflows/${workflowId}/execute`,
+    `${ED}/workflow/${workflowId}/execute`,
     options || {},
   );
   return response.data;
@@ -3265,7 +3265,7 @@ export async function executeWorkflow(
 
 /**
  * Get task logs
- * GET /explore-design/workflows/{workflow_id}/tasks/{task_id}/logs
+ * GET /explore-design/workflow/{workflow_id}/tasks/{task_id}/logs
  */
 export async function getTaskLogs(
   workflowId: string,
@@ -3280,21 +3280,21 @@ export async function getTaskLogs(
   }>;
 }> {
   const response = await apiClient.get(
-    `${ED}/workflows/${workflowId}/tasks/${taskId}/logs`,
+    `${ED}/workflow/${workflowId}/tasks/${taskId}/logs`,
   );
   return response.data;
 }
 
 /**
  * Cancel workflow
- * POST /explore-design/workflows/{workflow_id}/cancel
+ * POST /explore-design/workflow/{workflow_id}/cancel
  */
 export async function cancelWorkflow(
   workflowId: string,
   reason?: string
 ): Promise<{ success: boolean; message: string }> {
   const response = await apiClient.post(
-    `${ED}/workflows/${workflowId}/cancel`,
+    `${ED}/workflow/${workflowId}/cancel`,
     { reason },
   );
   return response.data;
@@ -3302,14 +3302,14 @@ export async function cancelWorkflow(
 
 /**
  * Retry failed task
- * POST /explore-design/workflows/{workflow_id}/tasks/{task_id}/retry
+ * POST /explore-design/workflow/{workflow_id}/tasks/{task_id}/retry
  */
 export async function retryTask(
   workflowId: string,
   taskId: string
 ): Promise<{ success: boolean; new_status: TaskStatus }> {
   const response = await apiClient.post(
-    `${ED}/workflows/${workflowId}/tasks/${taskId}/retry`,
+    `${ED}/workflow/${workflowId}/tasks/${taskId}/retry`,
     {},
   );
   return response.data;

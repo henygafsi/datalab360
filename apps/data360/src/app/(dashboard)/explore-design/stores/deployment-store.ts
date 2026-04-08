@@ -377,7 +377,7 @@ export const executeDeploymentAtom = atom(null, async (get, set, deployment_id: 
 
     try {
       const response = await apiClient.post(
-        `/api/v1/explore-design/${deployment.project_id}/deployments/${deployment_id}/execute`
+        `/explore-design/${deployment.project_id}/deployments/${deployment_id}/execute`
       );
       const result = response.data;
       log.status = result.status === 'completed' ? 'completed' : 'failed';

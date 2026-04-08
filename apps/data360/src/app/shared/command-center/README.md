@@ -241,7 +241,7 @@ tabLoading: Record<string, boolean>
 ```
 DeploymentScheduler (modal)
   → User selects: immediate | with_approval | scheduled
-  → POST /workflows/{id}/deployments
+  → POST /workflow/{id}/deployments
 
 DeploymentHistory (panel)
   → Lists deployments with status badges

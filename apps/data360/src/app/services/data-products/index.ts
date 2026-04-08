@@ -1,10 +1,10 @@
 /**
- * Data Products Marketplace API client — /api/v1/data-products/*
+ * Data Products Marketplace API client — /data-products/*
  * Handles: data product CRUD, subscriptions.
  */
 import apiClient from '@/lib/api-client';
 
-const PREFIX = '/api/v1/data-products';
+const PREFIX = '/data-products';
 
 // ---------------------------------------------------------------------------
 // Types

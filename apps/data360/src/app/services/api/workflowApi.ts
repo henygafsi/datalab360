@@ -1,5 +1,5 @@
 /**
- * Workflow Module API client — /workflows/*
+ * Workflow Module API client — /workflow/*
  * Handles: CRUD, steps, action templates, execution, runs, scheduling,
  * versions, and deployments for the CTE Pipeline Engine.
  */
@@ -41,7 +41,7 @@ import type {
   RejectWorkflowDeploymentRequest,
 } from './types';
 
-const PREFIX = '/api/v1/workflows';
+const PREFIX = '/workflow';
 
 // ============================================================================
 // Workflow CRUD

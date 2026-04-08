@@ -1,6 +1,6 @@
 # Explore & Design — API Integration Guide
 
-Base path: `/api/v1/explore-design`
+Base path: `/explore-design`
 
 All endpoints require `Authorization: Bearer <token>` header.
 

@@ -26,7 +26,7 @@ import type {
   SnapshotResponse,
 } from './types';
 
-const PREFIX = '/api/v1/bi-dashboard';
+const PREFIX = '/bi-dashboard';
 
 // ============================================================================
 // Dashboard CRUD

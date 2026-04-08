@@ -40,6 +40,6 @@ function normalizeChartRequest(request: ChartRequest): Record<string, unknown> {
 
 export async function fetchChartData(request: ChartRequest): Promise<ChartDataResponse> {
   const body = normalizeChartRequest(request);
-  const { data } = await apiClient.post<ChartDataResponse>('/api/v1/bi-dashboard/charts/data', body);
+  const { data } = await apiClient.post<ChartDataResponse>('/bi-dashboard/charts/data', body);
   return data;
 }

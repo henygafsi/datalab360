@@ -24,7 +24,7 @@ export default function StreamModal({ isOpen, onClose, sourceTable }: Props) {
     if (!name || !sourceTableName) { toast.error('Name and source table are required'); return; }
     setLoading(true);
     try {
-      await apiClient.post('/api/v1/explore-design/streams', {
+      await apiClient.post('/explore-design/streams', {
         name, source_table: sourceTableName, append_only: appendOnly, show_initial_rows: showInitialRows,
         database: sourceTable?.database, schema: sourceTable?.schema,
       });

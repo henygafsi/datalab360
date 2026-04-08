@@ -24,7 +24,7 @@ export default function DynamicTableModal({ isOpen, onClose, sourceTable, wareho
     if (!name || !warehouse || !query) { toast.error('Name, warehouse, and query are required'); return; }
     setLoading(true);
     try {
-      await apiClient.post('/api/v1/explore-design/dynamic-tables', {
+      await apiClient.post('/explore-design/dynamic-tables', {
         name, target_lag: targetLag, warehouse, query, refresh_mode: refreshMode,
         database: sourceTable?.database, schema: sourceTable?.schema,
       });

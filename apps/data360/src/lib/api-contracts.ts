@@ -147,53 +147,53 @@ export const API_CONTRACTS = {
   },
   /** New API v1 endpoints for unified project management + explore deploy */
   exploreDesignV1: {
-    /** POST /api/v1/explore-design — Create explore project */
+    /** POST /explore-design — Create explore project */
     createExploreProject: {
       method: 'POST' as const,
-      path: '/api/v1/explore-design',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/explore-design`,
+      path: '/explore-design',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design`,
     },
-    /** POST /api/v1/explore-design/{projectId}/deploy — Quick deploy */
+    /** POST /explore-design/{projectId}/deploy — Quick deploy */
     quickDeploy: {
       method: 'POST' as const,
-      path: '/api/v1/explore-design/{projectId}/deploy',
+      path: '/explore-design/{projectId}/deploy',
       getUrl: (projectId: string, versionId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deploy?version_id=${encodeURIComponent(versionId)}`,
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deploy?version_id=${encodeURIComponent(versionId)}`,
     },
-    /** POST /api/v1/explore-design/{projectId}/deployments — Request deployment */
+    /** POST /explore-design/{projectId}/deployments — Request deployment */
     requestDeployment: {
       method: 'POST' as const,
-      path: '/api/v1/explore-design/{projectId}/deployments',
+      path: '/explore-design/{projectId}/deployments',
       getUrl: (projectId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deployments`,
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deployments`,
     },
-    /** GET /api/v1/explore-design/{projectId}/deployments — List deployments */
+    /** GET /explore-design/{projectId}/deployments — List deployments */
     listDeployments: {
       method: 'GET' as const,
-      path: '/api/v1/explore-design/{projectId}/deployments',
+      path: '/explore-design/{projectId}/deployments',
       getUrl: (projectId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/explore-design/${encodeURIComponent(projectId)}/deployments`,
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deployments`,
     },
   },
   projectsV1: {
-    /** POST /api/v1/projects — Create project */
+    /** POST /projects — Create project */
     createProject: {
       method: 'POST' as const,
-      path: '/api/v1/projects',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/projects`,
+      path: '/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/projects`,
     },
-    /** GET /api/v1/projects — List projects */
+    /** GET /projects — List projects */
     listProjects: {
       method: 'GET' as const,
-      path: '/api/v1/projects',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/projects`,
+      path: '/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/projects`,
     },
-    /** POST /api/v1/projects/{projectId}/deployments — Request unified deployment */
+    /** POST /projects/{projectId}/deployments — Request unified deployment */
     requestDeployment: {
       method: 'POST' as const,
-      path: '/api/v1/projects/{projectId}/deployments',
+      path: '/projects/{projectId}/deployments',
       getUrl: (projectId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/projects/${encodeURIComponent(projectId)}/deployments`,
+        `${API_CONFIG.BASE_URL}/projects/${encodeURIComponent(projectId)}/deployments`,
     },
   },
   mapping: {
@@ -207,31 +207,31 @@ export const API_CONTRACTS = {
   workflow: {
     createWorkflow: {
       method: 'POST' as const,
-      path: '/api/v1/workflows',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
     getWorkflows: {
       method: 'GET' as const,
-      path: '/api/v1/workflows',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
     executeWorkflow: {
       method: 'POST' as const,
-      path: '/api/v1/workflows/{workflow_id}/execute',
+      path: '/workflow/{workflow_id}/execute',
       getUrl: (workflowId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/workflows/${encodeURIComponent(workflowId)}/execute`,
+        `${API_CONFIG.BASE_URL}/workflow/${encodeURIComponent(workflowId)}/execute`,
     },
     scheduleDeployment: {
       method: 'POST' as const,
-      path: '/api/v1/workflows/{workflow_id}/deployments',
+      path: '/workflow/{workflow_id}/deployments',
       getUrl: (workflowId: string) =>
-        `${API_CONFIG.BASE_URL}/api/v1/workflows/${encodeURIComponent(workflowId)}/deployments`,
+        `${API_CONFIG.BASE_URL}/workflow/${encodeURIComponent(workflowId)}/deployments`,
     },
-    /** Backend: POST /api/v1/workflows */
+    /** Backend: POST /workflow */
     renameWorkflow: {
       method: 'POST' as const,
-      path: '/api/v1/workflows',
-      getUrl: () => `${API_CONFIG.BASE_URL}/api/v1/workflows`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
   },
   biRetail: {

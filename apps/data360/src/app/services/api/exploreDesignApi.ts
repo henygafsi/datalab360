@@ -160,7 +160,7 @@ import type {
   AiSavingsResponse,
 } from './types';
 
-const PREFIX = '/api/v1/explore-design';
+const PREFIX = '/explore-design';
 
 // ============================================================================
 // Project (Explore-specific)

@@ -305,9 +305,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Pipeline/Workflow state
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
-  const [activeWorkflowName, setActiveWorkflowName] = useState<string>('New Pipeline');
+  const [activeWorkflowName, setActiveWorkflowName] = useState<string>('New Workflow');
   const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
-  const [pipelineName, setPipelineName] = useState('New Pipeline');
+  const [pipelineName, setPipelineName] = useState('New Workflow');
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -784,8 +784,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setNodes([]);
     setEdges([]);
     setActiveWorkflowId(null);
-    setActiveWorkflowName('New Pipeline');
-    setPipelineName('New Pipeline');
+    setActiveWorkflowName('New Workflow');
+    setPipelineName('New Workflow');
     setLastExecution(null);
     setCompiledSql(null);
     setValidation(null);
@@ -815,10 +815,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setUserRole('owner');
         }
 
-        toast.success(`Loaded pipeline: ${wf.name}`);
+        toast.success(`Loaded workflow: ${wf.name}`);
       } catch (error) {
-        console.error('Failed to load pipeline:', error);
-        toast.error('Failed to load pipeline');
+        console.error('Failed to load workflow:', error);
+        toast.error('Failed to load workflow');
       } finally {
         setIsLoading(false);
       }
@@ -829,7 +829,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const handleSavePipeline = useCallback(async () => {
     if (readOnlyGuard()) return;
     if (nodes.length === 0) {
-      toast.error('Cannot save empty pipeline');
+      toast.error('Cannot save empty workflow');
       return;
     }
 
@@ -853,7 +853,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             await workflowApi.addStep(activeWorkflowId, stepInputs[i]);
           }
         }
-        toast.success('Pipeline updated');
+        toast.success('Workflow updated');
       } else {
         // Create new
         const response = await workflowApi.createWorkflow({
@@ -862,7 +862,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         });
         setActiveWorkflowId(response.project_id);
         setActiveWorkflowName(response.project_name);
-        toast.success('Pipeline created');
+        toast.success('Workflow created');
       }
 
       // Refresh workflow list
@@ -871,8 +871,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         (listResponse.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
       );
     } catch (error: any) {
-      console.error('Failed to save pipeline:', error);
-      toast.error(getApiErrorMessage(error) || 'Failed to save pipeline');
+      console.error('Failed to save workflow:', error);
+      toast.error(getApiErrorMessage(error) || 'Failed to save workflow');
     } finally {
       setIsSaving(false);
     }
@@ -882,7 +882,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     if (readOnlyGuard()) return;
     if (!activeWorkflowId) return;
 
-    if (!confirm(`Delete pipeline "${activeWorkflowName}"?`)) return;
+    if (!confirm(`Delete workflow "${activeWorkflowName}"?`)) return;
 
     try {
       // Delete all steps to effectively clear the workflow
@@ -894,10 +894,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       }
       setWorkflows((prev) => prev.filter((w) => w.id !== activeWorkflowId));
       handleNewPipeline();
-      toast.success('Pipeline deleted');
+      toast.success('Workflow deleted');
     } catch (error) {
-      console.error('Failed to delete pipeline:', error);
-      toast.error('Failed to delete pipeline');
+      console.error('Failed to delete workflow:', error);
+      toast.error('Failed to delete workflow');
     }
   }, [activeWorkflowId, activeWorkflowName, handleNewPipeline]);
 
@@ -910,12 +910,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (!dryRun && readOnlyGuard()) return;
       setPipelineError(null); // Clear previous errors
       if (!activeWorkflowId && nodes.length === 0) {
-        setPipelineError('No pipeline to execute. Add blocks to the canvas first.');
+        setPipelineError('No workflow to execute. Add blocks to the canvas first.');
         return;
       }
 
       if (!activeWorkflowId) {
-        setPipelineError('Save the pipeline first before executing.');
+        setPipelineError('Save the workflow first before executing.');
         return;
       }
 
@@ -960,7 +960,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const handleValidate = useCallback(async () => {
     setPipelineError(null);
     if (!activeWorkflowId) {
-      setPipelineError('Save the pipeline first before validating.');
+      setPipelineError('Save the workflow first before validating.');
       return;
     }
 
@@ -1234,7 +1234,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <>
               <span>/</span>
               <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">
-                {pipelineName || 'New Pipeline'}
+                {pipelineName || 'New Workflow'}
               </span>
             </>
           )}
@@ -1256,10 +1256,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         </div>
       </div>
 
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
-        {/* Row 1: Pipeline selector + name + badges */}
-        <div className="flex items-center gap-3 px-4 pt-3 pb-2">
+      {/* Header — single row */}
+      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          {/* Workflow selector */}
           <select
             value={activeWorkflowId || ''}
             onChange={(e) => {
@@ -1267,9 +1267,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               if (wf) handleLoadPipeline(wf);
               else handleNewPipeline();
             }}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm min-w-[140px]"
+            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm min-w-[130px]"
           >
-            <option value="">New Pipeline</option>
+            <option value="">New Workflow</option>
             {workflows.map((w) => (
               <option key={w.id} value={w.id}>
                 {w.name}
@@ -1277,17 +1277,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             ))}
           </select>
 
+          {/* Workflow name */}
           <input
             type="text"
             value={pipelineName}
             onChange={(e) => setPipelineName(e.target.value)}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium flex-1 max-w-xs"
-            placeholder="Pipeline name..."
+            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium w-[180px]"
+            placeholder="Workflow name..."
             readOnly={isReadOnly}
           />
 
           {isReadOnly && (
-            <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 flex items-center gap-1.5 whitespace-nowrap">
+            <span className="px-2 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 flex items-center gap-1 whitespace-nowrap">
               <Eye className="h-3 w-3" />
               View Only
             </span>
@@ -1298,7 +1299,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               <span
                 onClick={() => !validation.valid && validationErrors.length > 0 && setShowErrorPanel(!showErrorPanel)}
                 className={cn(
-                  'px-2.5 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1.5 whitespace-nowrap',
+                  'px-2 py-1 rounded-full text-[11px] font-semibold flex items-center gap-1 whitespace-nowrap',
                   validation.valid
                     ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                     : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 cursor-pointer hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors'
@@ -1308,7 +1309,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 {validation.valid ? 'Valid' : `${validationErrors.length} Error${validationErrors.length !== 1 ? 's' : ''}`}
               </span>
               {showErrorPanel && validationErrors.length > 0 && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 rounded-lg shadow-xl p-3 max-h-[300px] overflow-y-auto min-w-[320px]">
+                <div className="absolute top-full left-0 z-50 mt-1 bg-white dark:bg-slate-800 border border-red-200 dark:border-red-800 rounded-lg shadow-xl p-3 max-h-[300px] overflow-y-auto min-w-[320px]">
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-sm font-semibold text-red-600 dark:text-red-400">
                       {validationErrors.length} Validation Error{validationErrors.length > 1 ? 's' : ''}
@@ -1346,66 +1347,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               )}
             </div>
           )}
-        </div>
 
-        {/* Row 2: Actions */}
-        <div className="flex items-center justify-between px-4 pb-2.5">
-          {/* Left: view actions */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleValidate}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1.5 text-slate-600 dark:text-slate-300"
-            >
-              <CheckCircle className="h-3.5 w-3.5" />
-              Validate
-            </button>
-            <button
-              onClick={() => handleExecute(true)}
-              disabled={isExecuting}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-1.5 text-slate-600 dark:text-slate-300 disabled:opacity-50"
-            >
-              <Code className="h-3.5 w-3.5" />
-              Preview SQL
-            </button>
+          {/* Spacer */}
+          <div className="flex-1" />
 
-            {/* Members */}
-            <div className="relative">
-              <button
-                onClick={() => activeWorkflowId && setShowMembers(!showMembers)}
-                disabled={!activeWorkflowId}
-                className={cn(
-                  'px-2.5 py-1.5 text-xs font-medium rounded-md border flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed',
-                  showMembers
-                    ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700'
-                    : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
-                )}
-                title={activeWorkflowId ? 'Manage members' : 'Save pipeline first'}
-              >
-                <Users className="h-3.5 w-3.5" />
-                Members
-              </button>
-              {showMembers && activeWorkflowId && (
-                <div className="absolute left-0 top-full mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xl z-50">
-                  <div className="flex items-center justify-between px-4 pt-3 pb-1">
-                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                      <Users className="h-4 w-4" />
-                      Project Members
-                    </h3>
-                    <button
-                      onClick={() => setShowMembers(false)}
-                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600"
-                      aria-label="Close members panel"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                  <AccessManagementSlot projectId={activeWorkflowId} />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Right: primary actions */}
+          {/* Action buttons */}
           <div className="flex items-center gap-1.5">
             <button
               onClick={handleSavePipeline}
@@ -1420,7 +1366,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={handleValidate}
               disabled={!activeWorkflowId}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-              title="Validate pipeline DAG"
+              title="Check for errors in the workflow DAG before execution"
             >
               <CheckCircle className="h-3.5 w-3.5" />
               Validate
@@ -1430,7 +1376,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={() => handleExecute(true)}
               disabled={isExecuting || !activeWorkflowId}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-              title="Preview generated SQL"
+              title="Preview the compiled SQL without executing it"
             >
               <Eye className="h-3.5 w-3.5" />
               Preview SQL
@@ -1440,6 +1386,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={() => handleExecute(false)}
               disabled={isExecuting || !activeWorkflowId || isReadOnly}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Run the workflow now as a test execution"
             >
               {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Execute
@@ -1449,7 +1396,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={handleSubmitForApproval}
               disabled={!activeWorkflowId || isReadOnly}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-              title="Submit for approval before production deployment"
+              title="Request approval for production deployment"
             >
               <AlertCircle className="h-3.5 w-3.5" />
               Submit for Approval
@@ -1459,8 +1406,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               <button
                 onClick={handleDeletePipeline}
                 className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
-                title="Delete pipeline"
-                aria-label="Delete pipeline"
+                title="Delete workflow"
+                aria-label="Delete workflow"
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>

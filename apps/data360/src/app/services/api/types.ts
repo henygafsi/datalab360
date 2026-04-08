@@ -968,7 +968,7 @@ export interface RejectScheduleRequest {
 }
 
 // ============================================================================
-// PART 3 — Workflow Module Types (/workflows)
+// PART 3 — Workflow Module Types (/workflow)
 // ============================================================================
 
 // --- Enums ---

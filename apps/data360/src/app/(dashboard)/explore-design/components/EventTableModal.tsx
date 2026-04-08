@@ -21,7 +21,7 @@ export default function EventTableModal({ isOpen, onClose, context }: Props) {
     if (!name) { toast.error('Name is required'); return; }
     setLoading(true);
     try {
-      await apiClient.post('/api/v1/explore-design/event-tables', {
+      await apiClient.post('/explore-design/event-tables', {
         name, retention_days: retentionDays, change_tracking: changeTracking,
         database: context?.database, schema: context?.schema,
       });

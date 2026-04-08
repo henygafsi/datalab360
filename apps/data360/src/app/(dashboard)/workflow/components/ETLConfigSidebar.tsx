@@ -1436,7 +1436,7 @@ const SQLScriptConfigForm: React.FC<{
     setTestResult(null);
     setTestError(null);
     try {
-      const response = await apiClient.post('/api/v1/workflows/run-sql', { sql: config.sql_code, limit: 10 });
+      const response = await apiClient.post('/workflow/run-sql', { sql: config.sql_code, limit: 10 });
       const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestResult({ columns: result.columns || [], rows: result.rows || [], count: result.count || 0 });
@@ -1543,7 +1543,7 @@ const PythonScriptConfigForm: React.FC<{
     setTestOutput(null);
     setTestError(null);
     try {
-      const response = await apiClient.post('/api/v1/workflows/run-python', { code: config.python_code });
+      const response = await apiClient.post('/workflow/run-python', { code: config.python_code });
       const result = response.data as Record<string, any>;
       if (result.status === 'success') {
         setTestOutput((result.output as string) || '(no output)');

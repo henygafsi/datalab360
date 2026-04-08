@@ -79,7 +79,7 @@ datalab360Front/apps/data360/src/
 | 12 | Explore & Design | `explore_design` | `/explore-design` | `/explore-design` |
 | 3 | Workflow | `workflow` | `/workflow` | `/workflow` |
 | 6 | Governance | `gouvernance` | `/gouvernance` | `/gouvernance` |
-| 4 | Business Reporting | `bi_reporting` | `/api/v1/bi-dashboard` | `/bi-dashboard` |
+| 4 | Business Reporting | `bi_reporting` | `/bi-dashboard` | `/bi-dashboard` |
 | 10 | AI Intelligence | `intelligent` | `/cortex` | `/intelligent` |
 | 5 | Data Health | `data_quality` | `/data-quality` | `/data-quality` |
 | 13 | Account Overview | `account_overview` | `/org-accounts` | `/account-overview` |
@@ -338,7 +338,7 @@ runAdHocPython()
 ```
 DeploymentScheduler (modal)
   → User selects: immediate | with_approval | scheduled
-  → POST /workflows/{id}/deployments
+  → POST /workflow/{id}/deployments
 
 DeploymentHistory (panel)
   → PENDING_APPROVAL: [Approve] [Reject] buttons
