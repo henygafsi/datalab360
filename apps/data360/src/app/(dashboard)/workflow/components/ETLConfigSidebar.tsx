@@ -1061,40 +1061,77 @@ const RecommendationConfigForm: React.FC<{
 
   return (
     <div className="space-y-4">
-      <FormField label="Score Column" required error={errors.score_column} hint="Name of the output score/rank column">
-        <Input
-          value={config.score_column || ''}
-          onChange={(v) => updateConfig({ score_column: v })}
-          placeholder="e.g., recommendation_score"
-          error={!!errors.score_column}
-        />
-      </FormField>
+      <div className="p-2.5 rounded-lg bg-fuchsia-50 dark:bg-fuchsia-900/20 border border-fuchsia-200 dark:border-fuchsia-800">
+        <p className="text-xs text-fuchsia-700 dark:text-fuchsia-300">
+          Score or rank rows using a Cortex LLM or a custom SQL expression. All upstream columns are preserved.
+        </p>
+      </div>
 
-      <FormField label="Model Type">
+      <FormField label="Method">
         <Select
           value={config.model_type || 'cortex'}
           onChange={(v) => updateConfig({ model_type: v as RecommendationConfig['model_type'] })}
           options={[
             { value: 'cortex', label: 'Cortex LLM' },
-            { value: 'custom', label: 'Custom Model' },
+            { value: 'custom', label: 'Custom SQL Expression' },
           ]}
         />
       </FormField>
 
-      <FormField label="Input ID Column" hint="Column identifying items to score">
-        <Select
-          value={config.input_id_column || ''}
-          onChange={(v) => updateConfig({ input_id_column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
-          placeholder="Select column..."
-        />
-      </FormField>
+      {config.model_type === 'custom' ? (
+        <FormField label="Score Expression" required error={errors.score_expression} hint="SQL expression to compute the score">
+          <textarea
+            value={config.score_expression || ''}
+            onChange={(e) => updateConfig({ score_expression: e.target.value })}
+            placeholder={"e.g., CASE WHEN TOTAL > 10000 THEN 1.0\n     WHEN TOTAL > 1000 THEN 0.7\n     ELSE 0.3 END"}
+            rows={3}
+            className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 font-mono resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </FormField>
+      ) : (
+        <>
+          <FormField label="Model" hint="Cortex LLM model to use">
+            <Select
+              value={config.cortex_model || 'mistral-large2'}
+              onChange={(v) => updateConfig({ cortex_model: v })}
+              options={[
+                { value: 'mistral-large2', label: 'Mistral Large 2' },
+                { value: 'llama3.1-70b', label: 'Llama 3.1 70B' },
+                { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
+                { value: 'mistral-7b', label: 'Mistral 7B' },
+                { value: 'gemma-7b', label: 'Gemma 7B' },
+              ]}
+            />
+          </FormField>
 
-      <FormField label="Output Table" hint="Optional table to store results">
+          <FormField label="Input Column" required error={errors.input_column} hint="Column containing data to score">
+            <Select
+              value={config.input_column || ''}
+              onChange={(v) => updateConfig({ input_column: v })}
+              options={availableColumns.map((c) => ({ value: c, label: c }))}
+              placeholder="Select column..."
+              error={!!errors.input_column}
+            />
+          </FormField>
+
+          <FormField label="Prompt" required error={errors.prompt} hint="Instruction for the LLM. Use {column} to reference the input.">
+            <textarea
+              value={config.prompt || ''}
+              onChange={(e) => updateConfig({ prompt: e.target.value })}
+              placeholder={"e.g., Rate the following product review from 1-10 and respond with only the number: {REVIEW_TEXT}"}
+              rows={3}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </FormField>
+        </>
+      )}
+
+      <FormField label="Output Column Name" required error={errors.score_column} hint="Name of the new score column">
         <Input
-          value={config.output_table || ''}
-          onChange={(v) => updateConfig({ output_table: v })}
-          placeholder="e.g., RECOMMENDATIONS_OUTPUT"
+          value={config.score_column || ''}
+          onChange={(v) => updateConfig({ score_column: v })}
+          placeholder="e.g., RECOMMENDATION_SCORE"
+          error={!!errors.score_column}
         />
       </FormField>
     </div>
