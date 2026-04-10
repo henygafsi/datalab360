@@ -521,7 +521,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     return (
       <div className={cn('p-4', className)}>
         <p className="text-sm text-slate-500 text-center">
-          Save a pipeline first to manage schedules
+          Save the workflow first to manage schedules
         </p>
       </div>
     );

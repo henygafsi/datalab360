@@ -23,7 +23,8 @@ import toast from 'react-hot-toast';
 import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
-  Eye, Code, Calendar, Sparkles, Users, X, Clock
+  Eye, Code, Calendar, Sparkles, Users, X, Clock,
+  Download, Copy
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
 
@@ -424,6 +425,32 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Warn before leaving with unsaved changes
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isDirty && nodes.length > 0) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isDirty, nodes.length]);
+
+  // Auto-fit canvas after loading a workflow
+  useEffect(() => {
+    if (reactFlowInstance && nodes.length > 0 && !isLoading) {
+      setTimeout(() => reactFlowInstance.fitView({ padding: 0.2, duration: 300 }), 100);
+    }
+  }, [reactFlowInstance, isLoading]);
+
+  // Collapse right panel on small screens
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1200) {
+      setShowRightPanel(false);
+    }
   }, []);
 
   // ============================================
@@ -1166,6 +1193,51 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   }, [activeWorkflowId, readOnlyGuard]);
 
   // ============================================
+  // EXPORT & DUPLICATE
+  // ============================================
+
+  const handleExportJSON = useCallback(() => {
+    const data = {
+      name: pipelineName,
+      workflow_id: activeWorkflowId,
+      steps: nodesToStepInputs(nodes, edges),
+      exported_at: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${pipelineName.replace(/\s+/g, '_').toLowerCase()}_workflow.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Workflow exported');
+  }, [pipelineName, activeWorkflowId, nodes, edges]);
+
+  const handleDuplicate = useCallback(async () => {
+    if (nodes.length === 0) {
+      toast.error('Nothing to duplicate');
+      return;
+    }
+    const newName = `${pipelineName} (copy)`;
+    try {
+      const stepInputs = nodesToStepInputs(nodes, edges);
+      const response = await workflowApi.createWorkflow({
+        project_name: newName,
+        steps: stepInputs,
+      });
+      setActiveWorkflowId(response.project_id);
+      setActiveWorkflowName(response.project_name);
+      setPipelineName(response.project_name);
+      setIsDirty(false);
+      const listResponse = await listProjects({ project_type: 'workflow', mine_only: true });
+      setWorkflows((listResponse.projects || []).map((p) => ({ id: p.project_id, name: p.project_name })));
+      toast.success(`Duplicated as "${newName}"`);
+    } catch (error: any) {
+      toast.error(getApiErrorMessage(error) || 'Failed to duplicate');
+    }
+  }, [pipelineName, nodes, edges]);
+
+  // ============================================
   // RENDER
   // ============================================
 
@@ -1502,11 +1574,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex-1" />
 
           {/* Action buttons */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={handleSavePipeline}
               disabled={isSaving || isReadOnly}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
               title="Save workflow (Ctrl+S)"
             >
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
@@ -1516,7 +1588,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <button
               onClick={handleValidate}
               disabled={!activeWorkflowId}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
               title="Check for errors in the workflow DAG before execution"
             >
               <CheckCircle className="h-3.5 w-3.5" />
@@ -1526,31 +1598,55 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <button
               onClick={() => handleExecute(true)}
               disabled={isExecuting || !activeWorkflowId}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
               title="Preview the compiled SQL without executing it"
             >
               <Eye className="h-3.5 w-3.5" />
-              Preview SQL
+              SQL
             </button>
 
             <button
               onClick={() => handleExecute(false)}
               disabled={isExecuting || !activeWorkflowId || isReadOnly}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
               title="Run the workflow now (Ctrl+Enter)"
             >
               {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              Execute
+              Run
             </button>
 
             <button
               onClick={handleSubmitForApproval}
               disabled={!activeWorkflowId || isReadOnly}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
               title="Request approval for production deployment"
             >
               <AlertCircle className="h-3.5 w-3.5" />
-              Submit for Approval
+              Approve
+            </button>
+
+            {/* Separator */}
+            <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
+
+            {/* Utility buttons */}
+            <button
+              onClick={handleExportJSON}
+              disabled={nodes.length === 0}
+              className="p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors disabled:opacity-30"
+              title="Export workflow as JSON"
+              aria-label="Export workflow"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </button>
+
+            <button
+              onClick={handleDuplicate}
+              disabled={nodes.length === 0}
+              className="p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors disabled:opacity-30"
+              title="Duplicate workflow"
+              aria-label="Duplicate workflow"
+            >
+              <Copy className="h-3.5 w-3.5" />
             </button>
 
             {activeWorkflowId && !isReadOnly && (
@@ -1661,50 +1757,30 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         {/* Right panel — conditional, PUSHES canvas */}
         {showRightPanel && (
         <div className="w-[420px] flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
-          {/* Tabs — two rows: primary + secondary */}
-          <div className="border-b border-slate-200 dark:border-slate-700">
-            <div className="flex">
-              {[
-                { id: 'results', label: 'Results', icon: Eye },
-                { id: 'runs', label: 'Runs', icon: History },
-                { id: 'sql', label: 'SQL', icon: Code },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={cn(
-                    'flex-1 px-3 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
-                    activeTab === tab.id
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
-                      : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/30'
-                  )}
-                >
-                  <tab.icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex border-t border-slate-100 dark:border-slate-700/50">
-              {[
-                { id: 'schedules', label: 'Schedules', icon: Calendar },
-                { id: 'ai', label: 'AI', icon: Sparkles },
-                { id: 'tasks', label: 'Tasks', icon: Clock },
-              ].map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={cn(
-                    'flex-1 px-3 py-2 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors',
-                    activeTab === tab.id
-                      ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
-                      : 'text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/30'
-                  )}
-                >
-                  <tab.icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
+          {/* Tabs — single compact row */}
+          <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
+            {[
+              { id: 'results', label: 'Results', icon: Eye },
+              { id: 'runs', label: 'Runs', icon: History },
+              { id: 'sql', label: 'SQL', icon: Code },
+              { id: 'schedules', label: 'Schedules', icon: Calendar },
+              { id: 'ai', label: 'AI', icon: Sparkles },
+              { id: 'tasks', label: 'Tasks', icon: Clock },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className={cn(
+                  'flex-1 px-2 py-2.5 text-[11px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap min-w-0',
+                  activeTab === tab.id
+                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
+                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/30'
+                )}
+              >
+                <tab.icon className="h-3.5 w-3.5 flex-shrink-0" />
+                {tab.label}
+              </button>
+            ))}
           </div>
 
           {/* Persistent error banner (replaces disappearing toasts) */}

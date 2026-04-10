@@ -220,7 +220,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     return (
       <div className={cn('p-4', className)}>
         <p className="text-sm text-slate-500 text-center">
-          Save a pipeline to view execution history
+          Save the workflow to view execution history
         </p>
       </div>
     );

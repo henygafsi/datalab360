@@ -1712,6 +1712,65 @@ export const DocumentAiNode = memo(({ data, selected }: NodeProps) => (
 DocumentAiNode.displayName = 'DocumentAiNode';
 
 // ============================================
+// GENERIC NODE — fallback for blocks without a dedicated component
+// ============================================
+// Factory to create typed generic nodes — shows config params automatically
+const makeGenericNode = (blockType: string) => {
+  const Node = memo(({ data, selected }: NodeProps) => {
+    const config = data.config || data;
+    const displayKeys = Object.entries(config)
+      .filter(([k, v]) => v && k !== 'config' && k !== 'name' && k !== 'nodeId' && k !== 'position' && k !== 'inputs' && k !== 'cte_alias' && typeof v !== 'object')
+      .slice(0, 4);
+
+    return (
+      <ETLNodeWrapper data={data} selected={selected} type={blockType}>
+        <div className="space-y-1">
+          {displayKeys.length > 0 ? (
+            displayKeys.map(([k, v]) => (
+              <ParamBadge key={k} label={k.replace(/_/g, ' ')} value={displayValue(String(v))} />
+            ))
+          ) : (
+            <span className="text-[10px] text-slate-400 italic">Click to configure</span>
+          )}
+        </div>
+      </ETLNodeWrapper>
+    );
+  });
+  Node.displayName = `${blockType.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join('')}Node`;
+  return Node;
+};
+
+// Missing AI blocks
+const AiFilterNode = makeGenericNode('ai_filter');
+const AiAggNode = makeGenericNode('ai_agg');
+const AiEmbedNode = makeGenericNode('ai_embed');
+const AiRedactNode = makeGenericNode('ai_redact');
+const AiCountTokensNode = makeGenericNode('ai_count_tokens');
+const AiParseDocumentNode = makeGenericNode('ai_parse_document');
+const AiTranscribeNode = makeGenericNode('ai_transcribe');
+
+// Missing ML blocks
+const MlForecastNode = makeGenericNode('ml_forecast');
+const MlAnomalyNode = makeGenericNode('ml_anomaly');
+
+// Missing Advanced SQL blocks
+const RecursiveCteNode = makeGenericNode('recursive_cte');
+const CopyIntoNode = makeGenericNode('copy_into');
+const MergeNode = makeGenericNode('merge');
+const FlattenNode = makeGenericNode('flatten');
+const QualifyNode = makeGenericNode('qualify');
+const FuzzyMatchNode = makeGenericNode('fuzzy_match');
+const JsonPathExtractNode = makeGenericNode('json_path_extract');
+const QualifyFilterNode = makeGenericNode('qualify_filter');
+const CorrelationNode = makeGenericNode('correlation');
+const HistogramNode = makeGenericNode('histogram');
+
+// Missing other blocks
+const IcebergSourceNode = makeGenericNode('iceberg_source');
+const SetColValueNode = makeGenericNode('set_col_value');
+const NormalizeColNode = makeGenericNode('normalize_col');
+
+// ============================================
 // EXPORT NODE TYPES MAP
 // ============================================
 export const etlNodeTypes = {
@@ -1802,6 +1861,13 @@ export const etlNodeTypes = {
   ai_translate: AiTranslateNode,
   ai_extract: AiExtractNode,
   ai_complete: AiCompleteNode,
+  ai_filter: AiFilterNode,
+  ai_agg: AiAggNode,
+  ai_embed: AiEmbedNode,
+  ai_redact: AiRedactNode,
+  ai_count_tokens: AiCountTokensNode,
+  ai_parse_document: AiParseDocumentNode,
+  ai_transcribe: AiTranscribeNode,
 
   // ML Training blocks
   finetune: FinetuneNode,
@@ -1809,14 +1875,33 @@ export const etlNodeTypes = {
   anomaly_detect: AnomalyDetectNode,
   forecast: ForecastNode,
   document_ai: DocumentAiNode,
+  ml_forecast: MlForecastNode,
+  ml_anomaly: MlAnomalyNode,
+
+  // Advanced SQL blocks
+  recursive_cte: RecursiveCteNode,
+  copy_into: CopyIntoNode,
+  merge: MergeNode,
+  flatten: FlattenNode,
+  qualify: QualifyNode,
+  fuzzy_match: FuzzyMatchNode,
+  json_path_extract: JsonPathExtractNode,
+  qualify_filter: QualifyFilterNode,
+  correlation: CorrelationNode,
+  histogram: HistogramNode,
+
+  // Other blocks
+  iceberg_source: IcebergSourceNode,
+  set_col_value: SetColValueNode,
+  normalize_col: NormalizeColNode,
 
   // Legacy mappings for backward compatibility
-  src: SourceNode, // Legacy source
-  aggregate_kpi: LegacyAggregateKPINode, // Legacy aggregate
-  drop_nulls: FilterNode, // Legacy filter (drop nulls)
-  drop_duplicates: DistinctNode, // Legacy distinct
-  normalize: FormulaNode, // Legacy normalize (now formula)
-  export_excel: ExportFileNode, // Legacy export
+  src: SourceNode,
+  aggregate_kpi: LegacyAggregateKPINode,
+  drop_nulls: FilterNode,
+  drop_duplicates: DistinctNode,
+  normalize: FormulaNode,
+  export_excel: ExportFileNode,
 };
 
 export default etlNodeTypes;
