@@ -128,6 +128,10 @@ export interface LimitConfig {
 export interface RecommendationConfig {
   score_column: string;
   model_type?: 'cortex' | 'custom';
+  score_expression?: string;
+  cortex_model?: string;
+  input_column?: string;
+  prompt?: string;
   input_id_column?: string;
   output_table?: string;
 }

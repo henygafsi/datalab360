@@ -169,13 +169,18 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
     return `${(ms / 1000).toFixed(1)}s`;
   };
 
+  // Unconfigured nodes: dashed border + slight opacity
+  const isUnconfigured = status === 'empty' && !execStatus;
+
   return (
     <div
       className={cn(
         'relative min-w-[240px] max-w-[300px] rounded-xl border-2 shadow-lg transition-all hover:shadow-2xl hover:-translate-y-0.5 bg-white dark:bg-slate-800',
         borderClass,
+        isUnconfigured && 'border-dashed opacity-75',
         selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
       )}
+      title={isUnconfigured ? 'Click to configure this block' : undefined}
     >
       {/* Step number badge — color reflects execution state */}
       {(data.config?.step_order || data.step_order || data.stepIndex) && (
@@ -281,8 +286,12 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-[10px] !h-[10px] !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150"
+          className={cn(
+            '!w-[10px] !h-[10px] !border-2 !border-white dark:!border-slate-900 hover:!w-[14px] hover:!h-[14px] hover:!shadow-[0_0_6px_rgba(59,130,246,0.5)] transition-all duration-150',
+            outputCount === 0 && !execStatus && '!w-[12px] !h-[12px] animate-pulse !shadow-[0_0_8px_rgba(16,185,129,0.6)]'
+          )}
           style={{ backgroundColor: resolveHandleColor(blockDef.color) }}
+          title={outputCount === 0 ? 'Drag to connect to next block' : undefined}
         />
       )}
 

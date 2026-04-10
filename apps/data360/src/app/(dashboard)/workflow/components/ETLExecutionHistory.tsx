@@ -323,7 +323,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
             <p className="text-xs mt-1">Execute the pipeline to see runs here</p>
           </div>
         ) : (
-          runs.map((run) => {
+          runs.map((run: any) => {
             const isExpanded = expandedRuns.has(run.run_id);
 
             return (
@@ -454,7 +454,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           </div>
                           <button
                             onClick={() => navigator.clipboard.writeText(
-                              typeof run.error_log === 'string' ? run.error_log : JSON.stringify(run.error_log, null, 2)
+                              String(typeof run.error_log === 'string' ? run.error_log : JSON.stringify(run.error_log, null, 2))
                             )}
                             className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                             title="Copy error to clipboard"
@@ -463,9 +463,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           </button>
                         </div>
                         <pre className="text-xs text-red-700 dark:text-red-300 whitespace-pre-wrap">
-                          {typeof run.error_log === 'string'
-                            ? run.error_log
-                            : JSON.stringify(run.error_log, null, 2)}
+                          {String(typeof run.error_log === 'string' ? run.error_log : JSON.stringify(run.error_log, null, 2))}
                         </pre>
                       </div>
                     )}
@@ -495,11 +493,11 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                             <Layers className="h-3 w-3" />
-                            Step Results ({run.execution_details.mode || 'legacy'} mode)
+                            Step Results ({String(run.execution_details?.mode || 'legacy')} mode)
                           </div>
                         </div>
                         <div className="space-y-1">
-                          {(run.execution_details.steps_results as any[]).map((step: any, idx: number) => (
+                          {(run.execution_details?.steps_results as any[] || []).map((step: any, idx: number) => (
                             <React.Fragment key={step.step_id || idx}>
                               <div className={cn(
                                 'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs',
@@ -530,7 +528,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                               {step.error && (
                                 <div className="mt-1 ml-7">
                                   <p className="text-xs text-red-600 dark:text-red-400 break-words">
-                                    {step.error}
+                                    {String(step.error)}
                                   </p>
                                 </div>
                               )}
@@ -538,14 +536,14 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           ))}
                         </div>
                         {/* Compiled SQL (CTE mode) */}
-                        {run.execution_details.compiled_sql && (
+                        {run.execution_details?.compiled_sql && (
                           <div className="mt-2">
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                 <Code className="h-3 w-3" /> Compiled SQL
                               </span>
                               <button
-                                onClick={() => copyToClipboard(run.execution_details.compiled_sql, run.run_id)}
+                                onClick={() => copyToClipboard(String(run.execution_details?.compiled_sql || ''), run.run_id)}
                                 className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition"
                                 title="Copy SQL"
                               >
@@ -553,7 +551,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                               </button>
                             </div>
                             <pre className="p-2 bg-slate-900 rounded-lg text-[10px] text-green-400 font-mono whitespace-pre-wrap overflow-x-auto max-h-[200px]">
-                              {run.execution_details.compiled_sql}
+                              {String(run.execution_details?.compiled_sql || '')}
                             </pre>
                           </div>
                         )}
@@ -561,7 +559,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     )}
 
                     {/* Raw Details Fallback (when no steps_results) */}
-                    {run.execution_details && !run.execution_details.steps_results && (
+                    {run.execution_details && !run.execution_details?.steps_results && (
                       <div className="p-3 bg-slate-900 rounded-lg">
                         <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
                           {JSON.stringify(run.execution_details, null, 2)}

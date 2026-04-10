@@ -1364,6 +1364,12 @@ export const getBlocksByCategory = (category: ETLCategory): ETLBlockDefinition[]
   return ETL_BLOCKS.filter((block) => block.category === category);
 };
 
+// Common blocks shown first in the palette for quick access
+const COMMON_BLOCK_TYPES = ['source', 'filter', 'join', 'aggregate', 'select', 'formula', 'sort', 'destination'];
+export const getCommonBlocks = (): ETLBlockDefinition[] => {
+  return COMMON_BLOCK_TYPES.map((type) => ETL_BLOCKS.find((b) => b.type === type)).filter(Boolean) as ETLBlockDefinition[];
+};
+
 // Get block by type
 export const getBlockByType = (type: string): ETLBlockDefinition | undefined => {
   return ETL_BLOCKS.find((block) => block.type === type);

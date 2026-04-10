@@ -18,6 +18,7 @@ import ReactFlow, {
   Position,
   useReactFlow,
 } from 'reactflow';
+// @ts-ignore — CSS import handled by Next.js bundler
 import 'reactflow/dist/style.css';
 import toast, { Toaster } from 'react-hot-toast';
 import { getDatabases } from '@/app/services/mapping/getDatabases';

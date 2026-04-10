@@ -10,6 +10,7 @@ import {
   CATEGORY_LABELS,
   CATEGORY_ICONS,
   getBlocksByCategory,
+  getCommonBlocks,
 } from './etl-blocks';
 
 interface ETLPaletteProps {
@@ -133,6 +134,9 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
     );
   }, [searchQuery]);
 
+  // Common blocks (always shown first)
+  const commonBlocks = useMemo(() => getCommonBlocks(), []);
+
   // Categorized blocks
   const sourceBlocks = useMemo(() => getBlocksByCategory('source'), []);
   const transformBlocks = useMemo(() => getBlocksByCategory('transform'), []);
@@ -196,12 +200,24 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
             )}
           </div>
         ) : (
-          // Categorized view
+          // Categorized view — Common first, rest collapsed
           <>
-            <CategorySection category="source" blocks={sourceBlocks} />
-            <CategorySection category="transform" blocks={transformBlocks} />
+            {/* Common blocks — always expanded */}
+            <div className="mb-4">
+              <div className="flex items-center gap-2 px-2 py-2 text-sm font-semibold text-indigo-700 dark:text-indigo-300">
+                <span>Common</span>
+                <span className="ml-auto text-xs text-slate-400 font-normal">{commonBlocks.length}</span>
+              </div>
+              <div className="mt-1 space-y-2 pl-2">
+                {commonBlocks.map((block: ETLBlockDefinition) => (
+                  <PaletteItem key={`common-${block.id}`} block={block} />
+                ))}
+              </div>
+            </div>
+            <CategorySection category="source" blocks={sourceBlocks} defaultOpen={false} />
+            <CategorySection category="transform" blocks={transformBlocks} defaultOpen={false} />
             <CategorySection category="transform_advanced" blocks={transformAdvancedBlocks} defaultOpen={false} />
-            <CategorySection category="destination" blocks={destinationBlocks} />
+            <CategorySection category="destination" blocks={destinationBlocks} defaultOpen={false} />
             <CategorySection category="python" blocks={pythonBlocks} defaultOpen={false} />
           </>
         )}

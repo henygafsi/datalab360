@@ -16,6 +16,7 @@ import ReactFlow, {
   BackgroundVariant,
   MarkerType,
 } from 'reactflow';
+// @ts-ignore — CSS import handled by Next.js bundler
 import 'reactflow/dist/style.css';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
@@ -337,6 +338,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [loadError, setLoadError] = useState<string | null>(null);
   const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
 
+  // Dirty state tracking for unsaved indicator + incremental save
+  const [isDirty, setIsDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved'>('idle');
+  const lastSavedNodesRef = useRef<string>('');
+  const lastSavedEdgesRef = useRef<string>('');
+  const dirtyNodeIdsRef = useRef<Set<string>>(new Set());
+
   // UI state
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
@@ -399,6 +407,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     loadWorkflows();
   }, [loadWorkflows]);
 
+  // Keyboard shortcuts
+  const handleSaveRef = useRef<(() => void) | null>(null);
+  const handleExecuteRef = useRef<((dryRun: boolean) => void) | null>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        handleSaveRef.current?.();
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        handleExecuteRef.current?.(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   // ============================================
   // DRAG AND DROP
   // ============================================
@@ -429,6 +456,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       };
 
       setNodes((nds) => [...nds, newNode]);
+      setIsDirty(true);
+      dirtyNodeIdsRef.current.add(newNode.id);
     },
     [reactFlowInstance, setNodes]
   );
@@ -466,6 +495,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           eds
         )
       );
+      setIsDirty(true);
     },
     [nodes, edges, setEdges]
   );
@@ -494,6 +524,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             : node
         )
       );
+      setIsDirty(true);
+      dirtyNodeIdsRef.current.add(nodeId);
       toast.success('Node configuration saved');
     },
     [setNodes]
@@ -818,6 +850,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setCompiledSql(null);
     setValidation(null);
     setUserRole('owner'); // creating new = you're the owner
+    setIsDirty(false);
+    dirtyNodeIdsRef.current.clear();
+    setSaveStatus('idle');
   }, [setNodes, setEdges]);
 
   const handleLoadPipeline = useCallback(
@@ -831,6 +866,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         setActiveWorkflowId(wf.id);
         setActiveWorkflowName(wf.name);
         setPipelineName(wf.name);
+        setIsDirty(false);
+        dirtyNodeIdsRef.current.clear();
+        setSaveStatus('idle');
 
         // Determine user's role for this workflow project
         try {
@@ -862,25 +900,39 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
 
     setIsSaving(true);
+    setPipelineError(null);
     try {
       const stepInputs = nodesToStepInputs(nodes, edges);
 
       if (activeWorkflowId) {
-        // Update existing steps, add new ones
+        // Incremental save: only update modified steps
         const existing = await workflowApi.listSteps(activeWorkflowId);
         const existingSteps = existing.steps || [];
+        const dirtyIds = dirtyNodeIdsRef.current;
 
         for (let i = 0; i < stepInputs.length; i++) {
-          if (i < existingSteps.length) {
-            await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
-              action_type: stepInputs[i].action_type,
-              step_name: stepInputs[i].step_name,
-              payload: stepInputs[i].payload,
-            });
-          } else {
+          const nodeId = stepInputs[i].payload?.nodeId;
+          const isNew = i >= existingSteps.length;
+          const isModified = !nodeId || dirtyIds.has(nodeId) || dirtyIds.size === 0;
+
+          if (isNew) {
             await workflowApi.addStep(activeWorkflowId, stepInputs[i]);
+          } else if (isModified) {
+            await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
+              step_name: stepInputs[i].step_name,
+              payload: { ...stepInputs[i].payload, action_type: stepInputs[i].action_type },
+            });
+          }
+          // else: unchanged — skip API call
+        }
+
+        // Delete removed steps
+        if (existingSteps.length > stepInputs.length) {
+          for (let i = stepInputs.length; i < existingSteps.length; i++) {
+            await workflowApi.deleteStep(activeWorkflowId, existingSteps[i].step_id).catch(() => {});
           }
         }
+
         toast.success('Workflow updated');
       } else {
         // Create new
@@ -893,6 +945,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         toast.success('Workflow created');
       }
 
+      // Mark clean
+      setIsDirty(false);
+      dirtyNodeIdsRef.current.clear();
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+
       // Refresh workflow list
       const listResponse = await listProjects({ project_type: 'workflow', mine_only: true });
       setWorkflows(
@@ -900,11 +958,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       );
     } catch (error: any) {
       console.error('Failed to save workflow:', error);
-      toast.error(getApiErrorMessage(error) || 'Failed to save workflow');
+      const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
+      toast.error(errMsg);
+      setPipelineError(`Save failed: ${errMsg}`);
     } finally {
       setIsSaving(false);
     }
   }, [nodes, edges, pipelineName, activeWorkflowId]);
+  handleSaveRef.current = handleSavePipeline;
 
   const handleDeletePipeline = useCallback(async () => {
     if (readOnlyGuard()) return;
@@ -1025,6 +1086,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     },
     [activeWorkflowId, nodes]
   );
+  handleExecuteRef.current = handleExecute;
 
   const handleValidate = useCallback(async () => {
     setPipelineError(null);
@@ -1299,14 +1361,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <span>Home</span>
           <span>/</span>
           <span>Workflow</span>
-          {activeWorkflowId && (
-            <>
-              <span>/</span>
-              <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">
-                {pipelineName || 'New Workflow'}
-              </span>
-            </>
-          )}
+          <span>/</span>
+          <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">
+            {pipelineName || 'New Workflow'}
+          </span>
         </nav>
         <div className="flex items-center gap-1.5">
           <button
@@ -1328,6 +1386,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       {/* Header — single row */}
       <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-2.5">
         <div className="flex items-center gap-2">
+          {/* New workflow button */}
+          <button
+            onClick={handleNewPipeline}
+            className="p-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors"
+            title="Create new workflow"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+          </button>
+
           {/* Workflow selector */}
           <select
             value={activeWorkflowId || ''}
@@ -1350,11 +1417,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <input
             type="text"
             value={pipelineName}
-            onChange={(e) => setPipelineName(e.target.value)}
+            onChange={(e) => { setPipelineName(e.target.value); setIsDirty(true); }}
             className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium w-[180px]"
             placeholder="Workflow name..."
             readOnly={isReadOnly}
           />
+
+          {/* Save status indicator — only show after actual user changes, not on fresh empty workflow */}
+          {isDirty && (nodes.length > 0 || activeWorkflowId) && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap">
+              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
+              Unsaved
+            </span>
+          )}
+          {!isDirty && saveStatus === 'saved' && (
+            <span className="flex items-center gap-1 text-[11px] font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
+              <CheckCircle className="h-3 w-3" />
+              Saved
+            </span>
+          )}
 
           {isReadOnly && (
             <span className="px-2 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 flex items-center gap-1 whitespace-nowrap">
@@ -1426,6 +1507,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={handleSavePipeline}
               disabled={isSaving || isReadOnly}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+              title="Save workflow (Ctrl+S)"
             >
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               Save
@@ -1455,7 +1537,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={() => handleExecute(false)}
               disabled={isExecuting || !activeWorkflowId || isReadOnly}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-              title="Run the workflow now as a test execution"
+              title="Run the workflow now (Ctrl+Enter)"
             >
               {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Execute
@@ -1512,7 +1594,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         </button>
 
         {/* Canvas */}
-        <div ref={reactFlowWrapper} className="flex-1">
+        <div ref={reactFlowWrapper} className="flex-1 relative">
           <ReactFlow
             nodes={enrichedNodes}
             edges={enrichedEdges}
@@ -1535,14 +1617,50 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <Controls />
           </ReactFlow>
+
+          {/* Empty state overlay */}
+          {nodes.length === 0 && !isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+              <div className="text-center space-y-5 pointer-events-auto max-w-md">
+                {/* Visual flow diagram */}
+                <div className="flex items-center justify-center gap-4">
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-xl bg-green-100 dark:bg-green-900/30 flex items-center justify-center mb-2 shadow-sm">
+                      <svg className="h-7 w-7 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" /></svg>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Source</span>
+                  </div>
+                  <svg className="h-5 w-5 text-slate-300 dark:text-slate-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mb-2 shadow-sm">
+                      <svg className="h-7 w-7 text-blue-600 dark:text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Transform</span>
+                  </div>
+                  <svg className="h-5 w-5 text-slate-300 dark:text-slate-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-xl bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center mb-2 shadow-sm">
+                      <svg className="h-7 w-7 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" /></svg>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">Destination</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+                    Drag blocks from the left panel to start building your workflow
+                  </p>
+                  <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
+                    Connect blocks to define data flow, then click each block to configure it
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Right panel — conditional, PUSHES canvas */}
         {showRightPanel && (
-        <div className={cn(
-          'flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col',
-          activeTab === 'results' ? 'w-[480px]' : 'w-96'
-        )}>
+        <div className="w-[420px] flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
           {/* Tabs — two rows: primary + secondary */}
           <div className="border-b border-slate-200 dark:border-slate-700">
             <div className="flex">
