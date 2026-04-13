@@ -1,0 +1,115 @@
+---
+title: Authentication
+description: How to authenticate with the Data360 API using JWT tokens.
+---
+
+import { Aside, Code, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Authentication Flow
+
+All API endpoints (except `POST /signin`) require a JWT Bearer token. Here's how to get one:
+
+### Step 1: Sign In
+
+<Tabs>
+  <TabItem label="cURL">
+```bash
+curl -X POST https://api.datalab360.io/signin \
+  -H "Content-Type: application/json" \
+  -d '{
+    "account_name": "your_snowflake_account",
+    "username": "your_username",
+    "password": "your_password"
+  }'
+```
+  </TabItem>
+  <TabItem label="Python">
+```python
+import requests
+
+response = requests.post("https://api.datalab360.io/signin", json={
+    "account_name": "your_snowflake_account",
+    "username": "your_username",
+    "password": "your_password"
+})
+
+token = response.json()["access_token"]
+```
+  </TabItem>
+  <TabItem label="JavaScript">
+```javascript
+const response = await fetch("https://api.datalab360.io/signin", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    account_name: "your_snowflake_account",
+    username: "your_username",
+    password: "your_password",
+  }),
+});
+
+const { access_token } = await response.json();
+```
+  </TabItem>
+</Tabs>
+
+### Step 2: Use the Token
+
+Include the token in the `Authorization` header for all subsequent requests:
+
+```bash
+curl -X GET https://api.datalab360.io/command-center/summary \
+  -H "Authorization: Bearer <access_token>"
+```
+
+### Required Headers
+
+| Header | Value | Required |
+|--------|-------|----------|
+| `Authorization` | `Bearer <access_token>` | Yes (all protected endpoints) |
+| `Content-Type` | `application/json` | Yes (POST/PUT/PATCH) |
+| `X-Account-Name` | Your Snowflake account name | Auto-set from token |
+| `X-Username` | Your Snowflake username | Auto-set from token |
+
+### Response Format
+
+```json
+{
+  "access_token": "eyJhbGciOiJIUzI1NiIs...",
+  "token_type": "bearer",
+  "account_name": "your_account",
+  "username": "your_username",
+  "role": "ACCOUNTADMIN",
+  "warehouse": "COMPUTE_WH"
+}
+```
+
+<Aside type="tip">
+  The token is valid for 24 hours. When you receive a `401` response, re-authenticate via `POST /signin`.
+</Aside>
+
+## MFA Support
+
+If your Snowflake account requires MFA, include the `mfa_code` field:
+
+```json
+{
+  "account_name": "your_account",
+  "username": "your_username",
+  "password": "your_password",
+  "mfa_code": "123456"
+}
+```
+
+## Rate Limits
+
+| Endpoint Group | Limit | Window |
+|---------------|-------|--------|
+| Authentication (`/signin`) | 20 requests | 60 seconds per IP |
+| Cortex AI (`/cortex/*`) | 20 requests | 60 seconds per IP |
+| Bulk operations (`/connect/bulk/*`) | 10 requests | 60 seconds per IP |
+| All other endpoints | No limit | — |
+
+<Aside type="caution">
+  Exceeding rate limits returns `429 Too Many Requests`. Back off and retry after the window resets.
+</Aside>

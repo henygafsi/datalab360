@@ -5,7 +5,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
-      "env": ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "NEXT_PUBLIC_GOOGLE_MAP_API_KEY","NEXT_PUBLIC_API_URL"]
+      "env": ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "NEXT_PUBLIC_GOOGLE_MAP_API_KEY","NEXT_PUBLIC_API_URL","OPENAPI_URL"]
     },
     "lint": {},
     "start": {

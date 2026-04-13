@@ -67,7 +67,6 @@ const WorkflowHomePage: React.FC = () => {
   const [activeEdges, setActiveEdges] = useState<ReactFlowEdge[]>([]);
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
-  const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const fetchWorkflowsRef = useRef<((_token?: string) => Promise<void>) | null>(null);
 
@@ -81,13 +80,6 @@ const WorkflowHomePage: React.FC = () => {
     const workflow = workflows.find(w => w.workflow_name === activeWorkflowName);
     return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
   }, [workflows, activeWorkflowName]);
-
-  const cronScheduleOptions = useMemo(() => ([
-    { value: 'hourly', label: 'Every hour' },
-    { value: 'daily', label: 'Every day at 8 AM' },
-    { value: 'weekly', label: 'Every Monday at 8 AM' },
-    { value: 'monthly', label: 'Every first day of the month at 8 AM' },
-  ]), []);
 
   useEffect(() => {
     const fetchSessionAndWorkflows = async () => {
@@ -640,78 +632,7 @@ const WorkflowHomePage: React.FC = () => {
     }
   };
 
-  const scheduleWorkflow = async (cron_schedule_value: string) => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!cron_schedule_value) {
-      toast.error("Please select a scheduling frequency.");
-      return;
-    }
-    if (!activeWorkflowId) {
-      toast.error("Workflow ID not found. Please save the workflow first.");
-      return;
-    }
-    try {
-      // API expects lowercase cron_choice: 'hourly' | 'daily' | 'weekly' | 'monthly'
-      const validChoices = ['hourly', 'daily', 'weekly', 'monthly'] as const;
-      if (!validChoices.includes(cron_schedule_value as any)) {
-        toast.error("Invalid scheduling frequency.");
-        return;
-      }
-      await workflowApi.scheduleWorkflow(activeWorkflowId, {
-        cron_choice: cron_schedule_value as typeof validChoices[number],
-        warehouse: 'COMPUTE_WH',
-      });
-      toast.success(`Workflow '${activeWorkflowName}' scheduled successfully!`);
-      setActiveSchedule(cron_schedule_value);
-      setShowScheduleDropdown(false);
-      await fetchWorkflows();
-    } catch (err: any) {
-      console.error('Error scheduling workflow:', err);
-      toast.error(`Failed to schedule workflow: ${getApiErrorMessage(err)}`);
-    }
-  };
-
-  const suspendTask = async () => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!activeWorkflowId) {
-      toast.error("Workflow ID not found. Please save the workflow first.");
-      return;
-    }
-    try {
-      await workflowApi.suspendTask(activeWorkflowId);
-      toast.success(`Workflow '${activeWorkflowName}' suspended successfully!`);
-      setActiveSchedule('');
-      await fetchWorkflows();
-    } catch (err: any) {
-      console.error('Error suspending workflow:', err);
-      toast.error(`Failed to suspend workflow: ${getApiErrorMessage(err)}`);
-    }
-  };
-
-  const resumeTask = async () => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!activeWorkflowId) {
-      toast.error("Workflow ID not found. Please save the workflow first.");
-      return;
-    }
-    try {
-      await workflowApi.resumeTask(activeWorkflowId);
-      toast.success(`Workflow '${activeWorkflowName}' resumed successfully!`);
-      await fetchWorkflows();
-    } catch (err: any) {
-      console.error('Error resuming workflow:', err);
-      toast.error(`Failed to resume workflow: ${getApiErrorMessage(err)}`);
-    }
-  };
+  // Schedule/suspend/resume are handled by ScheduleManager in ETLPipelineBuilder
 
   if (loading) {
     return (
@@ -824,76 +745,7 @@ const WorkflowHomePage: React.FC = () => {
             </button>
           </div>
 
-          {/* Schedule Section */}
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
-            <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 text-center">
-              Schedule: {activeSchedule ? cronScheduleOptions.find(opt => opt.value === activeSchedule)?.label : 'None'}
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => setShowScheduleDropdown(!showScheduleDropdown)}
-                className={cn(
-                  "w-full flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-blue-500 text-white hover:bg-blue-600"
-                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                <span>Schedule</span>
-                <span>{showScheduleDropdown ? '▲' : '▼'}</span>
-              </button>
-              {showScheduleDropdown && (
-                <div className="absolute bottom-full mb-1 w-full z-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg overflow-hidden">
-                  <select
-                    className="w-full p-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    value={activeSchedule}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value && isWorkflowSaved && activeWorkflowName) {
-                        scheduleWorkflow(value);
-                      }
-                    }}
-                  >
-                    <option value="">Select Frequency</option>
-                    {cronScheduleOptions.map(option => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={resumeTask}
-                className={cn(
-                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                title="Resume Task"
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                Resume
-              </button>
-              <button
-                onClick={suspendTask}
-                className={cn(
-                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                title="Suspend Task"
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                Suspend
-              </button>
-            </div>
-          </div>
+          {/* Schedule is managed in ETLPipelineBuilder's ScheduleManager tab */}
         </div>
       </div>
 

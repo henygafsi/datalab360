@@ -350,7 +350,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'tasks' | 'results'>('runs');
+  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'results'>('runs');
   const [showMembers, setShowMembers] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showErrorPanel, setShowErrorPanel] = useState(false);
@@ -1763,9 +1763,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               { id: 'results', label: 'Results', icon: Eye },
               { id: 'runs', label: 'Runs', icon: History },
               { id: 'sql', label: 'SQL', icon: Code },
-              { id: 'schedules', label: 'Schedules', icon: Calendar },
+              { id: 'schedules', label: 'Schedule & Tasks', icon: Calendar },
               { id: 'ai', label: 'AI', icon: Sparkles },
-              { id: 'tasks', label: 'Tasks', icon: Clock },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -1953,6 +1952,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   isReadOnly={isReadOnly}
                   className="-mx-4 -mt-4"
                 />
+                {/* Task execution history */}
+                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
+                  <TasksPanel
+                    workflowId={activeWorkflowId}
+                    onImported={() => {
+                      loadWorkflows();
+                    }}
+                    className="border-0 rounded-none -mx-4"
+                  />
+                </div>
               </>
             )}
 
@@ -2031,15 +2040,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </div>
             )}
 
-            {activeTab === 'tasks' && (
-              <TasksPanel
-                workflowId={activeWorkflowId}
-                onImported={() => {
-                  // Refresh workflow list after import
-                  loadWorkflows();
-                }}
-              />
-            )}
 
           </div>
         </div>

@@ -221,14 +221,14 @@ export async function activateSchedule(workflowId: string, scheduleId: string) {
 
 export async function suspendTask(workflowId: string) {
   const { data } = await apiClient.post<{ status: string }>(
-    `${PREFIX}/${workflowId}/task/suspend`,
+    `${PREFIX}/${workflowId}/schedule/pause`,
   );
   return data;
 }
 
 export async function resumeTask(workflowId: string) {
   const { data } = await apiClient.post<{ status: string }>(
-    `${PREFIX}/${workflowId}/task/resume`,
+    `${PREFIX}/${workflowId}/schedule/resume`,
   );
   return data;
 }
