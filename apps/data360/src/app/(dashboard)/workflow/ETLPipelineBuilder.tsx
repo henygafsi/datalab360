@@ -42,6 +42,8 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, listContributors } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import type { ContributorRole } from '@/app/services/api/types';
 import type {
   Workflow,
@@ -331,12 +333,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // Pipeline/Workflow state
   const [activeWorkflowId, setActiveWorkflowId] = useState<string | null>(null);
   const [activeWorkflowName, setActiveWorkflowName] = useState<string>('New Workflow');
-  const [workflows, setWorkflows] = useState<{ id: string; name: string }[]>([]);
   const [pipelineName, setPipelineName] = useState('New Workflow');
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
 
   // Dirty state tracking for unsaved indicator + incremental save
@@ -387,26 +386,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // ============================================
 
   // Load workflows on mount
-  const loadWorkflows = useCallback(async () => {
-    if (!accessToken) return;
-    setIsLoading(true);
-    setLoadError(null);
-    try {
-      const response = await listProjects({ project_type: 'workflow', mine_only: true });
-      setWorkflows(
-        (response.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
-      );
-    } catch (error) {
-      console.error('Failed to load workflows:', error);
-      setLoadError(getApiErrorMessage(error) || 'Failed to load workflows');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [accessToken]);
+  const loadWorkflowsFn = useCallback(
+    () => listProjects({ project_type: 'workflow', mine_only: true }),
+    [accessToken]
+  );
 
-  useEffect(() => {
-    loadWorkflows();
-  }, [loadWorkflows]);
+  const { data: workflowsData, loading: isLoading, error: loadErrorObj, refetch: loadWorkflows } = useCacheAwareQuery(
+    loadWorkflowsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!accessToken, initialData: null }
+  );
+
+  const workflows = useMemo(
+    () => (workflowsData?.projects || []).map((p: any) => ({ id: p.project_id, name: p.project_name })),
+    [workflowsData]
+  );
+  const loadError = loadErrorObj ? (getApiErrorMessage(loadErrorObj) || 'Failed to load workflows') : null;
 
   // Keyboard shortcuts
   const handleSaveRef = useRef<(() => void) | null>(null);
@@ -979,10 +973,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setTimeout(() => setSaveStatus('idle'), 2000);
 
       // Refresh workflow list
-      const listResponse = await listProjects({ project_type: 'workflow', mine_only: true });
-      setWorkflows(
-        (listResponse.projects || []).map((p) => ({ id: p.project_id, name: p.project_name }))
-      );
+      await loadWorkflows();
     } catch (error: any) {
       console.error('Failed to save workflow:', error);
       const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
@@ -1008,7 +999,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           if (err?.response?.status !== 404) throw err;
         });
       }
-      setWorkflows((prev) => prev.filter((w) => w.id !== activeWorkflowId));
+      await loadWorkflows();
       handleNewPipeline();
       toast.success('Workflow deleted');
     } catch (error) {
@@ -1229,8 +1220,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setActiveWorkflowName(response.project_name);
       setPipelineName(response.project_name);
       setIsDirty(false);
-      const listResponse = await listProjects({ project_type: 'workflow', mine_only: true });
-      setWorkflows((listResponse.projects || []).map((p) => ({ id: p.project_id, name: p.project_name })));
+      await loadWorkflows();
       toast.success(`Duplicated as "${newName}"`);
     } catch (error: any) {
       toast.error(getApiErrorMessage(error) || 'Failed to duplicate');

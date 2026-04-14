@@ -20,7 +20,6 @@ import {
   removeRLSPolicy,
   RLSPolicy,
 } from '@/app/services/gouvernance/security_matrix';
-import apiClient from '@/lib/api-client';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
@@ -132,7 +131,6 @@ export default function RLSPoliciesPage() {
       toast.success('RLS Policy created successfully');
       setShowCreateModal(false);
       resetForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to create RLS policy');
@@ -152,7 +150,6 @@ export default function RLSPoliciesPage() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to apply RLS policy');
@@ -164,7 +161,6 @@ export default function RLSPoliciesPage() {
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
       loadPolicies();
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Failed to remove RLS policy');

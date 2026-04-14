@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Badge, Button } from 'rizzui';
 import {
   PiMagnifyingGlass,
@@ -27,6 +27,8 @@ import {
   getRedundantGroups,
 } from '@/app/services/cortex';
 import type { AnalyticsResult, AnalyticsSummary, RedundantGroup, RunAnalysisResponse } from '@/app/services/cortex';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 const SEVERITY_STYLES: Record<string, string> = {
   critical: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
@@ -43,18 +45,34 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function QueryAnalyticsContent() {
-  const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
-  const [results, setResults] = useState<AnalyticsResult[]>([]);
-  const [redundantGroups, setRedundantGroups] = useState<RedundantGroup[]>([]);
-  const [loading, setLoading] = useState(true);
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeResult, setAnalyzeResult] = useState<RunAnalysisResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [expandedRow, setExpandedRow] = useState<string | null>(null);
   const [hours, setHours] = useState(5);
   const [sortKey, setSortKey] = useState<string | null>('EXECUTION_TIME_MS');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  // ── Data fetching via useCacheAwareQuery ──
+  const fetchAnalyticsData = useCallback(async () => {
+    const [summaryData, resultsData, groupsData] = await Promise.all([
+      getQueryAnalyticsSummary(),
+      getQueryAnalyticsResults({ analysis_type: activeFilter || undefined, limit: 100 }),
+      getRedundantGroups(20),
+    ]);
+    return { summary: summaryData, results: resultsData.results, redundantGroups: groupsData.groups };
+  }, [activeFilter]);
+
+  const { data: analyticsData, loading, error: analyticsError, refetch: loadData } = useCacheAwareQuery(
+    fetchAnalyticsData,
+    { cacheKeys: [CACHE_KEYS.CORTEX], initialData: { summary: null as AnalyticsSummary | null, results: [] as AnalyticsResult[], redundantGroups: [] as RedundantGroup[] } }
+  );
+
+  const summary = analyticsData?.summary ?? null;
+  const results = analyticsData?.results ?? [];
+  const redundantGroups = analyticsData?.redundantGroups ?? [];
+  const error = actionError ?? analyticsError?.message ?? null;
 
   const sortedResults = useMemo(() => {
     if (!sortKey) return results;
@@ -87,30 +105,6 @@ export default function QueryAnalyticsContent() {
     }
   };
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [summaryData, resultsData, groupsData] = await Promise.all([
-        getQueryAnalyticsSummary(),
-        getQueryAnalyticsResults({ analysis_type: activeFilter || undefined, limit: 100 }),
-        getRedundantGroups(20),
-      ]);
-      setSummary(summaryData);
-      setResults(resultsData.results);
-      setRedundantGroups(groupsData.groups);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Failed to load analytics';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeFilter]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
   const handleRunAnalysis = async () => {
     setAnalyzing(true);
     setAnalyzeResult(null);
@@ -120,7 +114,7 @@ export default function QueryAnalyticsContent() {
       await loadData();
     } catch (err: any) {
       const msg = err?.response?.data?.detail || err?.message || 'Analysis failed';
-      setError(msg);
+      setActionError(msg);
     } finally {
       setAnalyzing(false);
     }

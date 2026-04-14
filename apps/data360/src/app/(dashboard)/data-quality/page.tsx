@@ -2,6 +2,9 @@
 
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAtomValue } from 'jotai';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { dqThresholdSchema, type DQThresholdFormValues } from '@/validators/dq-threshold.schema';
@@ -1057,6 +1060,21 @@ export default function DataQualityPage() {
       setRefreshing(false);
     }
   };
+
+  // SSE cache invalidation: auto-refresh when backend pushes data_quality events
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation || loading) return;
+    const shouldRefresh = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.DATA_QUALITY || k === CACHE_KEYS.QUALITY_METRICS || k === CACHE_KEYS.DMF_RESULTS
+    );
+    if (shouldRefresh) {
+      loadSummary(true);
+      loadTrend(true);
+      loadTabData(activeTab, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   // Initial load
   useEffect(() => {

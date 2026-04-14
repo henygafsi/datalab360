@@ -1,10 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Loader } from 'rizzui';
 import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
 import apiClient from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   PiBrain,
   PiDatabase,
@@ -132,81 +134,48 @@ export default function IntelligentPage() {
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
-  const [kpis, setKpis] = useState<CortexKpis | null>(null);
-  const [kpisLoading, setKpisLoading] = useState(true);
-  const [kpisError, setKpisError] = useState<string | null>(null);
-
-  // ── Cortex Agents state ──
-  const [agents, setAgents] = useState<any[]>([]);
-  const [agentsLoading, setAgentsLoading] = useState(false);
-
-  // ── Semantic Views state ──
-  const [semanticViews, setSemanticViews] = useState<any[]>([]);
-  const [semanticViewsLoading, setSemanticViewsLoading] = useState(false);
-
-  // ── Vector Search state ──
-  const [vectorColumns, setVectorColumns] = useState<any[]>([]);
-  const [vectorColumnsLoading, setVectorColumnsLoading] = useState(false);
 
   useEffect(() => {
     setActiveTab(tabFromUrl);
   }, [tabFromUrl]);
 
-  // ── Fetch Cortex Agents when tab is active ──
-  useEffect(() => {
-    if (activeTab !== 'cortex-agents') return;
-    const controller = new AbortController();
-    setAgentsLoading(true);
-    apiClient.get('/cortex/agents?database=CP_DATA360', { signal: controller.signal })
-      .then(res => setAgents(res.data?.agents || []))
-      .catch(() => { if (!controller.signal.aborted) setAgents([]); })
-      .finally(() => { if (!controller.signal.aborted) setAgentsLoading(false); });
-    return () => controller.abort();
-  }, [activeTab]);
+  // ── KPIs via useCacheAwareQuery ──
+  const fetchKpis = useCallback(() => getCortexKpis(), []);
+  const { data: kpis, loading: kpisLoading, error: kpisErrorObj, refetch: loadKpis } = useCacheAwareQuery<CortexKpis>(
+    fetchKpis,
+    { cacheKeys: [CACHE_KEYS.CORTEX] }
+  );
+  const kpisError = kpisErrorObj?.message ?? null;
 
-  // ── Fetch Semantic Views when tab is active ──
-  useEffect(() => {
-    if (activeTab !== 'semantic-views') return;
-    const controller = new AbortController();
-    setSemanticViewsLoading(true);
-    apiClient.get('/cortex/semantic-views?database=CP_DATA360', { signal: controller.signal })
-      .then(res => setSemanticViews(res.data?.semantic_views || []))
-      .catch(() => { if (!controller.signal.aborted) setSemanticViews([]); })
-      .finally(() => { if (!controller.signal.aborted) setSemanticViewsLoading(false); });
-    return () => controller.abort();
-  }, [activeTab]);
-
-  // ── Fetch Vector Columns when tab is active ──
-  useEffect(() => {
-    if (activeTab !== 'vector-search') return;
-    const controller = new AbortController();
-    setVectorColumnsLoading(true);
-    apiClient.get('/cortex/vectors/columns?database=CP_DATA360', { signal: controller.signal })
-      .then(res => setVectorColumns(res.data?.vector_columns || []))
-      .catch(() => { if (!controller.signal.aborted) setVectorColumns([]); })
-      .finally(() => { if (!controller.signal.aborted) setVectorColumnsLoading(false); });
-    return () => controller.abort();
-  }, [activeTab]);
-
-  const loadKpis = async () => {
-    setKpisLoading(true);
-    setKpisError(null);
-    try {
-      const data = await getCortexKpis();
-      setKpis(data);
-    } catch (err: any) {
-      const msg = err?.response?.data?.detail || err?.message || 'Failed to load KPIs';
-      console.error('[Intelligent] KPI fetch failed:', msg);
-      setKpisError(msg);
-      setKpis(null);
-    } finally {
-      setKpisLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadKpis();
+  // ── Cortex Agents via useCacheAwareQuery ──
+  const fetchAgents = useCallback(async () => {
+    const res = await apiClient.get('/cortex/agents?database=CP_DATA360');
+    return res.data?.agents ?? [];
   }, []);
+  const { data: agents, loading: agentsLoading } = useCacheAwareQuery<any[]>(
+    fetchAgents,
+    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'cortex-agents', initialData: [] }
+  );
+
+  // ── Semantic Views via useCacheAwareQuery ──
+  const fetchSemanticViews = useCallback(async () => {
+    const res = await apiClient.get('/cortex/semantic-views?database=CP_DATA360');
+    return res.data?.semantic_views ?? [];
+  }, []);
+  const { data: semanticViews, loading: semanticViewsLoading } = useCacheAwareQuery<any[]>(
+    fetchSemanticViews,
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], enabled: activeTab === 'semantic-views', initialData: [] }
+  );
+
+  // ── Vector Columns via useCacheAwareQuery ──
+  const fetchVectorColumns = useCallback(async () => {
+    const res = await apiClient.get('/cortex/vectors/columns?database=CP_DATA360');
+    return res.data?.vector_columns ?? [];
+  }, []);
+  const { data: vectorColumns, loading: vectorColumnsLoading } = useCacheAwareQuery<any[]>(
+    fetchVectorColumns,
+    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'vector-search', initialData: [] }
+  );
 
   return (
     <ErrorBoundary>
@@ -374,7 +343,7 @@ export default function IntelligentPage() {
                 <div className="flex items-center justify-center py-12">
                   <Loader variant="spinner" size="lg" />
                 </div>
-              ) : agents.length === 0 ? (
+              ) : (agents ?? []).length === 0 ? (
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center border border-gray-200 dark:border-gray-700">
                   <PiRobotDuotone className="h-12 w-12 mx-auto text-indigo-400 mb-3" />
                   <p className="text-gray-600 dark:text-gray-400 font-medium">No agents configured yet</p>
@@ -384,10 +353,10 @@ export default function IntelligentPage() {
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">Active Agents</h4>
-                    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-xs">{agents.length}</Badge>
+                    <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-xs">{(agents ?? []).length}</Badge>
                   </div>
                   <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {agents.map((agent: any, i: number) => (
+                    {(agents ?? []).map((agent: any, i: number) => (
                       <div key={agent.name || i} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center shrink-0">
                           <PiRobotDuotone className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -476,7 +445,7 @@ export default function IntelligentPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {semanticViews.length === 0 ? (
+                      {(semanticViews ?? []).length === 0 ? (
                         <tr>
                           <td colSpan={6} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
                             <PiDatabase className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
@@ -484,7 +453,7 @@ export default function IntelligentPage() {
                           </td>
                         </tr>
                       ) : (
-                        semanticViews.map((view: any, i: number) => (
+                        (semanticViews ?? []).map((view: any, i: number) => (
                           <tr key={view.name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{view.name || view.VIEW_NAME || '—'}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{view.table_count ?? view.TABLES ?? '—'}</td>
@@ -556,7 +525,7 @@ export default function IntelligentPage() {
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">Vector Columns</h4>
-                    <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">{vectorColumns.length} columns</Badge>
+                    <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">{(vectorColumns ?? []).length} columns</Badge>
                   </div>
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50/50 dark:bg-gray-800/50">
@@ -569,7 +538,7 @@ export default function IntelligentPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {vectorColumns.length === 0 ? (
+                      {(vectorColumns ?? []).length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
                             <PiSparkle className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
@@ -577,7 +546,7 @@ export default function IntelligentPage() {
                           </td>
                         </tr>
                       ) : (
-                        vectorColumns.map((col: any, i: number) => (
+                        (vectorColumns ?? []).map((col: any, i: number) => (
                           <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td className="px-4 py-2.5 text-gray-900 dark:text-white font-mono text-xs">{col.table_name || col.TABLE_NAME || '—'}.{col.column_name || col.COLUMN_NAME || '—'}</td>
                             <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.dimensions || col.DIMENSIONS || '—'}</td>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
 import {
@@ -15,6 +15,8 @@ import type {
   TaskGraph,
 } from '@/app/services/api/workflowApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 interface TasksPanelProps {
   workflowId: string | null;
@@ -32,10 +34,6 @@ const stateBadge = (state: string) => {
 };
 
 const TasksPanel: React.FC<TasksPanelProps> = ({ workflowId, onImported, className }) => {
-  // Task status for current workflow
-  const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
-  const [taskLoading, setTaskLoading] = useState(false);
-
   // Discovery modal
   const [showDiscover, setShowDiscover] = useState(false);
   const [discoverData, setDiscoverData] = useState<DiscoverTasksResponse | null>(null);
@@ -43,23 +41,15 @@ const TasksPanel: React.FC<TasksPanelProps> = ({ workflowId, onImported, classNa
   const [dbFilter, setDbFilter] = useState('');
   const [importing, setImporting] = useState<string | null>(null);
 
-  const fetchTaskStatus = useCallback(async () => {
-    if (!workflowId) return;
-    setTaskLoading(true);
-    try {
-      const data = await workflowApi.getTaskStatus(workflowId, { days: 7 });
-      setTaskStatus(data);
-    } catch {
-      // Task may not exist yet, which is fine
-      setTaskStatus(null);
-    } finally {
-      setTaskLoading(false);
-    }
-  }, [workflowId]);
+  const fetchTaskStatusFn = useCallback(
+    () => workflowApi.getTaskStatus(workflowId!, { days: 7 }),
+    [workflowId]
+  );
 
-  useEffect(() => {
-    fetchTaskStatus();
-  }, [fetchTaskStatus]);
+  const { data: taskStatus, loading: taskLoading, refetch: fetchTaskStatus } = useCacheAwareQuery(
+    fetchTaskStatusFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
+  );
 
   const handleDiscover = async () => {
     setShowDiscover(true);

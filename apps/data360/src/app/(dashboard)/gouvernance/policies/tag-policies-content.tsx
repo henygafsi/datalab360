@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Button, Input, Modal, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getTags,
@@ -18,8 +18,6 @@ import {
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
-import apiClient from '@/lib/api-client';
-
 const OBJECT_TYPES = [
   { label: 'Database', value: 'DATABASE' },
   { label: 'Schema', value: 'SCHEMA' },
@@ -28,9 +26,6 @@ const OBJECT_TYPES = [
 ];
 
 export default function TagPoliciesContent() {
-  const [tags, setTags] = useState<Tag[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -51,50 +46,12 @@ export default function TagPoliciesContent() {
   const [column, setColumn] = useState('');
   const [tagValue, setTagValue] = useState('');
 
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
-  const mountedRef = useRef(true);
-
-  const loadTags = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    try {
-      const data = await getTags();
-      if (mountedRef.current) {
-        setTags(Array.isArray(data) ? data : []);
-      }
-    } catch (error: any) {
-      console.error('Error loading tags:', error);
-      if (mountedRef.current) {
-        toast.error(error.response?.data?.message || error.message || 'Failed to load tags');
-        setTags([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    loadTags();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadTags]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Policies cache invalidated - refreshing tags...');
-      loadTags(true);
-    }
-  }, [wasInvalidated, loading, loadTags]);
+  // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
+  const fetchTags = useCallback(() => getTags().then(data => Array.isArray(data) ? data : []), []);
+  const { data: tags, loading, error, refetch, isStale } = useCacheAwareQuery<Tag[]>(
+    fetchTags,
+    { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
+  );
 
   const handleViewDetails = async (tag: Tag) => {
     setSelectedTag(tag);
@@ -157,8 +114,7 @@ export default function TagPoliciesContent() {
       toast.success('Tag created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadTags();
+      refetch();
     } catch (error: any) {
       console.error('Create tag error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create tag'));
@@ -210,8 +166,7 @@ export default function TagPoliciesContent() {
       setShowApplyModal(false);
       setSelectedTag(null);
       resetApplyForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadTags();
+      refetch();
     } catch (error: any) {
       console.error('Apply tag error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to apply tag'));
@@ -224,8 +179,7 @@ export default function TagPoliciesContent() {
     try {
       await deleteTag(tag.tag_name);
       toast.success('Tag deleted successfully');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadTags();
+      refetch();
     } catch (error: any) {
       console.error('Delete tag error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to delete tag'));
@@ -264,7 +218,7 @@ export default function TagPoliciesContent() {
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold">Tag-Based Policies</h2>
-            {isRefreshing && (
+            {isStale && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 <span>Syncing...</span>
@@ -287,7 +241,7 @@ export default function TagPoliciesContent() {
       {/* Tags List */}
       {loading ? (
         <div className="text-center py-12">Loading...</div>
-      ) : tags.length === 0 ? (
+      ) : !tags || tags.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No tags found. Create one to get started.
         </div>

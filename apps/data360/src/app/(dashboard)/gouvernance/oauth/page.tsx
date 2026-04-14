@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-import apiClient from '@/lib/api-client';
 import {
   listOAuthIntegrations,
   listApiKeys,
@@ -408,7 +407,6 @@ function IntegrationWizard({
       }
       setResult({ success: true, message: `Security integration "${integrationName}" created successfully.` });
       toast.success(`Integration ${integrationName} created`);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: '*oauth*' }); } catch {}
       onCreated();
     } catch (err) {
       const msg = getApiErrorMessage(err);
@@ -1067,7 +1065,6 @@ function ApiKeysTab({
       setNewUsername('');
       setNewRole('PUBLIC');
       setNewComment('');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: '*api_keys*' }); } catch {}
       onRefresh();
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -1089,7 +1086,6 @@ function ApiKeysTab({
       setRsaKey('');
       setGeneratedPublicKey('');
       setGeneratedPrivateKey('');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: '*api_keys*' }); } catch {}
       onRefresh();
     } catch (err) {
       toast.error(getApiErrorMessage(err));
@@ -1103,7 +1099,6 @@ function ApiKeysTab({
     try {
       await revokeRSAKey(username);
       toast.success(`RSA key revoked for ${username}`);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: '*api_keys*' }); } catch {}
       onRefresh();
     } catch (err) {
       toast.error(getApiErrorMessage(err));

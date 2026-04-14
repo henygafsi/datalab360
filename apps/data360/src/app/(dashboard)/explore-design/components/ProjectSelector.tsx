@@ -13,7 +13,7 @@ import { listProjects, addContributor } from '@/app/services/api/projectsApi';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import type { Project as ApiProject } from '@/app/services/api/types';
 import { getUsers } from '@/app/services/gouvernance/fetch_users';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -62,9 +62,6 @@ export default function ProjectSelector({
 }: ProjectSelectorProps) {
   const { username: currentUsername } = useAuth();
 
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
@@ -80,21 +77,19 @@ export default function ProjectSelector({
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [showMemberDropdown, setShowMemberDropdown] = useState(false);
 
-  const mountedRef = useRef(true);
   const memberInputRef = useRef<HTMLInputElement>(null);
 
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.PROJECTS]);
-
   // Filtered projects for search
+  const safeProjects = projects ?? [];
   const filteredProjects = useMemo(() => {
-    if (!projectSearch.trim()) return projects;
+    if (!projectSearch.trim()) return safeProjects;
     const q = projectSearch.toLowerCase();
-    return projects.filter(
+    return safeProjects.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.created_by.toLowerCase().includes(q),
     );
-  }, [projects, projectSearch]);
+  }, [safeProjects, projectSearch]);
 
   // Filtered users for team member dropdown
   const addedUsernames = useMemo(
@@ -132,56 +127,26 @@ export default function ProjectSelector({
   }, [showModal, allUsers.length]);
 
   // Fetch explore projects
-  const fetchProjects = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
+  const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
+    const response = await listProjects({ project_type: 'explore_design', mine_only: true });
+
+    if (!response.projects || response.projects.length === 0) {
+      return [];
     }
 
-    try {
-      const response = await listProjects({ project_type: 'explore_design', mine_only: true });
-
-      if (!response.projects || response.projects.length === 0) {
-        if (mountedRef.current) setProjects([]);
-        return;
-      }
-
-      const mappedProjects: Project[] = response.projects.map((p: ApiProject) => ({
-        project_id: p.project_id,
-        name: p.project_name,
-        created_by: p.created_by,
-        status: p.status,
-        created_at: p.created_at,
-      }));
-
-      if (mountedRef.current) {
-        setProjects(mappedProjects);
-      }
-    } catch (error: any) {
-      console.error('[ProjectSelector] Error fetching projects:', error);
-      if (mountedRef.current) {
-        toast.error('Failed to fetch projects');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
+    return response.projects.map((p: ApiProject) => ({
+      project_id: p.project_id,
+      name: p.project_name,
+      created_by: p.created_by,
+      status: p.status,
+      created_at: p.created_at,
+    }));
   }, []);
 
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchProjects();
-    return () => { mountedRef.current = false; };
-  }, [fetchProjects]);
-
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      fetchProjects(true);
-    }
-  }, [wasInvalidated, loading, fetchProjects]);
+  const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<Project[]>(
+    fetchProjectsFn,
+    { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: [] }
+  );
 
   // Handle project creation + add team members
   const handleCreateProject = async () => {
@@ -213,16 +178,8 @@ export default function ProjectSelector({
 
       toast.success(`Project "${newProjectName}" created successfully!`);
 
-      const newProject: Project = {
-        project_id: response.project_id,
-        name: newProjectName.trim(),
-        created_by: 'You',
-        status: 'ACTIVE',
-        created_at: new Date().toISOString(),
-      };
-
-      setProjects((prev) => [newProject, ...prev]);
       onProjectSelect(response.project_id, newProjectName.trim());
+      refetch();
       resetCreateForm();
       setShowModal(false);
     } catch (error: any) {
@@ -246,7 +203,7 @@ export default function ProjectSelector({
       toast.error('Please select a project');
       return;
     }
-    const project = projects.find((p) => p.project_id === selectedInModal);
+    const project = safeProjects.find((p) => p.project_id === selectedInModal);
     if (project) {
       onProjectSelect(project.project_id, project.name);
       setShowModal(false);
@@ -270,18 +227,18 @@ export default function ProjectSelector({
     );
   };
 
-  const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
+  const selectedProject = safeProjects.find((p) => p.project_id === selectedProjectId);
   const autoSelectedRef = useRef(false);
 
   // Auto-select ONLY from URL query param (deep-linking)
   useEffect(() => {
     if (autoSelectedRef.current || loading || !autoSelectProjectId) return;
-    const match = projects.find((p) => p.project_id === autoSelectProjectId);
+    const match = safeProjects.find((p) => p.project_id === autoSelectProjectId);
     if (match) {
       autoSelectedRef.current = true;
       onProjectSelect(match.project_id, match.name);
     }
-  }, [loading, projects, autoSelectProjectId, onProjectSelect]);
+  }, [loading, safeProjects, autoSelectProjectId, onProjectSelect]);
 
   // Always open modal when no project is selected (user must pick)
   useEffect(() => {
@@ -324,7 +281,7 @@ export default function ProjectSelector({
               </span>
             )}
           </span>
-          {isRefreshing ? (
+          {isStale ? (
             <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
           ) : (
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
@@ -364,11 +321,11 @@ export default function ProjectSelector({
               <Tooltip content="Refresh projects">
                 <button
                   className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  onClick={() => fetchProjects(true)}
-                  disabled={isRefreshing}
+                  onClick={() => refetch()}
+                  disabled={isStale}
                 >
                   <RefreshCw
-                    className={cn('h-4.5 w-4.5 text-slate-400', isRefreshing && 'animate-spin')}
+                    className={cn('h-4.5 w-4.5 text-slate-400', isStale && 'animate-spin')}
                   />
                 </button>
               </Tooltip>
@@ -614,13 +571,13 @@ export default function ProjectSelector({
                     Select Existing Project
                   </h3>
                 </div>
-                {projects.length > 0 && (
-                  <span className="text-xs text-slate-400">{projects.length} projects</span>
+                {safeProjects.length > 0 && (
+                  <span className="text-xs text-slate-400">{safeProjects.length} projects</span>
                 )}
               </div>
 
               {/* Search */}
-              {projects.length > 3 && (
+              {safeProjects.length > 3 && (
                 <div className="relative mb-3">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   <Input
@@ -637,7 +594,7 @@ export default function ProjectSelector({
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
                 </div>
-              ) : projects.length === 0 ? (
+              ) : safeProjects.length === 0 ? (
                 <div className="text-center py-12">
                   <FolderOpen className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
                   <p className="text-slate-500 font-medium text-sm">No projects yet</p>

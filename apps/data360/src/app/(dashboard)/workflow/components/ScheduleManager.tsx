@@ -1,6 +1,8 @@
 'use client';
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import {
@@ -348,24 +350,17 @@ interface ScheduleHistoryProps {
 }
 
 const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }) => {
-  const [history, setHistory] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const fetchHistoryFn = useCallback(
+    () => workflowApi.listRuns(workflowId, { limit: 20 }),
+    [workflowId]
+  );
 
-  useEffect(() => {
-    const loadHistory = async () => {
-      try {
-        const response = await workflowApi.listRuns(workflowId, { limit: 20 });
-        setHistory(Array.isArray(response?.runs) ? response.runs : []);
-      } catch (error) {
-        console.error('Failed to load schedule history:', error);
-        setHistory([]);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const { data: historyData, loading: isLoading } = useCacheAwareQuery(
+    fetchHistoryFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
+  );
 
-    loadHistory();
-  }, [workflowId]);
+  const history = Array.isArray(historyData?.runs) ? historyData.runs : [];
 
   if (isLoading) {
     return (
@@ -434,33 +429,22 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
   compact = false,
   isReadOnly = false,
 }) => {
-  const [schedules, setSchedules] = useState<WorkflowSchedule[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<WorkflowSchedule | null>(null);
   const [viewingHistory, setViewingHistory] = useState<string | null>(null);
 
   // Load schedules
-  const loadSchedules = useCallback(async () => {
-    if (!pipelineId) {
-      setSchedules([]);
-      setIsLoading(false);
-      return;
-    }
+  const loadSchedulesFn = useCallback(
+    () => workflowApi.getWorkflowSchedules(pipelineId!),
+    [pipelineId]
+  );
 
-    try {
-      const response = await workflowApi.getWorkflowSchedules(pipelineId);
-      setSchedules(response.schedules || []);
-    } catch (error) {
-      console.error('Failed to load schedules:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [pipelineId]);
+  const { data: schedulesData, loading: isLoading, refetch: loadSchedules } = useCacheAwareQuery(
+    loadSchedulesFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!pipelineId, initialData: null }
+  );
 
-  useEffect(() => {
-    loadSchedules();
-  }, [loadSchedules]);
+  const schedules = schedulesData?.schedules ?? [];
 
   // Handle schedule actions
   const handleSuspend = async (schedule: WorkflowSchedule) => {

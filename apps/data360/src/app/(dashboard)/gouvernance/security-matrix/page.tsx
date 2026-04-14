@@ -1,6 +1,5 @@
 'use client';
 
-import apiClient from '@/lib/api-client';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button, Badge, Input, Select, Modal, Tab } from 'rizzui';
@@ -243,7 +242,6 @@ export default function SecurityMatrixPage() {
       });
 
       await batchUpdateSecurityMatrix({ updates });
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success(`Saved ${updates.length} changes`);
       setDirtyMatrixRows(new Map());
       loadMatrix(true);
@@ -256,8 +254,6 @@ export default function SecurityMatrixPage() {
     if (!confirm(`Delete matrix entry for role "${row.role_name}"?`)) return;
     try {
       await deleteSecurityMatrixEntry(row.id);
-      // Clear backend cache (gouvernance.py delete has no @invalidates_cache)
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success('Entry deleted');
       setDirtyMatrixRows((prev) => { const next = new Map(prev); next.delete(row.id); return next; });
       loadMatrix(true);
@@ -279,7 +275,6 @@ export default function SecurityMatrixPage() {
         },
         access_level: matrixForm.access_level,
       });
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_matrix:*' }); } catch {}
       toast.success('Entry added');
       setShowAddMatrixModal(false);
       setMatrixForm({ role_name: '', region_id: '', store_id: '', department_id: '', product_category: '', customer_segment: '', access_level: 'READ' });
@@ -380,7 +375,6 @@ export default function SecurityMatrixPage() {
     if (!confirm('Delete this security axis?')) return;
     try {
       await deleteSecurityAxis(id);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_security_axes:*' }); } catch {}
       toast.success('Axis deleted');
       loadAxes(true);
     } catch (err: any) {

@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Button, Input, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getAggregationPolicies,
@@ -20,12 +20,14 @@ import {
 } from '@/app/services/gouvernance/policies';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
-import apiClient from '@/lib/api-client';
 
 export default function AggregationPoliciesContent() {
-  const [policies, setPolicies] = useState<AggregationPolicy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const fetchPolicies = useCallback(() => getAggregationPolicies().then(data => Array.isArray(data) ? data : []), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<AggregationPolicy[]>(
+    fetchPolicies,
+    { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
+  );
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -44,51 +46,6 @@ export default function AggregationPoliciesContent() {
   const [database, setDatabase] = useState('');
   const [schema, setSchema] = useState('');
   const [table, setTable] = useState('');
-
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
-  const mountedRef = useRef(true);
-
-  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    try {
-      const data = await getAggregationPolicies();
-      if (mountedRef.current) {
-        setPolicies(Array.isArray(data) ? data : []);
-      }
-    } catch (error: any) {
-      console.error('Error loading aggregation policies:', error);
-      if (mountedRef.current) {
-        toast.error(error.response?.data?.message || error.message || 'Failed to load aggregation policies');
-        setPolicies([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    loadPolicies();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadPolicies]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Policies cache invalidated - refreshing aggregation policies...');
-      loadPolicies(true);
-    }
-  }, [wasInvalidated, loading, loadPolicies]);
 
   const handleViewDetails = async (policy: AggregationPolicy) => {
     setSelectedPolicy(policy);
@@ -157,8 +114,7 @@ export default function AggregationPoliciesContent() {
       toast.success('Aggregation policy created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('[Aggregation Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
@@ -182,8 +138,7 @@ export default function AggregationPoliciesContent() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Apply aggregation policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to apply policy'));
@@ -224,8 +179,7 @@ export default function AggregationPoliciesContent() {
       toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteAggregationPolicy(policy.policy_name);
       toast.success('Policy deleted successfully', { id: 'delete-policy' });
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Delete aggregation policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to delete policy'), { id: 'delete-policy' });
@@ -251,7 +205,7 @@ export default function AggregationPoliciesContent() {
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold">Aggregation Policies</h2>
-            {isRefreshing && (
+            {isStale && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 <span>Syncing...</span>
@@ -274,7 +228,7 @@ export default function AggregationPoliciesContent() {
       {/* Policies List */}
       {loading ? (
         <div className="text-center py-12">Loading...</div>
-      ) : policies.length === 0 ? (
+      ) : !policies || policies.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No aggregation policies found. Create one to get started.
         </div>

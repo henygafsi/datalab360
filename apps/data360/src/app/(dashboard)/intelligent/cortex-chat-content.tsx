@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Button, Badge, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -31,6 +31,8 @@ import {
   sendMessage as sendChatMessage,
   type ChatConversation,
 } from '@/app/services/chat';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -117,23 +119,30 @@ export default function CortexChatContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Semantic model selection
-  const [models, setModels] = useState<SemanticModel[]>([]);
   const [selectedModel, setSelectedModel] = useState(modelFromUrl);
-  const [loadingModels, setLoadingModels] = useState(true);
 
   // Conversation persistence
-  const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
-  const [loadingConversations, setLoadingConversations] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const userInitials = getUserInitials();
 
-  // ── Load models ────────────────────────────────────────────────────
-
-  useEffect(() => {
-    loadModels();
-    loadConversations();
+  // ── Load models via useCacheAwareQuery ─────────────────────────────
+  const fetchModels = useCallback(async () => {
+    const data = await listSemanticModels();
+    return Array.isArray(data) ? data : [];
   }, []);
+  const { data: models, loading: loadingModels } = useCacheAwareQuery<SemanticModel[]>(
+    fetchModels,
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], initialData: [] }
+  );
+
+  // Auto-select first model if none selected
+  useEffect(() => {
+    const modelsArr = models ?? [];
+    if (modelsArr.length > 0 && !selectedModel && !modelFromUrl) {
+      setSelectedModel(modelsArr[0].name.replace('.yaml', ''));
+    }
+  }, [models, selectedModel, modelFromUrl]);
 
   useEffect(() => {
     if (modelFromUrl && modelFromUrl !== selectedModel) {
@@ -142,48 +151,23 @@ export default function CortexChatContent() {
     }
   }, [modelFromUrl]);
 
-  const loadModels = async () => {
-    setLoadingModels(true);
-    try {
-      const data = await listSemanticModels();
-      const modelsArray = Array.isArray(data) ? data : [];
-      setModels(modelsArray);
-      if (modelsArray.length > 0 && !selectedModel && !modelFromUrl) {
-        setSelectedModel(modelsArray[0].name.replace('.yaml', ''));
-      }
-    } catch (err: any) {
-      console.error('[CortexChat] Failed to load models:', err?.message);
-      setModels([]);
-    } finally {
-      setLoadingModels(false);
-    }
-  };
-
-  const modelOptions = models.map((m) => ({
+  const modelOptions = (models ?? []).map((m) => ({
     value: m.name.replace('.yaml', ''),
     label: m.name.replace('.yaml', ''),
   }));
 
-  // ── Conversation persistence ───────────────────────────────────────
-
-  const loadConversations = async () => {
-    setLoadingConversations(true);
-    try {
-      const data = await listConversations(1, 50);
-      const items = data?.items ?? [];
-      // Filter only AI chat conversations (title starts with "Cortex Chat")
-      const aiConvos = items.filter(
-        (c: ChatConversation) => c.TITLE?.startsWith('Cortex Chat') || c.TYPE === 'AI_CHAT'
-      );
-      setConversations(aiConvos);
-    } catch (err: any) {
-      // Chat persistence is best-effort — do not block the UI
-      console.warn('[CortexChat] Could not load conversations:', err?.message);
-      setConversations([]);
-    } finally {
-      setLoadingConversations(false);
-    }
-  };
+  // ── Conversation persistence via useCacheAwareQuery ────────────────
+  const fetchConversations = useCallback(async () => {
+    const data = await listConversations(1, 50);
+    const items = data?.items ?? [];
+    return items.filter(
+      (c: ChatConversation) => c.TITLE?.startsWith('Cortex Chat') || c.TYPE === 'AI_CHAT'
+    );
+  }, []);
+  const { data: conversations, loading: loadingConversations } = useCacheAwareQuery<ChatConversation[]>(
+    fetchConversations,
+    { cacheKeys: [CACHE_KEYS.CORTEX], initialData: [] }
+  );
 
   const loadConversationMessages = async (conversationId: string) => {
     try {
@@ -226,7 +210,6 @@ export default function CortexChatContent() {
       const conv = await createGroupConversation(title, []);
       const newId = conv.CONVERSATION_ID;
       setActiveConversationId(newId);
-      setConversations((prev) => [conv, ...prev]);
       return newId;
     } catch (err: any) {
       console.warn('[CortexChat] Could not create conversation:', err?.message);
@@ -512,14 +495,14 @@ export default function CortexChatContent() {
               <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                 Loading conversations...
               </div>
-            ) : conversations.length === 0 ? (
+            ) : (conversations ?? []).length === 0 ? (
               <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
                 <HiOutlineChatBubbleLeftRight className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 No conversations yet.
                 <br />Start chatting to create one.
               </div>
             ) : (
-              conversations.map((conv) => {
+              (conversations ?? []).map((conv) => {
                 const isActive = conv.CONVERSATION_ID === activeConversationId;
                 return (
                   <button

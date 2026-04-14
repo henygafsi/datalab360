@@ -2,6 +2,9 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useAtomValue } from 'jotai';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -767,6 +770,18 @@ export default function ExploreDesignPage() {
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
 
+  // SSE cache invalidation: increment key to trigger cascading data reloads
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const [sseRefreshKey, setSseRefreshKey] = useState(0);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevantKeys = [CACHE_KEYS.PROJECTS, CACHE_KEYS.TABLES, CACHE_KEYS.DATABASES, CACHE_KEYS.SCHEMAS, CACHE_KEYS.DEPLOYMENTS, CACHE_KEYS.DYNAMIC_TABLES, CACHE_KEYS.STREAMS];
+    const shouldRefresh = lastInvalidation.keys.some((k: string) => relevantKeys.includes(k as any));
+    if (shouldRefresh) {
+      setSseRefreshKey(prev => prev + 1);
+    }
+  }, [lastInvalidation]);
+
   // Project State — pre-fill from ?project_id= query param or last used project
   const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -1263,7 +1278,7 @@ export default function ExploreDesignPage() {
     }
   }, [isOffline, connectionError, router]);
 
-  // Load databases only after a project is selected
+  // Load databases only after a project is selected (also re-triggers on SSE invalidation)
   useEffect(() => {
     if (!selectedProjectId) return;
     const loadDatabases = async () => {
@@ -1296,7 +1311,7 @@ export default function ExploreDesignPage() {
       }
     };
     loadDatabases();
-  }, [selectedProjectId, isOffline, router]);
+  }, [selectedProjectId, isOffline, router, sseRefreshKey]);
 
   // Load masking policies on mount
   useEffect(() => {

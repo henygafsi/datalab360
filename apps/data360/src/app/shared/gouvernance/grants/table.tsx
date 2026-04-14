@@ -1,13 +1,12 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
 } from '@tanstack/react-table';
 import { exportToCSV } from '@core/utils/export-to-csv';
 import { getRoles, updateGrants, type RoleGrantData } from '@/app/services/gouvernance/grants';
-import apiClient from '@/lib/api-client';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import Filters from './filters';
@@ -38,12 +37,11 @@ import {
   PiChatCircleDuotone,
 } from 'react-icons/pi';
 import { IconType } from 'react-icons/lib';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import { GrantsMatrixSkeleton } from '@/components/ui/TableSkeleton';
-import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
 type RoleGrant = RoleGrantData;
 
@@ -87,84 +85,19 @@ const ALL_MODULES = getAllModules()
   }));
 
 export default function GrantsTable() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [columns, setColumns] = useState<any[]>([]);
-  const [tableData, setTableData] = useState<RoleGrant[]>([]);
   const [modal, setModal] = useState<{ open: boolean; role?: RoleGrant }>(
     { open: false }
   );
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Watch for SSE cache invalidation events on 'grants' key
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.GRANTS]);
-  const mountedRef = useRef(true);
+  const fetchGrantsData = useCallback(() => getRoles(), []);
+  const { data: tableData, loading, error, refetch, isStale } = useCacheAwareQuery<RoleGrant[]>(
+    fetchGrantsData,
+    { cacheKeys: [CACHE_KEYS.GRANTS], initialData: [] }
+  );
 
-  /* ------------------------------------------------------------------ */
-  /* 1. Fetch                                                            */
-  /* ------------------------------------------------------------------ */
-  const fetchGrantsData = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
-
-    try {
-      // console.log('[Role Grants] 🔄 Starting data fetch...');
-      const startTime = Date.now();
-
-      const roles = await getRoles();
-
-      const fetchTime = Date.now() - startTime;
-      // console.log(`[Role Grants] ✅ Data fetched successfully in ${fetchTime}ms`);
-      // console.log(`[Role Grants]   - Roles: ${roles.length}`);
-
-      if (mountedRef.current) {
-        setTableData(roles);
-      }
-    } catch (err: any) {
-      // console.error('[Grants Table] ❌ Error fetching grants:', err);
-      // console.error('[Grants Table] Error type:', err.name);
-      // console.error('[Grants Table] Error code:', err.code);
-      // console.error('[Grants Table] Error message:', err.message);
-
-      // Only redirect when real auth or 500 connection; not on 503/401 endpoint issues
-      if (shouldRedirectToLoginOnError(err)) {
-        // console.warn('[Grants Table] Auth/connection error, redirecting to login...', err.name);
-        redirectToLogin();
-        return;
-      }
-
-      // For timeout/network/server errors, show helpful error message
-      if (mountedRef.current) {
-        let errorMessage = 'Failed to load grants data. ';
-
-        if (err.name === 'TimeoutError' || err.code === 'ECONNABORTED') {
-          errorMessage += 'Backend is taking too long (>30s). Please check backend performance.';
-        } else if (err.name === 'NetworkError') {
-          errorMessage += 'Cannot connect to backend. Please check if backend is running.';
-        } else if (err.response?.status === 500) {
-          errorMessage += 'Backend server error. Please check backend logs.';
-        } else {
-          errorMessage += err.message || 'Unknown error';
-        }
-
-        setError(errorMessage);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  // Initial fetch and set columns
+  // Set columns on mount
   useEffect(() => {
-    mountedRef.current = true;
-    fetchGrantsData();
     setColumns([
           {
             header: 'Role',
@@ -268,24 +201,12 @@ export default function GrantsTable() {
             ),
           },
         ]);
-    return () => {
-      mountedRef.current = false;
-    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Only run on mount
 
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Grants cache invalidated - refreshing data...');
-      fetchGrantsData(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasInvalidated]); // Only depend on wasInvalidated, not loading or fetchGrantsData
-
   /* Table instance */
   const table = useReactTable({
-    data: tableData,
+    data: tableData ?? [],
     columns,
     getCoreRowModel: getCoreRowModel(),
     initialState: { pagination: { pageIndex: 0, pageSize: 10 } },
@@ -306,7 +227,7 @@ export default function GrantsTable() {
   }
 
   if (error) {
-    return <ErrorDisplay error={error} onRetry={() => fetchGrantsData()} context="grants" />;
+    return <ErrorDisplay error={error?.message} onRetry={() => refetch()} context="grants" />;
   }
 
   /* ------------------------------------------------------------------ */
@@ -317,7 +238,7 @@ export default function GrantsTable() {
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Filters table={table} />
-          {isRefreshing && (
+          {isStale && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <RefreshCw className="h-4 w-4 animate-spin" />
               <span>Syncing...</span>
@@ -360,40 +281,10 @@ export default function GrantsTable() {
               const updateResponse = await updateGrants(roleName, collapsedModules);
               // console.log('[Grants] Step 1: Backend response:', updateResponse.data);
 
-              // Step 2: Clear backend cache and refresh data from backend
-              // console.log('[Grants] Step 2: Clearing cache and refreshing data from backend...');
-              try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
+              // Step 2: Refresh data from backend
               const refreshStartTime = Date.now();
-              await fetchGrantsData();
+              await refetch();
               // console.log('[Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
-
-              // Step 3: Verify what we got back (after state update)
-              setTimeout(() => {
-                setTableData((currentData) => {
-                  const updatedRole = currentData.find(r => r.role_name === roleName);
-                  // console.log('[Grants] Step 3: Verification after refresh');
-                  // console.log('[Grants]   - Expected modules:', collapsedModules);
-                  // console.log('[Grants]   - Actual modules from backend:', updatedRole?.modules);
-
-                  const expected = collapsedModules.sort();
-                  const actual = (updatedRole?.modules || []).sort();
-                  const match = JSON.stringify(expected) === JSON.stringify(actual);
-
-                  // console.log('[Grants]   - Match:', match);
-
-                  if (!match) {
-                    // console.error('[Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
-                    // console.error('[Grants]   Expected:', expected);
-                    // console.error('[Grants]   Got:', actual);
-                    // console.error('[Grants]   → Backend returned 200 OK but did not persist the data!');
-                    // console.error('[Grants]   → Check backend logs for database commit issues');
-                  } else {
-                    // console.log('[Grants] ✅ Data persisted correctly');
-                  }
-
-                  return currentData;
-                });
-              }, 1000);
 
               // Show success toast
               if (collapsedModules.length === 0) {

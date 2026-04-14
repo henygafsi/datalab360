@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { Badge, Button, Loader } from 'rizzui';
 import {
   PiDatabase,
@@ -18,6 +18,8 @@ import {
   duckdbQuery,
 } from '@/app/services/cortex';
 import type { DuckdbDataset, DuckdbQueryResult } from '@/app/services/cortex';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';
@@ -28,10 +30,6 @@ function formatBytes(bytes: number): string {
 }
 
 export default function LocalAnalyticsContent() {
-  const [datasets, setDatasets] = useState<DuckdbDataset[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   // Query panel state
   const [queryMode, setQueryMode] = useState<'stage' | 'table'>('stage');
   const [stagePath, setStagePath] = useState('');
@@ -42,24 +40,16 @@ export default function LocalAnalyticsContent() {
   const [queryResult, setQueryResult] = useState<DuckdbQueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
 
-  const loadDatasets = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const resp = await listDuckdbDatasets();
-      setDatasets(resp.datasets || []);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load datasets';
-      setError(msg);
-      setDatasets([]);
-    } finally {
-      setLoading(false);
-    }
+  // ── Datasets via useCacheAwareQuery ──
+  const fetchDatasets = useCallback(async () => {
+    const resp = await listDuckdbDatasets();
+    return resp.datasets || [];
   }, []);
-
-  useEffect(() => {
-    loadDatasets();
-  }, [loadDatasets]);
+  const { data: datasets, loading, error: datasetsError, refetch: loadDatasets } = useCacheAwareQuery<DuckdbDataset[]>(
+    fetchDatasets,
+    { cacheKeys: [CACHE_KEYS.CORTEX], initialData: [] }
+  );
+  const error = datasetsError?.message ?? null;
 
   const handleRunQuery = async () => {
     setQueryRunning(true);
@@ -102,7 +92,8 @@ export default function LocalAnalyticsContent() {
     setStagePath(ds.stage);
   };
 
-  const totalSize = datasets.reduce((acc, d) => acc + (d.size_bytes || 0), 0);
+  const safeDatasets = datasets ?? [];
+  const totalSize = safeDatasets.reduce((acc, d) => acc + (d.size_bytes || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -115,7 +106,7 @@ export default function LocalAnalyticsContent() {
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Total Datasets</p>
             <p className="text-lg font-semibold text-gray-900 dark:text-white">
-              {loading ? '...' : datasets.length}
+              {loading ? '...' : safeDatasets.length}
             </p>
           </div>
         </div>
@@ -160,7 +151,7 @@ export default function LocalAnalyticsContent() {
               <PiDatabase className="w-5 h-5 text-gray-600 dark:text-gray-400" />
               <h3 className="font-semibold text-gray-900 dark:text-white">Staged Datasets</h3>
               <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">
-                {datasets.length}
+                {safeDatasets.length}
               </Badge>
             </div>
             <Button variant="outline" size="sm" onClick={loadDatasets} disabled={loading}>
@@ -181,7 +172,7 @@ export default function LocalAnalyticsContent() {
                   Retry
                 </Button>
               </div>
-            ) : datasets.length === 0 ? (
+            ) : safeDatasets.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 gap-2">
                 <PiDatabase className="w-8 h-8 text-gray-400 dark:text-gray-500" />
                 <p className="text-sm text-gray-500 dark:text-gray-400">No staged datasets found</p>
@@ -200,7 +191,7 @@ export default function LocalAnalyticsContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {datasets.map((ds, idx) => (
+                  {safeDatasets.map((ds, idx) => (
                     <tr
                       key={`${ds.stage}-${ds.file}-${idx}`}
                       className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors"

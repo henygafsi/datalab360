@@ -5,7 +5,7 @@ import { Button, Input, Select } from 'rizzui';
 import { UserPlus, User, Shield, X } from 'lucide-react';
 import { assignRoleToUser } from '@/app/services/gouvernance/fetch_users';
 import { getRoles } from '@/app/services/gouvernance/fetch_roles';
-import apiClient from '@/lib/api-client';
+
 
 type GrantUserFormProps = {
   onSuccess?: () => void;
@@ -40,8 +40,6 @@ export default function AddUserForm({ onSuccess, onClose }: GrantUserFormProps) 
 
     try {
       await assignRoleToUser(username.trim(), selectedRole);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_grants:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
       onSuccess?.();
       onClose();
     } catch (err: any) {

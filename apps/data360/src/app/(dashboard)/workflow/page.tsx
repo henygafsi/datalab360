@@ -20,6 +20,8 @@ import { ProjectContextPanel } from '@/app/shared/project-context';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, updateProject } from '@/app/services/api/projectsApi';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface BackendWorkflow {
@@ -58,36 +60,28 @@ const WorkflowHomePage: React.FC = () => {
   const sourceModule = searchParams?.get('source');
   const sourceProjectId = searchParams?.get('project_id');
 
-  const [workflows, setWorkflows] = useState<BackendWorkflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [activeWorkflowName, setActiveWorkflowName] = useState<string>('');
   const [activeNodes, setActiveNodes] = useState<ReactFlowNode[]>([]);
   const [activeEdges, setActiveEdges] = useState<ReactFlowEdge[]>([]);
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
-  const fetchWorkflowsRef = useRef<((_token?: string) => Promise<void>) | null>(null);
+  const initialLoadDoneRef = useRef(false);
 
   // Right panel state for Version History, Execution History, Deployment History, and Deploy
   const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [showNavigationButtons, setShowNavigationButtons] = useState(false);
 
-  // Get workflow ID for the active workflow
-  const activeWorkflowId = useMemo(() => {
-    const workflow = workflows.find(w => w.workflow_name === activeWorkflowName);
-    return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
-  }, [workflows, activeWorkflowName]);
+  // Resolve access token on mount
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchSessionAndWorkflows = async () => {
-      // Try localStorage first (reliable), fall back to getSession
+    const resolveToken = async () => {
       let token = localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '';
       if (!token) {
         try {
-          // Try NextAuth session API directly (works without SessionProvider)
           const res = await fetch('/api/auth/session');
           const session = (await res.json()) as { user?: { access_token?: string } };
           token = session?.user?.access_token || '';
@@ -105,72 +99,71 @@ const WorkflowHomePage: React.FC = () => {
       }
       if (token) {
         setAccessToken(token);
-        await fetchWorkflowsRef.current?.(token);
       } else {
-        setError("No access token found. Please log in.");
-        setLoading(false);
+        setTokenError("No access token found. Please log in.");
       }
     };
-    fetchSessionAndWorkflows();
+    resolveToken();
   }, []);
 
-  const fetchWorkflows = useCallback(async (_token?: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Fetch workflow projects via unified project API
-      const projectsData = await listProjects({ project_type: 'workflow', mine_only: false });
-      const projectList = Array.isArray(projectsData?.projects) ? projectsData.projects : [];
+  // Fetch all workflow projects + their steps
+  const fetchWorkflowsFn = useCallback(async (): Promise<BackendWorkflow[]> => {
+    const projectsData = await listProjects({ project_type: 'workflow', mine_only: false });
+    const projectList = Array.isArray(projectsData?.projects) ? projectsData.projects : [];
 
-      // For each project, fetch its steps to build BackendWorkflow objects
-      const backendWorkflows: BackendWorkflow[] = await Promise.all(
-        projectList.map(async (proj) => {
-          try {
-            const stepsData = await workflowApi.listSteps(proj.project_id);
-            const steps: BackendStep[] = (stepsData.steps || []).map((s) => ({
-              step_order: s.step_order,
-              action_type: s.action_type,
-              payload: s.payload as { [key: string]: any },
-            }));
-            return {
-              workflow_id: proj.project_id,
-              workflow_name: proj.project_name,
-              steps,
-              schedule_interval_str: undefined,
-            };
-          } catch {
-            return {
-              workflow_id: proj.project_id,
-              workflow_name: proj.project_name,
-              steps: [],
-            };
-          }
-        })
-      );
+    return Promise.all(
+      projectList.map(async (proj) => {
+        try {
+          const stepsData = await workflowApi.listSteps(proj.project_id);
+          const steps: BackendStep[] = (stepsData.steps || []).map((s) => ({
+            step_order: s.step_order,
+            action_type: s.action_type,
+            payload: s.payload as { [key: string]: any },
+          }));
+          return {
+            workflow_id: proj.project_id,
+            workflow_name: proj.project_name,
+            steps,
+            schedule_interval_str: undefined,
+          };
+        } catch {
+          return {
+            workflow_id: proj.project_id,
+            workflow_name: proj.project_name,
+            steps: [],
+          };
+        }
+      })
+    );
+  }, []);
 
-      setWorkflows(backendWorkflows);
-      if (backendWorkflows.length > 0 && !activeWorkflowName) {
-        const firstWorkflow = backendWorkflows[0];
-        setActiveWorkflowName(firstWorkflow.workflow_name);
-        const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
-        setActiveNodes(nodes);
-        setActiveEdges(edges);
-        setActiveSchedule(firstWorkflow.schedule_interval_str || '');
-        setIsWorkflowSaved(true);
-        toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
-      }
-    } catch (err: any) {
-      const msg = getApiErrorMessage(err);
-      toast.error(`Error: ${msg || 'Failed to load workflows'}`);
-      setError(msg || 'An unknown error occurred while fetching workflows.');
-      setWorkflows([]);
-    } finally {
-      setLoading(false);
+  const { data: workflows, loading, error: fetchError, refetch: fetchWorkflows } = useCacheAwareQuery(
+    fetchWorkflowsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!accessToken, initialData: [] as BackendWorkflow[] }
+  );
+
+  const error = tokenError || (fetchError ? (getApiErrorMessage(fetchError) || 'An unknown error occurred while fetching workflows.') : null);
+
+  // Auto-select the first workflow on initial data load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current && (workflows ?? []).length > 0 && !activeWorkflowName) {
+      initialLoadDoneRef.current = true;
+      const firstWorkflow = (workflows ?? [])[0];
+      setActiveWorkflowName(firstWorkflow.workflow_name);
+      const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
+      setActiveNodes(nodes);
+      setActiveEdges(edges);
+      setActiveSchedule(firstWorkflow.schedule_interval_str || '');
+      setIsWorkflowSaved(true);
+      toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
     }
-  }, [activeWorkflowName]);
+  }, [workflows, activeWorkflowName]);
 
-  // Store the function in ref to avoid circular dependency
-  fetchWorkflowsRef.current = fetchWorkflows;
+  // Get workflow ID for the active workflow
+  const activeWorkflowId = useMemo(() => {
+    const workflow = (workflows ?? []).find(w => w.workflow_name === activeWorkflowName);
+    return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
+  }, [workflows, activeWorkflowName]);
 
   const convertBackendToReactFlow = useCallback((backendSteps: BackendStep[]): { nodes: ReactFlowNode[]; edges: ReactFlowEdge[] } => {
     const newNodes: ReactFlowNode[] = [];
@@ -893,7 +886,7 @@ const WorkflowHomePage: React.FC = () => {
             <VersionHistory
               workflowId={activeWorkflowId}
               workflowName={activeWorkflowName}
-              onVersionChange={() => fetchWorkflowsRef.current?.()}
+              onVersionChange={() => fetchWorkflows()}
               className="border-0 rounded-none"
             />
           ) : undefined}
@@ -971,7 +964,7 @@ const WorkflowHomePage: React.FC = () => {
                     workflowName={activeWorkflowName}
                     onVersionChange={() => {
                       // Refresh workflows after version change
-                      fetchWorkflowsRef.current?.();
+                      fetchWorkflows();
                     }}
                     className="border-0 rounded-none"
                   />

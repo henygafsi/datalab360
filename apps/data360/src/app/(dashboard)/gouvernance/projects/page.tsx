@@ -1,6 +1,5 @@
 'use client';
 
-import apiClient from '@/lib/api-client';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
@@ -473,17 +472,6 @@ export default function ProjectsGovernancePage() {
   const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
 
-  /** Bust ALL backend cache patterns for projects + deployments after mutations */
-  const bustProjectCache = async () => {
-    try {
-      await Promise.all([
-        apiClient.post('/cache/clear/pattern', { pattern: '*projects*' }),
-        apiClient.post('/cache/clear/pattern', { pattern: '*deploy*' }),
-        apiClient.post('/cache/clear/pattern', { pattern: '*overview*' }),
-      ]);
-    } catch { /* cache clear is best-effort */ }
-  };
-
   const fetchPendingDeploys = useCallback(async () => {
     try {
       const overview = await getProjectsOverview({ days: 90 });
@@ -502,7 +490,6 @@ export default function ProjectsGovernancePage() {
     setDeployActionLoading(deploymentId);
     try {
       await approveDeployment(projectId, deploymentId);
-      await bustProjectCache();
       toast.success(`Deployment approved for ${projectName} — deploying now...`);
       await Promise.all([fetchPendingDeploys(), fetchAll()]);
     } catch (err: any) {
@@ -510,7 +497,6 @@ export default function ProjectsGovernancePage() {
       // If already processed (404), just refresh the list silently
       if (err?.response?.status === 404) {
         toast.success(`Deployment already processed for ${projectName}`);
-        await bustProjectCache();
         await Promise.all([fetchPendingDeploys(), fetchAll()]);
       } else {
         toast.error(typeof msg === 'string' ? msg : 'Deployment action failed');
@@ -525,7 +511,6 @@ export default function ProjectsGovernancePage() {
     setDeployActionLoading(rejectModal.deploymentId);
     try {
       await rejectDeployment(rejectModal.projectId, rejectModal.deploymentId, { reason: rejectReason || undefined });
-      await bustProjectCache();
       toast.success(`Deployment rejected for ${rejectModal.projectName}`);
       setRejectModal(null);
       setRejectReason('');

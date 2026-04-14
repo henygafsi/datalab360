@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { updateGrants } from '@/app/services/gouvernance/grants';
 import { formatApiDetail } from '@/lib/utils';
-import apiClient from '@/lib/api-client';
+
 
 // Menu modules with their IDs - must match carbonMenuItems
 // ID mapping: modules use string names, menu uses numeric IDs
@@ -71,8 +71,6 @@ export default function EditGrantsForm({
     setSaving(true);
     try {
       await updateGrants(roleName, selectedGrants);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
       toast.success(`Grants updated for ${roleName}`);
       onSubmit?.(selectedGrants);
       onClose?.();

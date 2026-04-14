@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Button, Input, Modal, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getMaskingPolicies,
@@ -24,7 +24,6 @@ import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
-import apiClient from '@/lib/api-client';
 
 const MASKING_TYPES = [
   { label: 'Full Masking (****)', value: 'FULL' },
@@ -36,10 +35,6 @@ const MASKING_TYPES = [
 ];
 
 export default function MaskingPoliciesContent() {
-  const [policies, setPolicies] = useState<MaskingPolicy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -60,51 +55,12 @@ export default function MaskingPoliciesContent() {
   const [table, setTable] = useState('');
   const [column, setColumn] = useState('');
 
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
-  const mountedRef = useRef(true);
-
-  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
-    try {
-      const data = await getMaskingPolicies();
-      if (mountedRef.current) {
-        setPolicies(Array.isArray(data) ? data : []);
-      }
-    } catch (err: any) {
-      console.error('Error loading masking policies:', err);
-      if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to load masking policies');
-        setPolicies([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    loadPolicies();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadPolicies]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Policies cache invalidated - refreshing masking policies...');
-      loadPolicies(true);
-    }
-  }, [wasInvalidated, loading, loadPolicies]);
+  // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
+  const fetchPolicies = useCallback(() => getMaskingPolicies().then(data => Array.isArray(data) ? data : []), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<MaskingPolicy[]>(
+    fetchPolicies,
+    { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
+  );
 
   const handleViewDetails = async (policy: MaskingPolicy) => {
     setSelectedPolicy(policy);
@@ -196,9 +152,7 @@ export default function MaskingPoliciesContent() {
       toast.success('Masking policy created successfully!');
       setShowCreateModal(false);
       resetCreateForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('[Masking Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
@@ -224,9 +178,7 @@ export default function MaskingPoliciesContent() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Apply masking policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to apply policy'));
@@ -267,9 +219,7 @@ export default function MaskingPoliciesContent() {
       toast.loading('Deleting policy...', { id: 'delete-policy' });
       await deleteMaskingPolicy(policy.policy_name);
       toast.success('Policy deleted successfully', { id: 'delete-policy' });
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_masking_policy:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Delete masking policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to delete policy'), { id: 'delete-policy' });
@@ -298,7 +248,7 @@ export default function MaskingPoliciesContent() {
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold">Masking Policies</h2>
-            {isRefreshing && (
+            {isStale && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 <span>Syncing...</span>
@@ -324,8 +274,8 @@ export default function MaskingPoliciesContent() {
           <TableSkeleton rows={4} columns={3} showHeader={false} />
         </div>
       ) : error ? (
-        <ErrorDisplay error={error} onRetry={() => loadPolicies()} context="general" />
-      ) : policies.length === 0 ? (
+        <ErrorDisplay error={error.message} onRetry={() => refetch()} context="general" />
+      ) : !policies || policies.length === 0 ? (
         <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
           <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
             <svg className="h-10 w-10 text-amber-600 dark:text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">

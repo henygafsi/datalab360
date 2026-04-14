@@ -19,6 +19,8 @@ import {
   PiDatabase,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 const PREFIX = '/cortex';
 
@@ -105,30 +107,32 @@ export default memo(AdvancedMLContent);
 
 // ===== Model Registry Section (unified view of all trained models) =====
 function ModelRegistrySection() {
-  const [loading, setLoading] = useState(true);
-  const [finetuneJobs, setFinetuneJobs] = useState<any[]>([]);
-  const [classificationModels, setClassificationModels] = useState<any[]>([]);
-  const [documentAIModels, setDocumentAIModels] = useState<any[]>([]);
-  const [topInsightsInstances, setTopInsightsInstances] = useState<any[]>([]);
+  const toArr = useCallback((v: any, ...keys: string[]) => { for (const k of keys) if (Array.isArray(v?.[k])) return v[k]; return Array.isArray(v) ? v : []; }, []);
 
-  useEffect(() => {
-    async function loadAll() {
-      setLoading(true);
-      const results = await Promise.allSettled([
-        listFineTuneJobs(),
-        listClassificationModels(),
-        listDocumentAIModels(),
-        listTopInsights(),
-      ]);
-      const toArr = (v: any, ...keys: string[]) => { for (const k of keys) if (Array.isArray(v?.[k])) return v[k]; return Array.isArray(v) ? v : []; };
-      if (results[0].status === 'fulfilled') setFinetuneJobs(toArr(results[0].value, 'jobs', 'data'));
-      if (results[1].status === 'fulfilled') setClassificationModels(toArr(results[1].value, 'models', 'data'));
-      if (results[2].status === 'fulfilled') setDocumentAIModels(toArr(results[2].value, 'models', 'data'));
-      if (results[3].status === 'fulfilled') setTopInsightsInstances(toArr(results[3].value, 'instances', 'data'));
-      setLoading(false);
-    }
-    loadAll();
-  }, []);
+  const fetchAllModels = useCallback(async () => {
+    const results = await Promise.allSettled([
+      listFineTuneJobs(),
+      listClassificationModels(),
+      listDocumentAIModels(),
+      listTopInsights(),
+    ]);
+    return {
+      finetuneJobs: results[0].status === 'fulfilled' ? toArr(results[0].value, 'jobs', 'data') : [],
+      classificationModels: results[1].status === 'fulfilled' ? toArr(results[1].value, 'models', 'data') : [],
+      documentAIModels: results[2].status === 'fulfilled' ? toArr(results[2].value, 'models', 'data') : [],
+      topInsightsInstances: results[3].status === 'fulfilled' ? toArr(results[3].value, 'instances', 'data') : [],
+    };
+  }, [toArr]);
+
+  const { data: registryData, loading } = useCacheAwareQuery(
+    fetchAllModels,
+    { cacheKeys: [CACHE_KEYS.ML_MODELS, CACHE_KEYS.FINE_TUNE_JOBS], initialData: { finetuneJobs: [], classificationModels: [], documentAIModels: [], topInsightsInstances: [] } }
+  );
+
+  const finetuneJobs = registryData?.finetuneJobs ?? [];
+  const classificationModels = registryData?.classificationModels ?? [];
+  const documentAIModels = registryData?.documentAIModels ?? [];
+  const topInsightsInstances = registryData?.topInsightsInstances ?? [];
 
   if (loading) return (
     <div className="space-y-4 p-4">
@@ -258,28 +262,21 @@ function ModelRegistrySection() {
 
 // ===== Fine-Tuning Section =====
 function FineTuningSection() {
-  const [jobs, setJobs] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ model_name: '', base_model: 'mistral-7b', training_data: '', validation_data: '', max_epochs: 3 });
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
 
-  const loadJobs = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listFineTuneJobs();
-      const raw = result?.data || result?.jobs || result;
-      setJobs(Array.isArray(raw) ? raw : []);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load fine-tune jobs');
-    } finally {
-      setLoading(false);
-    }
+  const fetchJobs = useCallback(async () => {
+    const result = await listFineTuneJobs();
+    const raw = result?.data || result?.jobs || result;
+    return Array.isArray(raw) ? raw : [];
   }, []);
-
-  useEffect(() => { loadJobs(); }, [loadJobs]);
+  const { data: jobs, loading, refetch: loadJobs } = useCacheAwareQuery<any[]>(
+    fetchJobs,
+    { cacheKeys: [CACHE_KEYS.FINE_TUNE_JOBS], initialData: [] }
+  );
 
   const handleCreate = async () => {
     if (!form.model_name || !form.training_data) { toast.error('Model name and training data are required'); return; }
@@ -334,7 +331,7 @@ function FineTuningSection() {
             {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
           </div>
         </div>
-      ) : jobs.length === 0 ? (
+      ) : (jobs ?? []).length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiGearDuotone className="w-12 h-12 mx-auto mb-3 text-slate-300" />
           <p>No fine-tuning jobs found</p>
@@ -342,7 +339,7 @@ function FineTuningSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {jobs.map((job: any, i: number) => (
+          {(jobs ?? []).map((job: any, i: number) => (
             <div key={i} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
               <div>
                 <h4 className="font-medium text-slate-900 dark:text-white">{job.model_name || job.name || job.MODEL_NAME || 'Job'}</h4>
@@ -415,8 +412,6 @@ function FineTuningSection() {
 
 // ===== ML Classification Section =====
 function ClassificationSection() {
-  const [models, setModels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showTrain, setShowTrain] = useState(false);
   const [trainForm, setTrainForm] = useState({ model_name: '', training_table: '', target_column: '', database: '', schema: '' });
   const [training, setTraining] = useState(false);
@@ -425,20 +420,15 @@ function ClassificationSection() {
   const [metrics, setMetrics] = useState<any>(null);
   const [showMetrics, setShowMetrics] = useState(false);
 
-  const loadModels = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listClassificationModels();
-      const raw = result?.data || result?.models || result;
-      setModels(Array.isArray(raw) ? raw : []);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load models');
-    } finally {
-      setLoading(false);
-    }
+  const fetchModels = useCallback(async () => {
+    const result = await listClassificationModels();
+    const raw = result?.data || result?.models || result;
+    return Array.isArray(raw) ? raw : [];
   }, []);
-
-  useEffect(() => { loadModels(); }, [loadModels]);
+  const { data: models, loading, refetch: loadModels } = useCacheAwareQuery<any[]>(
+    fetchModels,
+    { cacheKeys: [CACHE_KEYS.ML_MODELS], initialData: [] }
+  );
 
   const handleTrain = async () => {
     if (!trainForm.model_name || !trainForm.training_table || !trainForm.target_column) {
@@ -520,7 +510,7 @@ function ClassificationSection() {
             {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
           </div>
         </div>
-      ) : models.length === 0 ? (
+      ) : (models ?? []).length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiChartBar className="w-12 h-12 mx-auto mb-3 text-slate-300" />
           <p>No classification models found</p>
@@ -528,7 +518,7 @@ function ClassificationSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {models.map((m: any, i: number) => (
+          {(models ?? []).map((m: any, i: number) => (
             <div key={i} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
               <div>
                 <h4 className="font-medium text-slate-900 dark:text-white">{m.name || m.NAME || 'Model'}</h4>
@@ -697,8 +687,6 @@ async function extractToTable(body: any) { const { data } = await apiClient.post
 async function getDocumentTemplates() { const { data } = await apiClient.get(`${PREFIX}/ml/document-ai/templates`); return data; }
 
 function DocumentAISection() {
-  const [models, setModels] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ model_name: '', database: '', schema: '' });
   const [creating, setCreating] = useState(false);
@@ -711,20 +699,15 @@ function DocumentAISection() {
   const [saveTarget, setSaveTarget] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const loadModels = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listDocumentAIModels();
-      const raw = result?.data || result?.models || result;
-      setModels(Array.isArray(raw) ? raw : []);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load models');
-    } finally {
-      setLoading(false);
-    }
+  const fetchDocModels = useCallback(async () => {
+    const result = await listDocumentAIModels();
+    const raw = result?.data || result?.models || result;
+    return Array.isArray(raw) ? raw : [];
   }, []);
-
-  useEffect(() => { loadModels(); }, [loadModels]);
+  const { data: models, loading, refetch: loadModels } = useCacheAwareQuery<any[]>(
+    fetchDocModels,
+    { cacheKeys: [CACHE_KEYS.ML_MODELS], initialData: [] }
+  );
 
   const handleCreate = async () => {
     if (!createForm.model_name) { toast.error('Model name is required'); return; }
@@ -817,14 +800,14 @@ function DocumentAISection() {
             {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
           </div>
         </div>
-      ) : models.length === 0 ? (
+      ) : (models ?? []).length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiFilePdf className="w-12 h-12 mx-auto mb-3 text-slate-300" />
           <p>No Document AI models found</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {models.map((m: any, i: number) => (
+          {(models ?? []).map((m: any, i: number) => (
             <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
               <h4 className="font-medium text-slate-900 dark:text-white">{m.name || m.NAME || 'Model'}</h4>
               <p className="text-sm text-slate-500 mt-1">{m.created_on || m.CREATED_ON || ''}</p>
@@ -966,8 +949,6 @@ function DocumentAISection() {
 
 // ===== Top Insights Section =====
 function TopInsightsSection() {
-  const [instances, setInstances] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ instance_name: '', database: '', schema: '' });
   const [creating, setCreating] = useState(false);
@@ -975,20 +956,15 @@ function TopInsightsSection() {
   const [analyzeForm, setAnalyzeForm] = useState({ instance_name: '', input_data: '', label_column: '', metric_column: '', database: '', schema: '' });
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
-  const loadInstances = useCallback(async () => {
-    setLoading(true);
-    try {
-      const result = await listTopInsights();
-      const raw = result?.data || result?.instances || result;
-      setInstances(Array.isArray(raw) ? raw : []);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load instances');
-    } finally {
-      setLoading(false);
-    }
+  const fetchInstances = useCallback(async () => {
+    const result = await listTopInsights();
+    const raw = result?.data || result?.instances || result;
+    return Array.isArray(raw) ? raw : [];
   }, []);
-
-  useEffect(() => { loadInstances(); }, [loadInstances]);
+  const { data: instances, loading, refetch: loadInstances } = useCacheAwareQuery<any[]>(
+    fetchInstances,
+    { cacheKeys: [CACHE_KEYS.ML_MODELS], initialData: [] }
+  );
 
   const handleCreate = async () => {
     if (!createForm.instance_name) { toast.error('Instance name is required'); return; }
@@ -1045,14 +1021,14 @@ function TopInsightsSection() {
             {[1,2,3,4].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
           </div>
         </div>
-      ) : instances.length === 0 ? (
+      ) : (instances ?? []).length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <PiTrendUp className="w-12 h-12 mx-auto mb-3 text-slate-300" />
           <p>No Top Insights instances found</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {instances.map((inst: any, i: number) => (
+          {(instances ?? []).map((inst: any, i: number) => (
             <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
               <h4 className="font-medium text-slate-900 dark:text-white">{inst.name || inst.NAME || 'Instance'}</h4>
               <p className="text-sm text-slate-500 mt-1">{inst.created_on || inst.CREATED_ON || ''}</p>

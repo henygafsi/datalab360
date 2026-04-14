@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   PlayCircle,
   CheckCircle,
@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { listRuns } from '@/app/services/api/workflowApi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import type { WorkflowRun } from '@/app/services/api/types';
 
 // Utility: format duration in seconds to human-readable string
@@ -63,41 +65,27 @@ const ExecutionHistory: React.FC<ExecutionHistoryProps> = ({
   onRefresh,
   className,
 }) => {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [totalRuns, setTotalRuns] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<RunStatus | ''>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const fetchRuns = useCallback(async () => {
-    if (!workflowId) return;
+  const fetchRuns = useCallback(
+    () => listRuns(workflowId, { limit: 20, status: statusFilter || undefined }),
+    [workflowId, statusFilter]
+  );
 
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await listRuns(workflowId, {
-        limit: 20,
-        status: statusFilter || undefined,
-      });
-      setRuns(data.runs || []);
-      setTotalRuns(data.count || 0);
-    } catch (err: any) {
-      console.error('Failed to fetch runs:', err);
-      setError(extractErrorMessage(err) || 'Failed to load execution history');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [workflowId, statusFilter]);
+  const { data: runsData, loading: isLoading, error: fetchError, refetch } = useCacheAwareQuery(
+    fetchRuns,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
+  );
 
-  useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
+  const runs = runsData?.runs ?? [];
+  const totalRuns = runsData?.count ?? 0;
+  const error = fetchError ? extractErrorMessage(fetchError) : null;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchRuns();
+    await refetch();
     setIsRefreshing(false);
     onRefresh?.();
   };

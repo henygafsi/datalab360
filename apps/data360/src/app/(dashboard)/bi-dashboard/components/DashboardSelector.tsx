@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button, Badge, Input, Tooltip, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -14,7 +14,7 @@ import { createDashboard, deleteDashboard } from '@/app/services/api/biDashboard
 import type { Project as ApiProject } from '@/app/services/api/types';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 // useSession removed — get username from localStorage token instead
 // import { useSession } from 'next-auth/react';
@@ -41,21 +41,6 @@ export default function DashboardSelector({
   onBrowseSamples,
   className,
 }: DashboardSelectorProps) {
-  // Get username from localStorage token (avoids SessionProvider dependency)
-  const [currentUsername, setCurrentUsername] = useState('');
-  useEffect(() => {
-    try {
-      const token = localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '';
-      if (token) {
-        const payload = JSON.parse(atob(token.split('.')[1] || '{}')) as Record<string, string>;
-        setCurrentUsername(payload.sub || payload.username || '');
-      }
-    } catch { /* ignore */ }
-  }, []);
-
-  const [projects, setProjects] = useState<DashboardProject[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showModal, setShowModal] = useState(false);
 
   // Create form
@@ -76,18 +61,34 @@ export default function DashboardSelector({
   const [projectSearch, setProjectSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const mountedRef = useRef(true);
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.PROJECTS, CACHE_KEYS.BI_DASHBOARDS]);
+  // Fetch dashboard projects
+  const fetchProjectsFn = useCallback(async (): Promise<DashboardProject[]> => {
+    const response = await listProjects({ project_type: 'bi_dashboard', mine_only: false });
+    return (response.projects || []).map((p: ApiProject) => ({
+      project_id: p.project_id,
+      name: p.project_name,
+      created_by: p.created_by,
+      status: p.status,
+      created_at: p.created_at,
+    }));
+  }, []);
+
+  const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<DashboardProject[]>(
+    fetchProjectsFn,
+    { cacheKeys: [CACHE_KEYS.PROJECTS, CACHE_KEYS.BI_DASHBOARDS], initialData: [] }
+  );
+
+  const safeProjects = projects ?? [];
 
   const filteredProjects = useMemo(() => {
-    if (!projectSearch.trim()) return projects;
+    if (!projectSearch.trim()) return safeProjects;
     const q = projectSearch.toLowerCase();
-    return projects.filter(
+    return safeProjects.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.created_by.toLowerCase().includes(q),
     );
-  }, [projects, projectSearch]);
+  }, [safeProjects, projectSearch]);
 
   // Fetch databases on modal open
   useEffect(() => {
@@ -113,40 +114,6 @@ export default function DashboardSelector({
     return () => { cancelled = true; };
   }, [defaultDatabase]);
 
-  const fetchProjects = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) setLoading(true);
-    else setIsRefreshing(true);
-
-    try {
-      const response = await listProjects({ project_type: 'bi_dashboard', mine_only: false });
-      if (mountedRef.current) {
-        setProjects(
-          (response.projects || []).map((p: ApiProject) => ({
-            project_id: p.project_id,
-            name: p.project_name,
-            created_by: p.created_by,
-            status: p.status,
-            created_at: p.created_at,
-          }))
-        );
-      }
-    } catch (error) {
-      if (mountedRef.current) toast.error('Failed to fetch dashboards');
-    } finally {
-      if (mountedRef.current) { setLoading(false); setIsRefreshing(false); }
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchProjects();
-    return () => { mountedRef.current = false; };
-  }, [fetchProjects]);
-
-  useEffect(() => {
-    if (wasInvalidated && !loading) fetchProjects(true);
-  }, [wasInvalidated, loading, fetchProjects]);
-
   // Auto-open modal if no project selected
   useEffect(() => {
     if (!loading && !selectedProjectId) setShowModal(true);
@@ -163,15 +130,8 @@ export default function DashboardSelector({
         default_schema: defaultSchema || undefined,
       });
       toast.success(`Dashboard "${newName}" created`);
-      const newProject: DashboardProject = {
-        project_id: response.project_id,
-        name: newName.trim(),
-        created_by: currentUsername || 'You',
-        status: 'draft',
-        created_at: new Date().toISOString(),
-      };
-      setProjects((prev) => [newProject, ...prev]);
       onProjectSelect(response.project_id, newName.trim());
+      refetch();
       resetForm();
       setShowModal(false);
     } catch (error) {
@@ -185,7 +145,7 @@ export default function DashboardSelector({
     setDeletingId(projectId);
     try {
       await deleteDashboard(projectId);
-      setProjects((prev) => prev.filter((p) => p.project_id !== projectId));
+      refetch();
       if (selectedProjectId === projectId) onProjectSelect('', '');
       if (selectedInModal === projectId) setSelectedInModal(null);
       toast.success('Dashboard deleted');
@@ -205,7 +165,7 @@ export default function DashboardSelector({
 
   const handleSelectProject = () => {
     if (!selectedInModal) { toast.error('Please select a dashboard'); return; }
-    const project = projects.find((p) => p.project_id === selectedInModal);
+    const project = safeProjects.find((p) => p.project_id === selectedInModal);
     if (project) {
       onProjectSelect(project.project_id, project.name);
       setShowModal(false);
@@ -213,7 +173,7 @@ export default function DashboardSelector({
     }
   };
 
-  const selectedProject = projects.find((p) => p.project_id === selectedProjectId);
+  const selectedProject = safeProjects.find((p) => p.project_id === selectedProjectId);
 
   return (
     <>
@@ -246,7 +206,7 @@ export default function DashboardSelector({
               <span className="text-amber-600 dark:text-amber-400 font-medium">Select Dashboard</span>
             )}
           </span>
-          {isRefreshing ? (
+          {isStale ? (
             <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
           ) : (
             <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
@@ -280,10 +240,10 @@ export default function DashboardSelector({
               <Tooltip content="Refresh">
                 <button
                   className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  onClick={() => fetchProjects(true)}
-                  disabled={isRefreshing}
+                  onClick={() => refetch()}
+                  disabled={isStale}
                 >
-                  <RefreshCw className={cn('h-4.5 w-4.5 text-slate-400', isRefreshing && 'animate-spin')} />
+                  <RefreshCw className={cn('h-4.5 w-4.5 text-slate-400', isStale && 'animate-spin')} />
                 </button>
               </Tooltip>
               <button
@@ -399,12 +359,12 @@ export default function DashboardSelector({
                     Select Existing
                   </h3>
                 </div>
-                {projects.length > 0 && (
-                  <span className="text-xs text-slate-400 dark:text-slate-500">{projects.length} dashboards</span>
+                {safeProjects.length > 0 && (
+                  <span className="text-xs text-slate-400 dark:text-slate-500">{safeProjects.length} dashboards</span>
                 )}
               </div>
 
-              {projects.length > 3 && (
+              {safeProjects.length > 3 && (
                 <div className="relative mb-3">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
                   <Input
@@ -421,7 +381,7 @@ export default function DashboardSelector({
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
                 </div>
-              ) : projects.length === 0 ? (
+              ) : safeProjects.length === 0 ? (
                 <div className="text-center py-12">
                   <LayoutDashboard className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
                   <p className="text-slate-500 dark:text-slate-400 font-medium text-sm">No dashboards yet</p>

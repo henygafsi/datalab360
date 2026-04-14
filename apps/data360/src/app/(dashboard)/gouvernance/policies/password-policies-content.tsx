@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { Button, Input, Modal, Badge } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getPasswordPolicies,
@@ -15,12 +15,14 @@ import {
   deletePasswordPolicy,
   type PasswordPolicy,
 } from '@/app/services/gouvernance/policies';
-import apiClient from '@/lib/api-client';
 
 export default function PasswordPoliciesContent() {
-  const [policies, setPolicies] = useState<PasswordPolicy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const fetchPolicies = useCallback(() => getPasswordPolicies().then(data => Array.isArray(data) ? data : []), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<PasswordPolicy[]>(
+    fetchPolicies,
+    { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
+  );
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<PasswordPolicy | null>(null);
@@ -38,51 +40,6 @@ export default function PasswordPoliciesContent() {
   const [maxAgeDays, setMaxAgeDays] = useState('90');
   const [lockoutThreshold, setLockoutThreshold] = useState('5');
   const [expirationDate, setExpirationDate] = useState('');
-
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
-  const mountedRef = useRef(true);
-
-  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    try {
-      const data = await getPasswordPolicies();
-      if (mountedRef.current) {
-        setPolicies(Array.isArray(data) ? data : []);
-      }
-    } catch (error: any) {
-      console.error('Error loading password policies:', error);
-      if (mountedRef.current) {
-        toast.error(error.response?.data?.message || error.message || 'Failed to load password policies');
-        setPolicies([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    loadPolicies();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadPolicies]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Policies cache invalidated - refreshing password policies...');
-      loadPolicies(true);
-    }
-  }, [wasInvalidated, loading, loadPolicies]);
 
   const handleViewDetails = async (policy: PasswordPolicy) => {
     setSelectedPolicy(policy);
@@ -156,8 +113,7 @@ export default function PasswordPoliciesContent() {
       toast.success('Password policy created successfully!');
       setShowCreateModal(false);
       resetForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('[Password Create] Error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to create policy'));
@@ -170,8 +126,7 @@ export default function PasswordPoliciesContent() {
     try {
       await setPasswordPolicyAsDefault(policy.policy_name);
       toast.success('Password policy set as account default');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Set password policy as default error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to set as default'));
@@ -184,8 +139,7 @@ export default function PasswordPoliciesContent() {
     try {
       await deletePasswordPolicy(policy.policy_name);
       toast.success('Policy deleted successfully');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Delete password policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to delete policy'));
@@ -212,7 +166,7 @@ export default function PasswordPoliciesContent() {
         <div>
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold">Password Policies</h2>
-            {isRefreshing && (
+            {isStale && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 <span>Syncing...</span>
@@ -235,7 +189,7 @@ export default function PasswordPoliciesContent() {
       {/* Policies List */}
       {loading ? (
         <div className="text-center py-12">Loading...</div>
-      ) : policies.length === 0 ? (
+      ) : !policies || policies.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No password policies found. Create one to get started.
         </div>

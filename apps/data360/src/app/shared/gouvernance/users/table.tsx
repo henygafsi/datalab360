@@ -9,11 +9,10 @@ import Filters from './filters';
 import { userListColumns } from './columns';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { getUsers, deleteUser, deleteMultipleUsers, disableUser, enableUser } from '@/app/services/gouvernance/fetch_users';
 import AddUserButton from './add-user-button';
-import apiClient from '@/lib/api-client';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
@@ -47,66 +46,19 @@ interface ConfirmState {
   onConfirm: () => void;
 }
 
-export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // Removed accessToken from props
-  const [data, setData] = useState<UserTableDataType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
   const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Watch for SSE cache invalidation events on 'users' key
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.USERS]);
-  const mountedRef = useRef(true);
-
-  // Callback to fetch users data, used for initial load and refreshing
-  const fetchUsersData = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null); // Clear previous errors
-    try {
-      const users = await getUsers(); // getUsers now handles token internally
-      if (mountedRef.current) {
-        // console.log('Fetched users for table (in table.tsx):', users);
-        setData(users);
-      }
-    } catch (err: unknown) {
-      if (mountedRef.current) {
-        // console.error('Failed to load users:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load users');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []); // No dependencies - stable callback
-
-  // Effect to run fetchData on component mount
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchUsersData();
-    return () => {
-      mountedRef.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Users cache invalidated - refreshing data...');
-      fetchUsersData(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasInvalidated]); // Only depend on wasInvalidated, not loading or fetchUsersData
+  // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
+  const fetchUsers = useCallback(() => getUsers(), []);
+  const { data, loading, error, refetch, isStale } = useCacheAwareQuery<UserTableDataType[]>(
+    fetchUsers,
+    { cacheKeys: [CACHE_KEYS.USERS], initialData: [] }
+  );
 
   // Initialize TanStack Table
   const { table, setData: setTableData } = useTanStackTable<UserTableDataType>({
-    tableData: data, // Use the fetched data
+    tableData: data ?? [], // Use the fetched data
     columnConfig: userListColumns,
     options: {
       initialState: {
@@ -127,14 +79,12 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                 const result = await deleteUser(row.id);
                 const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
                 toast.success(`✅ Utilisateur ${row.name} supprimé avec succès${grantsInfo}`);
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
-                await fetchUsersData();
+                await refetch();
               } catch (error: any) {
                 // console.error('Error deleting user:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression de l'utilisateur: ${errorMessage}`);
-                await fetchUsersData();
+                await refetch();
               }
             },
           });
@@ -159,14 +109,12 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                 } else {
                   toast.error(`❌ Échec de la suppression de tous les utilisateurs`);
                 }
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
-                await fetchUsersData();
+                await refetch();
               } catch (error: any) {
                 // console.error('Error deleting multiple users:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
-                await fetchUsersData();
+                await refetch();
               }
             },
           });
@@ -188,14 +136,12 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
                   await disableUser(row.id);
                   toast.success(`✅ Utilisateur ${row.name} désactivé avec succès`);
                 }
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
-                await fetchUsersData();
+                await refetch();
               } catch (error: any) {
                 // console.error('Error toggling user status:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de l'opération: ${errorMessage}`);
-                await fetchUsersData();
+                await refetch();
               }
             },
           });
@@ -207,7 +153,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
 
   // Keep TanStack table data in sync with fetched data
   useEffect(() => {
-    setTableData(data);
+    setTableData(data ?? []);
   }, [data, setTableData]);
 
   // Render loading, error, or empty states
@@ -224,11 +170,11 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
   }
 
   if (error) {
-    return <ErrorDisplay error={error} onRetry={() => fetchUsersData()} context="users" />;
+    return <ErrorDisplay error={error.message} onRetry={() => refetch()} context="users" />;
   }
 
   // Only show "No users found" if not loading and no error, but data is empty.
-  if (data.length === 0 && !loading && !error) {
+  if ((!data || data.length === 0) && !loading && !error) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
         <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-gray-100 dark:bg-gray-700">
@@ -249,7 +195,7 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) { // R
       <div className="mb-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Filters table={table} />
-          {isRefreshing && (
+          {isStale && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <RefreshCw className="h-4 w-4 animate-spin" />
               <span>Syncing...</span>

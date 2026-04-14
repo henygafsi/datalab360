@@ -8,8 +8,8 @@ import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiXCircle, PiWarning, 
 import { HiOutlineRefresh } from 'react-icons/hi';
 import { RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
@@ -79,14 +79,20 @@ export default function GouvernanceDashboard() {
   const { data: dashboardData, loading: dashboardLoading, refetch: refetchDashboard } = useClientDashboard();
   const { data: stagesData, loading: stagesLoading, refetch: refetchStages } = useStageStorageInfo();
 
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([
-    CACHE_KEYS.DASHBOARD,
-    CACHE_KEYS.ACTIVITY,
-    CACHE_KEYS.DWH_STORAGE,
-  ]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const mountedRef = useRef(true);
+  // SSE cache invalidation — useCacheAwareQuery auto-refreshes when keys are invalidated.
+  // The fetch function triggers governance hook refetches + scheduled items refresh.
+  const refreshAllFn = useCallback(async () => {
+    await Promise.all([
+      refetchDashboard?.(),
+      refetchStages?.(),
+    ]);
+    return true;
+  }, [refetchDashboard, refetchStages]);
+
+  const { isStale: isRefreshing, refetch: triggerRefreshAll } = useCacheAwareQuery<boolean>(
+    refreshAllFn,
+    { cacheKeys: [CACHE_KEYS.DASHBOARD, CACHE_KEYS.ACTIVITY, CACHE_KEYS.DWH_STORAGE], initialData: false }
+  );
 
   // Default to last 30 days to avoid loading too much data
   const defaultStartDate = useMemo(() => {
@@ -110,30 +116,7 @@ export default function GouvernanceDashboard() {
 
   // Admin / data modeler view: no default user filter so all users' activity is shown
 
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !dashboardLoading && !stagesLoading) {
-      setIsRefreshing(true);
-      Promise.all([
-        refetchDashboard?.(),
-        refetchStages?.(),
-        // Also refresh scheduled deployments silently
-        fetchScheduledItems(false),
-      ]).finally(() => {
-        if (mountedRef.current) {
-          setIsRefreshing(false);
-        }
-      });
-    }
-  }, [wasInvalidated, dashboardLoading, stagesLoading, refetchDashboard, refetchStages]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  // Note: SSE auto-refresh is handled by useCacheAwareQuery above.
 
   // Track previous deployment count for smart refresh
   const prevDeploymentCountRef = useRef(0);
@@ -239,14 +222,8 @@ export default function GouvernanceDashboard() {
     }
   };
 
-  // Refetch scheduled deployments when SSE invalidation fires (e.g. after schedule/approve/reject/activate from workflow or explore-design).
-  // So approval/schedule/execute handling is identical: backend invalidates → we refetch so list stays in sync.
-  const hasFetchedScheduledRef = useRef(false);
-  useEffect(() => {
-    if (wasInvalidated && accessToken) {
-      fetchScheduledItems(false);
-    }
-  }, [wasInvalidated, accessToken]);
+  // SSE invalidation auto-triggers refetch via useCacheAwareQuery; fetchScheduledItems
+  // is also called after approve/reject/activate actions below.
 
   // Build complete filters object for API call
   const apiFilters = useMemo(() => {
@@ -612,17 +589,11 @@ export default function GouvernanceDashboard() {
         </div>
         <Button
           onClick={async () => {
-            setIsRefreshing(true);
-            try {
-              await updateSession();
-              await Promise.all([
-                refetchDashboard?.(),
-                refetchStages?.(),
-                fetchScheduledItems(false),
-              ]);
-            } finally {
-              setIsRefreshing(false);
-            }
+            await updateSession();
+            await Promise.all([
+              triggerRefreshAll(),
+              fetchScheduledItems(false),
+            ]);
           }}
           variant="outline"
           className="gap-2"

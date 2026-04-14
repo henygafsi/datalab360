@@ -9,11 +9,10 @@ import { roleListColumns } from './columns';
 import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import { exportToCSV } from '@core/utils/export-to-csv';
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { getRoles, deleteRole, deleteMultipleRoles } from '@/app/services/gouvernance/fetch_roles';
 import AddRoleButton from './add-role-button';
-import apiClient from '@/lib/api-client';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
@@ -49,63 +48,17 @@ interface ConfirmState {
 }
 
 export default function RolesTable() {
-  const [data, setData] = useState<RoleTableDataType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState>({ open: false, title: '', message: '', onConfirm: () => {} });
 
-  // Watch for SSE cache invalidation events on 'roles' key
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.ROLES]);
-  const mountedRef = useRef(true);
-
-  const fetchRolesData = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
-    try {
-      const roles = await getRoles(); // getRoles now handles token internally
-      if (mountedRef.current) {
-        console.log('Fetched roles for table:', roles);
-        setData(roles);
-      }
-    } catch (err: unknown) {
-      if (mountedRef.current) {
-        console.error('Failed to load roles:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load roles');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []); // No dependencies - stable callback
-
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchRolesData();
-    return () => {
-      mountedRef.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run on mount
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      console.log('[SSE] Roles cache invalidated - refreshing data...');
-      fetchRolesData(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wasInvalidated]); // Only depend on wasInvalidated, not loading or fetchRolesData
+  const fetchRolesData = useCallback(() => getRoles(), []);
+  const { data, loading, error, refetch, isStale } = useCacheAwareQuery<RoleTableDataType[]>(
+    fetchRolesData,
+    { cacheKeys: [CACHE_KEYS.ROLES], initialData: [] }
+  );
 
 
   const { table, setData: setTableData } = useTanStackTable<RoleTableDataType>({
-    tableData: data,
+    tableData: data ?? [],
     columnConfig: roleListColumns,
     options: {
       initialState: {
@@ -133,15 +86,12 @@ export default function RolesTable() {
                 const usersInfo = result.revoked_from_users ? ` - ${result.revoked_from_users} utilisateur(s) affecté(s)` : '';
                 const grantsInfo = result.revoked_grants ? ` - ${result.revoked_grants} grants révoqués` : '';
                 toast.success(`✅ Rôle ${row.role} supprimé avec succès${usersInfo}${grantsInfo}`);
-                setData((prev) => prev.filter((r) => r.role !== row.role));
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
-                try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
-                await fetchRolesData();
+                await refetch();
               } catch (error: any) {
                 console.error('Error deleting role:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression du rôle: ${errorMessage}`);
-                await fetchRolesData();
+                await refetch();
               }
             },
           });
@@ -180,15 +130,12 @@ export default function RolesTable() {
             } else {
               toast.error(`❌ Échec de la suppression de tous les rôles`);
             }
-            setData((prev) => prev.filter((r) => !deletableRoles.includes(r.role)));
-            try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_roles:*' }); } catch {}
-            try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:route_get_grants:*' }); } catch {}
-            await fetchRolesData();
+            await refetch();
               } catch (error: any) {
                 console.error('Error deleting multiple roles:', error);
                 const errorMessage = error.response?.data?.detail || error.message || 'Erreur inconnue';
                 toast.error(`❌ Erreur lors de la suppression multiple: ${errorMessage}`);
-                await fetchRolesData();
+                await refetch();
               }
             },
           });
@@ -199,7 +146,7 @@ export default function RolesTable() {
   });
 
   useEffect(() => {
-    setTableData(data);
+    setTableData(data ?? []);
   }, [data, setTableData]);
 
   const selectedData = table
@@ -227,10 +174,10 @@ export default function RolesTable() {
   }
 
   if (error) {
-    return <ErrorDisplay error={error} onRetry={() => fetchRolesData()} context="roles" />;
+    return <ErrorDisplay error={error?.message} onRetry={() => refetch()} context="roles" />;
   }
 
-  if (data.length === 0 && !loading && !error) {
+  if ((!data || data.length === 0) && !loading && !error) {
     return (
       <div className="rounded-2xl border border-gray-200 bg-white p-12 text-center dark:border-gray-700 dark:bg-gray-800">
         <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
@@ -251,7 +198,7 @@ export default function RolesTable() {
       <div className="mb-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Filters table={table} />
-          {isRefreshing && (
+          {isStale && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <RefreshCw className="h-4 w-4 animate-spin" />
               <span>Syncing...</span>

@@ -28,7 +28,10 @@ export const CACHE_KEYS = {
   DWH_HEALTH: 'dwh_health',
 
   // Cortex module
+  CORTEX: 'cortex',
   SEMANTIC_MODELS: 'semantic_models',
+  ML_MODELS: 'ml_models',
+  FINE_TUNE_JOBS: 'fine_tune_jobs',
 
   // Charts
   CHARTS: 'charts',
@@ -51,8 +54,31 @@ export const CACHE_KEYS = {
 
   // Quality & Observability
   QUALITY_METRICS: 'quality_metrics',
+  DATA_QUALITY: 'data_quality',
+  DMF_RESULTS: 'dmf_results',
+  QUALITY_CHECKS: 'quality_checks',
   DATA_PROFILES: 'data_profiles',
+  ANOMALIES: 'anomalies',
   OBSERVABILITY_DASHBOARD: 'observability_dashboard',
+  DATA_LINEAGE: 'data_lineage',
+  USER_ACTIVITY: 'user_activity',
+  SECURITY_POSTURE: 'security_posture',
+  WAREHOUSE_USAGE: 'warehouse_usage',
+  QUERY_PERFORMANCE: 'query_performance',
+  STORAGE_METRICS: 'storage_metrics',
+  COMPLIANCE_METRICS: 'compliance_metrics',
+
+  // Organization Accounts
+  ORG_ACCOUNTS: 'org_accounts',
+
+  // Data Products
+  DATA_PRODUCTS: 'data_products',
+
+  // Deployments
+  DEPLOYMENTS: 'deployments',
+
+  // AI
+  AI_SUGGESTIONS: 'ai_suggestions',
 } as const;
 
 export type CacheKey = typeof CACHE_KEYS[keyof typeof CACHE_KEYS];

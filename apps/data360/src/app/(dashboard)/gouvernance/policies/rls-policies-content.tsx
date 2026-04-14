@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { rlsPolicySchema, type RLSPolicyFormValues } from '@/validators/rls-policy.schema';
@@ -15,7 +15,7 @@ import {
 } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   getRLSPolicies,
@@ -32,8 +32,6 @@ import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
 import { DEFAULTS } from '@/config/database.config';
-import apiClient from '@/lib/api-client';
-
 // Modern Card Component
 const ModernCard = ({ children, className = '', ...props }: { children: React.ReactNode; className?: string }) => {
   return (
@@ -47,9 +45,6 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 };
 
 export default function RLSPoliciesContent() {
-  const [policies, setPolicies] = useState<RLSPolicy[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
@@ -100,51 +95,16 @@ export default function RLSPoliciesContent() {
     policy_column: '',
   });
 
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.POLICIES]);
-  const mountedRef = useRef(true);
-
-  const loadPolicies = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    try {
-      const data = await getRLSPolicies();
-      if (mountedRef.current) {
-        setPolicies(Array.isArray(data) ? data : []);
-      }
-    } catch (error: any) {
-      console.error('Error loading RLS policies:', error);
-      if (mountedRef.current) {
-        toast.error(error.message || 'Failed to load RLS policies');
-        setPolicies([]);
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
-  }, []);
+  // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
+  const fetchPolicies = useCallback(() => getRLSPolicies().then(data => Array.isArray(data) ? data : []), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<RLSPolicy[]>(
+    fetchPolicies,
+    { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
+  );
 
   useEffect(() => {
-    mountedRef.current = true;
-    loadPolicies();
     loadDatabases();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [loadPolicies]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] Policies cache invalidated - refreshing RLS policies...');
-      loadPolicies(true);
-    }
-  }, [wasInvalidated, loading, loadPolicies]);
+  }, []);
 
   useEffect(() => {
     if (formData.database) {
@@ -247,8 +207,7 @@ export default function RLSPoliciesContent() {
       setShowCreateModal(false);
       resetCreateForm();
       resetForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('[RLS Create] Error:', error.response?.data || error);
       const errMsg = formatErrorMessage(error, 'Failed to create RLS policy');
@@ -286,8 +245,7 @@ export default function RLSPoliciesContent() {
       setShowApplyModal(false);
       setSelectedPolicy(null);
       resetApplyForm();
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Apply RLS policy error:', error.response?.data || error);
       const applyErrMsg = formatErrorMessage(error, 'Failed to apply RLS policy');
@@ -331,8 +289,7 @@ export default function RLSPoliciesContent() {
       await deleteRLSPolicy(policy.policy_name);
       toast.success('RLS Policy deleted successfully', { id: 'delete-policy' });
       setFeedbackMessage({ type: 'success', text: `RLS Policy "${policy.policy_name}" deleted successfully` });
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Delete RLS policy error:', error.response?.data || error);
       const delErrMsg = formatErrorMessage(error, 'Failed to delete RLS policy');
@@ -359,8 +316,7 @@ export default function RLSPoliciesContent() {
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
-      loadPolicies();
+      refetch();
     } catch (error: any) {
       console.error('Remove RLS policy error:', error.response?.data || error);
       toast.error(formatErrorMessage(error, 'Failed to remove RLS policy'));
@@ -454,7 +410,7 @@ export default function RLSPoliciesContent() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <h2 className="text-2xl font-bold text-slate-900 dark:text-white">RLS Policies</h2>
-            {isRefreshing && (
+            {isStale && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <RefreshCw className="h-4 w-4 animate-spin" />
                 <span>Syncing...</span>
@@ -471,7 +427,7 @@ export default function RLSPoliciesContent() {
             <div className="inline-block w-8 h-8 border-4 border-purple-600 border-t-transparent rounded-full animate-spin" />
             <p className="mt-4 text-slate-600 dark:text-slate-400">Loading RLS policies...</p>
           </div>
-        ) : policies.length === 0 ? (
+        ) : !policies || policies.length === 0 ? (
           <div className="text-center py-12">
             <HiOutlineLockClosed className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
             <p className="text-slate-600 dark:text-slate-400">No RLS policies created yet</p>

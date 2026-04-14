@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
   PlayCircle,
   CheckCircle,
@@ -56,9 +58,6 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   className,
   compact = false,
 }) => {
-  const [runs, setRuns] = useState<WorkflowRun[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<RunStatus | ''>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -66,50 +65,27 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
   const [analyzingRun, setAnalyzingRun] = useState<string | null>(null);
 
-  const fetchRuns = useCallback(async () => {
-    if (!pipelineId) {
-      setRuns([]);
-      setIsLoading(false);
-      return;
-    }
+  const fetchRunsFn = useCallback(
+    () => workflowApi.listRuns(pipelineId!, { limit: 50, status: statusFilter || undefined }),
+    [pipelineId, statusFilter]
+  );
 
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await workflowApi.listRuns(pipelineId, {
-        limit: 50,
-        status: statusFilter || undefined,
-      });
-      setRuns(response.runs || []);
-    } catch (err: any) {
-      console.error('Failed to fetch runs:', err);
-      const errObj = err.response?.data?.error;
-      let errMsg: string;
-      if (errObj && typeof errObj === 'object' && typeof (errObj as any).message === 'string') {
-        errMsg = (errObj as any).message;
-      } else if (typeof err.response?.data?.detail === 'string') {
-        errMsg = err.response.data.detail;
-      } else {
-        errMsg = 'Failed to load execution history';
-      }
-      setError(typeof errMsg === 'string' ? errMsg : 'Failed to load execution history');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [pipelineId, statusFilter]);
+  const { data: runsData, loading: isLoading, error: fetchError, refetch } = useCacheAwareQuery(
+    fetchRunsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!pipelineId, initialData: null }
+  );
 
-  useEffect(() => {
-    fetchRuns();
-  }, [fetchRuns]);
+  const runs = runsData?.runs ?? [];
+  const error = fetchError?.message ?? null;
 
   // Auto-refresh for running pipelines
   useEffect(() => {
     const hasRunning = runs.some((r) => r.status === 'running');
     if (!hasRunning) return;
 
-    const interval = setInterval(fetchRuns, 5000);
+    const interval = setInterval(refetch, 5000);
     return () => clearInterval(interval);
-  }, [runs, fetchRuns]);
+  }, [runs, refetch]);
 
   // Auto-trigger AI analysis on latest failed run
   useEffect(() => {
@@ -124,7 +100,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchRuns();
+    await refetch();
     setIsRefreshing(false);
     onRefresh?.();
   };

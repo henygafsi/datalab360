@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -11,7 +11,6 @@ import {
   getUsersWithRolesAndModules,
   updateUserRoles
 } from '@/app/services/gouvernance/user_roles';
-import apiClient from '@/lib/api-client';
 import { getRoles as getAllRoles } from '@/app/services/gouvernance/fetch_roles';
 import { getRoles as getRoleGrants } from '@/app/services/gouvernance/grants';
 import TablePagination from '@core/components/table/pagination';
@@ -28,7 +27,7 @@ import {
   PiXCircleDuotone,
 } from 'react-icons/pi';
 import { IconType } from 'react-icons/lib';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { RefreshCw } from 'lucide-react';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
@@ -48,9 +47,6 @@ export type UserGrantTableDataType = {
 const VISIBLE_MODULES = getAllModules().filter(m => m.visible !== false);
 
 export default function UserGrantsTable() {
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [tableData, setTableData] = useState<UserGrantTableDataType[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>([]);
   const [roleGrants, setRoleGrants] = useState<{ role_name: string; modules: string[] }[]>([]);
   const [modal, setModal] = useState<{
@@ -58,131 +54,51 @@ export default function UserGrantsTable() {
     user?: UserGrantTableDataType;
     selectedRoles: string[];
   }>({ open: false, selectedRoles: [] });
-  const [isRefreshing, setIsRefreshing] = useState(false);
-
-  // Watch for SSE cache invalidation events
-  const { wasInvalidated } = useCacheInvalidationWatcher([
-    CACHE_KEYS.USERS,
-    CACHE_KEYS.GRANTS,
-  ]);
-  const mountedRef = useRef(true);
 
   /* ------------------------------------------------------------------ */
   /* 1. Fetch Data                                                      */
   /* ------------------------------------------------------------------ */
-  const fetchUserGrantsData = useCallback(async (isBackgroundRefresh = false) => {
-    if (!isBackgroundRefresh) {
-      setLoading(true);
-    } else {
-      setIsRefreshing(true);
-    }
-    setError(null);
+  const fetchUserGrantsData = useCallback(async () => {
+    // Fetch all data in parallel (users, roles, and grants)
+    const [usersData, rolesData, grantsData] = await Promise.all([
+      getUsersWithRolesAndModules(),
+      getAllRoles(),
+      getRoleGrants(),
+    ]);
 
-    try {
-      // console.log('[User Grants] 🔄 Starting data fetch...');
-      // console.log('[User Grants] API Calls:');
-      // console.log('[User Grants]   1. GET /gouvernance/users (with roles and modules)');
-      // console.log('[User Grants]   2. GET /gouvernance/roles (all available roles)');
-      // console.log('[User Grants]   3. GET /gouvernance/grants (role-module permissions)');
-      const startTime = Date.now();
+    // All roles from backend are assignable
+    const assignableRoles = rolesData.map(r => r.role);
 
-      // Fetch all data in parallel (users, roles, and grants)
-      // Cache roleGrants to avoid redundant fetches in modal
-      const [usersData, rolesData, grantsData] = await Promise.all([
-        getUsersWithRolesAndModules(),
-        getAllRoles(),
-        getRoleGrants(), // Fetch grants once here, cache for modal use
-      ]);
+    // Build role -> modules lookup from grants data
+    const roleModulesMap = new Map<string, string[]>();
+    grantsData.forEach((g: { role_name: string; modules: string[] }) => {
+      roleModulesMap.set(g.role_name.toUpperCase(), g.modules || []);
+    });
 
-      const fetchTime = Date.now() - startTime;
-      // console.log(`[User Grants] Data fetched in ${fetchTime}ms`);
-      // console.log(`[User Grants]   Users: ${usersData.length}, Roles: ${rolesData.length}, Grants: ${grantsData.length}`);
-
-      // All roles from backend are assignable
-      const assignableRoles = rolesData.map(r => r.role);
-
-      // Build role -> modules lookup from grants data
-      const roleModulesMap = new Map<string, string[]>();
-      grantsData.forEach((g: { role_name: string; modules: string[] }) => {
-        roleModulesMap.set(g.role_name.toUpperCase(), g.modules || []);
+    // Enrich each user with their derived modules (union of all role modules)
+    const enrichedUsers: UserGrantTableDataType[] = usersData.map((user) => {
+      const userModules = new Set<string>();
+      (user.roles || []).forEach((role: string) => {
+        const mods = roleModulesMap.get(role.toUpperCase());
+        if (mods) mods.forEach((m: string) => userModules.add(m));
       });
+      return {
+        ...user,
+        modules: Array.from(userModules).sort(),
+      };
+    });
 
-      // Enrich each user with their derived modules (union of all role modules)
-      const enrichedUsers: UserGrantTableDataType[] = usersData.map((user) => {
-        const userModules = new Set<string>();
-        (user.roles || []).forEach((role: string) => {
-          const mods = roleModulesMap.get(role.toUpperCase());
-          if (mods) mods.forEach((m: string) => userModules.add(m));
-        });
-        return {
-          ...user,
-          modules: Array.from(userModules).sort(),
-        };
-      });
+    // Side-effect: update auxiliary state for the modal
+    setAvailableRoles(assignableRoles);
+    setRoleGrants(grantsData);
 
-      if (mountedRef.current) {
-        setTableData(enrichedUsers);
-        setAvailableRoles(assignableRoles);
-        setRoleGrants(grantsData); // Cache for modal
-      }
-    } catch (err: any) {
-      // console.error('[User Grants Table] ❌ Error fetching data:', err);
-      // console.error('[User Grants Table] Error type:', err.name);
-      // console.error('[User Grants Table] Error code:', err.code);
-      // console.error('[User Grants Table] Error message:', err.message);
-
-      // Only redirect when real auth (no token, expired) or 500 connection; not on 503/401 endpoint issues
-      if (shouldRedirectToLoginOnError(err)) {
-        // console.warn('[User Grants Table] Auth/connection error, redirecting to login...', err.name);
-        redirectToLogin();
-        return;
-      }
-
-      // For timeout/network/server errors, show helpful error message
-      if (mountedRef.current) {
-        let errorMessage = 'Failed to load grants data. ';
-
-        if (err.name === 'TimeoutError' || err.code === 'ECONNABORTED') {
-          errorMessage += 'Backend is taking too long (>30s). Please check backend performance.';
-        } else if (err.name === 'NetworkError') {
-          errorMessage += 'Cannot connect to backend. Please check if backend is running.';
-        } else if (err.response?.status === 500) {
-          errorMessage += 'Backend server error. Please check backend logs.';
-        } else {
-          errorMessage += err.message || 'Unknown error';
-        }
-
-        setError(errorMessage);
-      }
-
-      if (mountedRef.current) {
-        // For any other unexpected errors, show message
-        setError(err.message || 'Failed to load user grants. Check console for details.');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false);
-        setIsRefreshing(false);
-      }
-    }
+    return enrichedUsers;
   }, []);
 
-  // Initial fetch
-  useEffect(() => {
-    mountedRef.current = true;
-    fetchUserGrantsData();
-    return () => {
-      mountedRef.current = false;
-    };
-  }, [fetchUserGrantsData]);
-
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !loading) {
-      // console.log('[SSE] User grants cache invalidated - refreshing data...');
-      fetchUserGrantsData(true);
-    }
-  }, [wasInvalidated, loading, fetchUserGrantsData]);
+  const { data: tableData, loading, error, refetch, isStale } = useCacheAwareQuery<UserGrantTableDataType[]>(
+    fetchUserGrantsData,
+    { cacheKeys: [CACHE_KEYS.USERS, CACHE_KEYS.GRANTS], initialData: [] }
+  );
 
   /* ------------------------------------------------------------------ */
   /* 2. Table Columns                                                   */
@@ -375,65 +291,13 @@ export default function UserGrantsTable() {
       // console.log('[User Grants] Step 1: Payload:', { roles: rolesToSend });
       const updateResponse = await updateUserRoles(username, rolesToSend);
       // console.log('[User Grants] Step 1: Backend response:', updateResponse);
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_users:*' }); } catch {}
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:get_enterprise_users:*' }); } catch {}
 
       // Step 2: Refresh data from backend
-      // console.log('[User Grants] Step 2: Refreshing data from backend...');
       const refreshStartTime = Date.now();
-      await fetchUserGrantsData(true);
+      await refetch();
       // console.log('[User Grants] Step 2: Data refreshed in', Date.now() - refreshStartTime, 'ms');
 
-      // Step 3: Verify what we got back (after state update)
-      setTimeout(() => {
-        setTableData((currentData) => {
-          const updatedUser = currentData.find(u => u.username === username);
-          // console.log('[User Grants] Step 3: Verification after refresh');
-          // console.log('[User Grants]   - Expected roles (sent to backend):', expectedRoles);
-          // console.log('[User Grants]   - Actual roles from backend:', updatedUser?.roles);
-
-          // Filter out "ALL" from actual roles (might be legacy data)
-          // Filter out "PUBLIC" (auto-added by Snowflake)
-          const protectedRoles = ['ALL', 'PUBLIC'];
-          const actualRoles = (updatedUser?.roles || [])
-            .filter(r => !protectedRoles.includes(r))
-            .sort();
-
-          // Normalize to uppercase for case-insensitive comparison
-          const expectedNormalized = expectedRoles.map(r => r.toUpperCase()).sort();
-          const actualNormalized = actualRoles.map(r => r.toUpperCase()).sort();
-
-          const match = JSON.stringify(expectedNormalized) === JSON.stringify(actualNormalized);
-
-          // console.log('[User Grants]   - Expected (normalized):', expectedNormalized);
-          // console.log('[User Grants]   - Actual (without ALL/PUBLIC):', actualNormalized);
-          // console.log('[User Grants]   - Match:', match);
-
-          if (!match) {
-            // console.error('[User Grants] ⚠️ PERSISTENCE ISSUE DETECTED!');
-            // console.error('[User Grants]   Expected:', expectedNormalized);
-            // console.error('[User Grants]   Got:', actualNormalized);
-
-            const missing = expectedNormalized.filter(r => !actualNormalized.includes(r));
-            const extra = actualNormalized.filter(r => !expectedNormalized.includes(r));
-
-            if (missing.length > 0) {
-              // console.error('[User Grants]   Missing roles:', missing);
-            }
-            if (extra.length > 0) {
-              // console.error('[User Grants]   Extra roles:', extra);
-            }
-
-            // console.error('[User Grants]   → Check backend logs for GRANT ROLE execution issues');
-          } else {
-            // console.log('[User Grants] ✅ Roles persisted correctly');
-          }
-
-          return currentData;
-        });
-      }, 1000);
-
-      // Show success toast immediately (aligned with Role Grants behavior)
+      // Show success toast
       if (expectedRoles.length === 0) {
         toast.success(`✅ Removed all roles from ${displayName}`);
       } else {
@@ -462,7 +326,7 @@ export default function UserGrantsTable() {
   /* 4. Table Instance                                                  */
   /* ------------------------------------------------------------------ */
   const table = useReactTable({
-    data: tableData,
+    data: tableData ?? [],
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -477,8 +341,8 @@ export default function UserGrantsTable() {
   if (error) {
     return (
       <ErrorDisplay
-        error={error}
-        onRetry={() => fetchUserGrantsData()}
+        error={error?.message}
+        onRetry={() => refetch()}
       />
     );
   }
@@ -492,14 +356,14 @@ export default function UserGrantsTable() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => fetchUserGrantsData(true)}
-              disabled={isRefreshing}
+              onClick={() => refetch()}
+              disabled={isStale}
             >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 mr-2 ${isStale ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
             <span className="text-sm text-slate-500">
-              {tableData.length} users
+              {(tableData ?? []).length} users
             </span>
           </div>
         </div>

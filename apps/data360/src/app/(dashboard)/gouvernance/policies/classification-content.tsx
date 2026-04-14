@@ -118,7 +118,6 @@ export default function ClassificationContent() {
     try {
       await applySemanticTags({ table_name: applyTable });
       toast.success('Semantic tags applied successfully');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
     } catch (err: any) {
       toast.error(err.message || 'Failed to apply tags');
     } finally {
@@ -138,7 +137,6 @@ export default function ClassificationContent() {
       toast.success('Custom classifier created');
       setShowCreateClassifier(false);
       setClassifierName('');
-      try { await apiClient.post('/cache/clear/pattern', { pattern: 'cache:*:list_policies_by_type:*' }); } catch {}
     } catch (err: any) {
       toast.error(err.message || 'Failed to create classifier');
     } finally {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, useCallback, memo } from 'react';
 import { Button, Input, Modal, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -39,6 +39,8 @@ import {
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 interface SelectOption {
   value: string;
@@ -46,8 +48,6 @@ interface SelectOption {
 }
 
 function SemanticModelsContent() {
-  const [models, setModels] = useState<SemanticModel[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedModel, setSelectedModel] = useState<SemanticModel | null>(null);
@@ -73,9 +73,15 @@ function SemanticModelsContent() {
   const [generating, setGenerating] = useState(false);
   const [createStep, setCreateStep] = useState(1); // Stepper: 1=Source, 2=Review, 3=Done
 
-  useEffect(() => {
-    loadModels();
+  // ── Models via useCacheAwareQuery ──
+  const fetchModels = useCallback(async () => {
+    const data = await listSemanticModels();
+    return Array.isArray(data) ? data : [];
   }, []);
+  const { data: models, loading, refetch: loadModels } = useCacheAwareQuery<SemanticModel[]>(
+    fetchModels,
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], initialData: [] }
+  );
 
   // Load databases when modal opens
   useEffect(() => {
@@ -107,20 +113,6 @@ function SemanticModelsContent() {
       .then((tables) => setTableOptions((Array.isArray(tables) ? tables : []).map((t) => ({ value: t, label: t }))))
       .catch(() => setTableOptions([]));
   }, [database, schema]);
-
-  const loadModels = async () => {
-    try {
-      setLoading(true);
-      const data = await listSemanticModels();
-      const modelsArray = Array.isArray(data) ? data : [];
-      setModels(modelsArray);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load semantic models');
-      setModels([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleViewModel = async (model: SemanticModel) => {
     setSelectedModel(model);
@@ -359,7 +351,7 @@ function SemanticModelsContent() {
           </div>
           <p className="mt-4 text-slate-600 dark:text-slate-400">Loading semantic models...</p>
         </div>
-      ) : models.length === 0 ? (
+      ) : (models ?? []).length === 0 ? (
         <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 text-center">
           <div className="absolute inset-0 bg-gradient-to-br from-violet-50/50 to-purple-50/50 dark:from-violet-950/20 dark:to-purple-950/20" />
           <div className="relative z-10">
@@ -384,7 +376,7 @@ function SemanticModelsContent() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {models.map((model) => (
+          {(models ?? []).map((model) => (
             <div
               key={model.name}
               className="group relative overflow-hidden rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-lg hover:shadow-violet-500/10 transition-all duration-300"
