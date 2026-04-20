@@ -8,77 +8,118 @@ import { useSession } from 'next-auth/react';
  * Must match backend CacheKey enum exactly
  */
 export const CACHE_KEYS = {
-  // Mapping module
+  // ── Connections / Datalake ─────────────────────────────────────────────
+  CONNECTIONS: 'connections',
+  STAGES: 'stages',
+  INTEGRATIONS: 'integrations',
+  CONNECTORS: 'connectors',
+  CONNECTOR_CREDENTIALS: 'connector_credentials',
+  CONNECTOR_AUDIT: 'connector_audit',
+
+  // ── Projects (unified) ────────────────────────────────────────────────
   PROJECTS: 'projects',
+  PROJECT_CONTRIBUTORS: 'project_contributors',
+  PROJECT_EVENTS: 'project_events',
+  PROJECT_VERSIONS: 'project_versions',
   TABLE_MAPPINGS: 'table_mappings',
-  WORKFLOWS: 'workflows',
   DATABASES: 'databases',
   SCHEMAS: 'schemas',
   TABLES: 'tables',
+  TABLE_METADATA: 'table_metadata',
+  DEPLOYMENTS: 'deployments',
 
-  // Gouvernance module
+  // ── Workflow ──────────────────────────────────────────────────────────
+  WORKFLOWS: 'workflows',
+  TASKS: 'tasks',
+  APPROVALS: 'approvals',
+
+  // ── BI Dashboard ──────────────────────────────────────────────────────
+  BI_DASHBOARDS: 'bi_dashboards',
+  BI_WIDGETS: 'bi_widgets',
+
+  // ── Gouvernance ───────────────────────────────────────────────────────
   USERS: 'users',
   ROLES: 'roles',
   GRANTS: 'grants',
   POLICIES: 'policies',
-  SECURITY_AXES: 'security_axes',
-  DASHBOARD: 'dashboard',
-  ACTIVITY: 'activity',
-  DWH_STORAGE: 'dwh_storage',
-  DWH_HEALTH: 'dwh_health',
+  MASKING_POLICIES: 'masking_policies',
+  ROW_ACCESS_POLICIES: 'row_access_policies',
+  USER_PERMISSIONS: 'user_permissions',
+  ENTERPRISE_USERS: 'enterprise_users',
+  SECURITY_MATRIX: 'security_matrix',
 
-  // Cortex module
+  // ── Cortex / AI Intelligence ──────────────────────────────────────────
   CORTEX: 'cortex',
   SEMANTIC_MODELS: 'semantic_models',
   ML_MODELS: 'ml_models',
   FINE_TUNE_JOBS: 'fine_tune_jobs',
+  CHAT: 'chat',
 
-  // Charts
-  CHARTS: 'charts',
+  // ── Data Quality ──────────────────────────────────────────────────────
+  DATA_QUALITY: 'data_quality',
+  DMF_RESULTS: 'dmf_results',
+  QUALITY_CHECKS: 'quality_checks',
+  QUALITY_METRICS: 'quality_metrics',
+  DATA_PROFILES: 'data_profiles',
+  ANOMALIES: 'anomalies',
+  REPORTS: 'reports',
 
-  // BI Dashboard
-  BI_DASHBOARDS: 'bi_dashboards',
-
-  // Data Engineering objects (via Explore & Design)
+  // ── Data Engineering (via Explore & Design) ───────────────────────────
   DYNAMIC_TABLES: 'dynamic_tables',
   STREAMS: 'streams',
   EVENT_TABLES: 'event_tables',
   HYBRID_TABLES: 'hybrid_tables',
   ALERTS: 'alerts',
 
-  // Developer tools (via Workflow)
+  // ── Developer Tools (via Workflow) ────────────────────────────────────
   GIT_REPOSITORIES: 'git_repositories',
   COMPUTE_POOLS: 'compute_pools',
   CONTAINER_SERVICES: 'container_services',
   NOTEBOOKS: 'notebooks',
 
-  // Quality & Observability
-  QUALITY_METRICS: 'quality_metrics',
-  DATA_QUALITY: 'data_quality',
-  DMF_RESULTS: 'dmf_results',
-  QUALITY_CHECKS: 'quality_checks',
-  DATA_PROFILES: 'data_profiles',
-  ANOMALIES: 'anomalies',
+  // ── Observability ─────────────────────────────────────────────────────
   OBSERVABILITY_DASHBOARD: 'observability_dashboard',
   DATA_LINEAGE: 'data_lineage',
   USER_ACTIVITY: 'user_activity',
   SECURITY_POSTURE: 'security_posture',
+  UNUSED_RESOURCES: 'unused_resources',
   WAREHOUSE_USAGE: 'warehouse_usage',
   QUERY_PERFORMANCE: 'query_performance',
   STORAGE_METRICS: 'storage_metrics',
   COMPLIANCE_METRICS: 'compliance_metrics',
 
-  // Organization Accounts
-  ORG_ACCOUNTS: 'org_accounts',
+  // ── Analytics / Dashboard ─────────────────────────────────────────────
+  DASHBOARD: 'dashboard',
+  KPI: 'kpi',
 
-  // Data Products
+  // ── Organization Accounts ─────────────────────────────────────────────
+  ORG_ACCOUNTS: 'org_accounts',
+  ORG_ACCOUNTS_DASHBOARD: 'org_accounts_dashboard',
+  ORG_CREDITS: 'org_credits',
+  ORG_STORAGE: 'org_storage',
+  ORG_LOGINS: 'org_logins',
+  ORG_HEALTH: 'org_health',
+  ORG_ALERTS: 'org_alerts',
+  READER_ACCOUNTS: 'reader_accounts',
+  DATA_SHARES: 'data_shares',
+
+  // ── Data Products ─────────────────────────────────────────────────────
   DATA_PRODUCTS: 'data_products',
 
-  // Deployments
-  DEPLOYMENTS: 'deployments',
+  // ── DWH Data ──────────────────────────────────────────────────────────
+  SALES: 'sales',
+  CUSTOMERS: 'customers',
+  PRODUCTS: 'products',
 
-  // AI
+  // ── AI ────────────────────────────────────────────────────────────────
   AI_SUGGESTIONS: 'ai_suggestions',
+
+  // ── Legacy (kept for backward compat, no backend equivalent) ──────────
+  CHARTS: 'charts',
+  ACTIVITY: 'activity',
+  DWH_STORAGE: 'dwh_storage',
+  DWH_HEALTH: 'dwh_health',
+  SECURITY_AXES: 'security_axes',
 } as const;
 
 export type CacheKey = typeof CACHE_KEYS[keyof typeof CACHE_KEYS];

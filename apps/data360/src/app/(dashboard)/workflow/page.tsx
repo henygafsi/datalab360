@@ -137,10 +137,11 @@ const WorkflowHomePage: React.FC = () => {
     );
   }, []);
 
-  const { data: workflows, loading, error: fetchError, refetch: fetchWorkflows } = useCacheAwareQuery(
+  const { data: workflowsRaw, loading, error: fetchError, refetch: fetchWorkflows } = useCacheAwareQuery(
     fetchWorkflowsFn,
     { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!accessToken, initialData: [] as BackendWorkflow[] }
   );
+  const workflows = workflowsRaw ?? [];
 
   const error = tokenError || (fetchError ? (getApiErrorMessage(fetchError) || 'An unknown error occurred while fetching workflows.') : null);
 

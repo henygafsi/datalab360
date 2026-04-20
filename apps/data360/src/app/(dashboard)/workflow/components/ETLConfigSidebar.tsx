@@ -433,7 +433,8 @@ const FilterConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const conditions: FilterCondition[] = config.conditions || [];
 
@@ -497,7 +498,7 @@ const FilterConfigForm: React.FC<{
             <Select
               value={cond.column}
               onChange={(v) => updateCondition(i, { column: v })}
-              options={availableColumns.map((c) => ({ value: c, label: c }))}
+              options={columnOptions}
               placeholder="Column"
             />
             <Select
@@ -535,7 +536,8 @@ const AggregateConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const aggregations: AggregationDef[] = config.aggregations || [];
 
@@ -599,7 +601,7 @@ const AggregateConfigForm: React.FC<{
               <Select
                 value={agg.column}
                 onChange={(v) => updateAggregation(i, { column: v })}
-                options={availableColumns.map((c) => ({ value: c, label: c }))}
+                options={columnOptions}
                 placeholder="Column"
               />
               <button
@@ -631,7 +633,8 @@ const SelectConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Partial<SelectConfig>) => {
@@ -657,7 +660,8 @@ const RenameConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const mappings: Record<string, string> = config.mappings || {};
   const entries = Object.entries(mappings);
@@ -700,7 +704,7 @@ const RenameConfigForm: React.FC<{
           <Select
             value={oldName}
             onChange={(v) => updateMapping(oldName, v, newName)}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            options={columnOptions}
             placeholder="Old name"
           />
           <span className="text-slate-400">→</span>
@@ -731,7 +735,8 @@ const CastConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const casts: Record<string, string> = config.casts || {};
   const entries = Object.entries(casts);
@@ -785,7 +790,7 @@ const CastConfigForm: React.FC<{
           <Select
             value={col}
             onChange={(v) => updateCast(col, v, type)}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            options={columnOptions}
             placeholder="Column"
           />
           <span className="text-slate-400">→</span>
@@ -816,7 +821,8 @@ const FormulaConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const formulas: FormulaDef[] = config.formulas || [];
 
@@ -890,7 +896,8 @@ const SortConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const orderBy: SortOrderDef[] = config.order_by || [];
 
@@ -929,7 +936,7 @@ const SortConfigForm: React.FC<{
           <Select
             value={sort.column}
             onChange={(v) => updateSort(i, { column: v })}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            options={columnOptions}
             placeholder="Column"
           />
           <Select
@@ -990,7 +997,8 @@ const DistinctConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Partial<DistinctConfig>) => {
@@ -1052,7 +1060,8 @@ const RecommendationConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Partial<RecommendationConfig>) => {
@@ -1108,7 +1117,7 @@ const RecommendationConfigForm: React.FC<{
             <Select
               value={config.input_column || ''}
               onChange={(v) => updateConfig({ input_column: v })}
-              options={availableColumns.map((c) => ({ value: c, label: c }))}
+              options={columnOptions}
               placeholder="Select column..."
               error={!!errors.input_column}
             />
@@ -1144,7 +1153,8 @@ const SegmentationConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const rules: Array<{ _key?: string; name: string; condition: string }> = config.rules || [];
 
@@ -1243,7 +1253,8 @@ const ClusteringConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Partial<ClusteringConfig>) => {
@@ -1300,7 +1311,8 @@ const DestinationConfigForm: React.FC<{
   errors: Record<string, string>;
   accessToken?: string | null;
   availableColumns: string[];
-}> = ({ data, onChange, errors, accessToken, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, accessToken, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
@@ -2151,7 +2163,8 @@ const WindowRankConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2223,7 +2236,8 @@ const WindowLagLeadConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2253,7 +2267,7 @@ const WindowLagLeadConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column..."
           error={!!errors.column}
         />
@@ -2321,7 +2335,8 @@ const WindowAggregateConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2354,7 +2369,7 @@ const WindowAggregateConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column..."
           error={!!errors.column}
         />
@@ -2407,7 +2422,8 @@ const WindowNtileConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2470,7 +2486,8 @@ const JsonFlattenConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2489,7 +2506,7 @@ const JsonFlattenConfigForm: React.FC<{
         <Select
           value={config.input_column || ''}
           onChange={(v) => updateConfig({ input_column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select VARIANT column..."
           error={!!errors.input_column}
         />
@@ -2535,7 +2552,8 @@ const JsonExtractConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const extractPaths: Array<{ _key?: string; path: string; type: string; output: string }> = config.extract_paths || [];
 
@@ -2569,7 +2587,7 @@ const JsonExtractConfigForm: React.FC<{
         <Select
           value={config.input_column || ''}
           onChange={(v) => updateConfig({ input_column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select VARIANT column..."
           error={!!errors.input_column}
         />
@@ -2638,7 +2656,8 @@ const JsonConstructConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2683,7 +2702,8 @@ const PivotConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2702,7 +2722,7 @@ const PivotConfigForm: React.FC<{
         <Select
           value={config.value_column || ''}
           onChange={(v) => updateConfig({ value_column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column..."
           error={!!errors.value_column}
         />
@@ -2712,7 +2732,7 @@ const PivotConfigForm: React.FC<{
         <Select
           value={config.pivot_column || ''}
           onChange={(v) => updateConfig({ pivot_column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column..."
           error={!!errors.pivot_column}
         />
@@ -2750,7 +2770,8 @@ const UnpivotConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2802,7 +2823,8 @@ const DateTransformConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2821,7 +2843,7 @@ const DateTransformConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select date column..."
           error={!!errors.column}
         />
@@ -2872,7 +2894,7 @@ const DateTransformConfigForm: React.FC<{
           <Select
             value={config.second_column || ''}
             onChange={(v) => updateConfig({ second_column: v })}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            options={columnOptions}
             placeholder="Select end date column..."
             error={!!errors.second_column}
           />
@@ -2897,7 +2919,8 @@ const TimeSliceConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2916,7 +2939,7 @@ const TimeSliceConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select timestamp column..."
           error={!!errors.column}
         />
@@ -2969,7 +2992,8 @@ const FillNullsConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -2988,7 +3012,7 @@ const FillNullsConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column..."
           error={!!errors.column}
         />
@@ -3024,7 +3048,7 @@ const FillNullsConfigForm: React.FC<{
           <Select
             value={config.order_column || ''}
             onChange={(v) => updateConfig({ order_column: v })}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
+            options={columnOptions}
             placeholder="Select order column..."
             error={!!errors.order_column}
           />
@@ -3040,7 +3064,8 @@ const CaseWhenConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const conditions: Array<{ _key?: string; when: string; then: string }> = config.conditions || [];
 
@@ -3143,7 +3168,8 @@ const SplitColumnConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const outputColumns: string[] = config.output_columns || ['', ''];
 
@@ -3178,7 +3204,7 @@ const SplitColumnConfigForm: React.FC<{
         <Select
           value={config.column || ''}
           onChange={(v) => updateConfig({ column: v })}
-          options={availableColumns.map((c) => ({ value: c, label: c }))}
+          options={columnOptions}
           placeholder="Select column to split..."
           error={!!errors.column}
         />
@@ -4091,7 +4117,8 @@ const ApplyUDFConfigForm: React.FC<{
   onChange: (data: any) => void;
   errors: Record<string, string>;
   availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
 
   const updateConfig = (updates: Record<string, any>) => {
@@ -4147,8 +4174,8 @@ const AI_MODEL_OPTIONS = [
 ];
 
 const AIClassifyConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4160,7 +4187,7 @@ const AIClassifyConfigForm: React.FC<{
         <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
       </FormField>
       <FormField label="Input Column" required error={errors.input_column}>
-        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.input_column} />
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.input_column} />
       </FormField>
       <FormField label="Categories" required error={errors.categories} hint="One category per line">
         <Textarea value={config.categories || ''} onChange={(v) => updateConfig({ categories: v })} placeholder="positive\nnegative\nneutral" rows={4} error={!!errors.categories} />
@@ -4173,8 +4200,8 @@ const AIClassifyConfigForm: React.FC<{
 };
 
 const AISentimentConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4183,7 +4210,7 @@ const AISentimentConfigForm: React.FC<{
         <p className="text-xs text-green-700 dark:text-green-300">Analyze sentiment of text using Cortex AI_SENTIMENT. Returns a score from -1 (negative) to 1 (positive).</p>
       </div>
       <FormField label="Text Column" required error={errors.text_column}>
-        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.text_column} />
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.text_column} />
       </FormField>
       <FormField label="Model" error={errors.model}>
         <Select value={config.model || 'mistral-large2'} onChange={(v) => updateConfig({ model: v })} options={AI_MODEL_OPTIONS} />
@@ -4196,8 +4223,8 @@ const AISentimentConfigForm: React.FC<{
 };
 
 const AITranslateConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   const langOptions = [
@@ -4212,7 +4239,7 @@ const AITranslateConfigForm: React.FC<{
         <p className="text-xs text-blue-700 dark:text-blue-300">Translate text between languages using Cortex AI_TRANSLATE.</p>
       </div>
       <FormField label="Text Column" required error={errors.text_column}>
-        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.text_column} />
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.text_column} />
       </FormField>
       <FormField label="Source Language" error={errors.source_lang} hint="Leave empty for auto-detect">
         <Select value={config.source_lang || ''} onChange={(v) => updateConfig({ source_lang: v })} options={langOptions} placeholder="Auto-detect" />
@@ -4257,8 +4284,8 @@ const AICompleteConfigForm: React.FC<{
 };
 
 const FuzzyMatchConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4267,10 +4294,10 @@ const FuzzyMatchConfigForm: React.FC<{
         <p className="text-xs text-violet-700 dark:text-violet-300">Find similar strings using EDITDISTANCE. Great for deduplication, record linking, and fuzzy lookups.</p>
       </div>
       <FormField label="Source Column" required error={errors.source_column}>
-        <Select value={config.source_column || ''} onChange={(v) => updateConfig({ source_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.source_column} />
+        <Select value={config.source_column || ''} onChange={(v) => updateConfig({ source_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.source_column} />
       </FormField>
       <FormField label="Target Column" required error={errors.target_column}>
-        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.target_column} />
+        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.target_column} />
       </FormField>
       <FormField label="Distance Threshold" error={errors.threshold} hint="Max edit distance (default: 3)">
         <Input value={config.threshold || 3} onChange={(v) => updateConfig({ threshold: parseInt(v) || 3 })} type="number" />
@@ -4280,8 +4307,8 @@ const FuzzyMatchConfigForm: React.FC<{
 };
 
 const JSONPathExtractConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4290,7 +4317,7 @@ const JSONPathExtractConfigForm: React.FC<{
         <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract nested values from VARIANT/JSON columns using JSON_EXTRACT_PATH_TEXT.</p>
       </div>
       <FormField label="JSON Column" required error={errors.json_column}>
-        <Select value={config.json_column || ''} onChange={(v) => updateConfig({ json_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select VARIANT column" error={!!errors.json_column} />
+        <Select value={config.json_column || ''} onChange={(v) => updateConfig({ json_column: v })} options={columnOptions} placeholder="Select VARIANT column" error={!!errors.json_column} />
       </FormField>
       <FormField label="JSON Path" required error={errors.json_path} hint="e.g. 'address', 'name'">
         <Input value={config.json_path || ''} onChange={(v) => updateConfig({ json_path: v })} placeholder="key.nested_key" error={!!errors.json_path} />
@@ -4300,8 +4327,8 @@ const JSONPathExtractConfigForm: React.FC<{
 };
 
 const QualifyFilterConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4313,15 +4340,15 @@ const QualifyFilterConfigForm: React.FC<{
         <Input value={config.partition_columns || ''} onChange={(v) => updateConfig({ partition_columns: v })} placeholder="e.g. customer_id, region" error={!!errors.partition_columns} />
       </FormField>
       <FormField label="Order Column" required error={errors.order_column}>
-        <Select value={config.order_column || ''} onChange={(v) => updateConfig({ order_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.order_column} />
+        <Select value={config.order_column || ''} onChange={(v) => updateConfig({ order_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.order_column} />
       </FormField>
     </div>
   );
 };
 
 const CorrelationConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4330,18 +4357,18 @@ const CorrelationConfigForm: React.FC<{
         <p className="text-xs text-emerald-700 dark:text-emerald-300">Calculate Pearson correlation and covariance between two numeric columns using CORR / COVAR_SAMP.</p>
       </div>
       <FormField label="Column A" required error={errors.column_a}>
-        <Select value={config.column_a || ''} onChange={(v) => updateConfig({ column_a: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column_a} />
+        <Select value={config.column_a || ''} onChange={(v) => updateConfig({ column_a: v })} options={columnOptions} placeholder="Select numeric column" error={!!errors.column_a} />
       </FormField>
       <FormField label="Column B" required error={errors.column_b}>
-        <Select value={config.column_b || ''} onChange={(v) => updateConfig({ column_b: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column_b} />
+        <Select value={config.column_b || ''} onChange={(v) => updateConfig({ column_b: v })} options={columnOptions} placeholder="Select numeric column" error={!!errors.column_b} />
       </FormField>
     </div>
   );
 };
 
 const HistogramConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4350,7 +4377,7 @@ const HistogramConfigForm: React.FC<{
         <p className="text-xs text-pink-700 dark:text-pink-300">Analyze value distribution using WIDTH_BUCKET. Creates histogram buckets for numeric columns.</p>
       </div>
       <FormField label="Column" required error={errors.column}>
-        <Select value={config.column || ''} onChange={(v) => updateConfig({ column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select numeric column" error={!!errors.column} />
+        <Select value={config.column || ''} onChange={(v) => updateConfig({ column: v })} options={columnOptions} placeholder="Select numeric column" error={!!errors.column} />
       </FormField>
       <FormField label="Number of Buckets" error={errors.num_buckets} hint="Default: 10">
         <Input value={config.num_buckets || 10} onChange={(v) => updateConfig({ num_buckets: parseInt(v) || 10 })} type="number" />
@@ -4360,8 +4387,8 @@ const HistogramConfigForm: React.FC<{
 };
 
 const AIFilterConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4373,15 +4400,15 @@ const AIFilterConfigForm: React.FC<{
         <Input value={config.filter_prompt || ''} onChange={(v) => updateConfig({ filter_prompt: v })} placeholder="e.g. rows about customer complaints" error={!!errors.filter_prompt} />
       </FormField>
       <FormField label="Text Column" error={errors.text_column}>
-        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" />
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select column" />
       </FormField>
     </div>
   );
 };
 
 const AIAggConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4390,10 +4417,10 @@ const AIAggConfigForm: React.FC<{
         <p className="text-xs text-purple-700 dark:text-purple-300">Aggregate text data semantically with Cortex AI_AGG. Summarize grouped text using AI.</p>
       </div>
       <FormField label="Group Column" required error={errors.group_column}>
-        <Select value={config.group_column || ''} onChange={(v) => updateConfig({ group_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.group_column} />
+        <Select value={config.group_column || ''} onChange={(v) => updateConfig({ group_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.group_column} />
       </FormField>
       <FormField label="Text Column" error={errors.text_column}>
-        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select text column" />
+        <Select value={config.text_column || ''} onChange={(v) => updateConfig({ text_column: v })} options={columnOptions} placeholder="Select text column" />
       </FormField>
       <FormField label="Aggregation Prompt" required error={errors.aggregation_prompt} hint="How to summarize the text">
         <Input value={config.aggregation_prompt || ''} onChange={(v) => updateConfig({ aggregation_prompt: v })} placeholder="e.g. summarize the key themes" error={!!errors.aggregation_prompt} />
@@ -4403,8 +4430,8 @@ const AIAggConfigForm: React.FC<{
 };
 
 const RecursiveCTEConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4413,21 +4440,21 @@ const RecursiveCTEConfigForm: React.FC<{
         <p className="text-xs text-blue-700 dark:text-blue-300">Build recursive CTE for hierarchical data: org charts, bill of materials, category trees. Traverses parent-child relationships.</p>
       </div>
       <FormField label="ID Column" required error={errors.id_column}>
-        <Select value={config.id_column || ''} onChange={(v) => updateConfig({ id_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select ID column" error={!!errors.id_column} />
+        <Select value={config.id_column || ''} onChange={(v) => updateConfig({ id_column: v })} options={columnOptions} placeholder="Select ID column" error={!!errors.id_column} />
       </FormField>
       <FormField label="Parent Column" required error={errors.parent_column}>
-        <Select value={config.parent_column || ''} onChange={(v) => updateConfig({ parent_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select parent ID column" error={!!errors.parent_column} />
+        <Select value={config.parent_column || ''} onChange={(v) => updateConfig({ parent_column: v })} options={columnOptions} placeholder="Select parent ID column" error={!!errors.parent_column} />
       </FormField>
       <FormField label="Name Column" required error={errors.name_column}>
-        <Select value={config.name_column || ''} onChange={(v) => updateConfig({ name_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select display name column" error={!!errors.name_column} />
+        <Select value={config.name_column || ''} onChange={(v) => updateConfig({ name_column: v })} options={columnOptions} placeholder="Select display name column" error={!!errors.name_column} />
       </FormField>
     </div>
   );
 };
 
 const MLForecastConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4436,10 +4463,10 @@ const MLForecastConfigForm: React.FC<{
         <p className="text-xs text-indigo-700 dark:text-indigo-300">Time-series forecasting using Snowflake ML. Predicts future values based on historical data.</p>
       </div>
       <FormField label="Timestamp Column" required error={errors.timestamp_column}>
-        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.timestamp_column} />
+        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.timestamp_column} />
       </FormField>
       <FormField label="Value Column" required error={errors.value_column}>
-        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.value_column} />
+        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.value_column} />
       </FormField>
       <FormField label="Forecast Periods" required error={errors.forecast_periods} hint="Number of future periods to predict">
         <Input value={config.forecast_periods || 30} onChange={(v) => updateConfig({ forecast_periods: parseInt(v) || 30 })} type="number" error={!!errors.forecast_periods} />
@@ -4452,8 +4479,8 @@ const MLForecastConfigForm: React.FC<{
 };
 
 const MLAnomalyConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4462,10 +4489,10 @@ const MLAnomalyConfigForm: React.FC<{
         <p className="text-xs text-red-700 dark:text-red-300">Detect anomalies in time-series data using Snowflake ML. Flags outlier data points.</p>
       </div>
       <FormField label="Timestamp Column" required error={errors.timestamp_column}>
-        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.timestamp_column} />
+        <Select value={config.timestamp_column || ''} onChange={(v) => updateConfig({ timestamp_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.timestamp_column} />
       </FormField>
       <FormField label="Value Column" required error={errors.value_column}>
-        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.value_column} />
+        <Select value={config.value_column || ''} onChange={(v) => updateConfig({ value_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.value_column} />
       </FormField>
       <FormField label="Contamination" error={errors.contamination} hint="Expected proportion of anomalies (0.01 = 1%, 0.1 = 10%)">
         <Input value={config.contamination || 0.05} onChange={(v) => updateConfig({ contamination: parseFloat(v) || 0.05 })} type="number" />
@@ -4481,8 +4508,8 @@ const MLAnomalyConfigForm: React.FC<{
 // AI EXTRACT CONFIG FORM
 // ============================================
 const AIExtractConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4491,7 +4518,7 @@ const AIExtractConfigForm: React.FC<{
         <p className="text-xs text-cyan-700 dark:text-cyan-300">Extract structured data from text using Cortex AI. Returns JSON with specified keys.</p>
       </div>
       <FormField label="Input Column" required error={errors.input_column}>
-        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select text column" error={!!errors.input_column} />
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={columnOptions} placeholder="Select text column" error={!!errors.input_column} />
       </FormField>
       <FormField label="Extract Keys" required error={errors.extract_keys} hint="Comma-separated keys to extract (e.g. name, email, phone)">
         <Input value={(config.extract_keys || []).join(', ')} onChange={(v) => updateConfig({ extract_keys: v.split(',').map((s: string) => s.trim()).filter(Boolean) })} placeholder="name, email, phone" error={!!errors.extract_keys} />
@@ -4514,8 +4541,8 @@ const AIExtractConfigForm: React.FC<{
 // DOCUMENT AI CONFIG FORM
 // ============================================
 const DocumentAIConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4527,7 +4554,7 @@ const DocumentAIConfigForm: React.FC<{
         <Input value={config.model || ''} onChange={(v) => updateConfig({ model: v })} placeholder="my_document_model" error={!!errors.model} />
       </FormField>
       <FormField label="Input Column" required error={errors.input_column} hint="Column containing file paths or URLs">
-        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select column" error={!!errors.input_column} />
+        <Select value={config.input_column || ''} onChange={(v) => updateConfig({ input_column: v })} options={columnOptions} placeholder="Select column" error={!!errors.input_column} />
       </FormField>
       <FormField label="Output Column" error={errors.output_column}>
         <Input value={config.output_column || 'parsed_content'} onChange={(v) => updateConfig({ output_column: v })} />
@@ -4540,8 +4567,8 @@ const DocumentAIConfigForm: React.FC<{
 // FINETUNE CONFIG FORM
 // ============================================
 const FinetuneConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4569,8 +4596,8 @@ const FinetuneConfigForm: React.FC<{
 // CLASSIFICATION TRAIN CONFIG FORM
 // ============================================
 const ClassificationTrainConfigForm: React.FC<{
-  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
+  data: any; onChange: (data: any) => void; errors: Record<string, string>; availableColumns: string[]; columnOptions?: { value: string; label: string }[];
+}> = ({ data, onChange, errors, availableColumns, columnOptions = availableColumns.map(c => ({ value: c, label: c })) }) => {
   const config = data.config || data;
   const updateConfig = (updates: Record<string, any>) => onChange({ ...data, config: { ...config, ...updates } });
   return (
@@ -4579,7 +4606,7 @@ const ClassificationTrainConfigForm: React.FC<{
         <p className="text-xs text-emerald-700 dark:text-emerald-300">Train a classification model using Snowflake ML. Predicts categorical labels from features.</p>
       </div>
       <FormField label="Target Column" required error={errors.target_column} hint="Column to predict">
-        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={availableColumns.map(c => ({ value: c, label: c }))} placeholder="Select target" error={!!errors.target_column} />
+        <Select value={config.target_column || ''} onChange={(v) => updateConfig({ target_column: v })} options={columnOptions} placeholder="Select target" error={!!errors.target_column} />
       </FormField>
       <FormField label="Feature Columns" error={errors.feature_columns} hint="Leave empty to use all columns except target">
         <div className="text-xs text-slate-500 dark:text-slate-400">{(config.feature_columns || []).length || 'All'} columns selected</div>
@@ -4619,6 +4646,12 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   const [formData, setFormData] = useState<any>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+
+  // Memoize column options to avoid recreating 41 identical arrays per render
+  const columnOptions = useMemo(
+    () => availableColumns.map((c) => ({ value: c, label: c })),
+    [availableColumns]
+  );
 
   useEffect(() => {
     if (node) {
@@ -5039,36 +5072,36 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <JoinConfigForm data={formData} onChange={handleChange} errors={errors} leftInputColumns={leftInputColumns} rightInputColumns={rightInputColumns} />;
       case 'filter':
       case 'drop_nulls':
-        return <FilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'aggregate':
       case 'aggregate_kpi':
-        return <AggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'select':
-        return <SelectConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SelectConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'rename':
-        return <RenameConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <RenameConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'cast':
-        return <CastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <CastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'formula':
       case 'normalize':
-        return <FormulaConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FormulaConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'sort':
-        return <SortConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SortConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'union':
         return <UnionConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'distinct':
       case 'drop_duplicates':
-        return <DistinctConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <DistinctConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'limit':
         return <LimitConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'recommendation':
-        return <RecommendationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <RecommendationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'segmentation':
-        return <SegmentationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SegmentationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'clustering':
-        return <ClusteringConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <ClusteringConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'destination':
-        return <DestinationConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} availableColumns={availableColumns} />;
+        return <DestinationConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'export_file':
       case 'export_excel':
         return <ExportFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
@@ -5092,37 +5125,37 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <ContainerServiceConfigForm data={formData} onChange={handleChange} errors={errors} />;
       // Window Functions
       case 'window_rank':
-        return <WindowRankConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <WindowRankConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'window_lag_lead':
-        return <WindowLagLeadConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <WindowLagLeadConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'window_aggregate':
-        return <WindowAggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <WindowAggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'window_ntile':
-        return <WindowNtileConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <WindowNtileConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // JSON
       case 'json_flatten':
-        return <JsonFlattenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <JsonFlattenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'json_extract':
-        return <JsonExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <JsonExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'json_construct':
-        return <JsonConstructConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <JsonConstructConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // Pivot/Unpivot
       case 'pivot':
-        return <PivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <PivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'unpivot':
-        return <UnpivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <UnpivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // Date/Time
       case 'date_transform':
-        return <DateTransformConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <DateTransformConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'time_slice':
-        return <TimeSliceConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <TimeSliceConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // Data Cleaning
       case 'fill_nulls':
-        return <FillNullsConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FillNullsConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'case_when':
-        return <CaseWhenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <CaseWhenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'split_column':
-        return <SplitColumnConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SplitColumnConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // Cloud Sources
       case 's3_source':
         return <S3SourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
@@ -5161,47 +5194,47 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'create_procedure':
         return <CreateProcedureConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'apply_udf':
-        return <ApplyUDFConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <ApplyUDFConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // AI Blocks
       case 'ai_classify':
-        return <AIClassifyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AIClassifyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'ai_sentiment':
-        return <AISentimentConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AISentimentConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'ai_translate':
-        return <AITranslateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AITranslateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'ai_complete':
         return <AICompleteConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'ai_extract':
-        return <AIExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AIExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'forecast':
       case 'ml_forecast':
-        return <MLForecastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <MLForecastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'anomaly_detect':
       case 'ml_anomaly':
-        return <MLAnomalyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <MLAnomalyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'document_ai':
-        return <DocumentAIConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <DocumentAIConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'finetune':
-        return <FinetuneConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FinetuneConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'classification_train':
-        return <ClassificationTrainConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <ClassificationTrainConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       // New blocks
       case 'fuzzy_match':
-        return <FuzzyMatchConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FuzzyMatchConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'json_path_extract':
-        return <JSONPathExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <JSONPathExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'qualify_filter':
-        return <QualifyFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <QualifyFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'correlation':
-        return <CorrelationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <CorrelationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'histogram':
-        return <HistogramConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <HistogramConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'ai_filter':
-        return <AIFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AIFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'ai_agg':
-        return <AIAggConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AIAggConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'recursive_cte':
-        return <RecursiveCTEConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <RecursiveCTEConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }
@@ -5298,4 +5331,4 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   );
 };
 
-export default ETLConfigSidebar;
+export default React.memo(ETLConfigSidebar);

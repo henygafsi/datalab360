@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm dev:*)",
+      "Bash(awk 'NR>=1425 && NR<=1800 && /^def /' c:/Users/aymen/data360/app/modules/gouvernance/routers/gouvernance.py)",
+      "Read(//c/c/Users/aymen/data360/**)",
+      "Bash(chmod +x /tmp/check_funcs.sh)",
+      "Bash(bash /tmp/check_funcs.sh)",
+      "Read(//c/Users/**)",
+      "Bash(chmod +x /tmp/spot_check.sh)",
+      "Bash(bash /tmp/spot_check.sh)",
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/**)"
+    ]
+  }
+}

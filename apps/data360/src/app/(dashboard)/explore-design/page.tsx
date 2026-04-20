@@ -1,7 +1,7 @@
 'use client';
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -330,7 +330,7 @@ const CompactSourceSelector: React.FC<{
         database: selectedDatabase,
         schema: schemaName,
       });
-      console.log('[SchemaHealth] API response:', JSON.stringify(result, null, 2));
+      if (process.env.NODE_ENV === 'development') console.log('[SchemaHealth] API response:', result);
       setHealthResult(result);
       setHealthOpen(true);
     } catch (err: unknown) {
@@ -761,6 +761,40 @@ function RecentDeploymentErrorsSlot() {
   );
 }
 
+// Memoized classification badge (avoids IIFE closure per column in render loop)
+const ClassificationBadge = React.memo(function ClassificationBadge({
+  tableId, columnName, classifications,
+}: {
+  tableId: string;
+  columnName: string;
+  classifications: Map<string, Record<string, string>>;
+}) {
+  const cls = classifications.get(tableId)?.[columnName];
+  if (!cls) return null;
+  const upper = cls.toUpperCase();
+  if (upper === 'PII' || upper === 'PII_CANDIDATE') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
+  if (upper === 'MEASURE') return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[9px] font-medium">Measure</Badge>;
+  if (upper === 'DIMENSION') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[9px] font-medium">Dimension</Badge>;
+  if (upper === 'DATE_KEY') return <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[9px] font-medium">Date</Badge>;
+  if (upper === 'IDENTIFIER' || upper === 'FOREIGN_KEY') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">FK</Badge>;
+  if (upper === 'FLAG') return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[9px] font-medium">Flag</Badge>;
+  if (upper === 'AUDIT') return <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] font-medium">Audit</Badge>;
+  return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px]">{cls}</Badge>;
+});
+
+// Single-pass column categorization (avoids 3 separate filter+map chains)
+function categorizeColumns(columns: ColumnInfo[]) {
+  const primaryKeys: string[] = [];
+  const nullable: string[] = [];
+  const sensitive: string[] = [];
+  for (const c of columns) {
+    if (c.isPrimaryKey) primaryKeys.push(c.name);
+    if (c.isNullable) nullable.push(c.name);
+    if (c.isSensitive) sensitive.push(c.name);
+  }
+  return { primaryKeys, nullable, sensitive };
+}
+
 // Main Page Component
 export default function ExploreDesignPage() {
   const router = useRouter();
@@ -810,6 +844,7 @@ export default function ExploreDesignPage() {
   const [allTableConfigs, setAllTableConfigs] = useState<Map<string, TableConfig>>(new Map());
 
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
 
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
@@ -989,6 +1024,7 @@ export default function ExploreDesignPage() {
     if (!selectedProjectId) return;
 
     const currentEventIds = new Set(events.map((e) => e.id));
+    let cancelled = false;
 
     // ── ADD: new DDL-relevant events → persist to backend ──
     const newDDLEvents = events.filter(
@@ -1000,51 +1036,63 @@ export default function ExploreDesignPage() {
         !e.synced
     );
 
-    newDDLEvents.forEach(async (event) => {
-      // Mark immediately to prevent re-runs
-      ddlEventMapRef.current.set(event.id, '');
-      try {
-        const { sql } = generateSnowflakeSQL(event);
-        if (!sql || sql.startsWith('--')) return;
-
-        const tableRef = `${event.target.database}.${event.target.schema}.${event.target.table}`;
-        const result = await addDDLAction(selectedProjectId, {
-          ddl_sql: sql,
-          ddl_type: inferDDLType(event.type),
-          target_table: tableRef,
-          description: `${event.type} on ${tableRef}`,
-        });
-        // Store backend event_id for later removal
-        if (result?.event_id) {
-          ddlEventMapRef.current.set(event.id, result.event_id);
-        }
-        console.debug(`[DDL Sync] Added ${event.type} → ${tableRef}`);
-      } catch (err) {
-        console.warn(`[DDL Sync] Failed to add ${event.type}:`, err);
-        ddlEventMapRef.current.delete(event.id);
-      }
-    });
-
-    // ── REMOVE: events that disappeared (undo/delete) → remove from backend ──
+    // ─�� REMOVE: events that disappeared (undo/delete) → remove from backend ──
     const removedIds = Array.from(prevEventIdsRef.current).filter(
       (id) => !currentEventIds.has(id) && ddlEventMapRef.current.has(id)
     );
 
-    removedIds.forEach(async (localId) => {
-      const backendId = ddlEventMapRef.current.get(localId);
-      ddlEventMapRef.current.delete(localId);
-      if (!backendId) return; // never made it to backend
+    const syncDDL = async () => {
+      // Add new DDL events
+      const addPromises = newDDLEvents.map(async (event) => {
+        ddlEventMapRef.current.set(event.id, '');
+        try {
+          const { sql } = generateSnowflakeSQL(event);
+          if (!sql || sql.startsWith('--')) return;
 
-      try {
-        await removeDDLAction(selectedProjectId, backendId);
-        console.debug(`[DDL Sync] Removed DDL ${backendId} (event ${localId})`);
-      } catch (err) {
-        console.warn(`[DDL Sync] Failed to remove DDL ${backendId}:`, err);
-      }
-    });
+          const tableRef = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+          const result = await addDDLAction(selectedProjectId, {
+            ddl_sql: sql,
+            ddl_type: inferDDLType(event.type),
+            target_table: tableRef,
+            description: `${event.type} on ${tableRef}`,
+          });
+          if (cancelled) return;
+          if (result?.event_id) {
+            ddlEventMapRef.current.set(event.id, result.event_id);
+          }
+          console.debug(`[DDL Sync] Added ${event.type} → ${tableRef}`);
+        } catch (err) {
+          if (cancelled) return;
+          console.warn(`[DDL Sync] Failed to add ${event.type}:`, err);
+          ddlEventMapRef.current.delete(event.id);
+        }
+      });
+
+      // Remove deleted DDL events
+      const removePromises = removedIds.map(async (localId) => {
+        const backendId = ddlEventMapRef.current.get(localId);
+        ddlEventMapRef.current.delete(localId);
+        if (!backendId) return;
+
+        try {
+          await removeDDLAction(selectedProjectId, backendId);
+          if (!cancelled) console.debug(`[DDL Sync] Removed DDL ${backendId} (event ${localId})`);
+        } catch (err) {
+          if (!cancelled) console.warn(`[DDL Sync] Failed to remove DDL ${backendId}:`, err);
+        }
+      });
+
+      await Promise.allSettled([...addPromises, ...removePromises]);
+    };
+
+    if (newDDLEvents.length > 0 || removedIds.length > 0) {
+      syncDDL();
+    }
 
     // Update previous snapshot
     prevEventIdsRef.current = currentEventIds;
+
+    return () => { cancelled = true; };
   }, [events, selectedProjectId]);
 
   // Read-only guard: returns true (blocked) if user is a viewer
@@ -1184,6 +1232,11 @@ export default function ExploreDesignPage() {
     ddlEventMapRef.current.clear();
     prevEventIdsRef.current.clear();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Memoized derived values from selectedSchemas Map (avoids Array.from in render paths)
+  const schemaKeys = useMemo(() => Array.from(selectedSchemas.keys()), [selectedSchemas]);
+  const schemaEntries = useMemo(() => Array.from(selectedSchemas.entries()), [selectedSchemas]);
+  const firstSchemaName = useMemo(() => schemaKeys[0] || '', [schemaKeys]);
 
   // Stats - exclude default DWH tables from catalog stats
   const stats = useMemo(() => {
@@ -1631,9 +1684,7 @@ export default function ExploreDesignPage() {
         tableId: selectedTable.id,
         ingestion: { mode: 'full_refresh' },
         masking: [],
-        primaryKeys: cachedColumns.filter(c => c.isPrimaryKey).map(c => c.name),
-        nullable: cachedColumns.filter(c => c.isNullable).map(c => c.name),
-        sensitive: cachedColumns.filter(c => c.isSensitive).map(c => c.name),
+        ...categorizeColumns(cachedColumns),
       });
       return;
     }
@@ -1685,9 +1736,7 @@ export default function ExploreDesignPage() {
             tableId: selectedTable.id,
             ingestion: { mode: 'full_refresh' },
             masking: [],
-            primaryKeys: formattedColumns.filter(c => c.isPrimaryKey).map(c => c.name),
-            nullable: formattedColumns.filter(c => c.isNullable).map(c => c.name),
-            sensitive: formattedColumns.filter(c => c.isSensitive).map(c => c.name),
+            ...categorizeColumns(formattedColumns),
           });
         }
       } catch (error) {
@@ -1772,12 +1821,12 @@ export default function ExploreDesignPage() {
 
   // Search functionality
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    if (!deferredSearchQuery.trim()) {
       setSearchResults([]);
       return;
     }
 
-    const query = searchQuery.toLowerCase();
+    const query = deferredSearchQuery.toLowerCase();
     const results: GlobalSearchResult[] = [];
 
     tables.forEach(table => {
@@ -1813,7 +1862,7 @@ export default function ExploreDesignPage() {
     });
 
     setSearchResults(results.slice(0, 20));
-  }, [searchQuery, tables, tableColumns, selectedTable, maskingPolicies]);
+  }, [deferredSearchQuery, tables, tableColumns, selectedTable, maskingPolicies]);
 
   // Handlers
   // handleSchemaToggle now stores schema with its database (selectedDatabase is the current DB in dropdown)
@@ -2277,11 +2326,13 @@ export default function ExploreDesignPage() {
                 }
               });
               const colResults = await Promise.all(colPromises);
+              const restoredTableIds = new Set(restoredTables.map(t => t.id));
               colResults.forEach(result => {
                 if (result) {
                   restoredColumnsMap.set(result.tableId, result.columns);
-                  // Also add as a table entry if not already present
-                  if (!restoredTables.some(t => t.id === result.tableId)) {
+                  // Also add as a table entry if not already present (O(1) Set lookup)
+                  if (!restoredTableIds.has(result.tableId)) {
+                    restoredTableIds.add(result.tableId);
                     const parts = result.tableId.split('.');
                     restoredTables.push({
                       id: result.tableId,
@@ -3158,7 +3209,7 @@ export default function ExploreDesignPage() {
                 Pending events: {displayablePendingEvents.length}. Use the Deploy button in the toolbar to validate and deploy.
               </p>
               <button
-                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}&database=${selectedDatabase}&schema=${Array.from(selectedSchemas.keys())[0] || ''}`}
+                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}&database=${selectedDatabase}&schema=${firstSchemaName}`}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors mt-2"
               >
                 <ArrowRight className="h-3.5 w-3.5" />
@@ -3755,19 +3806,7 @@ export default function ExploreDesignPage() {
                                   </Badge>
                                 )}
                                 {/* AI Classification Badges */}
-                                {(() => {
-                                  const cls = columnClassifications.get(selectedTable?.id || '')?.[col.name];
-                                  if (!cls) return null;
-                                  const upper = cls.toUpperCase();
-                                  if (upper === 'PII' || upper === 'PII_CANDIDATE') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
-                                  if (upper === 'MEASURE') return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[9px] font-medium">Measure</Badge>;
-                                  if (upper === 'DIMENSION') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[9px] font-medium">Dimension</Badge>;
-                                  if (upper === 'DATE_KEY') return <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[9px] font-medium">Date</Badge>;
-                                  if (upper === 'IDENTIFIER' || upper === 'FOREIGN_KEY') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">FK</Badge>;
-                                  if (upper === 'FLAG') return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[9px] font-medium">Flag</Badge>;
-                                  if (upper === 'AUDIT') return <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] font-medium">Audit</Badge>;
-                                  return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px]">{cls}</Badge>;
-                                })()}
+                                <ClassificationBadge tableId={selectedTable?.id || ''} columnName={col.name} classifications={columnClassifications} />
                               </div>
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {/* Preview & Profile Button */}
@@ -4528,7 +4567,7 @@ export default function ExploreDesignPage() {
           <DeploymentValidation
             onClose={() => setShowDeploymentModal(false)}
             database={selectedDatabase /*|| 'CP_DATA360'*/}
-            schemas={Array.from(selectedSchemas.keys())}
+            schemas={schemaKeys}
             projectId={selectedProjectId!}
           />
         </ErrorBoundary>

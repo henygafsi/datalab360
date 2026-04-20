@@ -537,7 +537,8 @@ export default function MaskingPoliciesContent() {
                   Signature
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.details?.signature || policyDetails.signature || 'N/A'}
+                  {policyDetails.details.details.signature || policyDetails.signature || 'N/A'}
+                  {console.log('details', policyDetails.details.details.signature) /* Debugging line */}
                 </code>
               </div>
 
@@ -546,7 +547,7 @@ export default function MaskingPoliciesContent() {
                   Return Type
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.details?.return_type || policyDetails.return_type || 'N/A'}
+                  {policyDetails.details.details.return_type || policyDetails.return_type || 'N/A'}
                 </code>
               </div>
 
@@ -555,7 +556,7 @@ export default function MaskingPoliciesContent() {
                   Masking Expression (Body)
                 </label>
                 <pre className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">
-                  {policyDetails.details?.body || policyDetails.body || 'N/A'}
+                  {policyDetails.details.details.body || policyDetails.body || 'N/A'}
                 </pre>
               </div>
 

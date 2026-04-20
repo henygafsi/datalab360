@@ -32,7 +32,7 @@ import { Loader, Button } from 'rizzui';
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
-import TasksPanel from './components/TasksPanel';
+
 import ETLExecutionHistory from './components/ETLExecutionHistory';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
@@ -42,6 +42,8 @@ import { getBlockByType, convertLegacyType } from './components/etl-blocks';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, listContributors } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { useAtomValue } from 'jotai';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import type { ContributorRole } from '@/app/services/api/types';
@@ -336,7 +338,32 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [pipelineName, setPipelineName] = useState('New Workflow');
   const [isSaving, setIsSaving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isPipelineLoading, setIsPipelineLoading] = useState(false);
+  // Approval state: 'none' | 'pending' | 'approved'
+  const [approvalStatus, setApprovalStatus] = useState<'none' | 'pending' | 'approved'>('none');
+  const isPendingApproval = approvalStatus === 'pending';
+  const isApproved = approvalStatus === 'approved';
   const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
+
+  // SSE: listen for deployment approval changes and refresh approval status
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation || !activeWorkflowId) return;
+    const relevant = lastInvalidation.keys.some((k: string) =>
+      k === 'deployments' || k === 'projects'
+    );
+    if (!relevant || approvalStatus === 'none') return;
+    // Re-check deployment status from backend
+    workflowApi.listDeployments(activeWorkflowId, { limit: 1 })
+      .then((res: any) => {
+        const latest = res?.deployments?.[0];
+        if (!latest) return;
+        if (latest.status === 'approved') setApprovalStatus('approved');
+        else if (latest.status === 'pending_approval') setApprovalStatus('pending');
+        else setApprovalStatus('none');
+      })
+      .catch(() => {});
+  }, [lastInvalidation, activeWorkflowId, approvalStatus]);
 
   // Dirty state tracking for unsaved indicator + incremental save
   const [isDirty, setIsDirty] = useState(false);
@@ -879,7 +906,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const handleLoadPipeline = useCallback(
     async (wf: { id: string; name: string }) => {
       try {
-        setIsLoading(true);
+        setIsPipelineLoading(true);
         const stepsResponse = await workflowApi.listSteps(wf.id);
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
@@ -888,6 +915,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         setActiveWorkflowName(wf.name);
         setPipelineName(wf.name);
         setIsDirty(false);
+        setApprovalStatus('none');
         dirtyNodeIdsRef.current.clear();
         setSaveStatus('idle');
 
@@ -902,12 +930,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setUserRole('owner');
         }
 
+        // Check if there's an active pending/approved deployment
+        try {
+          const deploymentsRes = await workflowApi.listDeployments(wf.id, { limit: 1 });
+          const latest = (deploymentsRes as any)?.deployments?.[0];
+          if (latest?.status === 'pending_approval') {
+            setApprovalStatus('pending');
+          } else if (latest?.status === 'approved') {
+            setApprovalStatus('approved');
+          }
+        } catch {
+          // ignore — deployment check is non-critical
+        }
+
         toast.success(`Loaded workflow: ${wf.name}`);
       } catch (error) {
         console.error('Failed to load workflow:', error);
         toast.error('Failed to load workflow');
       } finally {
-        setIsLoading(false);
+        setIsPipelineLoading(false);
       }
     },
     [setNodes, setEdges]
@@ -1177,6 +1218,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         deployment_type: 'with_approval',
       });
       toast.success('Pipeline submitted for approval!');
+      setApprovalStatus('pending');
     } catch (error: any) {
       console.error('Submit for approval failed:', error);
       toast.error(getApiErrorMessage(error) || 'Failed to submit for approval');
@@ -1567,9 +1609,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <button
               onClick={handleSavePipeline}
-              disabled={isSaving || isReadOnly}
+              disabled={isSaving || isReadOnly || isPendingApproval}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title="Save workflow (Ctrl+S)"
+              title={isPendingApproval ? "Pending approval — cannot modify" : "Save workflow (Ctrl+S)"}
             >
               {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
               Save
@@ -1597,9 +1639,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             <button
               onClick={() => handleExecute(false)}
-              disabled={isExecuting || !activeWorkflowId || isReadOnly}
+              disabled={isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title="Run the workflow now (Ctrl+Enter)"
+              title={isPendingApproval ? "Pending approval — waiting for admin" : "Run the workflow now (Ctrl+Enter)"}
             >
               {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
               Run
@@ -1607,9 +1649,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             <button
               onClick={handleSubmitForApproval}
-              disabled={!activeWorkflowId || isReadOnly}
+              disabled={!activeWorkflowId || isReadOnly || isPendingApproval}
               className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title="Request approval for production deployment"
+              title={isPendingApproval ? "Already submitted for approval" : "Request approval for production deployment"}
             >
               <AlertCircle className="h-3.5 w-3.5" />
               Approve
@@ -1753,15 +1795,20 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               { id: 'results', label: 'Results', icon: Eye },
               { id: 'runs', label: 'Runs', icon: History },
               { id: 'sql', label: 'SQL', icon: Code },
-              { id: 'schedules', label: 'Schedule & Tasks', icon: Calendar },
+              { id: 'schedules', label: 'Schedule', icon: Calendar, disabledWhenPending: true },
               { id: 'ai', label: 'AI', icon: Sparkles },
-            ].map((tab) => (
+            ].map((tab) => {
+              const isTabDisabled = (tab as any).disabledWhenPending && isPendingApproval;
+              return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => !isTabDisabled && setActiveTab(tab.id as any)}
+                disabled={isTabDisabled}
+                title={isTabDisabled ? 'Pending approval — scheduling disabled' : undefined}
                 className={cn(
                   'flex-1 px-2 py-2.5 text-[11px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap min-w-0',
-                  activeTab === tab.id
+                  isTabDisabled && 'opacity-40 cursor-not-allowed',
+                  activeTab === tab.id && !isTabDisabled
                     ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
                     : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/30'
                 )}
@@ -1769,7 +1816,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 <tab.icon className="h-3.5 w-3.5 flex-shrink-0" />
                 {tab.label}
               </button>
-            ))}
+            );
+            })}
           </div>
 
           {/* Persistent error banner (replaces disappearing toasts) */}
@@ -1942,16 +1990,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   isReadOnly={isReadOnly}
                   className="-mx-4 -mt-4"
                 />
-                {/* Task execution history */}
-                <div className="mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-                  <TasksPanel
-                    workflowId={activeWorkflowId}
-                    onImported={() => {
-                      loadWorkflows();
-                    }}
-                    className="border-0 rounded-none -mx-4"
-                  />
-                </div>
               </>
             )}
 

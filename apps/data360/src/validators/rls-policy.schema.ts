@@ -11,8 +11,7 @@ export const rlsPolicySchema = z.object({
     ),
   signature: z
     .string()
-    .min(1, 'Signature is required')
-    .regex(/^\(.*\)$/, 'Signature must be in the format (param_name TYPE)'),
+    .min(1, 'Signature is required'),
   expression: z
     .string()
     .min(1, 'Expression is required')

@@ -11,7 +11,7 @@ import {
   Cpu, Box, Brain, BarChart3, Zap, Upload, Clock, Gauge,
   Lock, FileText, Layers, Rocket, ChevronUp, ChevronDown,
   Download, Search, X, Filter, ArrowUpDown, Check, XCircle,
-  Calendar, Timer,
+  Calendar, Timer, Eye,
 } from 'lucide-react';
 import {
   ResponsiveContainer, RadarChart, Radar, PolarGrid,
@@ -45,6 +45,7 @@ import apiClient from '@/lib/api-client';
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
 const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
+import ApprovalDetailModal from './ApprovalDetailModal';
 import type {
   SecurityOverviewResponse, PerformanceOverviewResponse, CortexCostsResponse,
   PlatformActivityResponse, AccountHealthScoreResponse,
@@ -720,19 +721,20 @@ function CommandCenterDashboardInner() {
     setError(null);
     try {
       const filterParams = { days: filters.days, start_date: filters.start_date, end_date: filters.end_date };
-      const [s, mh, af] = await Promise.all([
+      const [s, mh, af, kpis, health] = await Promise.all([
         getSummary(filterParams),
         getModuleHealth({ days: filters.days }),
         getActivityFeed(10, { days: filters.days, module_name: filters.module_name, username: filters.username }),
+        getIntelligentKpis().catch(() => null),
+        getAccountHealthScore().catch(() => null),
       ]);
       if (!isApiError(s)) setSummary(s);
       if (!isApiError(mh)) setModuleHealth(mh);
       if (!isApiError(af)) setActivityFeed(af);
+      if (kpis && !isApiError(kpis)) setObsKpis(kpis);
+      if (health && !isApiError(health)) setHealthScore(health);
       setLastUpdated(new Date());
       tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
-      // Also fetch observability scores + health score (non-blocking)
-      getIntelligentKpis().then(d => { if (!isApiError(d)) setObsKpis(d); }).catch(() => {});
-      getAccountHealthScore().then(d => { if (!isApiError(d)) setHealthScore(d); }).catch(() => {});
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load summary';
       setError(msg);
@@ -873,7 +875,7 @@ function CommandCenterDashboardInner() {
 
   // ── Effects ──────────────────────────────────────────────────────────────
 
-  useEffect(() => { fetchOverview(); }, [fetchOverview]);
+  // Initial data load is handled by the tab-switch effect below (activeTab defaults to 'overview')
   useEffect(() => { getFilterOptions().then(setFilterOptions).catch(() => {}); }, []);
 
   // Warm backend caches on first visit (fire-and-forget)
@@ -1225,20 +1227,52 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
 // TAB 2: PROJECTS & DEPLOYMENTS
 // ═════════════════════════════════════════════════════════════════════════════
 
-const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
+const ProjectsTab = memo(function ProjectsTab({ data: dataProp, loading, onRefresh }: {
   data: ProjectsOverviewResponse | null; loading: boolean; onRefresh?: () => void;
 }) {
+  // Local copy for optimistic updates after approve/reject
+  const [localData, setLocalData] = useState<ProjectsOverviewResponse | null>(dataProp);
+  useEffect(() => { setLocalData(dataProp); }, [dataProp]);
+  const data = localData;
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [rejectModal, setRejectModal] = useState<{ projectId: string; deploymentId: string; projectName: string } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [detailModal, setDetailModal] = useState<{
+    projectId: string; projectName: string; projectType: string;
+    deploymentId: string; requestedBy: string; requestedAt: string;
+  } | null>(null);
 
   const handleApprove = useCallback(async (projectId: string, deploymentId: string, projectName: string) => {
     if (actionLoading) return;
     setActionLoading(deploymentId);
     try {
-      await approveDeployment(projectId, deploymentId);
+      const res = await approveDeployment(projectId, deploymentId);
+      console.log('[Approve] Response:', res);
       toast.success(`Deployment approved for ${projectName}`);
-      onRefresh?.();
+      // Optimistic update: status changes to 'approved', update counts
+      setLocalData(prev => {
+        if (!prev) return prev;
+        const updateStatus = (list: any[]) => list.map((d: any) =>
+          d.deployment_id === deploymentId ? { ...d, status: 'approved' } : d
+        );
+        const newPending = (prev.pending_approvals || []).filter((d: any) => d.deployment_id !== deploymentId);
+        return {
+          ...prev,
+          recent_deployments: updateStatus(prev.recent_deployments || []),
+          pending_approvals: newPending,
+          summary: prev.summary ? {
+            ...prev.summary,
+            pending_approvals: Math.max(0, (prev.summary.pending_approvals ?? 0) - 1),
+          } : prev.summary,
+          deployment_status: (prev.deployment_status || []).map((s: any) => {
+            if (s.status === 'pending_approval') return { ...s, count: Math.max(0, s.count - 1) };
+            if (s.status === 'approved') return { ...s, count: (s.count || 0) + 1 };
+            return s;
+          }),
+        };
+      });
+      // Force refetch after short delay to get server-confirmed data
+      setTimeout(() => onRefresh?.(), 500);
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to approve deployment');
     } finally {
@@ -1252,6 +1286,29 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
     try {
       await rejectDeployment(rejectModal.projectId, rejectModal.deploymentId, { reason: rejectReason || undefined });
       toast.success(`Deployment rejected for ${rejectModal.projectName}`);
+      // Optimistic update
+      const rejectedId = rejectModal.deploymentId;
+      setLocalData(prev => {
+        if (!prev) return prev;
+        const updateStatus = (list: any[]) => list.map((d: any) =>
+          d.deployment_id === rejectedId ? { ...d, status: 'rejected' } : d
+        );
+        const newPending = (prev.pending_approvals || []).filter((d: any) => d.deployment_id !== rejectedId);
+        return {
+          ...prev,
+          recent_deployments: updateStatus(prev.recent_deployments || []),
+          pending_approvals: newPending,
+          summary: prev.summary ? {
+            ...prev.summary,
+            pending_approvals: Math.max(0, (prev.summary.pending_approvals ?? 0) - 1),
+          } : prev.summary,
+          deployment_status: (prev.deployment_status || []).map((s: any) => {
+            if (s.status === 'pending_approval') return { ...s, count: Math.max(0, s.count - 1) };
+            if (s.status === 'rejected') return { ...s, count: (s.count || 0) + 1 };
+            return s;
+          }),
+        };
+      });
       setRejectModal(null);
       setRejectReason('');
       onRefresh?.();
@@ -1261,6 +1318,19 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
       setActionLoading(null);
     }
   }, [rejectModal, actionLoading, rejectReason, onRefresh]);
+
+  const typePieData = useMemo(() => {
+    const byType = (data?.summary || {}).by_type || {};
+    return Object.entries(byType)
+      .filter(([_, v]) => (v as number) > 0)
+      .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: value as number }));
+  }, [data]);
+
+  const statusPieData = useMemo(() => {
+    const ds = Array.isArray(data?.deployment_status) ? data.deployment_status : [];
+    return ds.filter((d: any) => d.count > 0)
+      .map((d: any) => ({ name: d.status?.replace(/_/g, ' '), value: d.count }));
+  }, [data]);
 
   if (loading || !data) return <LoadingSection />;
 
@@ -1272,14 +1342,6 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
   const executionDaily = Array.isArray(data.execution_daily) ? data.execution_daily : [];
   const memberRoles = Array.isArray(data.member_roles) ? data.member_roles : [];
   const topContributors = Array.isArray(data.top_contributors) ? data.top_contributors : [];
-
-  const typePieData = Object.entries(byType)
-    .filter(([_, v]) => (v as number) > 0)
-    .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: value as number }));
-
-  const statusPieData = deploymentStatus
-    .filter((d: any) => d.count > 0)
-    .map((d: any) => ({ name: d.status?.replace(/_/g, ' '), value: d.count }));
 
   const statusColors: Record<string, string> = {
     deployed: '#10B981', pending_approval: '#F59E0B', approved: '#3B82F6',
@@ -1374,6 +1436,18 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
             render: (_: string, row: any) => row.status === 'pending_approval' ? (
               <div className="flex items-center gap-1">
                 <button
+                  aria-label="View details"
+                  onClick={() => setDetailModal({
+                    projectId: row.project_id, projectName: safeStr(row.project_name),
+                    projectType: safeStr(row.project_type), deploymentId: row.deployment_id,
+                    requestedBy: safeStr(row.requested_by), requestedAt: row.requested_at,
+                  })}
+                  className="rounded-md bg-blue-100 dark:bg-blue-900/30 p-1.5 text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                  title="View details"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+                <button
                   aria-label="Approve deployment"
                   onClick={() => handleApprove(row.project_id, row.deployment_id, row.project_name)}
                   disabled={actionLoading === row.deployment_id}
@@ -1412,6 +1486,16 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
                       <Badge size="sm" variant="flat" color="info">{safeStr(p.project_type, '').replace(/_/g, ' ')}</Badge>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={() => setDetailModal({
+                          projectId: p.project_id, projectName: safeStr(p.project_name),
+                          projectType: safeStr(p.project_type), deploymentId: p.deployment_id,
+                          requestedBy: safeStr(p.requested_by), requestedAt: p.requested_at,
+                        })}
+                        className="rounded-md bg-blue-100 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-medium text-blue-700 dark:text-blue-400 hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                      >
+                        Details
+                      </button>
                       <button
                         onClick={() => handleApprove(p.project_id, p.deployment_id, p.project_name)}
                         disabled={actionLoading === p.deployment_id}
@@ -1541,6 +1625,29 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
           </div>
         </div>
       )}
+
+      {/* Approval Detail Modal */}
+      {detailModal && (
+        <ApprovalDetailModal
+          isOpen={!!detailModal}
+          onClose={() => setDetailModal(null)}
+          projectId={detailModal.projectId}
+          projectName={detailModal.projectName}
+          projectType={detailModal.projectType}
+          deploymentId={detailModal.deploymentId}
+          requestedBy={detailModal.requestedBy}
+          requestedAt={detailModal.requestedAt}
+          isActionLoading={!!actionLoading}
+          onApprove={async () => {
+            await handleApprove(detailModal.projectId, detailModal.deploymentId, detailModal.projectName);
+            setDetailModal(null);
+          }}
+          onReject={() => {
+            setRejectModal({ projectId: detailModal.projectId, deploymentId: detailModal.deploymentId, projectName: detailModal.projectName });
+            setDetailModal(null);
+          }}
+        />
+      )}
     </>
   );
 });
@@ -1552,28 +1659,36 @@ const ProjectsTab = memo(function ProjectsTab({ data, loading, onRefresh }: {
 const CostTab = memo(function CostTab({ data, loading }: {
   data: CostBreakdownResponse | null; loading: boolean;
 }) {
+  const categoryPieData = useMemo(() => {
+    const byCategory = data?.by_category || {};
+    return Object.entries(byCategory)
+      .filter(([_, v]) => (v as number) > 0)
+      .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: Math.round((value as number) * 100) / 100 }));
+  }, [data]);
+
+  const storagePieData = useMemo(() => {
+    const storage = data?.storage || {} as any;
+    return [
+      { name: 'Database', value: storage.database_tb ?? 0 },
+      { name: 'Stage', value: storage.stage_tb ?? 0 },
+      { name: 'Failsafe', value: storage.failsafe_tb ?? 0 },
+    ].filter(d => d.value > 0);
+  }, [data]);
+
+  const dailyAvg = useMemo(() => {
+    const dailyTrend = Array.isArray(data?.daily_trend) ? data.daily_trend : [];
+    return dailyTrend.length > 0
+      ? Math.round(dailyTrend.reduce((s: number, d: any) => s + d.credits, 0) / dailyTrend.length * 100) / 100
+      : 0;
+  }, [data]);
+
   if (loading || !data) return <LoadingSection />;
 
   const byCategory = data.by_category || {};
   const storage = data.storage || {} as any;
   const balance = data.balance || {} as any;
-
-  const categoryPieData = Object.entries(byCategory)
-    .filter(([_, v]) => (v as number) > 0)
-    .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value: Math.round((value as number) * 100) / 100 }));
-
-  const storagePieData = [
-    { name: 'Database', value: storage.database_tb ?? 0 },
-    { name: 'Stage', value: storage.stage_tb ?? 0 },
-    { name: 'Failsafe', value: storage.failsafe_tb ?? 0 },
-  ].filter(d => d.value > 0);
-
   const dailyTrend = Array.isArray(data.daily_trend) ? data.daily_trend : [];
   const topWarehouses = Array.isArray(data.top_warehouses) ? data.top_warehouses : [];
-
-  const dailyAvg = dailyTrend.length > 0
-    ? Math.round(dailyTrend.reduce((s: number, d: any) => s + d.credits, 0) / dailyTrend.length * 100) / 100
-    : 0;
 
   return (
     <>
@@ -1692,8 +1807,14 @@ const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
   const failedLogins = Array.isArray(data.failed_logins) ? data.failed_logins : [];
   const mfaCoverage = data.mfa_coverage && typeof data.mfa_coverage === 'object' && !Array.isArray(data.mfa_coverage) ? data.mfa_coverage : {} as any;
 
-  const totalLogins = loginSummary.reduce((s: number, r: any) => s + r.event_count, 0);
-  const successLogins = loginSummary.filter((r: any) => r.is_success === 'YES').reduce((s: number, r: any) => s + r.event_count, 0);
+  const { totalLogins, successLogins } = loginSummary.reduce(
+    (acc: { totalLogins: number; successLogins: number }, r: any) => {
+      acc.totalLogins += r.event_count;
+      if (r.is_success === 'YES') acc.successLogins += r.event_count;
+      return acc;
+    },
+    { totalLogins: 0, successLogins: 0 }
+  );
   const failedLoginCount = totalLogins - successLogins;
 
   return (
@@ -2171,19 +2292,27 @@ const DataOperationsTab = memo(function DataOperationsTab({ data, loading }: {
 const PerformanceTab = memo(function PerformanceTab({ data, loading }: {
   data: PerformanceOverviewResponse | null; loading: boolean;
 }) {
+  const { avgP50, avgP95, totalQueries } = useMemo(() => {
+    const queryPerf = Array.isArray(data?.query_performance) ? data.query_performance : [];
+    if (queryPerf.length === 0) return { avgP50: 0, avgP95: 0, totalQueries: 0 };
+    let sumP50 = 0, sumP95 = 0, sumQueries = 0;
+    for (const r of queryPerf) {
+      sumP50 += r.p50_ms ?? 0;
+      sumP95 += r.p95_ms ?? 0;
+      sumQueries += r.query_count ?? 0;
+    }
+    return {
+      avgP50: Math.round(sumP50 / queryPerf.length),
+      avgP95: Math.round(sumP95 / queryPerf.length),
+      totalQueries: sumQueries,
+    };
+  }, [data]);
+
   if (loading || !data) return <LoadingSection />;
 
   const queryPerf = Array.isArray(data.query_performance) ? data.query_performance : [];
   const slowQueries = Array.isArray(data.slow_queries) ? data.slow_queries : [];
   const queryTypes = Array.isArray(data.query_types) ? data.query_types : [];
-
-  const avgP50 = queryPerf.length > 0
-    ? Math.round(queryPerf.reduce((s: number, r: any) => s + r.p50_ms, 0) / queryPerf.length)
-    : 0;
-  const avgP95 = queryPerf.length > 0
-    ? Math.round(queryPerf.reduce((s: number, r: any) => s + r.p95_ms, 0) / queryPerf.length)
-    : 0;
-  const totalQueries = queryPerf.reduce((s: number, r: any) => s + r.query_count, 0);
 
   return (
     <>
@@ -2276,13 +2405,17 @@ const PerformanceTab = memo(function PerformanceTab({ data, loading }: {
 const ComputeTab = memo(function ComputeTab({ data, loading }: {
   data: InfrastructureResponse | null; loading: boolean;
 }) {
+  const { totalCredits, sorted, topWarehouse } = useMemo(() => {
+    const warehouses = Array.isArray(data?.warehouses) ? data.warehouses : [];
+    const total = warehouses.reduce((s: number, w: any) => s + (w.total_credits || 0), 0);
+    const s = [...warehouses].sort((a: any, b: any) => (b.total_credits || 0) - (a.total_credits || 0));
+    return { totalCredits: total, sorted: s, topWarehouse: s[0] || null };
+  }, [data]);
+
   if (loading || !data) return <LoadingSection />;
 
   const warehouses = Array.isArray(data.warehouses) ? data.warehouses : [];
   const replicationDbs = Array.isArray(data.replication?.databases) ? data.replication.databases : [];
-  const totalCredits = warehouses.reduce((s, w) => s + (w.total_credits || 0), 0);
-  const sorted = [...warehouses].sort((a, b) => (b.total_credits || 0) - (a.total_credits || 0));
-  const topWarehouse = sorted.length > 0 ? sorted[0] : null;
 
   return (
     <>
@@ -2381,33 +2514,43 @@ const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, ac
   summary: SummaryResponse | null;
   loading: boolean;
 }) {
-  if (loading || (!platformData && !activityFeed)) return <LoadingSection />;
-
-  const safeEventActivity = Array.isArray(platformData?.event_activity) ? platformData.event_activity : [];
-  const safeUserSessions = Array.isArray(platformData?.user_sessions) ? platformData.user_sessions : [];
-  const safeModuleUsage = Array.isArray(platformData?.module_usage) ? platformData.module_usage : [];
-  const totalEvents = safeEventActivity.reduce((s, e) => s + e.count, 0);
-  const totalSessions = safeUserSessions.reduce((s, u) => s + u.sessions, 0);
-  const uniqueUsersTotal = safeUserSessions.length > 0
-    ? Math.max(...safeUserSessions.map(u => u.unique_users))
-    : 0;
+  const { totalEvents, totalSessions, uniqueUsersTotal } = useMemo(() => {
+    const ea = Array.isArray(platformData?.event_activity) ? platformData.event_activity : [];
+    const us = Array.isArray(platformData?.user_sessions) ? platformData.user_sessions : [];
+    return {
+      totalEvents: ea.reduce((s: number, e: any) => s + e.count, 0),
+      totalSessions: us.reduce((s: number, u: any) => s + u.sessions, 0),
+      uniqueUsersTotal: us.length > 0 ? Math.max(...us.map((u: any) => u.unique_users)) : 0,
+    };
+  }, [platformData]);
 
   // Aggregate module usage for pie chart
-  const moduleAgg: Record<string, number> = {};
-  safeModuleUsage.forEach(m => {
-    moduleAgg[m.module] = (moduleAgg[m.module] || 0) + m.count;
-  });
-  const modulePieData = Object.entries(moduleAgg).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  const modulePieData = useMemo(() => {
+    const mu = Array.isArray(platformData?.module_usage) ? platformData.module_usage : [];
+    const agg: Record<string, number> = {};
+    mu.forEach((m: any) => {
+      agg[m.module] = (agg[m.module] || 0) + m.count;
+    });
+    return Object.entries(agg).map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
+  }, [platformData]);
 
   // Activity feed as table data
-  const safeActivityEvents = Array.isArray(activityFeed?.events) ? activityFeed.events : [];
-  const activityRows = safeActivityEvents.map(evt => ({
-    module: evt.module,
+  const activityRows = useMemo(() => {
+    const events = Array.isArray(activityFeed?.events) ? activityFeed.events : [];
+    return events.map((evt: any) => ({
+      module: evt.module,
     event_type: evt.event_type,
     username: evt.username,
     status: evt.status,
     timestamp: evt.timestamp,
   }));
+  }, [activityFeed]);
+
+  if (loading || (!platformData && !activityFeed)) return <LoadingSection />;
+
+  const safeEventActivity = Array.isArray(platformData?.event_activity) ? platformData.event_activity : [];
+  const safeUserSessions = Array.isArray(platformData?.user_sessions) ? platformData.user_sessions : [];
+  const safeModuleUsage = Array.isArray(platformData?.module_usage) ? platformData.module_usage : [];
 
   return (
     <>

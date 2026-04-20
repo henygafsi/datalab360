@@ -247,6 +247,7 @@ export async function getRLSPolicyDetails(
 
   try {
     const response = await apiClient.get<StandardResponse>(url);
+    console.log('✅ GET RLS Policy Details Response:', response.data.data);
     return response.data.data;
   } catch (error: any) {
     console.error(`Failed to get details for policy ${policy_name}:`, error);
@@ -281,13 +282,14 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
     backendPolicies.map(async (policy: BackendPolicy) => {
       // Try to fetch details for signature and expression
       const details = await getRLSPolicyDetails(policy.name, policy.database_name, policy.schema_name);
-
+      console.log(details)
+      console.log()
       return {
-        policy_name: policy.name,
-        schema: policy.schema_name,
+        policy_name: details?.details.policy_name,
+        schema: details?.details.schema,
         database: policy.database_name,
-        signature: details?.details?.signature || '(Not available)',
-        expression: details?.details?.body || '(Not available)',
+        signature: details?.details.details.signature || '(Not available)',
+        expression: details?.details.details.body || '(Not available)',
         filter_expression: '',
         active: true,
         description: policy.comment || '',
@@ -548,13 +550,13 @@ export async function getMaskingPolicies(
     backendPolicies.map(async (policy: BackendPolicy) => {
       // Fetch details to get data_type
       const details = await getMaskingPolicyDetails(policy.name);
-
+      console.log('deee',details.details.details)
       return {
         policy_name: policy.name,
         schema: policy.schema_name,
-        data_type: details?.details?.signature?.split(' ')[1] || details?.data_type || 'TEXT', // Extract data type from signature or details
-        masking_type: details?.details?.body ? 'CUSTOM' : undefined,
-        masking_expression: details?.details?.body || undefined,
+        data_type: details.details.details.signature?.split(' ')[1] || details?.data_type || 'TEXT', // Extract data type from signature or details
+        masking_type: details.details.details.body ? 'CUSTOM' : undefined,
+        masking_expression: details.details.details.body || undefined,
         column_type: undefined,
         created_at: policy.created_on,
         granted_roles: policy.granted_roles || [],
