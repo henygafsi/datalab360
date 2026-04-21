@@ -9,7 +9,10 @@
       "Read(//c/Users/**)",
       "Bash(chmod +x /tmp/spot_check.sh)",
       "Bash(bash /tmp/spot_check.sh)",
-      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/**)"
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/**)",
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== scheduled deploy in governance/**)",
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== policies/databases or objects/**)",
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== list_databases / schemas / tables /**)"
     ]
   }
 }

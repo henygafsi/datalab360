@@ -297,10 +297,14 @@ export default function AggregationPoliciesContent() {
               rows={4}
               value={aggregationConstraint}
               onChange={(e) => setAggregationConstraint(e.target.value)}
-              placeholder="CASE WHEN COUNT(*) < 5 THEN NULL ELSE COUNT(*) END"
+              placeholder="AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE => 5)"
             />
             <p className="text-xs text-slate-500 mt-1">
-              Example: Prevent counts less than 5 from being returned
+              Body of an AGGREGATION_CONSTRAINT expression. Use the built-in
+              <code className="mx-1 px-1 bg-slate-100 dark:bg-slate-700 rounded">AGGREGATION_CONSTRAINT(MIN_GROUP_SIZE =&gt; N)</code>
+              to enforce minimum group size, or
+              <code className="mx-1 px-1 bg-slate-100 dark:bg-slate-700 rounded">NO_AGGREGATION_CONSTRAINT()</code>
+              to allow, optionally wrapped in a CASE expression.
             </p>
           </div>
 

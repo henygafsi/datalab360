@@ -154,7 +154,7 @@ export default function TagPoliciesContent() {
         table,
         column,
         tag_value: tagValue,
-        tag_schema: DEFAULTS.GOVERNANCE_FQN,
+        tag_schema: DEFAULTS.SCHEMA,
       });
 
       const objectPath = objectType === 'DATABASE' ? database

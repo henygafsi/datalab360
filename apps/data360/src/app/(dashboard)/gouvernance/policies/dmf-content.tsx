@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { Button, Input, Loader, Badge, Modal, Textarea } from 'rizzui';
+import { useState, useEffect, useCallback, Fragment } from 'react';
+import { Button, Input, Loader, Badge, Modal, Textarea, Select } from 'rizzui';
+import { ObjectSelector } from './components/ObjectSelector';
+import { getColumns } from '@/app/services/gouvernance/policies';
 import toast from 'react-hot-toast';
 import {
   PiPlus,
@@ -17,6 +19,25 @@ import apiClient from '@/lib/api-client';
 
 const PREFIX = '/gouvernance/policies';
 
+// Normalize FastAPI error payloads. Validation errors come as
+// `{ detail: [{type, loc, msg, ...}, ...] }` — rendering that array directly
+// causes the "Objects are not valid as a React child" crash, and showing
+// `err.message` ("Request failed with status 400") hides the real reason.
+function errorMessage(err: any, fallback: string): string {
+  const detail = err?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((e: any) => {
+      const loc = Array.isArray(e?.loc) ? e.loc.join('.') : '';
+      return loc ? `${loc}: ${e?.msg || ''}` : (e?.msg || JSON.stringify(e));
+    }).join('; ');
+  }
+  if (detail && typeof detail === 'object') {
+    try { return detail.message || JSON.stringify(detail); } catch { /* ignore */ }
+  }
+  return err?.response?.data?.message || err?.message || fallback;
+}
+
 // API Functions
 async function listDMFs(database?: string, schema?: string) {
   const params: Record<string, string> = {};
@@ -26,8 +47,18 @@ async function listDMFs(database?: string, schema?: string) {
   return data;
 }
 
+// All DMF POST/DELETE endpoints take query-string params (not JSON bodies).
+// Backend signatures use `... = Query(...)` everywhere in governance_policies.py.
 async function createDMF(body: { name: string; table_args: string; expression: string; database?: string; schema?: string; comment?: string }) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf`, body);
+  const params: Record<string, string> = {
+    name: body.name,
+    table_args: body.table_args,
+    expression: body.expression,
+  };
+  if (body.database) params.database = body.database;
+  if (body.schema) params.schema = body.schema;
+  if (body.comment) params.comment = body.comment;
+  const { data } = await apiClient.post(`${PREFIX}/dmf`, null, { params });
   return data;
 }
 
@@ -48,17 +79,30 @@ async function deleteDMF(name: string, database?: string, schema?: string) {
 }
 
 async function associateDMF(body: { table_fqn: string; dmf_name: string; columns: string[]; database?: string; schema?: string }) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/associate`, body);
+  // Backend expects `columns` as a comma-separated string, not a list
+  const params: Record<string, string> = {
+    table_fqn: body.table_fqn,
+    dmf_name: body.dmf_name,
+    columns: body.columns.join(','),
+  };
+  if (body.database) params.database = body.database;
+  if (body.schema) params.schema = body.schema;
+  const { data } = await apiClient.post(`${PREFIX}/dmf/associate`, null, { params });
   return data;
 }
 
 async function disassociateDMF(body: { table_fqn: string; dmf_name: string; columns: string[] }) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, body);
+  const params: Record<string, string> = {
+    table_fqn: body.table_fqn,
+    dmf_name: body.dmf_name,
+    columns: body.columns.join(','),
+  };
+  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, null, { params });
   return data;
 }
 
 async function setDMFSchedule(body: { table_fqn: string; schedule: string }) {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/schedule`, body);
+  const { data } = await apiClient.post(`${PREFIX}/dmf/schedule`, null, { params: body });
   return data;
 }
 
@@ -80,7 +124,11 @@ export default function DMFContent() {
 
   // Associate modal
   const [showAssociate, setShowAssociate] = useState(false);
-  const [assocForm, setAssocForm] = useState({ table_fqn: '', dmf_name: '', columns: '' });
+  const [assocTarget, setAssocTarget] = useState({ database: '', schema: '', table: '' });
+  const [assocDmfName, setAssocDmfName] = useState('');
+  const [assocColumns, setAssocColumns] = useState<string[]>([]);
+  const [assocColumnOptions, setAssocColumnOptions] = useState<string[]>([]);
+  const [loadingAssocColumns, setLoadingAssocColumns] = useState(false);
   const [associating, setAssociating] = useState(false);
 
   // Schedule modal
@@ -101,16 +149,46 @@ export default function DMFContent() {
     setLoading(true);
     try {
       const result = await listDMFs(database || undefined, schema || undefined);
-      const raw = result?.data || result?.functions || result;
+      // eslint-disable-next-line no-console
+      console.log('[DMF] List response:', result);
+      // Backend returns { dmfs: [...], count: N }. Some proxies wrap in StandardResponse
+      // shape { data: { dmfs: [...] } }, so check both before falling back.
+      const raw =
+        result?.dmfs ??
+        result?.data?.dmfs ??
+        result?.functions ??
+        result?.data ??
+        result;
       setItems(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load DMFs');
+      toast.error(errorMessage(err, 'Failed to load DMFs'));
     } finally {
       setLoading(false);
     }
   }, [database, schema]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
+
+  // Load columns for the Associate modal whenever the target table changes.
+  useEffect(() => {
+    const { database: db, schema: sc, table: tb } = assocTarget;
+    if (!db || !sc || !tb) {
+      setAssocColumnOptions([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingAssocColumns(true);
+    getColumns(db, sc, tb)
+      .then((cols) => { if (!cancelled) setAssocColumnOptions(cols); })
+      .catch(() => { if (!cancelled) setAssocColumnOptions([]); })
+      .finally(() => { if (!cancelled) setLoadingAssocColumns(false); });
+    return () => { cancelled = true; };
+  }, [assocTarget]);
+
+  // Reset column selection when target table changes so stale selections don't survive.
+  useEffect(() => {
+    setAssocColumns([]);
+  }, [assocTarget.database, assocTarget.schema, assocTarget.table]);
 
   const handleCreate = async () => {
     if (!createForm.name || !createForm.table_args || !createForm.expression) {
@@ -125,7 +203,7 @@ export default function DMFContent() {
       setCreateForm({ name: '', table_args: '', expression: '', comment: '' });
       loadItems();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create DMF');
+      toast.error(errorMessage(err, 'Failed to create DMF'));
     } finally {
       setCreating(false);
     }
@@ -138,7 +216,7 @@ export default function DMFContent() {
       toast.success(`DMF "${name}" dropped`);
       loadItems();
     } catch (err: any) {
-      toast.error(err.message || 'Failed to drop DMF');
+      toast.error(errorMessage(err, 'Failed to drop DMF'));
     }
   };
 
@@ -148,29 +226,40 @@ export default function DMFContent() {
       setDetail(result.data || result);
       setShowDetail(true);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to describe DMF');
+      toast.error(errorMessage(err, 'Failed to describe DMF'));
     }
   };
 
   const handleAssociate = async () => {
-    if (!assocForm.table_fqn || !assocForm.dmf_name || !assocForm.columns) {
-      toast.error('All fields are required');
+    const { database: db, schema: sc, table: tb } = assocTarget;
+    if (!db || !sc || !tb) {
+      toast.error('Select database, schema, and table');
+      return;
+    }
+    if (!assocDmfName) {
+      toast.error('Pick a Data Metric Function');
+      return;
+    }
+    if (!assocColumns.length) {
+      toast.error('Select at least one column');
       return;
     }
     setAssociating(true);
     try {
       await associateDMF({
-        table_fqn: assocForm.table_fqn,
-        dmf_name: assocForm.dmf_name,
-        columns: assocForm.columns.split(',').map(c => c.trim()),
+        table_fqn: `${db}.${sc}.${tb}`,
+        dmf_name: assocDmfName,
+        columns: assocColumns,
         database: database || undefined,
         schema: schema || undefined,
       });
-      toast.success('DMF associated with table');
+      toast.success(`DMF "${assocDmfName}" associated with ${db}.${sc}.${tb}`);
       setShowAssociate(false);
-      setAssocForm({ table_fqn: '', dmf_name: '', columns: '' });
+      setAssocTarget({ database: '', schema: '', table: '' });
+      setAssocDmfName('');
+      setAssocColumns([]);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to associate DMF');
+      toast.error(errorMessage(err, 'Failed to associate DMF'));
     } finally {
       setAssociating(false);
     }
@@ -187,7 +276,7 @@ export default function DMFContent() {
       setShowSchedule(false);
       setSchedForm({ table_fqn: '', schedule: '' });
     } catch (err: any) {
-      toast.error(err.message || 'Failed to set schedule');
+      toast.error(errorMessage(err, 'Failed to set schedule'));
     }
   };
 
@@ -199,7 +288,7 @@ export default function DMFContent() {
       const raw = result?.data || result?.references || result;
       setRefs(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load references');
+      toast.error(errorMessage(err, 'Failed to load references'));
     } finally {
       setRefsLoading(false);
     }
@@ -317,14 +406,142 @@ export default function DMFContent() {
 
       {/* Associate Modal */}
       <Modal isOpen={showAssociate} onClose={() => setShowAssociate(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Associate DMF with Table</h3>
-          <Input label="Table (FQN)" placeholder="DB.SCHEMA.TABLE" value={assocForm.table_fqn} onChange={(e) => setAssocForm({ ...assocForm, table_fqn: e.target.value })} />
-          <Input label="DMF Name" placeholder="my_null_check" value={assocForm.dmf_name} onChange={(e) => setAssocForm({ ...assocForm, dmf_name: e.target.value })} />
-          <Input label="Columns (comma-separated)" placeholder="col1, col2" value={assocForm.columns} onChange={(e) => setAssocForm({ ...assocForm, columns: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
+        <div className="p-6 space-y-5 max-w-2xl">
+          <div>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Associate DMF with Table</h3>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+              Attach a data metric function to specific columns so Snowflake runs it on schedule.
+            </p>
+          </div>
+
+          {/* Target table picker */}
+          <div>
+            <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+              Target table
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <ObjectSelector
+                level="database"
+                value={assocTarget.database}
+                onSelect={(db) => setAssocTarget({ database: db, schema: '', table: '' })}
+                label="Database"
+              />
+              <ObjectSelector
+                level="schema"
+                database={assocTarget.database}
+                value={assocTarget.schema}
+                onSelect={(sc) => setAssocTarget((t) => ({ ...t, schema: sc, table: '' }))}
+                label="Schema"
+                disabled={!assocTarget.database}
+              />
+              <ObjectSelector
+                level="table"
+                database={assocTarget.database}
+                schema={assocTarget.schema}
+                value={assocTarget.table}
+                onSelect={(tb) => setAssocTarget((t) => ({ ...t, table: tb }))}
+                label="Table"
+                disabled={!assocTarget.database || !assocTarget.schema}
+              />
+            </div>
+          </div>
+
+          {/* DMF picker (from list already loaded) */}
+          <div>
+            <Select
+              label="Data Metric Function"
+              value={assocDmfName}
+              onChange={(val: any) => setAssocDmfName(typeof val === 'object' ? val?.value || '' : String(val))}
+              options={items.map((item: any) => {
+                const n = item.name || item.NAME || '';
+                return { label: n, value: n };
+              }).filter((o: any) => o.value)}
+              placeholder={items.length === 0 ? 'No DMFs available — create one first' : 'Choose a DMF'}
+              disabled={items.length === 0}
+            />
+          </div>
+
+          {/* Column multi-select */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                Columns to monitor
+              </label>
+              {assocColumns.length > 0 && (
+                <button
+                  type="button"
+                  className="text-xs text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+                  onClick={() => setAssocColumns([])}
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            {!assocTarget.table ? (
+              <div className="text-sm text-slate-500 dark:text-slate-400 text-center py-6 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg">
+                Pick a table to see its columns
+              </div>
+            ) : loadingAssocColumns ? (
+              <div className="text-sm text-slate-500 text-center py-6">Loading columns...</div>
+            ) : assocColumnOptions.length === 0 ? (
+              <div className="text-sm text-slate-500 text-center py-6 border border-dashed border-slate-300 dark:border-slate-700 rounded-lg">
+                No columns found
+              </div>
+            ) : (
+              <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 divide-y divide-slate-200 dark:divide-slate-700">
+                {assocColumnOptions.map((col) => {
+                  const checked = assocColumns.includes(col);
+                  return (
+                    <label
+                      key={col}
+                      className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          setAssocColumns((prev) =>
+                            prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
+                          );
+                        }}
+                        className="h-4 w-4 text-teal-600 rounded border-slate-300 focus:ring-teal-500"
+                      />
+                      <span className="font-mono text-xs text-slate-800 dark:text-slate-200">{col}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {assocColumns.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {assocColumns.map((c) => (
+                  <span
+                    key={c}
+                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 text-xs font-medium"
+                  >
+                    {c}
+                    <button
+                      type="button"
+                      onClick={() => setAssocColumns((prev) => prev.filter((x) => x !== c))}
+                      className="ml-0.5 text-teal-700/60 hover:text-teal-700 dark:text-teal-300/60 dark:hover:text-teal-300"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
             <Button variant="outline" onClick={() => setShowAssociate(false)}>Cancel</Button>
-            <Button onClick={handleAssociate} disabled={associating} className="bg-teal-600 text-white hover:bg-teal-700">
+            <Button
+              onClick={handleAssociate}
+              disabled={associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
+              className="bg-teal-600 text-white hover:bg-teal-700"
+            >
               {associating ? <Loader variant="spinner" size="sm" /> : 'Associate'}
             </Button>
           </div>
@@ -346,20 +563,126 @@ export default function DMFContent() {
 
       {/* Detail Modal */}
       <Modal isOpen={showDetail} onClose={() => setShowDetail(false)}>
-        <div className="p-6 space-y-4">
+        <DMFDetailsModalContent detail={detail} onClose={() => setShowDetail(false)} />
+      </Modal>
+    </div>
+  );
+}
+
+// ─── DMF details modal body ───
+// Snowflake DESCRIBE FUNCTION returns a list of {property, value} rows.
+// We render them as a property grid, pulling out "body" (SQL) into its own
+// code block for readability.
+function DMFDetailsModalContent({ detail, onClose }: { detail: any; onClose: () => void }) {
+  if (!detail) {
+    return (
+      <div className="p-6 space-y-4">
+        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">DMF Details</h3>
+        <p className="text-slate-500">No details available</p>
+        <div className="flex justify-end">
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const name: string = detail.name || detail.NAME || 'DMF';
+  const rawRows: any[] = Array.isArray(detail.details)
+    ? detail.details
+    : Array.isArray(detail)
+    ? detail
+    : [];
+
+  // Normalize { property, value } rows; tolerate different casing.
+  const rows = rawRows
+    .map((r: any) => ({
+      property: String(r.property ?? r.PROPERTY ?? r.name ?? '').trim(),
+      value: r.value ?? r.VALUE ?? '',
+    }))
+    .filter((r) => r.property);
+
+  const pick = (key: string) => rows.find((r) => r.property.toLowerCase() === key.toLowerCase())?.value;
+  const signature = pick('signature');
+  const returns = pick('returns');
+  const language = pick('language');
+  const body = pick('body');
+  const nullHandling = pick('null handling') ?? pick('null_handling');
+  const volatility = pick('volatility');
+
+  // "Other" properties that aren't specifically highlighted above.
+  const highlighted = new Set(['signature', 'returns', 'language', 'body', 'null handling', 'null_handling', 'volatility']);
+  const otherRows = rows.filter((r) => !highlighted.has(r.property.toLowerCase()));
+
+  return (
+    <div className="p-6 space-y-5 max-w-3xl">
+      <div className="flex items-start justify-between gap-4">
+        <div>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">DMF Details</h3>
-          {detail ? (
-            <pre className="text-sm bg-slate-50 dark:bg-slate-800 p-4 rounded-lg overflow-auto max-h-96 text-slate-700 dark:text-slate-300">
-              {JSON.stringify(detail, null, 2)}
-            </pre>
-          ) : (
-            <p className="text-slate-500">No details available</p>
+          <p className="text-sm font-mono text-slate-600 dark:text-slate-400 mt-1">{name}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {language && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-medium">
+              {String(language)}
+            </span>
           )}
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={() => setShowDetail(false)}>Close</Button>
+          {returns && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 text-xs font-medium">
+              → {String(returns)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Signature block */}
+      {signature && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Signature</div>
+          <div className="font-mono text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-slate-800 dark:text-slate-200 break-all">
+            {name}<span className="text-slate-500">{String(signature)}</span>
           </div>
         </div>
-      </Modal>
+      )}
+
+      {/* Key/value grid */}
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+        {nullHandling && (
+          <>
+            <div className="text-slate-500 dark:text-slate-400">Null handling</div>
+            <div className="font-mono text-slate-800 dark:text-slate-200">{String(nullHandling)}</div>
+          </>
+        )}
+        {volatility && (
+          <>
+            <div className="text-slate-500 dark:text-slate-400">Volatility</div>
+            <div className="font-mono text-slate-800 dark:text-slate-200">{String(volatility)}</div>
+          </>
+        )}
+        {otherRows.map((r) => (
+          <Fragment key={r.property}>
+            <div className="text-slate-500 dark:text-slate-400 capitalize">{r.property.toLowerCase().replace(/_/g, ' ')}</div>
+            <div className="font-mono text-slate-800 dark:text-slate-200 break-all">
+              {typeof r.value === 'string' || typeof r.value === 'number' || typeof r.value === 'boolean'
+                ? String(r.value)
+                : JSON.stringify(r.value)}
+            </div>
+          </Fragment>
+        ))}
+      </div>
+
+      {/* SQL body */}
+      {body && (
+        <div>
+          <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1.5">Body</div>
+          <pre className="font-mono text-xs bg-slate-900 text-slate-100 border border-slate-700 rounded-lg p-4 overflow-auto max-h-64 whitespace-pre-wrap">
+            {String(body).trim()}
+          </pre>
+        </div>
+      )}
+
+      <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-700">
+        <Button variant="outline" onClick={onClose}>Close</Button>
+      </div>
     </div>
   );
 }

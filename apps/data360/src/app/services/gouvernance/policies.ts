@@ -550,7 +550,6 @@ export async function getMaskingPolicies(
     backendPolicies.map(async (policy: BackendPolicy) => {
       // Fetch details to get data_type
       const details = await getMaskingPolicyDetails(policy.name);
-      console.log('deee',details.details.details)
       return {
         policy_name: policy.name,
         schema: policy.schema_name,
@@ -609,8 +608,8 @@ export async function applyMaskingPolicy(data: ApplyMaskingPolicyRequest): Promi
         policy_name: data.policy_name,
         database: data.database,
         schema: data.schema,
-        table: data.table,
-        column: data.column,
+        table_name: data.table,
+        column_name: data.column,
         policy_schema: data.policy_schema || DEFAULT_GOVERNANCE_SCHEMA,
       },
     });
@@ -894,8 +893,9 @@ export async function applyTag(data: ApplyTagRequest): Promise<any> {
         object_type: data.object_type,
         database: data.database,
         schema: data.schema,
-        table: data.table,
-        //column: data.column,
+        ...(data.table && { table: data.table }),
+        ...(data.column && { column: data.column }),
+        ...(data.tag_schema && { tag_schema: data.tag_schema }),
       },
     });
     return response.data.data;
