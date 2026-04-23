@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Fragment } from 'react';
+import { useState, useEffect, useCallback, Fragment, useMemo } from 'react';
 import { Button, Input, Loader, Badge, Modal, Textarea, Select } from 'rizzui';
 import { ObjectSelector } from './components/ObjectSelector';
 import { getColumns } from '@/app/services/gouvernance/policies';
@@ -14,6 +14,8 @@ import {
   PiCalendar,
   PiArrowsClockwise,
   PiChartLineUp,
+  PiTable,
+  PiMagnifyingGlass,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 
@@ -91,15 +93,6 @@ async function associateDMF(body: { table_fqn: string; dmf_name: string; columns
   return data;
 }
 
-async function disassociateDMF(body: { table_fqn: string; dmf_name: string; columns: string[] }) {
-  const params: Record<string, string> = {
-    table_fqn: body.table_fqn,
-    dmf_name: body.dmf_name,
-    columns: body.columns.join(','),
-  };
-  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, null, { params });
-  return data;
-}
 
 async function setDMFSchedule(body: { table_fqn: string; schedule: string }) {
   const { data } = await apiClient.post(`${PREFIX}/dmf/schedule`, null, { params: body });
@@ -108,6 +101,34 @@ async function setDMFSchedule(body: { table_fqn: string; schedule: string }) {
 
 async function getDMFReferences(tableName: string) {
   const { data } = await apiClient.get(`${PREFIX}/dmf/references`, { params: { table_name: tableName } });
+  return data;
+}
+
+async function getAllDMFReferences() {
+  const { data } = await apiClient.get(`${PREFIX}/dmf/all-references`);
+  return data;
+}
+
+async function getDMFWithTables(name: string, database?: string, schema?: string) {
+  const params: Record<string, string> = {};
+  if (database) params.database = database;
+  if (schema) params.schema = schema;
+  const { data } = await apiClient.get(`${PREFIX}/dmf/${encodeURIComponent(name)}/tables`, { params });
+  return data;
+}
+
+async function getTableDMFs(tableName: string) {
+  const { data } = await apiClient.get(`${PREFIX}/dmf/references`, { params: { table_name: tableName } });
+  return data;
+}
+
+async function disassociateDMF(body: { table_fqn: string; dmf_name: string; columns: string[] }) {
+  const params: Record<string, string> = {
+    table_fqn: body.table_fqn,
+    dmf_name: body.dmf_name,
+    columns: body.columns.join(','),
+  };
+  const { data } = await apiClient.post(`${PREFIX}/dmf/disassociate`, null, { params });
   return data;
 }
 
@@ -133,17 +154,27 @@ export default function DMFContent() {
 
   // Schedule modal
   const [showSchedule, setShowSchedule] = useState(false);
+  const [schedTarget, setSchedTarget] = useState({ database: '', schema: '', table: '' });
   const [schedForm, setSchedForm] = useState({ table_fqn: '', schedule: '' });
 
   // References
   const [showRefs, setShowRefs] = useState(false);
   const [refs, setRefs] = useState<any[]>([]);
-  const [refsTable, setRefsTable] = useState('');
   const [refsLoading, setRefsLoading] = useState(false);
 
   // Detail
   const [showDetail, setShowDetail] = useState(false);
   const [detail, setDetail] = useState<any>(null);
+
+  // Table associations modal
+  const [showTableDmfs, setShowTableDmfs] = useState(false);
+  const [tableDmfsTarget, setTableDmfsTarget] = useState<{ database: string; schema: string; table: string }>({ database: '', schema: '', table: '' });
+  const [tableDmfs, setTableDmfs] = useState<any[]>([]);
+  const [tableDmfsLoading, setTableDmfsLoading] = useState(false);
+  const [disassociating, setDisassociating] = useState(false);
+
+  // DMF refs with table count cache
+  const [dmfTableCounts, setDmfTableCounts] = useState<Record<string, number>>({});
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -230,6 +261,38 @@ export default function DMFContent() {
     }
   };
 
+  const handleOpenTableDmfs = async (db: string, sc: string, tb: string) => {
+    setTableDmfsTarget({ database: db, schema: sc, table: tb });
+    setTableDmfsLoading(true);
+    setShowTableDmfs(true);
+    try {
+      const result = await getTableDMFs(`${db}.${sc}.${tb}`);
+      const raw = result?.data || result?.references || result;
+      setTableDmfs(Array.isArray(raw) ? raw : []);
+    } catch (err: any) {
+      toast.error(errorMessage(err, 'Failed to load table DMFs'));
+      setTableDmfs([]);
+    } finally {
+      setTableDmfsLoading(false);
+    }
+  };
+
+  const handleDisassociate = async (tableFqn: string, dmfName: string, columns: string[]) => {
+    if (!confirm(`Disassociate DMF "${dmfName}" from ${tableFqn}?`)) return;
+    setDisassociating(true);
+    try {
+      await disassociateDMF({ table_fqn: tableFqn, dmf_name: dmfName, columns });
+      toast.success(`DMF "${dmfName}" disassociated`);
+      const result = await getTableDMFs(tableFqn);
+      const raw = result?.data || result?.references || result;
+      setTableDmfs(Array.isArray(raw) ? raw : []);
+    } catch (err: any) {
+      toast.error(errorMessage(err, 'Failed to disassociate DMF'));
+    } finally {
+      setDisassociating(false);
+    }
+  };
+
   const handleAssociate = async () => {
     const { database: db, schema: sc, table: tb } = assocTarget;
     if (!db || !sc || !tb) {
@@ -266,46 +329,65 @@ export default function DMFContent() {
   };
 
   const handleSchedule = async () => {
-    if (!schedForm.table_fqn || !schedForm.schedule) {
-      toast.error('Table and schedule are required');
+    const { database: db, schema: sc, table: tb } = schedTarget;
+    if (!db || !sc || !tb) {
+      toast.error('Select database, schema, and table');
+      return;
+    }
+    if (!schedForm.schedule) {
+      toast.error('Schedule is required');
       return;
     }
     try {
-      await setDMFSchedule(schedForm);
+      await setDMFSchedule({
+        table_fqn: `${db}.${sc}.${tb}`,
+        schedule: schedForm.schedule,
+      });
       toast.success('DMF schedule set');
       setShowSchedule(false);
+      setSchedTarget({ database: '', schema: '', table: '' });
       setSchedForm({ table_fqn: '', schedule: '' });
     } catch (err: any) {
       toast.error(errorMessage(err, 'Failed to set schedule'));
     }
   };
 
+  // References state for table picker
+  const [refTarget, setRefTarget] = useState({ database: '', schema: '', table: '' });
+
   const handleViewRefs = async () => {
-    if (!refsTable) { toast.error('Enter a table name'); return; }
     setRefsLoading(true);
+    setShowRefs(true);
     try {
-      const result = await getDMFReferences(refsTable);
+      const result = await getAllDMFReferences();
       const raw = result?.data || result?.references || result;
       setRefs(Array.isArray(raw) ? raw : []);
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to load references'));
+      toast.error(errorMessage(err, 'Failed to load all references'));
     } finally {
       setRefsLoading(false);
     }
   };
+
+  // Group refs by table
+  const refsByTable: Record<string, any[]> = {};
+  refs.forEach((r: any) => {
+    const tableKey = r.TABLE_NAME || r.table_name || r.REF_ENTITY_NAME || r.ref_entity_name || '';
+    if (!refsByTable[tableKey]) refsByTable[tableKey] = [];
+    refsByTable[tableKey].push(r);
+  });
 
   return (
     <div className="space-y-6">
       {/* Header & Filters */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Input placeholder="Database" value={database} onChange={(e) => setDatabase(e.target.value)} className="w-40" />
-          <Input placeholder="Schema" value={schema} onChange={(e) => setSchema(e.target.value)} className="w-40" />
-          <Button variant="outline" onClick={loadItems} className="gap-2">
-            <PiArrowsClockwise className="w-4 h-4" /> Refresh
-          </Button>
+          
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => loadItems()} className="gap-2">
+            <PiArrowsClockwise className="w-4 h-4" />
+          </Button>
           <Button variant="outline" onClick={() => setShowAssociate(true)} className="gap-2">
             <PiLink className="w-4 h-4" /> Associate
           </Button>
@@ -319,35 +401,74 @@ export default function DMFContent() {
       </div>
 
       {/* References lookup */}
-      <div className="flex items-center gap-3 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-        <PiChartLineUp className="w-5 h-5 text-teal-600" />
-        <Input placeholder="Table name (e.g. DB.SCHEMA.TABLE)" value={refsTable} onChange={(e) => setRefsTable(e.target.value)} className="flex-1" />
-        <Button variant="outline" onClick={handleViewRefs} disabled={refsLoading} className="gap-2">
-          {refsLoading ? <Loader variant="spinner" size="sm" /> : <PiInfo className="w-4 h-4" />} View References
-        </Button>
+      <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
+        <div className="flex items-center gap-3">
+          <PiChartLineUp className="w-5 h-5 text-teal-600" />
+          <span className="font-medium text-slate-900 dark:text-white">DMF References</span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <ObjectSelector
+            level="database"
+            value={refTarget.database}
+            onSelect={(db) => setRefTarget({ database: db, schema: '', table: '' })}
+            label="Database"
+          />
+          <ObjectSelector
+            level="schema"
+            database={refTarget.database}
+            value={refTarget.schema}
+            onSelect={(sc) => setRefTarget((t) => ({ ...t, schema: sc, table: '' }))}
+            label="Schema"
+            disabled={!refTarget.database}
+          />
+          <ObjectSelector
+            level="table"
+            database={refTarget.database}
+            schema={refTarget.schema}
+            value={refTarget.table}
+            onSelect={(tb) => setRefTarget((t) => ({ ...t, table: tb }))}
+            label="Table"
+            disabled={!refTarget.database || !refTarget.schema}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => handleViewRefs()} disabled={refsLoading || !refTarget.table} className="gap-2">
+            {refsLoading ? <Loader variant="spinner" size="sm" /> : <PiInfo className="w-4 h-4" />} View for Table
+          </Button>
+        </div>
       </div>
 
       {showRefs && refs.length > 0 && (
-        <div className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-          <h4 className="font-semibold mb-3 text-slate-900 dark:text-white">DMF References for {refsTable}</h4>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-slate-200 dark:border-slate-700">
-                <th className="text-left py-2 px-3 font-medium text-slate-600 dark:text-slate-400">DMF Name</th>
-                <th className="text-left py-2 px-3 font-medium text-slate-600 dark:text-slate-400">Columns</th>
-                <th className="text-left py-2 px-3 font-medium text-slate-600 dark:text-slate-400">Schedule</th>
-              </tr></thead>
-              <tbody>
-                {refs.map((r: any, i: number) => (
-                  <tr key={i} className="border-b border-slate-100 dark:border-slate-700/50">
-                    <td className="py-2 px-3 text-slate-900 dark:text-white">{r.metric_name || r.METRIC_NAME || '-'}</td>
-                    <td className="py-2 px-3 text-slate-600 dark:text-slate-400">{r.ref_columns || r.REF_COLUMNS || '-'}</td>
-                    <td className="py-2 px-3 text-slate-600 dark:text-slate-400">{r.schedule || r.SCHEDULE || '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-3">
+          {Object.entries(refsByTable).map(([tableName, tableRefs]: [string, any]) => {
+            const refDb = tableRefs[0]?.REF_DATABASE_NAME || tableRefs[0]?.ref_database_name || '';
+            const refSc = tableRefs[0]?.REF_SCHEMA_NAME || tableRefs[0]?.ref_schema_name || '';
+            return (
+              <div key={tableName} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center justify-between mb-3">
+                  <h4
+                    className="font-semibold text-slate-900 dark:text-white font-mono text-sm cursor-pointer hover:text-teal-600"
+                    onClick={() => handleOpenTableDmfs(refDb, refSc, tableName.split('.').pop() || tableName)}
+                  >
+                    {tableName} <PiTable className="inline w-4 h-4 ml-1" />
+                  </h4>
+                  <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                    {tableRefs.length} DMF{tableRefs.length !== 1 ? 's' : ''}
+                  </Badge>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {tableRefs.map((r: any, i: number) => {
+                    const dmfName = r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '-';
+                    return (
+                      <Badge key={i} className="bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                        {dmfName}
+                      </Badge>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -358,7 +479,6 @@ export default function DMFContent() {
         <div className="text-center py-16">
           <PiChartLineUp className="w-12 h-12 text-slate-300 mx-auto mb-4" />
           <p className="text-slate-500 dark:text-slate-400 text-lg">No Data Metric Functions found</p>
-          <p className="text-slate-400 dark:text-slate-500 text-sm mt-1">Create one to start monitoring data quality metrics</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -397,7 +517,7 @@ export default function DMFContent() {
           <Input label="Comment (optional)" placeholder="Description" value={createForm.comment} onChange={(e) => setCreateForm({ ...createForm, comment: e.target.value })} />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating} className="bg-teal-600 text-white hover:bg-teal-700">
+            <Button onClick={() => handleCreate()} disabled={creating} className="bg-teal-600 text-white hover:bg-teal-700">
               {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
             </Button>
           </div>
@@ -538,7 +658,7 @@ export default function DMFContent() {
           <div className="flex justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
             <Button variant="outline" onClick={() => setShowAssociate(false)}>Cancel</Button>
             <Button
-              onClick={handleAssociate}
+              onClick={() => handleAssociate()}
               disabled={associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
               className="bg-teal-600 text-white hover:bg-teal-700"
             >
@@ -549,14 +669,52 @@ export default function DMFContent() {
       </Modal>
 
       {/* Schedule Modal */}
-      <Modal isOpen={showSchedule} onClose={() => setShowSchedule(false)}>
-        <div className="p-6 space-y-4">
+      <Modal
+        isOpen={showSchedule}
+        onClose={() => {
+          setShowSchedule(false);
+          setSchedTarget({ database: '', schema: '', table: '' });
+          setSchedForm({ table_fqn: '', schedule: '' });
+        }}
+      >
+        <div className="p-6 space-y-5">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Set DMF Schedule</h3>
-          <Input label="Table (FQN)" placeholder="DB.SCHEMA.TABLE" value={schedForm.table_fqn} onChange={(e) => setSchedForm({ ...schedForm, table_fqn: e.target.value })} />
+
+          <div>
+            <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+              Target table
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <ObjectSelector
+                level="database"
+                value={schedTarget.database}
+                onSelect={(db) => setSchedTarget({ database: db, schema: '', table: '' })}
+                label="Database"
+              />
+              <ObjectSelector
+                level="schema"
+                database={schedTarget.database}
+                value={schedTarget.schema}
+                onSelect={(sc) => setSchedTarget((t) => ({ ...t, schema: sc, table: '' }))}
+                label="Schema"
+                disabled={!schedTarget.database}
+              />
+              <ObjectSelector
+                level="table"
+                database={schedTarget.database}
+                schema={schedTarget.schema}
+                value={schedTarget.table}
+                onSelect={(tb) => setSchedTarget((t) => ({ ...t, table: tb }))}
+                label="Table"
+                disabled={!schedTarget.database || !schedTarget.schema}
+              />
+            </div>
+          </div>
+
           <Input label="Schedule" placeholder="e.g. TRIGGER_ON_CHANGES or 5 MINUTE" value={schedForm.schedule} onChange={(e) => setSchedForm({ ...schedForm, schedule: e.target.value })} />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setShowSchedule(false)}>Cancel</Button>
-            <Button onClick={handleSchedule} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
+            <Button onClick={() => handleSchedule()} disabled={!schedTarget.table || !schedForm.schedule} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
           </div>
         </div>
       </Modal>
@@ -564,6 +722,85 @@ export default function DMFContent() {
       {/* Detail Modal */}
       <Modal isOpen={showDetail} onClose={() => setShowDetail(false)}>
         <DMFDetailsModalContent detail={detail} onClose={() => setShowDetail(false)} />
+      </Modal>
+
+      {/* Table DMFs Modal */}
+      <Modal
+        isOpen={showTableDmfs}
+        onClose={() => setShowTableDmfs(false)}
+      >
+        <div className="p-6 space-y-5 max-w-3xl">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Table DMF Associations</h3>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                {tableDmfsTarget.database}.{tableDmfsTarget.schema}.{tableDmfsTarget.table}
+              </p>
+            </div>
+            <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
+              {tableDmfs.length} DMF{tableDmfs.length !== 1 ? 's' : ''}
+            </Badge>
+          </div>
+
+          {tableDmfsLoading ? (
+            <div className="flex justify-center py-8"><Loader variant="spinner" size="lg" /></div>
+          ) : tableDmfs.length === 0 ? (
+            <div className="text-center py-8 text-slate-500">
+              <PiChartLineUp className="w-10 h-10 mx-auto mb-3 text-slate-300" />
+              <p>No DMFs associated with this table</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tableDmfs.map((r: any, idx: number) => {
+                const dmfName = r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '-';
+                const columns = r.REF_ARGUMENTS || r.ref_arguments || r.ARGUMENT_SIGNATURE || r.argument_signature || '-';
+                const schedule = r.SCHEDULE || r.schedule || '-';
+                const status = r.SCHEDULE_STATUS || r.schedule_status || '-';
+
+                return (
+                  <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold text-slate-900 dark:text-white">{dmfName}</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDisassociate(
+                          `${tableDmfsTarget.database}.${tableDmfsTarget.schema}.${tableDmfsTarget.table}`,
+                          dmfName,
+                          columns === '-' ? [] : [columns]
+                        )}
+                        disabled={disassociating}
+                        className="gap-1 text-red-600 hover:bg-red-50"
+                      >
+                        <PiLinkBreak className="w-3.5 h-3.5" /> Disassociate
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs">Columns</span>
+                        <p className="font-mono text-slate-700 dark:text-slate-300 truncate">{columns}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs">Schedule</span>
+                        <p className="font-mono text-slate-700 dark:text-slate-300">{schedule}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 dark:text-slate-400 text-xs">Status</span>
+                        <Badge className={`text-xs ${status === 'STARTED' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                          {status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-700">
+            <Button variant="outline" onClick={() => setShowTableDmfs(false)}>Close</Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

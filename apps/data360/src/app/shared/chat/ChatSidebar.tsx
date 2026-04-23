@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, X, Send, Plus, Users, Search, ArrowLeft, Paperclip, Sparkles, FolderOpen, Layers } from 'lucide-react';
+import { MessageCircle, X, Send, Plus, Users, Search, ArrowLeft, Paperclip, Sparkles, FolderOpen, Layers, Loader2 } from 'lucide-react';
 import { Button, Badge } from 'rizzui';
 import { useAuth } from '@/hooks/useAuth';
 import { usePathname } from 'next/navigation';
@@ -64,8 +64,11 @@ export default function ChatSidebar() {
   const [newMessage, setNewMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewChat, setShowNewChat] = useState(false);
-  const [newChatUser, setNewChatUser] = useState('');
   const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [allUsers, setAllUsers] = useState<any[]>([]);
+  const [allUsersLoading, setAllUsersLoading] = useState(false);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [selectedUserForChat, setSelectedUserForChat] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [isAskingAI, setIsAskingAI] = useState(false);
@@ -83,23 +86,90 @@ export default function ChatSidebar() {
   }, [isOpen, isAuthenticated]);
 
   useEffect(() => {
+    if (showNewChat && safeAllUsers.length === 0) {
+      loadAllUsers();
+    }
+  }, [showNewChat]);
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const loadConversations = async () => {
     try {
-      const { data } = await apiClient.get('/chat/conversations');
-      // API returns {success, data: {items: [], total}} — extract items array
+      const { data } = await apiClient.get('/chat/conversations?page_size=100');
       const items = data?.data?.items || data?.items || data?.conversations || (Array.isArray(data) ? data : []);
-      setConversations(items);
-    } catch { setConversations([]); }
+      
+      // Now fetch participants for each DM conversation to get display names
+      const convWithParticipants = await Promise.all(
+        items.map(async (c: any) => {
+          const convId = c.CONVERSATION_ID || c.conversation_id;
+          const convType = (c.CONVERSATION_TYPE || c.conversation_type || 'DM').toUpperCase();
+          
+          try {
+            const pRes = await apiClient.get(`/chat/conversations/${convId}/participants`);
+            const participants = pRes?.data?.data?.participants || pRes?.data?.participants || [];
+            
+            // For DM, get the other participant's username
+            let displayTitle = c.TITLE || c.title || 'Chat';
+            if (convType === 'DM' && participants.length > 0) {
+              const otherParticipant = participants.find((p: any) => {
+                const pUsername = p.USERNAME || p.username || '';
+                return pUsername.toUpperCase() !== username?.toUpperCase();
+              });
+              if (otherParticipant?.USERNAME) {
+                displayTitle = otherParticipant.USERNAME;
+              }
+            }
+            
+            return {
+              conversation_id: convId,
+              title: displayTitle,
+              conversation_type: c.CONVERSATION_TYPE || c.conversation_type,
+              last_message_at: c.LAST_MESSAGE_AT || c.last_message_at,
+              last_message: c.LAST_MESSAGE_PREVIEW || c.LAST_MESSAGE || c.last_message,
+              unread_count: c.UNREAD_COUNT ?? c.unread_count,
+              created_at: c.CREATED_AT || c.created_at,
+              participants: participants,
+            };
+          } catch {
+            return {
+              conversation_id: convId,
+              title: c.TITLE || c.title || 'Chat',
+              conversation_type: c.CONVERSATION_TYPE || c.conversation_type,
+              last_message_at: c.LAST_MESSAGE_AT || c.last_message_at,
+              last_message: c.LAST_MESSAGE_PREVIEW || c.LAST_MESSAGE || c.last_message,
+              unread_count: c.UNREAD_COUNT ?? c.unread_count,
+              created_at: c.CREATED_AT || c.created_at,
+            };
+          }
+        })
+      );
+      
+      console.log('[Chat] Loaded conversations:', convWithParticipants);
+      setConversations(convWithParticipants);
+    } catch (err) { 
+      console.error('[Chat] Failed to load conversations:', err);
+      setConversations([]); 
+    }
   };
 
   const loadOnlineUsers = async () => {
     try {
       const { data } = await apiClient.get('/chat/online-users');
-      setOnlineUsers(data.users || data || []);
+      const users = data?.data?.online_users || data?.online_users || [];
+      setOnlineUsers(Array.isArray(users) ? users : []);
     } catch { setOnlineUsers([]); }
+  };
+
+  const loadAllUsers = async () => {
+    setAllUsersLoading(true);
+    try {
+      const { data } = await apiClient.get('/gouvernance/users');
+      const raw = data?.data || data;
+      setAllUsers(Array.isArray(raw) ? raw : []);
+    } catch { setAllUsers([]); }
+    finally { setAllUsersLoading(false); }
   };
 
   const loadMessages = async (conversationId: string) => {
@@ -227,16 +297,41 @@ export default function ChatSidebar() {
   };
 
   const createDM = async () => {
-    if (!newChatUser.trim()) return;
+    if (!selectedUserForChat.trim()) return;
     try {
-      // API expects: target_username (not participant)
-      const { data } = await apiClient.post('/chat/conversations/dm', { target_username: newChatUser.trim().toUpperCase() });
-      setShowNewChat(false); setNewChatUser('');
-      loadConversations();
+      const { data } = await apiClient.post('/chat/conversations/dm', { target_username: selectedUserForChat.trim().toUpperCase() });
       const conv = data?.data || data;
-      if (conv?.conversation_id) openConversation(conv);
+      
+      setShowNewChat(false); 
+      setUserSearchQuery(''); 
+      setSelectedUserForChat('');
+      
+      // Clear local conversations state and reload
+      setConversations([]);
+      setTimeout(() => loadConversations(), 50);
+      
+      // Open the new conversation if created successfully
+      if (conv?.conversation_id || conv?.CONVERSATION_ID) {
+        setTimeout(() => {
+          const newConv = {
+            conversation_id: conv?.conversation_id || conv?.CONVERSATION_ID,
+            title: conv?.title || conv?.TITLE,
+            conversation_type: conv?.conversation_type || conv?.CONVERSATION_TYPE,
+          };
+          openConversation(newConv);
+        }, 100);
+      }
     } catch (err) { console.error('Create DM failed:', err); }
   };
+
+  // Safe array helpers
+  const safeOnlineUsers = Array.isArray(onlineUsers) ? onlineUsers : [];
+  const safeAllUsers = Array.isArray(allUsers) ? allUsers : [];
+  const safeMessages = Array.isArray(messages) ? messages : [];
+  const safeConversations = Array.isArray(conversations) ? conversations : [];
+  const filteredConversations = safeConversations.filter(c =>
+    !searchQuery || c.title?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const openConversation = useCallback((conv: Conversation) => {
     setActiveConversation(conv);
@@ -246,11 +341,6 @@ export default function ChatSidebar() {
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
-
-  const safeConversations = Array.isArray(conversations) ? conversations : [];
-  const filteredConversations = safeConversations.filter(c =>
-    !searchQuery || c.title?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
 
   const formatTime = (ts: string) => {
     if (!ts) return '';
@@ -305,7 +395,7 @@ export default function ChatSidebar() {
                   <p className="text-[10px] text-gray-400">{context.moduleName}</p>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <Badge className="text-[9px] px-1.5 py-0.5" color="success">{onlineUsers.length} online</Badge>
+                  <Badge className="text-[9px] px-1.5 py-0.5" color="success">{safeOnlineUsers.length} online</Badge>
                   <button aria-label="New conversation" onClick={() => setShowNewChat(true)} className="rounded-lg p-1.5 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">
                     <Plus className="h-4 w-4" />
                   </button>
@@ -332,14 +422,14 @@ export default function ChatSidebar() {
                   <div className="flex items-center justify-center py-8">
                     <div className="h-6 w-6 animate-spin rounded-full border-2 border-gray-300 border-t-blue-500" />
                   </div>
-                ) : messages.length === 0 ? (
+                ) : safeMessages.length === 0 ? (
                   <div className="py-8 text-center">
                     <Sparkles className="mx-auto mb-2 h-8 w-8 text-gray-300 dark:text-gray-600" />
                     <p className="text-sm text-gray-400">No messages yet</p>
                     <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Type a message or ask AI with ✨</p>
                   </div>
                 ) : (
-                  messages.map((msg) => {
+                  safeMessages.map((msg) => {
                     const isMine = msg.sender?.toUpperCase() === username?.toUpperCase();
                     const isAI = msg.sender === 'Data360 AI' || msg.metadata?.ai_response;
                     return (
@@ -362,30 +452,135 @@ export default function ChatSidebar() {
                 <div ref={messagesEndRef} />
               </div>
             ) : showNewChat ? (
-              <div className="p-4">
-                <h4 className="mb-3 text-sm font-medium text-gray-700 dark:text-gray-300">New Conversation</h4>
-                <input
-                  placeholder="Username to message..."
-                  value={newChatUser}
-                  onChange={(e) => setNewChatUser(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && createDM()}
-                  className="mb-3 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-blue-500 focus:outline-none"
-                />
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={() => setShowNewChat(false)} className="flex-1 rounded-lg">Cancel</Button>
-                  <Button size="sm" onClick={createDM} className="flex-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Start Chat</Button>
-                </div>
-                {onlineUsers.length > 0 && (
-                  <div className="mt-4">
-                    <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Online Now</p>
-                    {onlineUsers.slice(0, 8).map((u) => (
-                      <button key={u} onClick={() => { setNewChatUser(u); }} className="mb-1 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-800">
-                        <div className="h-2 w-2 rounded-full bg-green-500" />
-                        <span className="text-gray-700 dark:text-gray-300">{u}</span>
-                      </button>
-                    ))}
+              <div className="flex flex-col h-full">
+                {/* Modal Header */}
+                <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+                  <h4 className="text-base font-semibold text-gray-900 dark:text-white mb-3">New Conversation</h4>
+                  
+                  {/* Search Input with Icon */}
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <input
+                      type="text"
+                      placeholder="Search users by name or username..."
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      autoFocus
+                      className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-3 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-blue-500 focus:outline-none"
+                    />
                   </div>
-                )}
+                </div>
+                
+                {/* User List - Scrollable */}
+                <div className="flex-1 overflow-y-auto">
+                  {allUsersLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Filtered Users */}
+                      {safeAllUsers
+                        .filter((user: any) => {
+                          const query = userSearchQuery.toLowerCase();
+                          if (!query) return true;
+                          const name = (user.name || user.login_name || '').toLowerCase();
+                          const displayName = (user.display_name || '').toLowerCase();
+                          return name.includes(query) || displayName.includes(query);
+                        })
+                        .slice(0, 15)
+                        .map((user: any) => {
+                          const isOnline = safeOnlineUsers.includes(user.name || user.login_name);
+                          const isSelected = selectedUserForChat === (user.name || user.login_name);
+                          return (
+                            <button
+                              key={user.name || user.login_name}
+                              onClick={() => setSelectedUserForChat(user.name || user.login_name)}
+                              className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800 border-b border-gray-100 dark:border-gray-700 transition-colors ${
+                                isSelected ? 'bg-blue-50 dark:bg-blue-900/30' : ''
+                              }`}
+                            >
+                              {/* Avatar */}
+                              <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold ${
+                                isOnline ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                              }`}>
+                                {(user.display_name || user.name || user.login_name || '?')[0].toUpperCase()}
+                              </div>
+                              
+                              {/* User Info */}
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                    {user.display_name || user.name || user.login_name}
+                                  </p>
+                                  {isOnline && (
+                                    <span className="flex h-2 w-2 rounded-full bg-green-500" />
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                  @{user.name || user.login_name} • {user.default_role || 'No role'}
+                                </p>
+                              </div>
+                              
+                              {/* Selection indicator */}
+                              {isSelected && (
+                                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-500 text-white">
+                                  <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                  </svg>
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      
+                      {/* No results */}
+                      {safeAllUsers.filter((user: any) => {
+                        const query = userSearchQuery.toLowerCase();
+                        if (!query) return true;
+                        const name = (user.name || user.login_name || '').toLowerCase();
+                        const displayName = (user.display_name || '').toLowerCase();
+                        return name.includes(query) || displayName.includes(query);
+                      }).length === 0 && (
+                        <div className="py-8 text-center">
+                          <p className="text-sm text-gray-400">No users found</p>
+                          <p className="text-xs text-gray-300 mt-1">Try a different search term</p>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+                
+                {/* Footer Actions */}
+                <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      {selectedUserForChat ? (
+                        <>Chat with <span className="font-medium text-gray-700 dark:text-gray-300">@{selectedUserForChat}</span></>
+                      ) : (
+                        'Select a user to start chatting'
+                      )}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        onClick={() => { setShowNewChat(false); setUserSearchQuery(''); setSelectedUserForChat(''); }} 
+                        className="rounded-lg"
+                      >
+                        Cancel
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        onClick={createDM} 
+                        disabled={!selectedUserForChat} 
+                        className="rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                      >
+                        Start Chat
+                      </Button>
+                    </div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div>
@@ -401,7 +596,7 @@ export default function ChatSidebar() {
                   </div>
                 </div>
                 {filteredConversations.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-gray-400">{conversations.length === 0 ? 'No conversations yet' : 'No results'}</div>
+                  <div className="py-8 text-center text-sm text-gray-400">{safeConversations.length === 0 ? 'No conversations yet' : 'No results'}</div>
                 ) : (
                   filteredConversations.map((conv) => (
                     <button key={conv.conversation_id} onClick={() => openConversation(conv)} className="flex w-full items-start gap-3 border-b border-gray-100 px-4 py-3 text-left hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-800/50">
