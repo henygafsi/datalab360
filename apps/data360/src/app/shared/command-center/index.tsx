@@ -596,7 +596,7 @@ function AuditTable<T extends Record<string, any>>({
                         aria-label={`Filter by ${col.label}`}
                         value={colFilters[col.key] || ''}
                         onChange={(e) => { setColFilters({ ...colFilters, [col.key]: e.target.value }); setPage(0); }}
-                        className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 placeholder-gray-400 focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-primary"
                       />
                     ) : null}
                   </th>
@@ -1604,7 +1604,7 @@ const ProjectsTab = memo(function ProjectsTab({ data: dataProp, loading, onRefre
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Reason for rejection (optional)"
-              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
+              className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:border-red-500 focus:ring-1 focus:ring-red-500 resize-none"
               rows={3}
             />
             <div className="mt-4 flex justify-end gap-3">

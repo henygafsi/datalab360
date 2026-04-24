@@ -302,7 +302,7 @@ export default function GrantsManagementPage() {
                         </tr>
                       ) : (
                         d360Roles.map((role: any, i: number) => (
-                          <tr key={role.role_name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                          <tr key={role.role_name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{role.role_name || role.ROLE_NAME || '—'}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{role.description || role.DESCRIPTION || '—'}</td>
                             <td className="px-4 py-3">

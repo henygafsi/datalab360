@@ -18,6 +18,33 @@ export const API_CONTRACTS = {
       getUrl: () => `${API_CONFIG.BASE_URL}/user/login/`,
     },
   },
+  user: {
+    getProfile: {
+      method: 'GET' as const,
+      path: '/user/profile',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile`,
+    },
+    updateProfile: {
+      method: 'PUT' as const,
+      path: '/user/profile',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile`,
+    },
+    changePassword: {
+      method: 'POST' as const,
+      path: '/user/profile/password',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/password`,
+    },
+    getUserRoles: {
+      method: 'GET' as const,
+      path: '/user/profile/roles',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/roles`,
+    },
+    changeUserRole: {
+      method: 'POST' as const,
+      path: '/user/profile/role',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/role`,
+    },
+  },
   dashboard: {
     meModules: {
       method: 'GET' as const,

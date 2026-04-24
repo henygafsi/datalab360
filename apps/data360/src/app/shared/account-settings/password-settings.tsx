@@ -6,183 +6,170 @@ import { PiDesktop } from 'react-icons/pi';
 import { Form } from '@core/ui/form';
 import { Button, Password, Title, Text } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { ProfileHeader } from '@/app/shared/account-settings/profile-settings';
-import HorizontalFormBlockWrapper from '@/app/shared/account-settings/horiozontal-block';
 import {
   passwordFormSchema,
   PasswordFormTypes,
 } from '@/validators/password-settings.schema';
+import { routes } from '@/config/routes';
+import toast from 'react-hot-toast';
+import { useProfile } from '@/hooks/useProfile';
+import Link from 'next/link';
 
-export default function PasswordSettingsView({
-  settings,
-}: {
-  settings?: PasswordFormTypes;
-}) {
+export default function PasswordSettingsView() {
+  const { changeUserPassword, loading } = useProfile();
   const [isLoading, setLoading] = useState(false);
-  const [reset, setReset] = useState({});
 
-  const onSubmit: SubmitHandler<PasswordFormTypes> = (data) => {
+  const onSubmit: SubmitHandler<PasswordFormTypes> = async (data) => {
     setLoading(true);
-    setTimeout(() => {
+    try {
+      await changeUserPassword(data.currentPassword, data.newPassword);
+      toast.success('Password changed successfully!');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to change password';
+      toast.error(errorMessage);
+    } finally {
       setLoading(false);
-      console.log('Password settings data ->', data);
-      setReset({
-        currentPassword: '',
-        newPassword: '',
-        confirmedPassword: '',
-      });
-    }, 600);
+    }
   };
 
   return (
-    <>
-      <Form<PasswordFormTypes>
-        validationSchema={passwordFormSchema}
-        resetValues={reset}
-        onSubmit={onSubmit}
-        className="@container"
-        useFormProps={{
-          mode: 'onChange',
-          defaultValues: {
-            ...settings,
-          },
-        }}
-      >
-        {({ register, control, formState: { errors }, getValues }) => {
-          return (
-            <>
-              <ProfileHeader
-                title="Olivia Rhye"
-                description="olivia@example.com"
-              />
+    <Form<PasswordFormTypes>
+      validationSchema={passwordFormSchema}
+      onSubmit={onSubmit}
+      className="@container"
+      useFormProps={{
+        mode: 'onChange',
+        defaultValues: {
+          currentPassword: '',
+          newPassword: '',
+          confirmedPassword: '',
+        },
+      }}
+    >
+      {({ register, control, formState: { errors }, getValues }) => {
+        return (
+          <>
+            <div className="mb-8 flex items-center gap-6">
+              <div>
+                <Title as="h1" className="text-2xl font-bold text-gray-900 dark:text-white">
+                  Password Settings
+                </Title>
+                <Text className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Change your password
+                </Text>
+              </div>
+              <div className="ms-auto">
+                <Link href={routes.profile}>
+                  <Button variant="outline">View Profile</Button>
+                </Link>
+              </div>
+            </div>
 
-              <div className="mx-auto w-full max-w-screen-2xl">
-                <HorizontalFormBlockWrapper
-                  title="Current Password"
-                  titleClassName="text-base font-medium"
-                >
+            <div className="mx-auto w-full max-w-screen-2xl">
+              <div className="mb-8">
+                <Title as="h2" className="text-lg font-medium text-gray-900 dark:text-white">
+                  Change Password
+                </Title>
+                <Text className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Enter your current password and choose a new one
+                </Text>
+              </div>
+
+              <div className="space-y-6">
+<div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Current Password
+                  </label>
                   <Password
                     {...register('currentPassword')}
-                    placeholder="Enter your password"
+                    placeholder="Enter your current password"
                     error={errors.currentPassword?.message}
+                    className="w-full max-w-md bg-white dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400"
                   />
-                </HorizontalFormBlockWrapper>
+                </div>
 
-                <HorizontalFormBlockWrapper
-                  title="New Password"
-                  titleClassName="text-base font-medium"
-                >
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    New Password
+                  </label>
                   <Controller
                     control={control}
                     name="newPassword"
                     render={({ field: { onChange, value } }) => (
                       <Password
-                        placeholder="Enter your password"
-                        helperText={
-                          getValues().newPassword.length < 8 &&
-                          'Your current password must be more than 8 characters'
-                        }
+                        placeholder="Enter your new password"
                         onChange={onChange}
                         error={errors.newPassword?.message}
+                        className="w-full max-w-md bg-white dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400"
                       />
                     )}
                   />
-                </HorizontalFormBlockWrapper>
+                </div>
 
-                <HorizontalFormBlockWrapper
-                  title="Confirm New Password"
-                  titleClassName="text-base font-medium"
-                >
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Confirm New Password
+                  </label>
                   <Controller
                     control={control}
                     name="confirmedPassword"
                     render={({ field: { onChange, value } }) => (
                       <Password
-                        placeholder="Enter your password"
+                        placeholder="Confirm your new password"
                         onChange={onChange}
                         error={errors.confirmedPassword?.message}
+                        className="w-full max-w-md bg-white dark:bg-gray-800 dark:text-white dark:placeholder:text-gray-400"
                       />
                     )}
                   />
-                </HorizontalFormBlockWrapper>
+                </div>
 
-                <div className="mt-6 flex w-auto items-center justify-end gap-3">
-                  <Button type="button" variant="outline">
-                    Cancel
-                  </Button>
-                  <Button type="submit" variant="solid" isLoading={isLoading}>
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    New Password
+                  </label>
+                  <Controller
+                    control={control}
+                    name="newPassword"
+                    render={({ field: { onChange, value } }) => (
+                      <Password
+                        placeholder="Enter your new password"
+                        onChange={onChange}
+                        error={errors.newPassword?.message}
+                        className="w-full max-w-md"
+                      />
+                    )}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-gray-700">
+                    Confirm New Password
+                  </label>
+                  <Controller
+                    control={control}
+                    name="confirmedPassword"
+                    render={({ field: { onChange, value } }) => (
+                      <Password
+                        placeholder="Confirm your new password"
+                        onChange={onChange}
+                        error={errors.confirmedPassword?.message}
+                        className="w-full max-w-md"
+                      />
+                    )}
+                  />
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <Button type="submit" variant="solid" isLoading={isLoading || loading}>
                     Update Password
                   </Button>
                 </div>
               </div>
-            </>
-          );
-        }}
-      </Form>
-      <LoggedDevices className="mt-10" />
-    </>
-  );
-}
-
-// Logged devices
-function LoggedDevices({ className }: { className?: string }) {
-  return (
-    <div className={cn('mx-auto w-full max-w-screen-2xl', className)}>
-      <div className="border-b border-dashed border-muted">
-        <Title as="h2" className="mb-3 text-xl font-bold text-gray-900">
-          Where you’re logged in
-        </Title>
-        <Text className="mb-6 text-sm text-gray-500">
-          We’ll alert you via olivia@untitledui.com if there is any unusual
-          activity on your account.
-        </Text>
-      </div>
-      <div className="flex items-center gap-6 border-b border-dashed border-muted py-6">
-        <PiDesktop className="h-7 w-7 text-gray-500" />
-        <div>
-          <div className="mb-2 flex items-center gap-2">
-            <Title
-              as="h3"
-              className="text-base font-medium text-gray-900 dark:text-gray-700"
-            >
-              2018 Macbook Pro 15-inch
-            </Title>
-            <Text
-              as="span"
-              className="relative hidden rounded-md border border-muted py-1.5 pe-2.5 ps-5 text-xs font-semibold text-gray-900 before:absolute before:start-2.5 before:top-1/2 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full before:bg-green sm:block"
-            >
-              Active Now
-            </Text>
-          </div>
-          <div className="flex items-center gap-2">
-            <Text className="text-sm text-gray-500">Melbourne, Australia</Text>
-            <span className="h-1 w-1 rounded-full bg-gray-600" />
-            <Text className="text-sm text-gray-500">22 Jan at 4:20pm</Text>
-          </div>
-          <Text
-            as="span"
-            className="relative mt-2 inline-block rounded-md border border-muted py-1.5 pe-2.5 ps-5 text-xs font-semibold text-gray-900 before:absolute before:start-2.5 before:top-1/2 before:h-1.5 before:w-1.5 before:-translate-y-1/2 before:rounded-full before:bg-green sm:hidden"
-          >
-            Active Now
-          </Text>
-        </div>
-      </div>
-      <div className="flex items-center gap-6 py-6">
-        <PiDesktop className="h-7 w-7 text-gray-500" />
-        <div>
-          <Title
-            as="h3"
-            className="mb-2 text-base font-medium text-gray-900 dark:text-gray-700"
-          >
-            2020 Macbook Air M1
-          </Title>
-          <div className="flex items-center gap-2">
-            <Text className="text-sm text-gray-500">Melbourne, Australia</Text>
-            <span className="h-1 w-1 rounded-full bg-gray-600" />
-            <Text className="text-sm text-gray-500">22 Jan at 4:20pm</Text>
-          </div>
-        </div>
-      </div>
-    </div>
+            </div>
+          </>
+        );
+      }}
+    </Form>
   );
 }

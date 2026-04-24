@@ -11,7 +11,7 @@ export function ThemeProvider({ children }: React.PropsWithChildren<{}>) {
   return (
     <NextThemeProvider
       attribute="class"
-      enableSystem={false}
+      enableSystem={true}
       defaultTheme={String(siteConfig.mode)}
     >
       {children}

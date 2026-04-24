@@ -648,7 +648,7 @@ export default function ChatSidebar() {
                   onKeyDown={handleKeyPress}
                   placeholder={isAskingAI ? 'AI is thinking...' : 'Type a message...'}
                   disabled={isAskingAI}
-                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white disabled:opacity-50"
+                  className="flex-1 rounded-xl border border-gray-200 bg-gray-50 px-3.5 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-blue-500 focus:outline-none dark:border-gray-700 dark:bg-gray-800 dark:text-white dark:placeholder-gray-500 disabled:opacity-50"
                 />
                 <button aria-label="Ask AI" onClick={askCortexAI} disabled={!newMessage.trim() || isAskingAI} className="flex h-8 w-8 items-center justify-center rounded-lg text-purple-500 hover:bg-purple-50 disabled:opacity-30 dark:hover:bg-purple-900/30" title="Ask AI">
                   <Sparkles className="h-4 w-4" />

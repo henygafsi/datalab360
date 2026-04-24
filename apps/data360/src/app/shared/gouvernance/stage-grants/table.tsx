@@ -156,7 +156,7 @@ export default function StageGrantsTable() {
               {grants.map((row, i) => (
                 <tr
                   key={i}
-                  className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800/30"
+                  className="border-b border-slate-100 dark:border-slate-700/50 hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   <td className="px-4 py-2 text-slate-800 dark:text-slate-200">
                     {norm('privilege', row)}

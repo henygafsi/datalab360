@@ -239,22 +239,6 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // Demo Showcase
-  {
-    id: 99,
-    name: 'Demo Showcase',
-    title: 'Demo Showcase',
-    icon: PiPresentationChartDuotone,
-    color: 'indigo',
-    menuItems: [
-      {
-        name: 'Scale DWH Demo',
-        description: 'Platform overview, roadmap & improvements',
-        href: routes.demoShowcase.view,
-        icon: PiPresentationChartDuotone,
-      },
-    ],
-  },
 ];
 
 export const carbonMenuItemAtom = atom(carbonMenuItems[0]);

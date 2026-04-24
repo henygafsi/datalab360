@@ -15,8 +15,8 @@ import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
 import FilterBar from './FilterBar';
 import AddWidgetPanel from './AddChartPanel';
-import DashboardTemplates from './DashboardTemplates';
-import type { DashboardTemplate } from './DashboardTemplates';
+//import DashboardTemplates from './DashboardTemplates';
+//import type { DashboardTemplate } from './DashboardTemplates';
 import TimeIntelligenceBar, {
   createDefaultTimeState,
   computePreviousRange,
@@ -349,7 +349,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   }, [activePageId]);
 
   // Apply template — create placeholder widgets from template config
-  const handleApplyTemplate = useCallback(
+   /**
+ const handleApplyTemplate = useCallback(
     (template: DashboardTemplate) => {
       if (!activePageId) return;
       const templateWidgets: DashboardWidget[] = template.widgets.map((tw, i) => {
@@ -391,7 +392,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
       toast.success(`Applied "${template.name}" template with ${template.widgets.length} widgets. Configure each widget's data source.`);
     },
     [activePageId]
-  );
+  );**/
 
   // Snapshot
   const handleSnapshot = useCallback(async () => {
@@ -606,12 +607,12 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         onFiltersChange={handleFiltersChange}
       />
 
-      {/* Template Gallery (shown when page has no widgets) */}
+      {/* Template Gallery (shown when page has no widgets) 
       {activePageId && pageWidgets.length === 0 && (
         <div className="mt-4">
           <DashboardTemplates onApplyTemplate={handleApplyTemplate} />
         </div>
-      )}
+      )}*/}
 
       {/* Dashboard Grid */}
       {activePageId && (

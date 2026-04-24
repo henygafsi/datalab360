@@ -197,7 +197,10 @@ export async function deleteSecurityAxis(id: number): Promise<void> {
 
 export async function getEnterpriseUsers(): Promise<EnterpriseUser[]> {
   const response = await apiClient.get('/gouvernance/enterprise-users');
-  return response.data;
+  const data = response.data;
+  // Handle pagination response { data: { items: [...] } } or direct array [...]
+  const items = data?.data?.items ?? data?.data ?? data;
+  return Array.isArray(items) ? items : [];
 }
 
 export async function updateEnterpriseUser(

@@ -396,7 +396,8 @@ export default function SecurityMatrixPage() {
   }, [matrixData?.entries, matrixSearch, accessLevelFilter]);
 
   const filteredUsers = useMemo(() => {
-    return users.filter((u) => {
+    const safeUsers = Array.isArray(users) ? users : [];
+    return safeUsers.filter((u) => {
       if (userSearch) {
         const q = userSearch.toLowerCase();
         if (!u.USERNAME.toLowerCase().includes(q) && !(u.DISPLAY_NAME || '').toLowerCase().includes(q) && !(u.EMAIL || '').toLowerCase().includes(q)) return false;
@@ -438,11 +439,12 @@ export default function SecurityMatrixPage() {
   // ============= ENTERPRISE USERS STATS =============
 
   const userStats = useMemo(() => {
-    const total = users.length;
-    const active = users.filter((u) => u.STATUS === 'ACTIVE').length;
-    const disabled = users.filter((u) => u.STATUS === 'DISABLED').length;
-    const saml = users.filter((u) => u.IDENTITY_PROVIDER && u.IDENTITY_PROVIDER !== 'LOCAL').length;
-    const mfa = users.filter((u) => u.HAS_MFA).length;
+    const safeUsers = Array.isArray(users) ? users : [];
+    const total = safeUsers.length;
+    const active = safeUsers.filter((u) => u.STATUS === 'ACTIVE').length;
+    const disabled = safeUsers.filter((u) => u.STATUS === 'DISABLED').length;
+    const saml = safeUsers.filter((u) => u.IDENTITY_PROVIDER && u.IDENTITY_PROVIDER !== 'LOCAL').length;
+    const mfa = safeUsers.filter((u) => u.HAS_MFA).length;
     return { total, active, disabled, saml, mfa };
   }, [users]);
 
@@ -548,7 +550,7 @@ export default function SecurityMatrixPage() {
                     {matrixTable.getRowModel().rows.map((row) => (
                       <tr
                         key={row.id}
-                        className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
+                        className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
                           dirtyMatrixRows.has(row.original.id) ? 'bg-amber-50/50 dark:bg-amber-900/10 border-l-2 border-l-amber-400' : ''
                         }`}
                       >
@@ -674,7 +676,7 @@ export default function SecurityMatrixPage() {
                     {usersTable.getRowModel().rows.map((row) => (
                       <tr
                         key={row.id}
-                        className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors ${
+                        className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
                           dirtyUserRows.has(row.original.USERNAME) ? 'bg-amber-50/50 dark:bg-amber-900/10 border-l-2 border-l-amber-400' : ''
                         }`}
                       >

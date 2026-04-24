@@ -1,18 +1,25 @@
 'use client';
 
 import Image from 'next/image';
-import { useState } from 'react';
 import { Button, Title, Text } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiChatCircleText, PiUsers } from 'react-icons/pi';
 import { useLayout } from '@/layouts/use-layout';
 import { LAYOUT_OPTIONS } from '@/config/enums';
 import { useBerylliumSidebars } from '@/layouts/beryllium/beryllium-utils';
+import { useSession } from 'next-auth/react';
+import { useProfile } from '@/hooks/useProfile';
+import Link from 'next/link';
+import { routes } from '@/config/routes';
 
 export default function ProfileHeader() {
+  const { data: session } = useSession();
+  const { profile } = useProfile();
   const { layout } = useLayout();
   const { expandedLeft } = useBerylliumSidebars();
-  const [follow, setFollow] = useState(false);
+
+  const username = session?.user?.username || '';
+  const displayName = profile?.display_name || session?.user?.name || username || 'User';
+
   return (
     <div
       className={cn(
@@ -35,9 +42,7 @@ export default function ProfileHeader() {
           <div>
             <div className="relative -top-1/3 aspect-square w-[110px] overflow-hidden rounded-full border-4 border-white bg-white shadow-profilePic @2xl:w-[130px] @5xl:-top-2/3 @5xl:w-[150px] md:border-[6px] 3xl:w-[200px]">
               <Image
-                src={
-                  'https://isomorphic-furyroad.s3.amazonaws.com/public/profile-image.webp'
-                }
+                src="https://isomorphic-furyroad.s3.amazonaws.com/public/profile-image.webp"
                 alt="profile-pic"
                 fill
                 priority
@@ -51,40 +56,24 @@ export default function ProfileHeader() {
               as="h1"
               className="text-lg font-bold capitalize leading-normal text-gray-900 @3xl:!text-xl 3xl:text-2xl"
             >
-              Andrie Jacsion
+              {displayName}
             </Title>
             <Text className="text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
-              @andrie.jack
+              @{username}
             </Text>
-            <ul className="mt-3 flex flex-wrap items-center gap-2 text-sm @3xl:mt-4 @3xl:gap-5 @3xl:text-base 3xl:text-lg">
-              <li className="flex items-center">
-                <span className="font-semibold text-gray-900">2.53k</span>
-                <span className="ms-1.5 text-sm text-gray-500">Followers</span>
-              </li>
-              <li className="flex items-center">
-                <span className="font-semibold text-gray-900">438</span>
-                <span className="ms-1.5 text-sm text-gray-500">Following</span>
-              </li>
-            </ul>
+            {profile?.email && (
+              <Text className="mt-1 text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
+                {profile.email}
+              </Text>
+            )}
           </div>
         </div>
-        <div className="grid grid-cols-2 pt-3 @3xl:pt-4">
-          <Button variant="outline" className="font-500 text-gray-900">
-            <PiChatCircleText className="h-auto w-[18px]" />
-            <span className="ms-1.5 inline-block">Message</span>
-          </Button>
-          <Button
-            color="primary"
-            className="font-500 ms-3.5 text-white"
-            onClick={() => setFollow(!follow)}
-          >
-            <PiUsers className="h-auto w-[18px]" />
-            {follow ? (
-              <span className="ms-1.5 inline-block">Following</span>
-            ) : (
-              <span className="ms-1.5 inline-block">Follow</span>
-            )}
-          </Button>
+        <div className="pt-3 @3xl:pt-4">
+          <Link href={routes.forms.profileSettings}>
+            <Button variant="outline" className="font-500 text-gray-900">
+              Edit Profile
+            </Button>
+          </Link>
         </div>
       </div>
     </div>

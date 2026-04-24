@@ -12,10 +12,6 @@ import { useBerylliumSidebars } from '@/layouts/beryllium/beryllium-utils';
 
 const menuItems = [
   {
-    label: 'My Details',
-    value: '/forms/profile-settings',
-  },
-  {
     label: 'Profile',
     value: '/forms/profile-settings/profile',
   },
@@ -24,20 +20,8 @@ const menuItems = [
     value: '/forms/profile-settings/password',
   },
   {
-    label: 'Team',
-    value: '/forms/profile-settings/team',
-  },
-  {
-    label: 'Billing',
-    value: '/forms/profile-settings/billing',
-  },
-  {
-    label: 'Notifications',
-    value: '/forms/profile-settings/notification',
-  },
-  {
-    label: 'Integrations',
-    value: '/forms/profile-settings/integration',
+    label: 'Role',
+    value: '/forms/profile-settings/role',
   },
 ];
 
@@ -55,7 +39,7 @@ export default function ProfileSettingsNav() {
   return (
     <div
       className={cn(
-        'sticky z-20 -mx-4 -mt-4 border-b border-muted bg-white px-4 py-0 font-medium text-gray-500 dark:bg-gray-800 sm:-mt-2 md:-mx-5 md:px-5 lg:-mx-8 lg:mt-0 lg:px-8 xl:-mx-6 xl:px-6 2xl:top-20 3xl:-mx-[33px] 3xl:px-[33px] 4xl:-mx-10 4xl:px-10',
+        'sticky z-20 border-b border-muted bg-white px-4 py-0 font-medium text-gray-500 dark:bg-gray-800 dark:text-gray-400',
         layout === LAYOUT_OPTIONS.LITHIUM
           ? 'top-[66px] sm:top-[70px] md:top-[73px]'
           : layout === LAYOUT_OPTIONS.BERYLLIUM
@@ -72,7 +56,7 @@ export default function ProfileSettingsNav() {
           variant="text"
           ref={sliderPrevBtn}
           onClick={() => scrollToTheLeft()}
-          className="!absolute left-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-start bg-gradient-to-r from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 lg:hidden"
+          className="!absolute left-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-start bg-gradient-to-r from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 dark:text-gray-400 dark:hover:text-white lg:hidden"
         >
           <PiCaretLeftBold className="w-5" />
         </Button>
@@ -86,7 +70,7 @@ export default function ProfileSettingsNav() {
                 href={`${menu.value}`}
                 key={`menu-${index}`}
                 className={cn(
-                  'group relative cursor-pointer whitespace-nowrap py-2.5 font-medium text-gray-500 before:absolute before:bottom-0 before:left-0 before:z-[1] before:h-0.5 before:bg-gray-1000 before:transition-all hover:text-gray-900',
+                  'group relative cursor-pointer whitespace-nowrap py-2.5 font-medium text-gray-500 dark:text-gray-400 before:absolute before:bottom-0 before:left-0 before:z-[1] before:h-0.5 before:bg-gray-1000 before:transition-all hover:text-gray-900 dark:hover:text-white',
                   menu.value.toLowerCase() === pathname
                     ? 'before:visible before:w-full before:opacity-100'
                     : 'before:invisible before:w-0 before:opacity-0'
@@ -94,7 +78,7 @@ export default function ProfileSettingsNav() {
               >
                 <Text
                   as="span"
-                  className="inline-flex rounded-md px-2.5 py-1.5 transition-all duration-200 group-hover:bg-gray-100/70"
+                  className="inline-flex rounded-md px-2.5 py-1.5 transition-all duration-200 group-hover:bg-gray-100/70 dark:group-hover:bg-gray-700/70"
                 >
                   {menu.label}
                 </Text>
@@ -107,7 +91,7 @@ export default function ProfileSettingsNav() {
           variant="text"
           ref={sliderNextBtn}
           onClick={() => scrollToTheRight()}
-          className="!absolute right-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-end bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 lg:hidden"
+          className="!absolute right-0 top-0.5 z-10 !h-[calc(100%-4px)] w-8 !justify-end bg-gradient-to-l from-white via-white to-transparent px-0 text-gray-500 hover:text-black dark:from-gray-800 dark:via-gray-800 dark:text-gray-400 dark:hover:text-white lg:hidden"
         >
           <PiCaretRightBold className="w-5" />
         </Button>
