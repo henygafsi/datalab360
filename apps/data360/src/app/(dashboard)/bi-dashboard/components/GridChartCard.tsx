@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useEffect, useState } from 'react';
 import { Badge, Tooltip } from 'rizzui';
-import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle } from 'lucide-react';
+import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle, Search } from 'lucide-react';
 import DataTable from '@/components/ui/DataTable';
 import { DynamicChart } from './DynamicChart';
 import { DeltaBadge } from './TimeIntelligenceBar';
@@ -20,6 +20,8 @@ interface WidgetCardProps {
   onExecuteSingle: (widget: DashboardWidget) => void;
   crossWidgetFilter?: Record<string, string>;
   onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
+  onDrillThrough?: (widget: DashboardWidget) => void;
+
 }
 
 // ─── Number Formatting ──────────────────────────────────────────────
@@ -276,6 +278,7 @@ export default function WidgetCard({
   onExecuteSingle,
   crossWidgetFilter,
   onCrossWidgetFilter,
+  onDrillThrough,
 }: WidgetCardProps) {
   // Apply cross-widget filter to execution data (client-side)
   const filteredExecutionData = useMemo(() => {
@@ -347,6 +350,16 @@ export default function WidgetCard({
                 ) : (
                   <Play className="h-3.5 w-3.5" />
                 )}
+              </button>
+            </Tooltip>
+          )}
+          {isDataWidget && onDrillThrough && widget.chart_config?.table && (
+            <Tooltip content="Drill-through">
+              <button
+                className="p-1 rounded hover:bg-violet-100 dark:hover:bg-violet-900/30 text-slate-400 hover:text-violet-600 transition-colors"
+                onClick={() => onDrillThrough(widget)}
+              >
+                <Search className="h-3.5 w-3.5" />
               </button>
             </Tooltip>
           )}

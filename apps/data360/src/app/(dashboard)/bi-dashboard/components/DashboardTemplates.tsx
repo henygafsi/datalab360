@@ -1,15 +1,16 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Button, Badge, Text, Modal } from 'rizzui';
 import {
   ShoppingCart, Package, Users, LayoutTemplate,
   TrendingUp, BarChart3, PieChart, LineChart,
   AlertTriangle, MapPin,
-  ChevronRight, X, Sparkles, Target,
+  ChevronRight, X, Sparkles, Target, Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { DashboardChartType, WidgetType } from '@/app/services/api/types';
+import type { DashboardChartType, WidgetType, DashboardTemplateAPI } from '@/app/services/api/types';
+import { listTemplates } from '@/app/services/api/biDashboardApi';
 
 // ── Color Palette ──────────────────────────────────────────────────
 const PALETTE = [
@@ -562,9 +563,54 @@ interface DashboardTemplatesProps {
   onApplyTemplate: (template: DashboardTemplate) => void;
 }
 
+// Adapt a backend-served template (minimal shape) into the rich local
+// DashboardTemplate so both sources flow through the same UI.
+function adaptApiTemplate(t: DashboardTemplateAPI): DashboardTemplate {
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    icon: LayoutTemplate,
+    category: 'Library',
+    color: 'from-slate-500 to-slate-700',
+    widgets: t.widgets.map((w, i) => ({
+      type: (w.chart_type as DashboardChartType) || 'bar',
+      widgetType: (w.type as WidgetType) || 'chart',
+      title: w.title,
+      width: 12,
+      height: 4,
+      config: {
+        chartType: (w.chart_type as DashboardChartType) || undefined,
+        description: w.title,
+        colors: [PALETTE[i % PALETTE.length]],
+      },
+    })),
+  };
+}
+
 export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplatesProps) {
   const [selectedTemplate, setSelectedTemplate] = useState<DashboardTemplate | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [apiTemplates, setApiTemplates] = useState<DashboardTemplate[]>([]);
+  const [loadingApi, setLoadingApi] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingApi(true);
+    listTemplates()
+      .then((res) => {
+        if (cancelled) return;
+        setApiTemplates((res.templates || []).map(adaptApiTemplate));
+      })
+      .catch(() => {
+        // Backend gallery is optional; curated list still works without it.
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingApi(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
 
   const handleSelect = useCallback((template: DashboardTemplate) => {
     setSelectedTemplate(template);
@@ -581,11 +627,12 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
   );
 
   return (
+    <div className="space-y-6">
     <div>
       <div className="flex items-center gap-2 mb-4">
         <LayoutTemplate className="h-5 w-5 text-gray-500 dark:text-gray-400" />
         <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-          Dashboard Templates
+            Curated Templates
         </Text>
         <Badge size="sm" className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 text-[10px]">
           {TEMPLATES.length} templates
@@ -601,6 +648,37 @@ export default function DashboardTemplates({ onApplyTemplate }: DashboardTemplat
           />
         ))}
       </div>
+            </div>
+
+      {(loadingApi || apiTemplates.length > 0) && (
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            <LayoutTemplate className="h-5 w-5 text-gray-500 dark:text-gray-400" />
+            <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Library
+            </Text>
+            {loadingApi ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />
+            ) : (
+              <Badge size="sm" className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-400 text-[10px]">
+                {apiTemplates.length} templates
+              </Badge>
+            )}
+          </div>
+
+          {apiTemplates.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {apiTemplates.map((template) => (
+                <TemplateCard
+                  key={template.id}
+                  template={template}
+                  onSelect={handleSelect}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <TemplateDetailModal
         template={selectedTemplate}

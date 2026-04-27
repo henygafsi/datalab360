@@ -12,7 +12,9 @@
       "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/**)",
       "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== scheduled deploy in governance/**)",
       "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== policies/databases or objects/**)",
-      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== list_databases / schemas / tables /**)"
+      "Read(//c/Users/aymen/Desktop/FrontTrends/datalab360Front/=== list_databases / schemas / tables /**)",
+      "Bash(awk 'NR>=722 && NR<=1000' \"c:\\\\Users\\\\aymen\\\\data360\\\\app\\\\modules\\\\projects\\\\bi_dashboard\\\\router.py\")",
+      "Bash(awk 'NR>=1000 && NR<=1300' \"c:\\\\Users\\\\aymen\\\\data360\\\\app\\\\modules\\\\projects\\\\bi_dashboard\\\\router.py\")"
     ]
   }
 }

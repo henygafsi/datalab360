@@ -9,7 +9,15 @@ import type { DashboardFilter, FilterScope } from '@/app/services/api/types';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
 
-const OPERATORS = ['=', '!=', '>', '>=', '<', '<=', 'IN', 'NOT IN', 'LIKE', 'BETWEEN'];
+const OPERATORS = [
+  '=', '!=', '>', '>=', '<', '<=',
+  'IN', 'NOT IN', 'LIKE', 'NOT LIKE',
+  'IS NULL', 'IS NOT NULL',
+];
+
+const NULL_OPS = new Set(['IS NULL', 'IS NOT NULL']);
+const LIST_OPS = new Set(['IN', 'NOT IN']);
+const COLUMN_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 interface FilterBarProps {
   projectId: string;
@@ -37,14 +45,36 @@ export default function FilterBar({
     (f) => f.scope === 'global' || f.page_id === pageId
   );
 
-  const handleAdd = async () => {
-    if (!column.trim()) { toast.error('Column is required'); return; }
+ const handleAdd = async () => {
+    const trimmedColumn = column.trim();
+    if (!trimmedColumn) { toast.error('Column is required'); return; }
+    if (!COLUMN_PATTERN.test(trimmedColumn)) {
+      toast.error('Column must start with a letter or _ and contain only letters, digits, _');
+      return;
+    }
+
+    let valueToSend: string | undefined;
+    if (NULL_OPS.has(operator)) {
+      valueToSend = undefined;
+    } else if (LIST_OPS.has(operator)) {
+      const items = defaultValue.split(',').map((s) => s.trim()).filter(Boolean);
+      if (items.length === 0) {
+        toast.error(`${operator} requires at least one value`);
+        return;
+      }
+      // default_value persists as Optional[str] on the backend; stringify the
+      // list so it round-trips and let the chart-build path parse it back.
+      valueToSend = JSON.stringify(items);
+    } else {
+      valueToSend = defaultValue.trim() || undefined;
+    }
+
     setLoading(true);
     try {
       const filter = await createFilter(projectId, {
-        column: column.trim(),
+        column: trimmedColumn,
         operator,
-        default_value: defaultValue.trim() || undefined,
+        default_value: valueToSend,
         page_id: scope === 'page' ? pageId : null,
         scope,
       });
@@ -56,6 +86,11 @@ export default function FilterBar({
     } finally {
       setLoading(false);
     }
+  };
+  
+  const handleOperatorChange = (next: string) => {
+    setOperator(next);
+    if (NULL_OPS.has(next)) setDefaultValue('');
   };
 
   const handleDelete = async (filterId: string) => {
@@ -131,19 +166,21 @@ export default function FilterBar({
           <select
             className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs px-1"
             value={operator}
-            onChange={(e) => setOperator(e.target.value)}
+            onChange={(e) => handleOperatorChange(e.target.value)}
           >
             {OPERATORS.map((op) => (
               <option key={op} value={op}>{op}</option>
             ))}
           </select>
+          {!NULL_OPS.has(operator) && (
           <Input
             size="sm"
             value={defaultValue}
             onChange={(e) => setDefaultValue(e.target.value)}
-            placeholder="Value"
+            placeholder={LIST_OPS.has(operator) ? 'a, b, c' : 'Value'}
             className="w-20 h-7 text-xs"
           />
+          )}
           <select
             className="h-7 rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 text-xs px-1"
             value={scope}

@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getApiErrorMessage } from '@/lib/api-client';
-
+import DrillThroughPanel from './DrillThroughPanel';
 import { useDashboard } from '../hooks/useDashboard';
 import { useExecuteDashboard } from '../hooks/useExecuteDashboard';
 
@@ -27,6 +27,7 @@ import {
   updateWidget,
   deleteWidget as deleteWidgetApi,
   saveSnapshot,
+  exportDashboard,
 } from '@/app/services/api/biDashboardApi';
 import ChartConfigModal, {
   ComponentConfig,
@@ -106,6 +107,11 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   const [snapshotting, setSaving] = useState(false);
   const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
   const [isExporting, setIsExporting] = useState(false);
+  const [drillWidget, setDrillWidget] = useState<DashboardWidget | null>(null);
+  
+  // Pending layout changes for batch saving
+  const [pendingLayoutChanges, setPendingLayoutChanges] = useState<Record<string, {x: number; y: number; w: number; h: number}>>({});
+  const [hasUnsavedLayoutChanges, setHasUnsavedLayoutChanges] = useState(false);
 
   // Sync from API data
   useEffect(() => {
@@ -552,7 +558,7 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             )}
           </Button>
 
-          <Button
+           <Button
             variant="outline"
             size="sm"
             className="gap-1.5"
@@ -561,23 +567,24 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               if (isExporting) return;
               setIsExporting(true);
               try {
-                const dashboardEl = document.querySelector('[data-dashboard-grid]') || document.querySelector('.react-grid-layout');
-                if (!dashboardEl) {
-                  toast.error('No dashboard content to export');
-                  return;
-                }
-                if (typeof window !== 'undefined') {
-                  window.print();
-                  toast.success('Print dialog opened — save as PDF');
-                }
-              } catch {
-                toast.error('Export failed');
+                const blob = await exportDashboard(projectId);
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `dashboard-${projectId}.json`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                toast.success('Dashboard exported');
+              } catch (err) {
+                toast.error(getApiErrorMessage(err));
               } finally {
                 setIsExporting(false);
               }
             }}
           >
-            <Download className="h-3.5 w-3.5" /> Export
+            <Download className="h-3.5 w-3.5" /> Export JSON
           </Button>
         </div>
       </div>
@@ -631,6 +638,8 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             onLayoutChange={handleLayoutChange}
             crossWidgetFilter={crossWidgetFilter}
             onCrossWidgetFilter={handleCrossWidgetFilter}
+            onDrillThrough={(widget) => setDrillWidget(widget)}
+
           />
         </div>
       )}
@@ -681,6 +690,15 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
             title: editingWidget.title || '',
             chartConfig: editingWidget.chart_config || undefined,
           }}
+        />
+      )}
+        {/* Drill-through panel */}
+      {drillWidget && (
+        <DrillThroughPanel
+          isOpen
+          onClose={() => setDrillWidget(null)}
+          dashboardId={projectId}
+          widget={drillWidget}
         />
       )}
     </div>

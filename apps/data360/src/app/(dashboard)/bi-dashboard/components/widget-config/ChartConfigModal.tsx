@@ -29,15 +29,6 @@ const AGGREGATORS = [
   { value: 'BIT_AND', label: 'BIT AND' },
   { value: 'BIT_OR', label: 'BIT OR' },
   { value: 'BIT_XOR', label: 'BIT XOR' },
-  { value: 'REGR_AVGX', label: 'REGR AVG X' },
-  { value: 'REGR_AVGY', label: 'REGR AVG Y' },
-  { value: 'REGR_COUNT', label: 'REGR COUNT' },
-  { value: 'REGR_INTERCEPT', label: 'REGR INTERCEPT' },
-  { value: 'REGR_R2', label: 'REGR R²' },
-  { value: 'REGR_SLOPE', label: 'REGR SLOPE' },
-  { value: 'REGR_SXX', label: 'REGR SXX' },
-  { value: 'REGR_SXY', label: 'REGR SXY' },
-  { value: 'REGR_SYY', label: 'REGR SYY' },
 ];
 
 const DATE_GRANULARITIES = [

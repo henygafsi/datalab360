@@ -30,6 +30,7 @@ interface DashboardGridProps {
   onLayoutChange: (updates: { widget_id: string; x: number; y: number; w: number; h: number }[]) => void;
   crossWidgetFilter?: Record<string, string>;
   onCrossWidgetFilter?: (filterKey: string, filterValue: string) => void;
+  onDrillThrough?: (widget: DashboardWidget) => void;
 }
 
 /** Minimum sizes per widget type */
@@ -54,6 +55,7 @@ export default function DashboardGrid({
   onLayoutChange,
   crossWidgetFilter,
   onCrossWidgetFilter,
+  onDrillThrough,
 }: DashboardGridProps) {
   // Build layout from widget positions
   const layout = useMemo(
@@ -155,6 +157,7 @@ export default function DashboardGrid({
               onExecuteSingle={onExecuteSingleWidget}
               crossWidgetFilter={crossWidgetFilter}
               onCrossWidgetFilter={onCrossWidgetFilter}
+              onDrillThrough={onDrillThrough}
             />
           </div>
         ))}

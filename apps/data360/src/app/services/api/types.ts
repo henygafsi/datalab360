@@ -1401,6 +1401,26 @@ export interface TopNConfig {
   limit: number;
 }
 
+export interface DashboardTemplateWidget {
+  type: string;
+  title: string;
+  chart_type?: string;
+}
+
+export interface DashboardTemplateAPI {
+  id: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  widgets: DashboardTemplateWidget[];
+}
+
+export interface ListTemplatesResponse {
+  templates: DashboardTemplateAPI[];
+  count: number;
+}
+
+
 export interface BIDashboardChartConfig {
   database: string;
   schema: string;
@@ -1560,6 +1580,73 @@ export interface RetailKpisParams {
 
 export interface SnapshotResponse {
   version_id: string;
+}
+
+// --- Templates (backend-served gallery) ---
+
+export interface DashboardTemplateWidget {
+  type: string;
+  title: string;
+  chart_type?: string;
+}
+
+export interface DashboardTemplateAPI {
+  id: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  widgets: DashboardTemplateWidget[];
+}
+
+export interface ListTemplatesResponse {
+  templates: DashboardTemplateAPI[];
+  count: number;
+}
+
+// --- Auto-create dashboard ---
+
+export interface AutoCreateDashboardRequest {
+  /** 'table' = build from a single table, 'schema' = build domain-themed
+   *  pages from every table in a schema. Defaults to 'table' if omitted
+   *  but `table_fqn` is provided. */
+  mode?: 'table' | 'schema';
+  /** Required when mode='table'. Format: DB.SCHEMA.TABLE */
+  table_fqn?: string;
+  /** Required when mode='schema' */
+  database?: string;
+  /** Required when mode='schema' */
+  schema?: string;
+  name?: string;
+}
+
+export interface AutoCreateDashboardResponse {
+  dashboard_id?: string;
+  project_id?: string;
+  name?: string;
+  widgets_created?: unknown[];
+  [key: string]: unknown;
+}
+
+// --- Drill-through ---
+
+export interface DrillThroughRequest {
+  widget_id: string;
+  clicked_value: unknown;
+  dimension: string;
+  database?: string;
+  schema?: string;
+  table?: string;
+  limit?: number;
+}
+
+export interface DrillThroughResponse {
+  dashboard_id: string;
+  widget_id: string;
+  dimension: string;
+  clicked_value: unknown;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  total: number;
 }
 
 // ============================================================================

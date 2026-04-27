@@ -19,6 +19,7 @@ import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 // useSession removed — get username from localStorage token instead
 // import { useSession } from 'next-auth/react';
 import { getApiErrorMessage } from '@/lib/api-client';
+import AutoCreateModal from './AutoCreateModal';
 
 interface DashboardProject {
   project_id: string;
@@ -60,6 +61,9 @@ export default function DashboardSelector({
   const [selectedInModal, setSelectedInModal] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+    // Auto-create from table
+  const [autoCreateOpen, setAutoCreateOpen] = useState(false);
 
   // Fetch dashboard projects
   const fetchProjectsFn = useCallback(async (): Promise<DashboardProject[]> => {
@@ -473,18 +477,25 @@ export default function DashboardSelector({
             </div>
           </div>
 
-          {/* Browse Samples */}
-          {onBrowseSamples && (
-            <div className="mt-5 pt-4 border-t dark:border-slate-700">
+          {/* Browse Samples + Auto-create */}
+          <div className="mt-5 pt-4 border-t dark:border-slate-700 flex flex-col sm:flex-row gap-2">
+            {onBrowseSamples && (
               <button
                 onClick={() => { setShowModal(false); onBrowseSamples(); }}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-sm font-medium"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-sm font-medium"
               >
                 <Sparkles className="h-4 w-4" />
                 Browse Sample Dashboards
               </button>
-            </div>
-          )}
+            )}
+            <button
+              onClick={() => { setShowModal(false); setAutoCreateOpen(true); }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-dashed border-violet-300 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20 transition-colors text-sm font-medium"
+            >
+              <Sparkles className="h-4 w-4" />
+              Auto-create from Table
+            </button>
+          </div>
 
           {selectedProjectId && (
             <div className={cn('pt-4 border-t dark:border-slate-700', onBrowseSamples ? 'mt-3' : 'mt-5')}>
@@ -504,6 +515,14 @@ export default function DashboardSelector({
           )}
         </div>
       </Modal>
+      <AutoCreateModal
+        isOpen={autoCreateOpen}
+        onClose={() => setAutoCreateOpen(false)}
+        onCreated={(projectId, name) => {
+          refetch();
+          onProjectSelect(projectId, name);
+        }}
+      />
     </>
   );
 }

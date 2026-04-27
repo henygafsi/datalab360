@@ -24,6 +24,11 @@ import type {
   ChartDataResponse,
   RetailKpisParams,
   SnapshotResponse,
+  ListTemplatesResponse,
+  AutoCreateDashboardRequest,
+  AutoCreateDashboardResponse,
+  DrillThroughRequest,
+  DrillThroughResponse,
 } from './types';
 
 const PREFIX = '/bi-dashboard';
@@ -215,6 +220,56 @@ export async function getRetailKpis(params?: RetailKpisParams) {
 export async function saveSnapshot(projectId: string) {
   const { data } = await apiClient.post<SnapshotResponse>(
     `${PREFIX}/${projectId}/snapshot`
+  );
+  return data;
+}
+
+// ============================================================================
+// Templates Gallery
+// ============================================================================
+
+export async function listTemplates() {
+  const { data } = await apiClient.get<ListTemplatesResponse>(
+    `${PREFIX}/templates`
+  );
+  return data;
+}
+
+// ============================================================================
+// Auto-create Dashboard from Table
+// ============================================================================
+
+export async function autoCreateDashboard(body: AutoCreateDashboardRequest) {
+  const { data } = await apiClient.post<AutoCreateDashboardResponse>(
+    `${PREFIX}/auto-create`,
+    body
+  );
+  return data;
+}
+
+// ============================================================================
+// Drill-through
+// ============================================================================
+
+export async function drillThrough(
+  dashboardId: string,
+  body: DrillThroughRequest
+) {
+  const { data } = await apiClient.post<DrillThroughResponse>(
+    `${PREFIX}/${dashboardId}/drill-through`,
+    body
+  );
+  return data;
+}
+
+// ============================================================================
+// Export Dashboard (JSON download)
+// ============================================================================
+
+export async function exportDashboard(projectId: string): Promise<Blob> {
+  const { data } = await apiClient.get<Blob>(
+    `${PREFIX}/${projectId}/export`,
+    { responseType: 'blob' }
   );
   return data;
 }
