@@ -10,16 +10,16 @@ import { routes } from '@/config/routes';
 import toast from 'react-hot-toast';
 import { useProfile } from '@/hooks/useProfile';
 import Link from 'next/link';
+import { z } from 'zod';
+
 
 interface RoleFormTypes {
   role: string;
 }
 
-const roleFormSchema = {
-  role: {
-    type: 'select' as const,
-  },
-};
+const roleFormSchema = z.object({
+  role: z.string().min(1, 'Role is required'),
+});
 
 export default function RoleSettingsView() {
   const { roles, loading, refetchRoles, changeRole } = useProfile();
@@ -99,20 +99,27 @@ export default function RoleSettingsView() {
                   <Controller
                     control={control}
                     name="role"
-                    render={({ field: { onChange, value } }) => (
-                      <Select
-                        value={value}
-                        options={roles.available_roles.map((r) => ({
-                          value: r,
-                          label: r,
-                        }))}
-                        onChange={onChange}
-                        placeholder="Select a role"
-                        className="w-full max-w-md bg-white dark:bg-gray-800"
-                        inputClassName="dark:text-white dark:placeholder:text-gray-400"
-                        error={errors.role?.message}
-                      />
-                    )}
+                    render={({ field: { onChange, value } }) => {
+                      const options = roles.available_roles.map((r: string) => ({
+                        value: r,
+                        label: r,
+                      }));
+
+                      return (
+                        <Select
+                          value={options.find(
+                            (opt: { value: string; label: string }) => opt.value === value
+                          )}
+                          options={options}
+                          onChange={(option: { value: string; label: string } | null) =>
+                            onChange(option?.value)
+                          }
+                          placeholder="Select a role"
+                          className="w-full max-w-md bg-white dark:bg-gray-800"
+                          error={errors.role?.message}
+                        />
+                      );
+                    }}
                   />
                 </div>
 

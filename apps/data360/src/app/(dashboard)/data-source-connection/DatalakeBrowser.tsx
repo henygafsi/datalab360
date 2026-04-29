@@ -168,8 +168,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   };
 
   const fetchPreview = useCallback(async (stageName: string, fileName: string, limit: number, offset: number) => {
-    const data = await previewStageFile(stageName, fileName, limit, offset);
-    setPreviewData(data);
+    const response = await previewStageFile(stageName, fileName, limit, offset);
+    if (response && (response as any).error) {
+      throw new Error((response as any).message || 'Preview failed');
+    }
+    setPreviewData(response);
   }, []);
 
   const handlePreview = async (file: StageItem) => {
@@ -433,11 +436,11 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   if (!BROWSER_ONLY_PROVIDERS.includes(provider)) {
     return (
       <div className="h-full flex flex-col bg-slate-50 dark:bg-slate-900 p-6">
-        <Button variant="outline" onClick={onBack} className="self-start">
+        <Button variant="outline" onClick={onBack} className="self-start bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300">
           <HiOutlineArrowLeft className="w-4 h-4 mr-2" />
           Back
         </Button>
-        <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 text-center max-w-md mx-auto">
+        <div className="mt-6 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-8 text-center max-w-md mx-auto shadow-sm">
           <Database className="h-12 w-12 mx-auto text-slate-400 mb-4" />
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">{getProviderName()}</h3>
           <Text className="text-slate-600 dark:text-slate-400 mt-2">
@@ -687,7 +690,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               <Text className="text-sm text-slate-600 dark:text-slate-400 mb-4">
                 Stages are loaded from the backend (GET /connect/stages). Create stages in Snowflake schema CP_DATA360.STAGING or click Refresh above to retry.
               </Text>
-              <Button onClick={() => loadStages()} disabled={loading}>
+              <Button onClick={() => loadStages()} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
                 <HiRefresh className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                 Refresh stages
               </Button>

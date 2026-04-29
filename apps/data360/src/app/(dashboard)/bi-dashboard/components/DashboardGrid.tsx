@@ -7,6 +7,7 @@ import { Plus } from 'lucide-react';
 import type { DashboardWidget } from '@/app/services/api/types';
 import WidgetCard from './GridChartCard';
 
+// @ts-ignore
 import 'react-grid-layout/css/styles.css';
 
 const ResponsiveGrid = WidthProvider(Responsive);

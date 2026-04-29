@@ -24,7 +24,8 @@
       "Bash(npx --no tsc:*)",
       "Bash(findstr:*)",
       "Bash(pushd:*)",
-      "Bash(pnpm --filter data360 exec tsc:*)"
+      "Bash(pnpm --filter data360 exec tsc:*)",
+      "mcp__ide__getDiagnostics"
     ]
   }
 }

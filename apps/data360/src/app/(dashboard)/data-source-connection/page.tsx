@@ -247,6 +247,7 @@ export default function DataSourceConnectionPage() {
   const { data: session, status } = useSession();
   const [selectedSource, setSelectedSource] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
+  const [transitionLoading, setTransitionLoading] = useState<boolean>(false); // Loading state for provider transitions
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
   const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'oracle' | null>(null);
@@ -433,11 +434,18 @@ export default function DataSourceConnectionPage() {
   };
 
   const handleSourceSelect = (sourceId: string) => {
-    setSelectedSource(sourceId);
-    setCurrentStep(1);
+    setTransitionLoading(true);
+    setErrorMessages([]); // Clear errors when switching providers
+    // Small delay to show loading animation for better UX
+    setTimeout(() => {
+      setSelectedSource(sourceId);
+      setCurrentStep(1);
+      setTransitionLoading(false);
+    }, 150);
   };
 
   const handleBackToProviderSelection = () => {
+      setErrorMessages([]); // Clear errors when going back to provider selection
       setSelectedSource('');
       setCurrentStep(0);
       setShowDatalakeBrowser(false);
@@ -475,6 +483,17 @@ export default function DataSourceConnectionPage() {
       setIcebergStep('connect');
       setPostgresFormData({ host: '', port: 5432, database: '', user: '', password: '' });
       setMySQLFormData({ host: '', port: 3306, database: '', user: '', password: '' });
+      setOracleFormData({
+          host: 'adb.eu-paris-1.oraclecloud.com',
+          port: 1522,
+          service_name: 'g9bbeb1dc290c07_data360_medium.adb.oraclecloud.com',
+          username: 'ADMIN',
+          password: '',
+          connection_mode: 'tls',
+          wallet_path: '',
+          wallet_password: '',
+      });
+      setOracleTestResult(null);
   };
 
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>, provider: 'azure' | 'aws' | 'gcs' | 'snowflake') => {
@@ -2711,6 +2730,19 @@ export default function DataSourceConnectionPage() {
         }
 
         if (currentStep === 1) {
+            if (transitionLoading) {
+                return (
+                    <div className="mx-auto max-w-2xl space-y-8">
+                        <Breadcrumb onHomeClick={() => router.push(routes.home)} />
+                        <div className="flex items-center justify-center py-20">
+                            <div className="text-center">
+                                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                <Text className="text-slate-600 dark:text-slate-400">Loading {selectedSourceInfo?.name} configuration...</Text>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
             switch (selectedSource) {
                 case 'azure':
                     return (
