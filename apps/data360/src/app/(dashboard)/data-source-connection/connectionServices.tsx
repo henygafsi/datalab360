@@ -396,6 +396,18 @@ export async function downloadStageFile(
         window.URL.revokeObjectURL(url);
         document.body.removeChild(a);
     } catch (error) {
+        if (error instanceof Error) throw error;
+        const axiosErr = error as { response?: { data?: Blob; status?: number } };
+        if (axiosErr.response?.data instanceof Blob) {
+            const text = await axiosErr.response.data.text();
+            try {
+                const json = JSON.parse(text) as Record<string, unknown>;
+                const detail = json.detail || json.message || json.error_code;
+                if (detail) throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            } catch {
+                throw new Error(text || 'Download failed');
+            }
+        }
         throw new Error(extractErrorMessage(error, 'Failed to download file'));
     }
 }

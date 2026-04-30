@@ -9,10 +9,12 @@ import {
   HiOutlineEye,
   HiOutlineChevronRight,
   HiOutlineHome,
-  HiOutlineShieldCheck
+  HiOutlineShieldCheck,
+  HiOutlineArrowPath,
+  HiXMark
 } from 'react-icons/hi2';
 import { HiRefresh, HiViewGrid, HiViewList, HiDownload, HiUpload } from 'react-icons/hi';
-import { Database } from 'lucide-react';
+import { Database, FileText, FileJson, Archive, File as FileIcon, FileSpreadsheet, Braces, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
   listSnowflakeStages,
@@ -37,6 +39,7 @@ interface DatalakeBrowserProps {
 
 interface StageItem {
   name: string;
+  shortName?: string;
   type: 'stage' | 'folder' | 'file';
   size?: number;
   last_modified?: string;
@@ -86,12 +89,12 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         const shortName = stage.name ?? stage.stage_name ?? String(stage);
         const schema = stage.schema_name || 'STAGING';
         const db = stage.database_name || '';
-        // Use FQN for non-STAGING stages so backend resolves the correct schema
         const displayName = schema !== 'STAGING' && db
             ? `${db}.${schema}.${shortName}`
             : shortName;
         return {
           name: displayName,
+          shortName,
           type: 'stage' as const,
           schema_name: schema,
           database_name: db,
@@ -124,10 +127,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     setLoading(true);
     try {
       let fileList: any[] = [];
-      const sortParam = sortBy === 'modified' ? 'last_modified' : sortBy;
 
       if (provider === 'snowflake' || provider === 'aws' || provider === 'azure' || provider === 'gcs') {
-        const response = await listSnowflakeStageFiles(stageName, { sort: sortParam });
+        const response = await listSnowflakeStageFiles(stageName);
         fileList = response.files || [];
       }
 
@@ -138,11 +140,6 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         last_modified: file.last_modified,
       }));
 
-      if (sortOrder === 'desc' && sortBy === 'name') {
-        formattedFiles.reverse();
-      } else if (sortOrder === 'desc' && (sortBy === 'size' || sortBy === 'modified')) {
-        formattedFiles.reverse();
-      }
       setFiles(formattedFiles);
     } catch (error: any) {
       toast.error(`Failed to load files: ${error.message}`);
@@ -151,7 +148,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     } finally {
       setLoading(false);
     }
-  }, [provider, sortBy, sortOrder]);
+  }, [provider]);
 
   useEffect(() => {
     if (BROWSER_ONLY_PROVIDERS.includes(provider)) loadStages();
@@ -199,7 +196,6 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     fetchPreview(currentStage, previewFile.name, previewPageSize, offset)
       .then(() => setPreviewPage(newPage))
       .catch((e: any) => toast.error(e.message))
-      .catch((e: unknown) => toast.error(e instanceof Error ? e.message : String(e)))
       .finally(() => setPreviewLoading(false));
   };
 
@@ -221,17 +217,19 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const handleDownload = async (file: StageItem) => {
     if (!currentStage) return;
 
-    setLoading(true);
-    toast('Downloading file...', { icon: '⬇️' });
+    toast('Preparing download...', { icon: '⬇️' });
 
     try {
       await downloadStageFile(currentStage, file.name);
       toast.success(`Downloaded: ${file.name}`);
     } catch (error: any) {
-      toast.error(`Failed to download: ${error.message}`);
+      const msg = error?.message || 'Failed to download file';
+      if (msg.includes('external') || msg.includes('EXTERNAL_STAGE')) {
+        toast.error('Download is not supported for external stages. Access files directly from your cloud storage (Azure Blob / S3 / GCS).');
+      } else {
+        toast.error(`Download failed: ${msg}`);
+      }
       console.error('Download error:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -352,7 +350,6 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const handleBulkDownload = async () => {
     if (!currentStage || selectedFiles.length === 0) return;
 
-    setLoading(true);
     let successCount = 0;
     let errorCount = 0;
 
@@ -362,13 +359,20 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         successCount++;
       } catch (error: any) {
         errorCount++;
+        if (error?.message?.includes('external') || error?.message?.includes('EXTERNAL_STAGE')) {
+          toast.error('Download is not supported for external stages.');
+          break;
+        }
         console.error(`Failed to download ${fileName}:`, error);
       }
     }
 
-    toast.success(`Downloaded ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+    if (successCount > 0) {
+      toast.success(`Downloaded ${successCount} file(s)${errorCount > 0 ? `, ${errorCount} failed` : ''}`);
+    } else if (errorCount > 0) {
+      toast.error(`${errorCount} file(s) failed to download`);
+    }
     setSelectedFiles([]);
-    setLoading(false);
   };
 
   const handleBulkDelete = async () => {
@@ -455,15 +459,15 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     const ext = fileName.split('.').pop()?.toLowerCase();
     switch (ext) {
       case 'csv':
-        return '📊';
+        return <FileSpreadsheet className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />;
       case 'json':
-        return '📋';
+        return <Braces className="h-5 w-5 text-amber-600 dark:text-amber-400" />;
       case 'parquet':
-        return '📦';
+        return <Package className="h-5 w-5 text-violet-600 dark:text-violet-400" />;
       case 'txt':
-        return '📄';
+        return <FileText className="h-5 w-5 text-slate-600 dark:text-slate-400" />;
       default:
-        return '📁';
+        return <FileIcon className="h-5 w-5 text-slate-500 dark:text-slate-400" />;
     }
   };
 
@@ -523,7 +527,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             {currentStage && (
               <>
                 <HiOutlineChevronRight className="h-4 w-4" />
-                <span className="font-medium text-blue-600 dark:text-blue-400">{currentStage}</span>
+                <span className="font-medium text-blue-600 dark:text-blue-400 truncate max-w-xs" title={currentStage}>
+                  {allStages.find(s => s.name === currentStage)?.shortName || currentStage}
+                </span>
               </>
             )}
           </div>
@@ -535,20 +541,19 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               <div className="flex items-center space-x-2">
                 <Database className="h-5 w-5 text-slate-600 dark:text-slate-400" />
                 {allStages.length === 0 ? (
-                  <span className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-400 min-w-[250px] text-sm">
-                    {loading ? 'Loading stages…' : 'No stages (from API)'}
+                  <span className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-700 text-slate-500 dark:text-slate-400 min-w-[220px] text-sm">
+                    {loading ? 'Loading stages...' : 'No stages available'}
                   </span>
                 ) : (
                   <select
                     value={currentStage || ''}
                     onChange={(e) => handleStageChange(e.target.value)}
-                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[250px]"
+                    className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[220px]"
                     disabled={loading}
                   >
                     {allStages.map((stage) => (
-                      <option key={stage.name} value={stage.name}>
-                        {stage.name}
-                        {stage.database_name && stage.schema_name ? ` (${stage.database_name}.${stage.schema_name})` : ''}
+                      <option key={stage.name} value={stage.name} title={stage.name}>
+                        {stage.shortName}
                       </option>
                     ))}
                   </select>
@@ -556,11 +561,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                 <Button
                   onClick={() => loadStages()}
                   disabled={loading}
-                  className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
-                  title="Refresh stages list"
-                  aria-label="Refresh stages list"
+                  className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 text-sm"
+                  title="Sync stages from Snowflake"
+                  aria-label="Sync stages list"
                 >
-                  <HiRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  <HiOutlineArrowPath
+                    className={`h-4 w-4 text-slate-600 dark:text-slate-200 ${loading ? 'animate-spin' : ''}`}
+                  />
+                  {/*Sync stages*/}
                 </Button>
                 <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
                   {files.length} files
@@ -571,7 +579,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
               <div className="flex-1 max-w-md">
                 <input
                   type="text"
-                  placeholder="Search files..."
+                  placeholder="Search files by name..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white placeholder-slate-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -615,19 +623,20 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   disabled={uploading || !currentStage}
                 >
                   <HiUpload className={`h-4 w-4 mr-2 ${uploading ? 'animate-bounce' : ''}`} />
-                  Upload
+                  Upload Files
                 </Button>
               </label>
 
               {/* Refresh files in current stage */}
               <Button
                 onClick={() => currentStage && loadStageFiles(currentStage)}
-                className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
+                className="bg-white hover:bg-slate-50 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600 text-sm"
                 disabled={loading || !currentStage}
                 title="Refresh files"
                 aria-label="Refresh files in current stage"
               >
-                <HiRefresh className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                <HiRefresh className={`h-4 w-4 text-slate-600 dark:text-slate-200 ${loading ? 'animate-spin' : ''}`} />
+                {/*Refresh*/}
               </Button>
 
               {/* Stage grants (governance) */}
@@ -635,41 +644,18 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                 <Button
                   onClick={handleGrantsClick}
                   disabled={!currentStage || grantsLoading}
-                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 border border-slate-300 dark:border-slate-600"
-                  title="View stage grants"
-                  aria-label="View stage grants"
+                  className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 border border-slate-300 dark:border-slate-600"
+                  title="View stage permissions"
+                  aria-label="View stage permissions"
                 >
-                  <HiOutlineShieldCheck className="h-4 w-4 mr-2" />
-                  Grants
+                  <HiOutlineShieldCheck className="h-4 w-4 mr-2 text-slate-600 dark:text-slate-200" />
+                  Permissions
                 </Button>
               )}
             </div>
           </div>
         </div>
       </div>
-
-      {/* Sort dropdown for file list */}
-      {files.length > 0 && (
-        <div className="px-6 py-2 flex items-center gap-2 border-b border-slate-200 dark:border-slate-700">
-          <Text className="text-sm text-slate-600 dark:text-slate-400">Sort by:</Text>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as 'name' | 'size' | 'modified')}
-            className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-900 dark:text-white text-sm px-3 py-1.5"
-          >
-            <option value="name">Name</option>
-            <option value="size">Size</option>
-            <option value="modified">Last modified</option>
-          </select>
-          <button
-            type="button"
-            onClick={() => setSortOrder((o) => (o === 'asc' ? 'desc' : 'asc'))}
-            className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
-          </button>
-        </div>
-      )}
 
       {/* Content - Scrollable (no static/mock data: stages and files from API only) */}
       <div className="flex-1 overflow-auto">
@@ -685,14 +671,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             <div className="text-center max-w-md px-4">
               <Database className="h-16 w-16 text-slate-400 mx-auto mb-4" />
               <Text className="text-lg font-medium text-slate-900 dark:text-white mb-2">
-                No stages returned
+                No stages available
               </Text>
               <Text className="text-sm text-slate-600 dark:text-slate-400 mb-4">
-                Stages are loaded from the backend (GET /connect/stages). Create stages in Snowflake schema CP_DATA360.STAGING or click Refresh above to retry.
+                Create a stage in Snowflake to start browsing files. Stages must exist in the configured schema.
               </Text>
               <Button onClick={() => loadStages()} disabled={loading} className="bg-blue-600 hover:bg-blue-700 text-white">
-                <HiRefresh className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-                Refresh stages
+                <HiOutlineArrowPath className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+                {/*Sync stages*/}
               </Button>
             </div>
           </div>
@@ -740,7 +726,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       disabled={loading}
                     >
                       <HiDownload className="h-4 w-4 mr-2" />
-                      Download ({selectedFiles.length})
+                      Download Selected
                     </Button>
                     <Button
                       onClick={handleBulkDelete}
@@ -748,7 +734,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       disabled={loading}
                     >
                       <HiOutlineTrash className="h-4 w-4 mr-2" />
-                      Delete ({selectedFiles.length})
+                      Delete Selected
                     </Button>
                   </div>
                 </div>
@@ -777,7 +763,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                     </th>
                     <th className="px-6 py-3 text-left">
                       <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                        Type
+                        Format
                       </span>
                     </th>
                     <th className="px-6 py-3 text-left">
@@ -797,16 +783,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       </button>
                     </th>
                     <th className="px-6 py-3 text-right">
-                      <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                        Actions
-                      </span>
+                      <span className="sr-only">Actions</span>
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
-                  {filteredFiles.map((file, index) => (
+                  {filteredFiles.map((file) => (
                     <tr
-                      key={index}
+                      key={file.name}
                       className={`hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors ${
                         selectedFiles.includes(file.name) ? 'bg-blue-50 dark:bg-blue-900/10' : ''
                       }`}
@@ -821,7 +805,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center space-x-3">
-                          <span className="text-2xl">{getFileIcon(file.name)}</span>
+                          {getFileIcon(file.name)}
                           <span className="font-medium text-slate-900 dark:text-white">
                             {file.name}
                           </span>
@@ -872,14 +856,67 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         ) : (
           /* Grid View */
           <div className="p-6">
+            {/* Bulk Actions Bar */}
+            {selectedFiles.length > 0 && (
+              <div className="mb-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <Text className="font-medium text-blue-900 dark:text-blue-100">
+                      {selectedFiles.length} file{selectedFiles.length > 1 ? 's' : ''} selected
+                    </Text>
+                    <button
+                      onClick={() => setSelectedFiles([])}
+                      className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline"
+                    >
+                      Clear selection
+                    </button>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      onClick={handleBulkDownload}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      disabled={loading}
+                    >
+                      <HiDownload className="h-4 w-4 mr-2" />
+                      Download Selected
+                    </Button>
+                    <Button
+                      onClick={handleBulkDelete}
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      disabled={loading}
+                    >
+                      <HiOutlineTrash className="h-4 w-4 mr-2" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {filteredFiles.map((file, index) => (
+              {filteredFiles.map((file) => (
                 <div
-                  key={index}
-                  className="group bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-4 hover:shadow-lg hover:border-blue-500 dark:hover:border-blue-500 transition-all cursor-pointer"
+                  key={file.name}
+                  className={`group bg-white dark:bg-slate-800 rounded-lg border p-4 transition-all cursor-pointer ${
+                    selectedFiles.includes(file.name)
+                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/10 shadow-md'
+                      : 'border-slate-200 dark:border-slate-700 hover:shadow-lg hover:border-blue-400 dark:hover:border-blue-500'
+                  }`}
                 >
+                  <div className="flex items-start justify-between mb-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedFiles.includes(file.name)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        toggleFileSelection(file.name);
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-4 h-4 text-blue-600 bg-slate-100 border-slate-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-slate-800 focus:ring-2 dark:bg-slate-700 dark:border-slate-600"
+                    />
+                  </div>
                   <div className="text-center">
-                    <div className="text-5xl mb-3">{getFileIcon(file.name)}</div>
+                    <div className="mb-3 flex justify-center scale-150">{getFileIcon(file.name)}</div>
                     <h5 className="font-medium text-slate-900 dark:text-white truncate mb-1" title={file.name}>
                       {file.name}
                     </h5>
@@ -917,40 +954,78 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         )}
       </div>
 
-      {/* File Preview Modal with pagination */}
-      <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} size="xl" className="max-h-[90vh] overflow-hidden flex flex-col">
-        <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate">
-            {previewFile?.name ?? 'Preview'}
-          </h3>
-          <Button size="sm" variant="outline" onClick={() => setPreviewOpen(false)}>Close</Button>
-        </div>
-        <div className="flex-1 overflow-auto p-4">
-          {previewLoading && !previewData ? (
-            <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-2 border-blue-600 border-t-transparent" />
-            </div>
-          ) : previewData ? (
-            <>
-              <div className="mb-4 flex flex-wrap items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
-                <span>{previewData.total_rows} rows (page size: {previewPageSize})</span>
-                <span>Columns: {previewData.columns?.join(', ') || '—'}</span>
+      {/* File Preview Modal */}
+      <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} size="xl">
+        <div className="flex flex-col h-[80vh]">
+          {/* Modal Header */}
+          <div className="flex-shrink-0 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex-shrink-0 p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                {getFileIcon(previewFile?.name || '')}
               </div>
-              <div className="overflow-x-auto border rounded-lg dark:border-slate-700">
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate">
+                  {previewFile?.name ?? 'Preview'}
+                </h3>
+                <div className="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                  {previewData && (
+                    <>
+                      <span>{previewData.total_rows?.toLocaleString()} rows</span>
+                      <span className="text-slate-300 dark:text-slate-600">·</span>
+                      <span>{previewData.columns?.length || 0} columns</span>
+                      {previewFile?.size && (
+                        <>
+                          <span className="text-slate-300 dark:text-slate-600">·</span>
+                          <span>{formatFileSize(previewFile.size)}</span>
+                        </>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setPreviewOpen(false)}
+              className="flex-shrink-0 p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+              aria-label="Close preview"
+            >
+              <HiXMark className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Modal Body - Scrollable Table */}
+          <div className="flex-1 overflow-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:hover:bg-slate-400 dark:[&::-webkit-scrollbar-thumb]:hover:bg-slate-500">
+            {previewLoading && !previewData ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3">
+                <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent" />
+                <p className="text-sm text-slate-500 dark:text-slate-400">Loading preview...</p>
+              </div>
+            ) : previewData ? (
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 dark:bg-slate-800">
-                    <tr>
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-50 dark:bg-slate-800/95 backdrop-blur">
+                      <th className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 w-12">
+                        #
+                      </th>
                       {(previewData.columns || []).map((col) => (
-                        <th key={col} className="px-3 py-2 text-left font-medium text-slate-700 dark:text-slate-300 border-b dark:border-slate-700">{col}</th>
+                        <th key={col} className="px-4 py-2.5 text-left text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700 whitespace-nowrap">
+                          {col}
+                        </th>
                       ))}
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                     {(previewData.rows || []).map((row, idx) => (
-                      <tr key={idx} className="border-b dark:border-slate-700 last:border-0">
+                      <tr key={idx} className="bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="px-4 py-2 text-xs text-slate-400 dark:text-slate-500 font-mono">
+                          {idx + 1}
+                        </td>
                         {(previewData.columns || []).map((col) => (
-                          <td key={col} className="px-3 py-2 text-slate-900 dark:text-slate-200 max-w-xs truncate" title={String((row as any)[col] ?? '')}>
-                            {String((row as any)[col] ?? '')}
+                          <td key={col} className="px-4 py-2 text-slate-700 dark:text-slate-300 max-w-[300px] truncate font-mono text-xs" title={String((row as any)[col] ?? '')}>
+                            {(row as any)[col] !== null && (row as any)[col] !== undefined ? String((row as any)[col]) : (
+                              <span className="text-slate-400 dark:text-slate-500 italic">null</span>
+                            )}
                           </td>
                         ))}
                       </tr>
@@ -958,57 +1033,67 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                   </tbody>
                 </table>
               </div>
-              <div className="mt-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Page size:</span>
-                  <select
-                    value={previewPageSize}
-                    onChange={(e) => {
-                      const v = Number(e.target.value);
-                      setPreviewPageSize(v);
-                      if (previewFile && currentStage) {
-                        setPreviewLoading(true);
-                        fetchPreview(currentStage, previewFile.name, v, 0).then(() => setPreviewPage(0)).finally(() => setPreviewLoading(false));
-                      }
-                    }}
-                    className="rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-sm"
-                  >
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                    <option value={250}>250</option>
-                    <option value={500}>500</option>
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={previewPage === 0 || previewLoading}
-                    onClick={() => handlePreviewPageChange(previewPage - 1)}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-sm text-slate-600 dark:text-slate-400">Page {previewPage + 1}</span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={previewLoading || (previewData.rows?.length ?? 0) < previewPageSize}
-                    onClick={() => handlePreviewPageChange(previewPage + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </>
-          ) : null}
+            ) : null}
+          </div>
+
+          {/* Modal Footer - Pagination */}
+          <div className="flex-shrink-0 px-6 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
+            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+              <span>Rows per page</span>
+              <select
+                value={previewPageSize}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setPreviewPageSize(v);
+                  if (previewFile && currentStage) {
+                    setPreviewLoading(true);
+                    fetchPreview(currentStage, previewFile.name, v, 0).then(() => setPreviewPage(0)).finally(() => setPreviewLoading(false));
+                  }
+                }}
+                className="rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 px-2 py-1 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                disabled={previewPage === 0 || previewLoading}
+                onClick={() => handlePreviewPageChange(previewPage - 1)}
+              >
+                Previous
+              </button>
+              <span className="px-3 py-1.5 text-sm font-medium text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 rounded-md border border-slate-300 dark:border-slate-600 min-w-[80px] text-center">
+                {previewPage + 1}
+              </span>
+              <button
+                className="px-3 py-1.5 text-sm font-medium rounded-md border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                disabled={previewLoading || (previewData?.rows?.length ?? 0) < previewPageSize}
+                onClick={() => handlePreviewPageChange(previewPage + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </div>
         </div>
       </Modal>
 
       {/* Stage grants modal */}
       <Modal isOpen={grantsOpen} onClose={() => setGrantsOpen(false)} size="md">
         <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Stage grants — {currentStage}</h3>
-          <Button size="sm" variant="outline" onClick={() => setGrantsOpen(false)}>Close</Button>
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate pr-4">
+            Permissions &mdash; {currentStage ? allStages.find(s => s.name === currentStage)?.shortName || currentStage : ''}
+          </h3>
+          <button
+            onClick={() => setGrantsOpen(false)}
+            className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-colors"
+            aria-label="Close"
+          >
+            <HiXMark className="h-5 w-5" />
+          </button>
         </div>
         <div className="p-4 max-h-96 overflow-auto">
           {grantsLoading ? (
@@ -1041,21 +1126,19 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       </Modal>
 
       {/* Footer - Fixed */}
-      <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-4">
+      <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-3">
         <div className="flex items-center justify-between">
-          <Text className="text-sm text-slate-600 dark:text-slate-400">
-            Showing {filteredFiles.length} of {files.length} files
-            {searchQuery && ` (filtered)`}
+          <div className="flex items-center gap-4 text-sm text-slate-600 dark:text-slate-400">
+            <span>
+              {filteredFiles.length} of {files.length} files
+              {searchQuery && ' (filtered)'}
+            </span>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <span>Total: {formatFileSize(files.reduce((sum, f) => sum + (f.size || 0), 0))}</span>
+          </div>
+          <Text className="text-sm text-slate-500 dark:text-slate-400">
+            {getProviderName()} &middot; {currentStage ? allStages.find(s => s.name === currentStage)?.shortName || currentStage : 'No stage selected'}
           </Text>
-          <Button
-            onClick={onBack}
-            className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300"
-            title="Back to Data Source Connection"
-            aria-label="Back to Data Source Connection"
-          >
-            <HiOutlineArrowLeft className="h-4 w-4 mr-2" />
-            Back to Connections
-          </Button>
         </div>
       </div>
     </div>
