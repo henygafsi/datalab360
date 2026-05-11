@@ -209,9 +209,9 @@ export function expandModulesToIncludeSubModules(moduleApiNames: string[]): stri
   const expanded = new Set<string>(moduleApiNames);
   
   moduleApiNames.forEach(apiName => {
-    const module = moduleByApiName.get(apiName);
-    if (module?.subModules) {
-      module.subModules.forEach(sub => {
+    const mod = moduleByApiName.get(apiName);
+    if (mod?.subModules) {
+      mod.subModules.forEach(sub => {
         expanded.add(sub.apiName);
       });
     }
