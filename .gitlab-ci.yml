@@ -18,8 +18,10 @@ cache:
 
 before_script:
   - node --version
-  - corepack enable
-  - corepack prepare pnpm@9.1.4 --activate
+  - mkdir -p /tmp/pnpm-bin
+  - npm install --prefix /tmp/pnpm-bin --silent --no-save pnpm@9.1.4
+  - export PATH="/tmp/pnpm-bin/node_modules/.bin:$PATH"
+  - pnpm --version
   - pnpm config set store-dir .pnpm-store
   - pnpm install --frozen-lockfile
 
@@ -53,7 +55,9 @@ deploy:
       artifacts: true
   script:
     - if [ -z "$VERCEL_TOKEN" ]; then echo "FAIL VERCEL_TOKEN missing in CI variables"; exit 1; fi
-    - npm install -g vercel@latest >/dev/null
+    - mkdir -p /tmp/vercel-bin
+    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@latest
+    - export PATH="/tmp/vercel-bin/node_modules/.bin:$PATH"
     - mkdir -p .vercel
     - printf '{"projectId":"%s","orgId":"%s","settings":{"framework":"nextjs"}}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
     - vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
