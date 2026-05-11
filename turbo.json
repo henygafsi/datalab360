@@ -7,7 +7,9 @@
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"],
       "env": ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "NEXT_PUBLIC_GOOGLE_MAP_API_KEY","NEXT_PUBLIC_API_URL","OPENAPI_URL"]
     },
-    "lint": {},
+    "lint": {
+      "env": ["NEXTAUTH_SECRET", "NEXTAUTH_URL", "SKIP_ENV_VALIDATION", "NEXT_PUBLIC_GOOGLE_MAP_API_KEY", "NEXT_PUBLIC_API_URL", "OPENAPI_URL"]
+    },
     "start": {
       "dependsOn": ["^start"]
     },
