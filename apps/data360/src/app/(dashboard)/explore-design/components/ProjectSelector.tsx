@@ -79,6 +79,24 @@ export default function ProjectSelector({
 
   const memberInputRef = useRef<HTMLInputElement>(null);
 
+  // Fetch explore projects (declared early so safeProjects below can reference it)
+  const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
+    const response = await listProjects({ project_type: 'explore_design', mine_only: true });
+    if (!response.projects || response.projects.length === 0) return [];
+    return response.projects.map((p: ApiProject) => ({
+      project_id: p.project_id,
+      name: p.project_name,
+      created_by: p.created_by,
+      status: p.status,
+      created_at: p.created_at,
+    }));
+  }, []);
+
+  const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<Project[]>(
+    fetchProjectsFn,
+    { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: [] }
+  );
+
   // Filtered projects for search
   const safeProjects = projects ?? [];
   const filteredProjects = useMemo(() => {
@@ -125,28 +143,6 @@ export default function ProjectSelector({
       });
     return () => { cancelled = true; };
   }, [showModal, allUsers.length]);
-
-  // Fetch explore projects
-  const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
-    const response = await listProjects({ project_type: 'explore_design', mine_only: true });
-
-    if (!response.projects || response.projects.length === 0) {
-      return [];
-    }
-
-    return response.projects.map((p: ApiProject) => ({
-      project_id: p.project_id,
-      name: p.project_name,
-      created_by: p.created_by,
-      status: p.status,
-      created_at: p.created_at,
-    }));
-  }, []);
-
-  const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<Project[]>(
-    fetchProjectsFn,
-    { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: [] }
-  );
 
   // Handle project creation + add team members
   const handleCreateProject = async () => {
