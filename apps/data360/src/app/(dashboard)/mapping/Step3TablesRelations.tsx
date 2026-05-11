@@ -587,12 +587,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 }))
             };
 
-            // console.log('Step3: Available columns for each table:', 
-                Object.keys(allColumnsDataMap).reduce((acc, tableKey) => {
-                    acc[tableKey] = Object.keys(allColumnsDataMap[tableKey] || {});
-                    return acc;
-                }, {} as Record<string, string[]>)
-            );
+            // console.log('Step3: Available columns for each table:',
+            //     Object.keys(allColumnsDataMap).reduce((acc, tableKey) => {
+            //         acc[tableKey] = Object.keys(allColumnsDataMap[tableKey] || {});
+            //         return acc;
+            //     }, {} as Record<string, string[]>)
+            // );
             
             // console.log('Step3: Available PKs from events:', {
                 // sourcePks: mappingData.primary_keys?.source,
