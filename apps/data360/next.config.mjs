@@ -16,10 +16,15 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   async rewrites() {
+    const upstream = process.env.API_PROXY_UPSTREAM || 'http://api.datalab360.io';
     return [
       {
         source: '/api/mapping/:path*',
-        destination: `${process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443'}/mapping/:path*`,
+        destination: `${upstream}/mapping/:path*`,
+      },
+      {
+        source: '/api-proxy/:path*',
+        destination: `${upstream}/:path*`,
       },
     ];
   },
