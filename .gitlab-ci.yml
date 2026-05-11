@@ -7,6 +7,9 @@ variables:
   PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-store"
   VERCEL_ORG_ID: "team_kC7CPyVYhZTxlOrqAlaKbKfi"
   VERCEL_PROJECT_ID: "prj_P5hsPsdZ24jZUqJzaULd0hFYkKkL"
+  SKIP_ENV_VALIDATION: "true"
+  NEXTAUTH_SECRET: "ci-only-not-used-at-runtime-32chars-minimum"
+  NEXTAUTH_URL: "http://localhost:3000"
 
 cache:
   key: pnpm-$CI_COMMIT_REF_SLUG
