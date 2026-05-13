@@ -125,7 +125,7 @@ dep-audit:
       else CRITICAL=0; HIGH=0; fi
     - echo "DEP_CRITICAL=$CRITICAL" > reports/dep.env
     - echo "DEP_HIGH=$HIGH" >> reports/dep.env
-    - echo "Critical: $CRITICAL | High: $HIGH"
+    - 'echo "Critical=$CRITICAL High=$HIGH"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$CRITICAL" -gt 0 ]; then exit 1; fi
     - exit 0
   artifacts:
