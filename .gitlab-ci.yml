@@ -65,7 +65,7 @@ lint:
     - pnpm lint --format=json --output-file=reports/eslint.json || true
     - pnpm lint 2>&1 | tee reports/eslint.txt
     - LINT_EXIT=${PIPESTATUS[0]}
-    - echo "Lint exit: $LINT_EXIT"
+    - 'echo "Lint exit=$LINT_EXIT"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LINT_EXIT" != "0" ]; then exit $LINT_EXIT; fi
     - exit 0
   artifacts:
@@ -85,7 +85,7 @@ typecheck:
     - TSC_EXIT=${PIPESTATUS[0]}
     - ERR=$(grep -cE 'error TS[0-9]+' ../../reports/tsc.txt || echo 0)
     - echo "TSC_ERRORS=$ERR" > ../../reports/tsc.env
-    - echo "TypeScript errors: $ERR"
+    - 'echo "TypeScript errors=$ERR"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$TSC_EXIT" != "0" ]; then exit $TSC_EXIT; fi
     - exit 0
   artifacts:
@@ -150,7 +150,7 @@ secret-scan:
     - grep -rEn 'http://api\.datalab360\.io' --include='*.ts' --include='*.tsx' --include='*.js' --exclude-dir=node_modules apps/ 2>/dev/null | tee -a reports/secrets.txt || true
     - LEAKS=$(grep -c . reports/secrets.txt 2>/dev/null || echo 0)
     - echo "SECRET_LEAKS=$LEAKS" > reports/secret.env
-    - echo "Potential leaks: $LEAKS"
+    - 'echo "Potential leaks=$LEAKS"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LEAKS" -gt 0 ]; then exit 1; fi
     - exit 0
   artifacts:
