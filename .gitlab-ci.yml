@@ -137,17 +137,18 @@ dep-audit:
 
 secret-scan:
   stage: quality
-  image: alpine:3.20
+  image: debian:bookworm-slim
   timeout: 5 minutes
   needs: []
   before_script:
-    - apk add --no-cache grep
+    - apt-get update -qq && apt-get install -y -qq grep findutils > /dev/null
     - mkdir -p reports
   script:
     - set +e
-    - grep -rEn '(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)\s*=\s*[\"\x27][^\"\x27]{8,}' --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' --include='*.json' --exclude-dir=node_modules --exclude-dir=.next --exclude-dir=.pnpm-store apps/ packages/ 2>/dev/null | tee reports/secrets.txt || true
-    - grep -rE 'eyJhbGciOi[A-Za-z0-9_-]{20,}' --include='*.ts' --include='*.tsx' --include='*.js' --exclude-dir=node_modules apps/ 2>/dev/null | tee -a reports/secrets.txt || true
-    - grep -rEn 'http://api\.datalab360\.io' --include='*.ts' --include='*.tsx' --include='*.js' --exclude-dir=node_modules apps/ 2>/dev/null | tee -a reports/secrets.txt || true
+    - find apps packages -type d \( -name node_modules -o -name .next -o -name .pnpm-store -o -name .turbo -o -name dist -o -name build \) -prune -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' \) -print > /tmp/scan-files.txt 2>/dev/null || true
+    - xargs -a /tmp/scan-files.txt grep -EHn '(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["\x27][^"\x27]{8,}' 2>/dev/null | tee reports/secrets.txt || true
+    - xargs -a /tmp/scan-files.txt grep -EHn 'eyJhbGciOi[A-Za-z0-9_-]{20,}' 2>/dev/null | tee -a reports/secrets.txt || true
+    - xargs -a /tmp/scan-files.txt grep -EHn 'http://api\.datalab360\.io' 2>/dev/null | tee -a reports/secrets.txt || true
     - LEAKS=$(grep -c . reports/secrets.txt 2>/dev/null || echo 0)
     - echo "SECRET_LEAKS=$LEAKS" > reports/secret.env
     - 'echo "Potential leaks=$LEAKS"'
