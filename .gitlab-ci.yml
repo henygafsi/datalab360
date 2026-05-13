@@ -140,6 +140,7 @@ secret-scan:
   image: debian:bookworm-slim
   timeout: 5 minutes
   needs: []
+  cache: []  # don't archive node_modules/.pnpm-store for this lightweight job
   before_script:
     - apt-get update -qq && apt-get install -y -qq grep findutils > /dev/null
     - mkdir -p reports
