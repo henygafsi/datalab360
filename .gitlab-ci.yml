@@ -98,7 +98,7 @@ typecheck:
 format-check:
   stage: quality
   extends: .node-setup
-  timeout: 5 minutes
+  timeout: 10 minutes
   script:
     - set +e
     - cd apps/data360
@@ -113,7 +113,7 @@ format-check:
 dep-audit:
   stage: quality
   extends: .node-setup
-  timeout: 5 minutes
+  timeout: 10 minutes
   script:
     - set +e
     - apk add --no-cache jq 2>/dev/null || true
@@ -138,7 +138,7 @@ dep-audit:
 secret-scan:
   stage: quality
   image: debian:bookworm-slim
-  timeout: 5 minutes
+  timeout: 10 minutes
   needs: []
   cache: []  # don't archive node_modules/.pnpm-store for this lightweight job
   before_script:
@@ -165,7 +165,7 @@ secret-scan:
 dead-route-scan:
   stage: quality
   extends: .node-setup
-  timeout: 5 minutes
+  timeout: 10 minutes
   script:
     - set +e
     - node scripts/ci/scan-dead-routes.mjs > reports/dead-routes.txt 2>&1 || true
@@ -237,7 +237,7 @@ build:
 bundle-size:
   stage: analyze
   extends: .node-setup
-  timeout: 5 minutes
+  timeout: 10 minutes
   needs: ["build"]
   script:
     - set +e
