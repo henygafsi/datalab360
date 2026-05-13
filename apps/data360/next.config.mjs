@@ -28,6 +28,22 @@ const nextConfig = {
       },
     ];
   },
+  // Permanent 308 redirects keep the old French slug stable for bookmarks
+  // and external links after the rename to /governance.
+  async redirects() {
+    return [
+      {
+        source: '/gouvernance',
+        destination: '/governance',
+        permanent: true,
+      },
+      {
+        source: '/gouvernance/:path*',
+        destination: '/governance/:path*',
+        permanent: true,
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {

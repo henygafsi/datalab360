@@ -80,7 +80,7 @@ function detectModule(pathname: string): string {
   if (pathname.includes('explore-design')) return 'explore_design';
   if (pathname.includes('workflow')) return 'workflow';
   if (pathname.includes('bi-dashboard')) return 'bi_dashboard';
-  if (pathname.includes('gouvernance')) return 'gouvernance';
+  if (pathname.includes('governance')) return 'governance';
   if (pathname.includes('data-quality')) return 'data_quality';
   if (pathname.includes('intelligent')) return 'cortex';
   if (pathname.includes('observability')) return 'observability';

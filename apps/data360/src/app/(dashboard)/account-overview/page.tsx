@@ -104,7 +104,7 @@ export default function AccountOverviewPage() {
       <div className="mx-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Monitoring)</a>
-        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Security)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Security)</a>
         <a href="/client-accounts" className="text-blue-600 dark:text-blue-400 hover:underline">Client Accounts (Org)</a>
       </div>
     </AccountOverviewErrorBoundary>

@@ -141,7 +141,7 @@ const modules: ModuleCard[] = [
     icon: <Shield className="h-7 w-7" />,
     color: 'text-rose-500',
     bgGradient: 'from-rose-500/10 to-rose-600/5',
-    href: '/gouvernance/users',
+    href: '/governance/users',
     features: [
       'Users, Roles & Grants',
       '7 policy types (Masking, RLS, ...)',
@@ -576,7 +576,7 @@ export default function DemoShowcasePage() {
                 step: 5,
                 title: 'Governance',
                 desc: 'Security matrix, masking policies, role-based grants',
-                href: '/gouvernance/security-matrix',
+                href: '/governance/security-matrix',
                 color: 'border-l-rose-500',
               },
               {

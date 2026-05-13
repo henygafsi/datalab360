@@ -168,6 +168,13 @@ interface CacheInvalidationOptions {
  * });
  * ```
  */
+// Timeouts and reconnect tuning for the SSE stream.
+const INITIAL_CONNECT_TIMEOUT_MS = 8_000;
+const IDLE_TIMEOUT_MS = 90_000;
+const HEARTBEAT_TIMEOUT_MS = 60_000;
+const RECONNECT_BASE_MS = 1_000;
+const RECONNECT_MAX_MS = 30_000;
+
 export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
   const {
     onInvalidate,
@@ -178,10 +185,18 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
   } = options;
   const { data: session, status } = useSession();
 
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Abort controller for the active fetch stream.
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const isRedirectingRef = useRef(false);
+  const isUnmountedRef = useRef(false);
+  // Latest options held in refs so the connect loop reads current values
+  // without re-creating itself on every render.
+  const onInvalidateRef = useRef(onInvalidate);
+  const debugRef = useRef(debug);
+  useEffect(() => { onInvalidateRef.current = onInvalidate; }, [onInvalidate]);
+  useEffect(() => { debugRef.current = debug; }, [debug]);
 
   const [isConnected, setIsConnected] = useState(false);
   const [clientId, setClientId] = useState<string | null>(null);
@@ -189,135 +204,264 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
   const [error, setError] = useState<string | null>(null);
 
   const log = useCallback((...args: unknown[]) => {
-    if (debug) {
+    if (debugRef.current) {
       console.log('[SSE]', ...args);
     }
-  }, [debug]);
+  }, []);
 
   /**
-   * Handle when sync is persistently offline
-   * Note: We don't auto-signout - just show error state
+   * Handle when sync is persistently offline.
+   * Note: We don't auto-signout — just surface error state to the UI.
    */
   const handleOfflineError = useCallback(() => {
     if (isRedirectingRef.current) return;
     isRedirectingRef.current = true;
-    log('⚠️ Sync offline - SSE connection failed');
+    log('Sync offline - SSE connection failed');
     setError('Sync offline');
   }, [log]);
 
   const connect = useCallback(() => {
-    // Don't connect if not authenticated
+    if (isUnmountedRef.current) return;
+
+    // Don't connect if not authenticated.
     if (status !== 'authenticated' || !session?.user?.access_token) {
-      log('⏳ Waiting for authentication...');
+      log('Waiting for authentication...');
       return;
     }
 
-    // Close existing connection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
+    // Abort any in-flight stream before starting a new one.
+    if (abortControllerRef.current) {
+      try { abortControllerRef.current.abort(); } catch { /* noop */ }
+      abortControllerRef.current = null;
     }
 
-    const apiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
-    // EventSource can't send Authorization headers — pass token as query param
-    const token = (session as any)?.user?.access_token || '';
-    const streamUrl = `${apiUrl}/cache-stream/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+    // Force HTTPS — never let a misconfigured env var leak to http:// (mixed content).
+    const rawApiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+    let apiUrl = (rawApiUrl || '').trim();
+    if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
+    if (apiUrl.startsWith('http://')) apiUrl = `https://${apiUrl.slice(7)}`;
+    if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
+    // No token in URL — JWT is passed via Authorization header in fetch().
+    const streamUrl = `${apiUrl}/cache-stream/stream`;
+    const token = session.user.access_token;
 
-    log('🔌 Connecting to SSE:', streamUrl);
+    log('Connecting to SSE:', streamUrl);
 
-    try {
-      const eventSource = new EventSource(streamUrl, {
-        withCredentials: true,
-      });
-      eventSourceRef.current = eventSource;
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
-      eventSource.onopen = () => {
-        log('✅ SSE Connection opened');
-        setError(null);
-        reconnectAttemptsRef.current = 0;
-      };
+    // Initial-connect timeout: aborts if the server doesn't respond within 8s.
+    // Cleared once the first event is parsed (long-poll mode).
+    let initialConnectTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+      log('Initial connect timeout, aborting');
+      try { abortController.abort(); } catch { /* noop */ }
+    }, INITIAL_CONNECT_TIMEOUT_MS);
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as SSEEvent;
-          log('📨 SSE Event:', data);
-          setLastEvent(data);
+    // Idle timeout: no events of any kind (data, heartbeat comment) in 90s → reconnect.
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    // Heartbeat timeout: if no `:heartbeat` comment or `heartbeat` event in 60s, reconnect.
+    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
 
-          switch (data.type) {
-            case 'connected':
-              log('✅ SSE Connected:', data.client_id);
-              setIsConnected(true);
-              setClientId(data.client_id || null);
-              break;
+    const clearAllTimers = () => {
+      if (initialConnectTimer) { clearTimeout(initialConnectTimer); initialConnectTimer = null; }
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+      if (heartbeatTimer) { clearTimeout(heartbeatTimer); heartbeatTimer = null; }
+    };
 
-            case 'cache_invalidation':
-              log('🔄 Cache Invalidation:', data.cache_keys);
-              log('   Reason:', data.reason);
-              log('   Triggered by:', data.triggered_by);
+    const resetIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        log('Idle timeout reached, aborting');
+        try { abortController.abort(); } catch { /* noop */ }
+      }, IDLE_TIMEOUT_MS);
+    };
 
-              if (data.cache_keys && onInvalidate) {
-                onInvalidate(data.cache_keys, data.reason);
-              }
-              break;
+    const resetHeartbeatTimer = () => {
+      if (heartbeatTimer) clearTimeout(heartbeatTimer);
+      heartbeatTimer = setTimeout(() => {
+        log('Heartbeat timeout reached, aborting');
+        try { abortController.abort(); } catch { /* noop */ }
+      }, HEARTBEAT_TIMEOUT_MS);
+    };
 
-            case 'heartbeat':
-              log('💓 Heartbeat received');
-              break;
-          }
-        } catch (parseError) {
-          console.error('[SSE] Failed to parse event:', parseError);
+    const scheduleReconnect = () => {
+      if (isUnmountedRef.current) return;
+      reconnectAttemptsRef.current += 1;
+      if (redirectOnOffline && reconnectAttemptsRef.current >= maxReconnectAttempts) {
+        log(`Max reconnect attempts (${maxReconnectAttempts}) exceeded`);
+        handleOfflineError();
+        return;
+      }
+      const delay = Math.min(
+        RECONNECT_BASE_MS * Math.pow(2, reconnectAttemptsRef.current - 1),
+        RECONNECT_MAX_MS
+      );
+      log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        connect();
+      }, delay);
+    };
+
+    const handleSSEBlock = (block: string) => {
+      // An SSE "event" is a block separated by a blank line. Inside the block,
+      // lines starting with ":" are comments (e.g. heartbeats). The "data:" field
+      // accumulates across lines, "event:" sets the event type, "id:" sets the id.
+      let eventName: string | null = null;
+      const dataLines: string[] = [];
+      let sawComment = false;
+      for (const rawLine of block.split('\n')) {
+        const line = rawLine.replace(/\r$/, '');
+        if (!line) continue;
+        if (line.startsWith(':')) {
+          sawComment = true;
+          // Treat any comment (including `:heartbeat`) as liveness signal.
+          resetHeartbeatTimer();
+          continue;
         }
-      };
+        const colonIdx = line.indexOf(':');
+        const field = colonIdx === -1 ? line : line.slice(0, colonIdx);
+        // Per spec: if the value starts with a space, strip exactly one.
+        let value = colonIdx === -1 ? '' : line.slice(colonIdx + 1);
+        if (value.startsWith(' ')) value = value.slice(1);
+        if (field === 'event') eventName = value;
+        else if (field === 'data') dataLines.push(value);
+        // ignore `id`, `retry` — we don't currently use Last-Event-ID resume.
+      }
 
-      eventSource.onerror = (err) => {
-        console.error('❌ SSE Error:', err);
-        setIsConnected(false);
-        setError('Connection lost');
+      if (dataLines.length === 0) {
+        // Pure comment block (heartbeat) — already noted above.
+        return;
+      }
 
-        reconnectAttemptsRef.current++;
+      const dataStr = dataLines.join('\n');
+      let parsed: SSEEvent | null = null;
+      try {
+        parsed = JSON.parse(dataStr) as SSEEvent;
+      } catch (parseError) {
+        console.error('[SSE] Failed to parse event data:', parseError);
+        return;
+      }
 
-        // Check if we should stop reconnecting after max attempts
-        if (redirectOnOffline && reconnectAttemptsRef.current >= maxReconnectAttempts) {
-          log(`❌ Max reconnect attempts (${maxReconnectAttempts}) exceeded`);
-          handleOfflineError();
+      // Heartbeat events from backend: emitted as `event: heartbeat` + JSON body.
+      const effectiveType = parsed.type || (eventName as SSEEvent['type']);
+      const evt: SSEEvent = { ...parsed, type: effectiveType };
+      log('SSE Event:', evt);
+      setLastEvent(evt);
+
+      switch (evt.type) {
+        case 'connected':
+          log('SSE Connected:', evt.client_id);
+          setIsConnected(true);
+          setClientId(evt.client_id || null);
+          setError(null);
+          reconnectAttemptsRef.current = 0;
+          break;
+        case 'cache_invalidation':
+          if (evt.cache_keys && onInvalidateRef.current) {
+            onInvalidateRef.current(evt.cache_keys, evt.reason);
+          }
+          break;
+        case 'heartbeat':
+          // Already handled by resetHeartbeatTimer below
+          break;
+      }
+      // Any event (data or heartbeat) keeps the connection alive.
+      void sawComment; // satisfy lint about unused
+      resetHeartbeatTimer();
+    };
+
+    (async () => {
+      try {
+        const response = await fetch(streamUrl, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+          credentials: 'include',
+          signal: abortController.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`SSE HTTP ${response.status}`);
+        }
+        if (!response.body) {
+          throw new Error('SSE response has no body');
+        }
+
+        log('SSE response opened');
+        // First byte received — clear initial-connect timeout, arm idle/heartbeat timers.
+        if (initialConnectTimer) { clearTimeout(initialConnectTimer); initialConnectTimer = null; }
+        resetIdleTimer();
+        resetHeartbeatTimer();
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            log('SSE stream ended by server');
+            break;
+          }
+          // Any chunk activity resets the idle timer.
+          resetIdleTimer();
+          buffer += decoder.decode(value, { stream: true });
+          // SSE event boundaries are double newlines. Handle both \n\n and \r\n\r\n.
+          let sepIdx: number;
+          while (true) {
+            const lf = buffer.indexOf('\n\n');
+            const crlf = buffer.indexOf('\r\n\r\n');
+            if (lf === -1 && crlf === -1) { sepIdx = -1; break; }
+            if (lf === -1) sepIdx = crlf;
+            else if (crlf === -1) sepIdx = lf;
+            else sepIdx = Math.min(lf, crlf);
+            const sepLen = (sepIdx === crlf && crlf !== -1) ? 4 : 2;
+            const block = buffer.slice(0, sepIdx);
+            buffer = buffer.slice(sepIdx + sepLen);
+            if (block.length > 0) handleSSEBlock(block);
+          }
+        }
+
+        // Server closed the stream cleanly → reconnect.
+        if (!isUnmountedRef.current && !abortController.signal.aborted) {
+          setIsConnected(false);
+          scheduleReconnect();
+        }
+      } catch (err) {
+        const aborted = abortController.signal.aborted;
+        if (aborted && isUnmountedRef.current) {
+          // Component unmounted — don't reconnect.
           return;
         }
+        log('SSE stream error:', (err as Error)?.message || err);
+        setIsConnected(false);
+        setError('Connection lost');
+        scheduleReconnect();
+      } finally {
+        clearAllTimers();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, status, sseUrl, log, redirectOnOffline, maxReconnectAttempts, handleOfflineError]);
 
-        // Exponential backoff for reconnection
-        const maxDelay = 30000; // 30 seconds max
-        const baseDelay = 1000; // 1 second base
-        const delay = Math.min(
-          baseDelay * Math.pow(2, reconnectAttemptsRef.current),
-          maxDelay
-        );
-
-        log(`🔄 Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
-
-        if (reconnectTimeoutRef.current) {
-          clearTimeout(reconnectTimeoutRef.current);
-        }
-
-        reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
-        }, delay);
-      };
-    } catch (err) {
-      console.error('[SSE] Failed to create EventSource:', err);
-      setError('Failed to connect');
-    }
-  }, [session, status, sseUrl, onInvalidate, log, redirectOnOffline, maxReconnectAttempts, handleOfflineError]);
-
-  // Connect when authenticated - single useEffect to avoid reconnection loops
+  // Connect when authenticated — single useEffect to avoid reconnection loops.
   useEffect(() => {
-    // Only connect if authenticated and not already connected
+    isUnmountedRef.current = false;
     if (status === 'authenticated' && session?.user?.access_token) {
       connect();
     }
 
     return () => {
-      log('🔌 Closing SSE connection');
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      isUnmountedRef.current = true;
+      log('Closing SSE connection');
+      if (abortControllerRef.current) {
+        try { abortControllerRef.current.abort(); } catch { /* noop */ }
+        abortControllerRef.current = null;
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
@@ -325,7 +469,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status, session?.user?.access_token, log]);
+  }, [status, session?.user?.access_token]);
 
   return {
     isConnected,

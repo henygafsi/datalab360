@@ -32,6 +32,8 @@ import { Loader, Button } from 'rizzui';
 import ETLPalette from './components/ETLPalette';
 import ETLConfigSidebar from './components/ETLConfigSidebar';
 import ScheduleManager from './components/ScheduleManager';
+import WorkflowProjectGate from './components/WorkflowProjectGate';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
@@ -326,6 +328,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const { isAuthenticated } = useAuth();
   const accessToken = typeof window !== 'undefined' ? (localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '') : '';
 
+  // URL search params for shareable links: ?project=<workflow_id>
+  // Capture the initial ?project value ONCE at mount so the URL-sync effect can't
+  // strip it before the workflows list arrives.
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+  const initialProjectIdRef = useRef<string | null>(
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('project')
+      : null,
+  );
+  const projectGateDismissedRef = useRef(false);
+
   // ReactFlow state
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -473,6 +488,33 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setShowRightPanel(false);
     }
   }, []);
+
+  // Keep URL in sync with the active workflow for shareable links.
+  // Guard the strip branch with !isLoading && !isPipelineLoading so we don't clobber a
+  // deep-link ?project=<id> before the auto-select effect has had a chance to consume it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const current = searchParams?.get('project') || null;
+    if (activeWorkflowId && current !== activeWorkflowId) {
+      const params = new URLSearchParams(searchParams?.toString() || '');
+      params.set('project', activeWorkflowId);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    } else if (!activeWorkflowId && current && !isLoading && !isPipelineLoading) {
+      const params = new URLSearchParams(searchParams?.toString() || '');
+      params.delete('project');
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : (pathname || '/workflow'), { scroll: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkflowId, isLoading, isPipelineLoading]);
+
+  // If the active right-pane tab becomes disabled (canvas empty), fall back to AI
+  useEffect(() => {
+    const emptyDisabledTabs: Array<typeof activeTab> = ['results', 'runs', 'sql', 'schedules'];
+    if (nodes.length === 0 && emptyDisabledTabs.includes(activeTab)) {
+      setActiveTab('ai');
+    }
+  }, [nodes.length, activeTab]);
 
   // ============================================
   // DRAG AND DROP
@@ -953,6 +995,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     },
     [setNodes, setEdges]
   );
+
+  // Auto-select workflow from URL ?project=<id> once workflows are loaded
+  useEffect(() => {
+    const initialId = initialProjectIdRef.current;
+    if (
+      initialId &&
+      !activeWorkflowId &&
+      workflows.length > 0 &&
+      !isPipelineLoading
+    ) {
+      const wf = workflows.find((w) => w.id === initialId);
+      if (wf) {
+        projectGateDismissedRef.current = true;
+        handleLoadPipeline(wf);
+      }
+      // Consume the initial value so a subsequent state change can't retrigger this.
+      initialProjectIdRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflows.length]);
 
   const handleSavePipeline = useCallback(async () => {
     if (readOnlyGuard()) return;
@@ -1457,18 +1519,67 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     );
   }
 
+  // Show the project gate when no workflow is loaded (after workflows finished loading) and the
+  // user hasn't dismissed it via "New Workflow" creation. Skipping the gate while loading avoids
+  // a flash before URL-auto-select can run.
+  const showProjectGate =
+    !activeWorkflowId &&
+    !isLoading &&
+    !isPipelineLoading &&
+    !projectGateDismissedRef.current;
+
+  const handleGateSelect = useCallback(
+    (workflowId: string, workflowName: string) => {
+      projectGateDismissedRef.current = true;
+      const wf = workflows.find((w) => w.id === workflowId);
+      if (wf) {
+        handleLoadPipeline(wf);
+      } else {
+        // Newly-created workflow may not be in the list yet — set directly
+        setActiveWorkflowId(workflowId);
+        setActiveWorkflowName(workflowName);
+        setPipelineName(workflowName);
+        setUserRole('owner');
+        setNodes([]);
+        setEdges([]);
+        setIsDirty(false);
+        loadWorkflows();
+      }
+    },
+    [workflows, handleLoadPipeline, setNodes, setEdges, loadWorkflows],
+  );
+
   return (
     <div className={cn('h-full flex flex-col bg-slate-100 dark:bg-slate-900', className)}>
+      {/* Project Gate: blocks the canvas until a workflow project is selected */}
+      <WorkflowProjectGate
+        isOpen={showProjectGate}
+        onSelect={handleGateSelect}
+      />
+
       {/* Breadcrumb Header */}
       <div className="px-3 lg:px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center justify-between gap-3">
-        <nav className="flex items-center text-xs text-gray-500 dark:text-gray-400 gap-1">
+        <nav className="flex items-center text-xs text-gray-500 dark:text-gray-400 gap-1" aria-label="Breadcrumb">
           <span>Home</span>
-          <span>/</span>
+          <span aria-hidden="true">/</span>
           <span>Workflow</span>
-          <span>/</span>
-          <span className="text-gray-900 dark:text-white font-medium truncate max-w-[200px]">
-            {pipelineName || 'New Workflow'}
+          <span aria-hidden="true">/</span>
+          <span className="text-gray-900 dark:text-white font-medium truncate max-w-[240px]">
+            {activeWorkflowName || pipelineName || 'New Workflow'}
           </span>
+          {activeWorkflowId && (
+            <button
+              type="button"
+              onClick={() => {
+                projectGateDismissedRef.current = false;
+                setActiveWorkflowId(null);
+              }}
+              className="ml-2 px-1.5 py-0.5 text-[10px] font-medium rounded border border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+              title="Change workflow project"
+            >
+              Change
+            </button>
+          )}
         </nav>
         <div className="flex items-center gap-1.5">
           <button
@@ -1746,10 +1857,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <Controls />
           </ReactFlow>
 
-          {/* Empty state overlay */}
+          {/* Empty state overlay — pointer-events-none so drops pass through to ReactFlow */}
           {nodes.length === 0 && !isLoading && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
-              <div className="text-center space-y-5 pointer-events-auto max-w-md">
+              <div className="text-center space-y-5 max-w-md">
                 {/* Visual flow diagram */}
                 <div className="flex items-center justify-center gap-4">
                   <div className="flex flex-col items-center">
@@ -1792,19 +1903,28 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           {/* Tabs — single compact row */}
           <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
             {[
-              { id: 'results', label: 'Results', icon: Eye },
-              { id: 'runs', label: 'Runs', icon: History },
-              { id: 'sql', label: 'SQL', icon: Code },
-              { id: 'schedules', label: 'Schedule', icon: Calendar, disabledWhenPending: true },
+              { id: 'results', label: 'Results', icon: Eye, disabledWhenEmpty: true },
+              { id: 'runs', label: 'Runs', icon: History, disabledWhenEmpty: true },
+              { id: 'sql', label: 'SQL', icon: Code, disabledWhenEmpty: true },
+              { id: 'schedules', label: 'Schedule', icon: Calendar, disabledWhenPending: true, disabledWhenEmpty: true },
               { id: 'ai', label: 'AI', icon: Sparkles },
             ].map((tab) => {
-              const isTabDisabled = (tab as any).disabledWhenPending && isPendingApproval;
+              const isEmpty = nodes.length === 0;
+              const disabledByEmpty = (tab as any).disabledWhenEmpty && isEmpty;
+              const disabledByPending = (tab as any).disabledWhenPending && isPendingApproval;
+              const isTabDisabled = disabledByEmpty || disabledByPending;
+              const disabledTitle = disabledByEmpty
+                ? `Add at least one block to view ${tab.label}`
+                : disabledByPending
+                ? 'Pending approval — scheduling disabled'
+                : undefined;
               return (
               <button
                 key={tab.id}
                 onClick={() => !isTabDisabled && setActiveTab(tab.id as any)}
                 disabled={isTabDisabled}
-                title={isTabDisabled ? 'Pending approval — scheduling disabled' : undefined}
+                aria-disabled={isTabDisabled || undefined}
+                title={disabledTitle}
                 className={cn(
                   'flex-1 px-2 py-2.5 text-[11px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap min-w-0',
                   isTabDisabled && 'opacity-40 cursor-not-allowed',

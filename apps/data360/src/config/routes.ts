@@ -14,14 +14,14 @@ export const routes = {
   workflow:{
     ViewWorkflow: '/workflow'
   },
-  gouvernance: {
-    users: '/gouvernance/users',
-    roles: '/gouvernance/roles',
-    grants: '/gouvernance/grants',
-    policies: '/gouvernance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
-    securityMatrix: '/gouvernance/security-matrix',
-    oauth: '/gouvernance/oauth',
-    projects: '/gouvernance/projects',
+  governance: {
+    users: '/governance/users',
+    roles: '/governance/roles',
+    grants: '/governance/grants',
+    policies: '/governance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
+    securityMatrix: '/governance/security-matrix',
+    oauth: '/governance/oauth',
+    projects: '/governance/projects',
   },
   biReporting: {
     viewReporting: '/bi-dashboard'

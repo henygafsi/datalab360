@@ -1,7 +1,7 @@
 /**
  * Data360 Pro — Governance Module Tests (Frontend)
  * ==================================================
- * Module: Governance (frontend: /gouvernance/)
+ * Module: Governance (frontend: /governance/ — French /gouvernance/ kept as 308 redirect)
  * Covers: policy service, RBAC response handling, masking types
  *
  * Run: cd datalab360Front/apps/data360 && pnpm exec vitest run --reporter=verbose
@@ -19,7 +19,7 @@ vi.mock('@/config/database.config', () => ({ default: mockApiClient }));
 describe('data360:frontend:governance:service', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('GET /gouvernance/policies returns policy list', async () => {
+  it('GET /governance/policies returns policy list', async () => {
     mockApiClient.get.mockResolvedValueOnce({
       data: data360ListResponse([
         mockData360Policy({ type: 'masking' }),
@@ -27,7 +27,7 @@ describe('data360:frontend:governance:service', () => {
       ]),
     });
 
-    const res = await mockApiClient.get('/gouvernance/policies');
+    const res = await mockApiClient.get('/governance/policies');
     expect(res.data.data).toHaveLength(2);
     expect(res.data.data[0].type).toBe('masking');
   });
@@ -41,10 +41,26 @@ describe('data360:frontend:governance:service', () => {
     expect(POLICY_TYPES).toHaveLength(10);
   });
 
-  it('governance prefix is /gouvernance (French spelling)', () => {
-    // Data360 naming: uses /gouvernance NOT /governance
-    const prefix = '/gouvernance';
-    expect(prefix).toBe('/gouvernance');
+  it('frontend governance slug is English /governance', () => {
+    // Public Next.js route is /governance (renamed from /gouvernance, 2026).
+    const FRONTEND_PREFIX = '/governance';
+    expect(FRONTEND_PREFIX).toBe('/governance');
+  });
+
+  it('legacy French /gouvernance is redirected (308) to /governance', () => {
+    // next.config.mjs redirects() rule keeps old bookmarks working.
+    const redirects: Array<{ source: string; destination: string; permanent: boolean }> = [
+      { source: '/gouvernance', destination: '/governance', permanent: true },
+      { source: '/gouvernance/:path*', destination: '/governance/:path*', permanent: true },
+    ];
+    expect(redirects.find((r) => r.source === '/gouvernance')?.destination).toBe('/governance');
+    expect(redirects.every((r) => r.permanent)).toBe(true);
+  });
+
+  it('backend API prefix stays French /gouvernance (backend contract)', () => {
+    // Backend FastAPI router still mounts under /gouvernance; do NOT rename.
+    const BACKEND_PREFIX = '/gouvernance';
+    expect(BACKEND_PREFIX).toBe('/gouvernance');
   });
 
   it('policy response has required fields', () => {

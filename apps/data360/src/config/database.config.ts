@@ -8,7 +8,27 @@
 
 // Environment-based configuration with secure defaults
 const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
-const ENV_API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+
+/**
+ * Force HTTPS on any external API base URL.
+ *
+ * The browser is served over https in production; calling http://api.datalab360.io
+ * from a https page triggers a mixed-content block. Even when the env var is
+ * mis-configured (or left at a legacy default), upgrade the scheme so requests
+ * never leak in clear text.
+ */
+function enforceHttps(rawUrl: string): string {
+  let url = (rawUrl || '').trim();
+  if (!url) return 'https://www.api.datalab360.io:8443';
+  if (url.startsWith('//')) url = `https:${url}`;
+  if (url.startsWith('http://')) url = `https://${url.slice('http://'.length)}`;
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
+
+const ENV_API_URL = enforceHttps(
+  process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443',
+);
 
 /**
  * Database Configuration Constants

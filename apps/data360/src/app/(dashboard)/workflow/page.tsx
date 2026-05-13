@@ -808,39 +808,63 @@ const WorkflowHomePage: React.FC = () => {
             <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'versions' ? null : 'versions')}
+                disabled={!activeWorkflowName}
+                aria-disabled={!activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'versions'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  !activeWorkflowName
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'versions'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Version History"
+                title={!activeWorkflowName ? "Build a workflow first" : "Version History"}
               >
                 <History className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Versions</span>
               </button>
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'runs' ? null : 'runs')}
+                disabled={!isWorkflowSaved || !activeWorkflowName}
+                aria-disabled={!isWorkflowSaved || !activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'runs'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  (!isWorkflowSaved || !activeWorkflowName)
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'runs'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Execution History"
+                title={
+                  !activeWorkflowName
+                    ? "Build a workflow first"
+                    : !isWorkflowSaved
+                      ? "Save the workflow to see runs"
+                      : "Execution History"
+                }
               >
                 <PlayCircle className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Runs</span>
               </button>
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'deployments' ? null : 'deployments')}
+                disabled={!isWorkflowSaved || !activeWorkflowName}
+                aria-disabled={!isWorkflowSaved || !activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'deployments'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  (!isWorkflowSaved || !activeWorkflowName)
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'deployments'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Deployment History"
+                title={
+                  !activeWorkflowName
+                    ? "Build a workflow first"
+                    : !isWorkflowSaved
+                      ? "Save the workflow to deploy"
+                      : "Deployment History"
+                }
               >
                 <FileCheck className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Deploys</span>
@@ -1016,7 +1040,7 @@ const WorkflowHomePage: React.FC = () => {
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
           >
             <Activity className="h-3.5 w-3.5" />
-            Monitor in Data Health
+            Monitor in Data Quality
           </button>
           <button
             onClick={() => window.location.href = '/bi-dashboard'}

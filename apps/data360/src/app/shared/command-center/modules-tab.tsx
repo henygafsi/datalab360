@@ -36,18 +36,18 @@ function buildModuleCards(moduleHealth: any, _summary: any): ModuleCard[] {
   const ICON_MAP: Record<string, React.ElementType> = {
     connect: Upload, workflow: GitBranch, explore_design: Database,
     bi_reporting: BarChart3, data_quality: CheckCircle, cortex: Brain,
-    gouvernance: Shield, observability: Eye,
+    governance: Shield, observability: Eye,
   };
   const COLOR_MAP: Record<string, string> = {
     connect: 'blue', workflow: 'amber', explore_design: 'violet',
     bi_reporting: 'cyan', data_quality: 'green', cortex: 'purple',
-    gouvernance: 'rose', observability: 'orange',
+    governance: 'rose', observability: 'orange',
   };
   const HREF_MAP: Record<string, string> = {
     connect: '/data-source-connection', workflow: '/workflow',
     explore_design: '/explore-design', bi_reporting: '/bi-dashboard',
     data_quality: '/data-quality', cortex: '/intelligent',
-    gouvernance: '/gouvernance', observability: '/observability',
+    governance: '/governance', observability: '/observability',
   };
 
   return rawModules.map((m: any) => ({

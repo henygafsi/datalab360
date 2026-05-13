@@ -20,8 +20,8 @@ const QUICK_LINKS = [
   { label: 'Connectivité', href: '/data-source-connection', icon: PiDatabase },
   { label: 'Explore & Design', href: '/explore-design', icon: PiMapTrifold },
   { label: 'Workflows & ETL', href: '/workflow', icon: PiFlowArrow },
-  { label: 'Gouvernance', href: '/gouvernance/users', icon: PiShieldCheck },
-  { label: 'Policies', href: '/gouvernance/policies', icon: PiGear },
+  { label: 'Gouvernance', href: '/governance/users', icon: PiShieldCheck },
+  { label: 'Policies', href: '/governance/policies', icon: PiGear },
   { label: 'Observability', href: '/observability', icon: HiOutlineChartBarSquare },
   { label: 'Intelligent (Cortex)', href: '/intelligent', icon: PiBrain },
 ];
@@ -37,7 +37,7 @@ export default function DataEngineerHub() {
           Data Modeler / Data Engineer
         </h2>
         <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-          Accès rapide : modélisation, connectivité, workflows ETL, gouvernance et observabilité
+          Accès rapide : modélisation, connectivité, workflows ETL, governance et observabilité
         </p>
       </div>
       <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">

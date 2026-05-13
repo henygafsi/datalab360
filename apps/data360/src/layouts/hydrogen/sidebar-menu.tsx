@@ -89,37 +89,37 @@ const modernMenuItems = [
     dropdownItems: [
       {
         name: 'Users',
-        href: '/gouvernance/users',
+        href: '/governance/users',
         icon: <HiOutlineUsers className="w-4 h-4" />,
       },
       {
         name: 'Roles',
-        href: '/gouvernance/roles',
+        href: '/governance/roles',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'Grants',
-        href: '/gouvernance/grants',
+        href: '/governance/grants',
         icon: <HiOutlineKey className="w-4 h-4" />,
       },
       {
         name: 'Policies',
-        href: '/gouvernance/policies',
+        href: '/governance/policies',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'Masking Policy',
-        href: '/gouvernance/masking',
+        href: '/governance/masking',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'OAuth & Auth',
-        href: '/gouvernance/oauth',
+        href: '/governance/oauth',
         icon: <HiOutlineFingerPrint className="w-4 h-4" />,
       },
       {
         name: 'Projects',
-        href: '/gouvernance/projects',
+        href: '/governance/projects',
         icon: <PiFolderDuotone className="w-4 h-4" />,
       }
     ]

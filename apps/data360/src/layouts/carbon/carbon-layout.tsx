@@ -6,8 +6,11 @@ import { useSession } from 'next-auth/react';
 import Header from '@/layouts/carbon/carbon-header';
 import { CarbonSidebar } from './carbon-sidebar';
 import ChatSidebar from '@/app/shared/chat/ChatSidebar';
+import StatusPill from '@/components/layout/status-pill';
 import { useSidebarCollapsed } from '@/store/sidebar-store';
 import cn from '@core/utils/class-names';
+
+const CURRENT_YEAR = new Date().getFullYear();
 
 export default function CarbonLayout({
   children,
@@ -83,14 +86,9 @@ export default function CarbonLayout({
           <div className="flex flex-col items-center justify-between gap-3 md:flex-row">
             <div className="flex items-center gap-3">
               <span className="text-sm text-slate-500 dark:text-slate-400">
-                &copy; 2024 DataLab360
+                &copy; 2024&ndash;{CURRENT_YEAR} Data360
               </span>
-              <div className="flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 dark:bg-green-900/20">
-                <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                <span className="text-[11px] font-medium text-green-600 dark:text-green-400">
-                  Operational
-                </span>
-              </div>
+              <StatusPill />
             </div>
             <div className="flex items-center gap-1">
               {['Privacy', 'Terms', 'Support'].map((label) => (

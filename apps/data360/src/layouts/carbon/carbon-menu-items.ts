@@ -127,47 +127,47 @@ export const carbonMenuItems: MenuItemsType[] = [
     menuItems: [
       {
         name: 'Users',
-        href: routes.gouvernance.users,
+        href: routes.governance.users,
         icon: PiUserCircleDuotone,
       },
       {
         name: 'Roles',
-        href: routes.gouvernance.roles,
+        href: routes.governance.roles,
         icon: PiBriefcaseDuotone,
       },
       {
         name: 'Grants',
-        href: routes.gouvernance.grants,
+        href: routes.governance.grants,
         icon: PiCurrencyDollarDuotone,
       },
       {
         name: 'Policies',
         description: 'RLS, Network & Masking policies',
-        href: routes.gouvernance.policies,
+        href: routes.governance.policies,
         icon: PiShieldCheckDuotone,
       },
       {
         name: 'Security Matrix',
-        href: routes.gouvernance.securityMatrix,
+        href: routes.governance.securityMatrix,
         icon: PiShieldCheckDuotone,
       },
       {
         name: 'Projects',
-        href: routes.gouvernance.projects,
+        href: routes.governance.projects,
         icon: PiFolderDuotone,
       },
       {
         name: 'Authentication',
-        href: routes.gouvernance.oauth,
+        href: routes.governance.oauth,
         icon: PiLockKeyDuotone,
       },
     ],
   },
-  // 6. Business Reporting
+  // 6. BI Dashboard
   {
     id: 4,
-    name: 'Business Reporting',
-    title: 'Business Reporting',
+    name: 'BI Dashboard',
+    title: 'BI Dashboard',
     icon: PiChartBarDuotone,
     color: 'cyan',
     menuItems: [
@@ -201,11 +201,11 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 8. Data Health
+  // 8. Data Quality
   {
     id: 5,
-    name: 'Data Health',
-    title: 'Data Health',
+    name: 'Data Quality',
+    title: 'Data Quality',
     icon: PiCheckCircleDuotone,
     color: 'green',
     menuItems: [

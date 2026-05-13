@@ -182,7 +182,13 @@ export default function ComplianceCard({
 
       {/* Generated At */}
       <Text className="mt-4 text-center text-xs text-gray-400">
-        Generated: {new Date(report.generated_at).toLocaleString()}
+        {(() => {
+          const ts = report?.generated_at;
+          const d = ts ? new Date(ts) : null;
+          return d && !isNaN(d.getTime())
+            ? `Generated: ${d.toLocaleString()}`
+            : 'Generated: not yet computed';
+        })()}
       </Text>
     </div>
   );

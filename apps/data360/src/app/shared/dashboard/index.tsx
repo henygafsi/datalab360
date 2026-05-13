@@ -1,9 +1,9 @@
 'use client';
-// Data journey: dashboard → hooks (gouvernance) + projectsApi/exploreDesignApi/workflowApi/GouvernanceService → GET projects, deployments, approve/reject/activate
-// ////dependency//// page → hooks.use-gouvernance, hooks.useCache*, services.explore-design, services.workflow, services.gouvernance, services.cortex, lib.api-client
+// Data journey: dashboard → hooks (governance) + projectsApi/exploreDesignApi/workflowApi/GouvernanceService → GET projects, deployments, approve/reject/activate
+// ////dependency//// page → hooks.use-governance, hooks.useCache*, services.explore-design, services.workflow, services.governance, services.cortex, lib.api-client
 import Link from 'next/link';
 import { Badge, Button, Select, Modal, Text } from 'rizzui';
-import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
+import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-governance';
 import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiXCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import { RefreshCw } from 'lucide-react';
@@ -19,7 +19,7 @@ import * as projectsApi from '@/app/services/api/projectsApi';
 import toast from 'react-hot-toast';
 import DataEngineerHub from '@/app/shared/data-engineer-hub/DataEngineerHub';
 import { routes } from '@/config/routes';
-import * as GouvernanceService from '@/app/services/gouvernance';
+import * as GouvernanceService from '@/app/services/governance';
 import { getCortexRecommend } from '@/app/services/cortex';
 import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
@@ -32,11 +32,11 @@ const MODULE_FEATURES: { href: string; name: string; description: string; eventK
   { href: routes.exploreDesign.view, name: 'Explore & Design', description: 'Explore and design data models', eventKey: 'EXPLORE_DESIGN' },
   { href: routes.mapping.viewMap, name: 'Mapping', description: 'View and manage mappings', eventKey: 'MAPPING' },
   { href: routes.workflow.ViewWorkflow, name: 'Workflow', description: 'Workflow and ETL pipelines', eventKey: 'WORKFLOW' },
-  { href: routes.gouvernance.users, name: 'Governance', description: 'Users, roles, and policies', eventKey: 'GOUVERNANCE' },
-  { href: routes.dataQuality.viewReports, name: 'Data Health', description: 'Data quality reports', eventKey: 'DATA_QUALITY' },
+  { href: routes.governance.users, name: 'Governance', description: 'Users, roles, and policies', eventKey: 'GOUVERNANCE' },
+  { href: routes.dataQuality.viewReports, name: 'Data Quality', description: 'Data quality reports', eventKey: 'DATA_QUALITY' },
   { href: routes.intelligent.dashboard, name: 'AI Intelligence', description: 'Cortex AI and semantic models', eventKey: 'CORTEX' },
   { href: routes.observability.dashboard, name: 'Observability', description: 'System monitoring', eventKey: 'OBSERVABILITY' },
-  { href: routes.biReporting.viewReporting, name: 'Business Reporting', description: 'BI reports and dashboards', eventKey: 'BI_REPORTING' },
+  { href: routes.biReporting.viewReporting, name: 'BI Dashboard', description: 'BI reports and dashboards', eventKey: 'BI_REPORTING' },
   { href: routes.clientAccounts.dashboard, name: 'Client Accounts', description: 'Manage client Snowflake accounts' },
 ];
 

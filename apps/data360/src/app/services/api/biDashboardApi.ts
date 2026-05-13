@@ -29,6 +29,8 @@ import type {
   AutoCreateDashboardResponse,
   DrillThroughRequest,
   DrillThroughResponse,
+  RenderWidgetRequest,
+  RenderDashboardResponse,
 } from './types';
 
 const PREFIX = '/bi-dashboard';
@@ -169,6 +171,22 @@ export async function fetchWidgetChartData(chartConfig: BIDashboardChartConfig) 
   const { data } = await apiClient.post<ChartDataResponse>(
     `${PREFIX}/charts/data`,
     chartConfig
+  );
+  return data;
+}
+
+// ============================================================================
+// Batch render — one POST returns per-widget {status, data, error}.
+// Replaces N individual /charts/data calls when rendering a full page.
+// ============================================================================
+
+export async function renderDashboard(
+  projectId: string,
+  widgets: RenderWidgetRequest[]
+): Promise<RenderDashboardResponse> {
+  const { data } = await apiClient.post<RenderDashboardResponse>(
+    `${PREFIX}/${projectId}/render`,
+    { widgets }
   );
   return data;
 }

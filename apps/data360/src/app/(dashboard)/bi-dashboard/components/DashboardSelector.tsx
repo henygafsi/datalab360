@@ -8,6 +8,7 @@ import {
   FolderPlus, Clock, User, Search, Trash2, LayoutDashboard,
   Sparkles,
 } from 'lucide-react';
+import { PiCheckCircleDuotone } from 'react-icons/pi';
 import { cn } from '@/lib/utils';
 import { listProjects } from '@/app/services/api/projectsApi';
 import { createDashboard, deleteDashboard } from '@/app/services/api/biDashboardApi';
@@ -393,23 +394,56 @@ export default function DashboardSelector({
                 </div>
               ) : (
                 <>
-                  <div className="max-h-[320px] overflow-auto space-y-1.5 mb-3">
-                    {filteredProjects.map((project) => {
+                  <div
+                    className="max-h-[320px] overflow-auto space-y-1.5 mb-3"
+                    role="listbox"
+                    aria-label="Existing dashboards"
+                  >
+                    {filteredProjects.map((project, idx) => {
                       const isSelected = selectedInModal === project.project_id;
                       return (
                         <div
                           key={project.project_id}
+                          role="option"
+                          aria-selected={isSelected}
+                          tabIndex={0}
                           className={cn(
-                            'flex items-center gap-3 p-3 rounded-lg transition-all border dark:border-slate-700',
+                            'flex items-center gap-3 p-3 rounded-lg transition-all border dark:border-slate-700 select-none',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
                             isSelected
-                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-1 ring-blue-400'
+                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500 ring-offset-2'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent',
                           )}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              setSelectedInModal(project.project_id);
+                              onProjectSelect(project.project_id, project.name);
+                              setShowModal(false);
+                            } else if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              const next = filteredProjects[idx + 1];
+                              if (next) {
+                                setSelectedInModal(next.project_id);
+                                const el = e.currentTarget.parentElement?.children[idx + 1] as HTMLElement | undefined;
+                                el?.focus();
+                              }
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const prev = filteredProjects[idx - 1];
+                              if (prev) {
+                                setSelectedInModal(prev.project_id);
+                                const el = e.currentTarget.parentElement?.children[idx - 1] as HTMLElement | undefined;
+                                el?.focus();
+                              }
+                            }
+                          }}
                         >
                           <button
-                            className="flex-1 flex items-center gap-3 text-left"
+                            className="flex-1 flex items-center gap-3 text-left select-none"
                             onClick={() => setSelectedInModal(project.project_id)}
-                            onDoubleClick={() => {
+                            onDoubleClick={(e) => {
+                              e.preventDefault();
                               onProjectSelect(project.project_id, project.name);
                               setShowModal(false);
                             }}
@@ -436,7 +470,12 @@ export default function DashboardSelector({
                                 )}
                               </div>
                             </div>
-                            {isSelected && <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />}
+                            {isSelected && (
+                              <PiCheckCircleDuotone
+                                className="h-5 w-5 text-blue-600 flex-shrink-0"
+                                aria-hidden="true"
+                              />
+                            )}
                           </button>
                           <Tooltip content="Delete dashboard">
                             <button

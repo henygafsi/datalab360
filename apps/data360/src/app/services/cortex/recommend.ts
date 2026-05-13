@@ -2,11 +2,11 @@
  * Cortex Service - AI recommendations for platform errors (Account Overview)
  */
 import apiClient from '@/lib/api-client';
-import type { DashboardErrorEvent } from '@/app/services/gouvernance/types';
+import type { DashboardErrorEvent } from '@/app/services/governance/types';
 
 export interface RecommendRequest {
   error_context?: string;
-  /** Events from GET /gouvernance/dashboard/errors */
+  /** Events from GET /governance/dashboard/errors */
   events?: DashboardErrorEvent[];
   model?: string;
 }

@@ -121,20 +121,47 @@ const PAGINATED_TABS = new Set(['completeness', 'uniqueness', 'freshness', 'sche
 
 // ── API helpers ──
 
+// Feature flag: when true, the page hits the unified /data-quality/snapshot
+// endpoint on initial load instead of fanning out N requests from the client.
+// Default OFF for safety; enable via NEXT_PUBLIC_DQ_USE_SNAPSHOT=true to opt in.
+const USE_SNAPSHOT = process.env.NEXT_PUBLIC_DQ_USE_SNAPSHOT === 'true';
+
+// In-flight request dedupe — scoped to this page only.
+// Two code paths (initial load + tab-change effect) can race on the same
+// endpoint within the same tick. Coalescing identical GETs prevents the
+// duplicate completeness-metrics call seen in production telemetry.
+const _inFlight = new Map<string, Promise<any>>();
+
 async function fetchQualityData(endpoint: string, forceRefresh = false, params?: Record<string, string | number>): Promise<any> {
-  try {
-    const headers: Record<string, string> = {};
-    if (forceRefresh) headers['Cache-Control'] = 'no-cache';
-    const queryStr = params ? '?' + new URLSearchParams(
-      Object.entries(params).map(([k, v]) => [k, String(v)])
-    ).toString() : '';
-    const res = await apiClient.get(`/data-quality/${endpoint}${queryStr}`, { headers });
-    return res.data;
-  } catch (err: any) {
-    const msg = err?.response?.data?.detail || err?.message || 'Request failed';
-    console.error(`[DataQuality] ${endpoint} failed:`, msg);
-    throw new Error(msg);
-  }
+  const queryStr = params ? '?' + new URLSearchParams(
+    Object.entries(params).map(([k, v]) => [k, String(v)])
+  ).toString() : '';
+  const key = `GET:${endpoint}${queryStr}:${forceRefresh ? 'force' : 'cached'}`;
+
+  // Reuse an in-flight identical request rather than firing a duplicate.
+  // forceRefresh participates in the key so an explicit Refresh always bypasses
+  // any stale promise that's mid-flight.
+  const existing = _inFlight.get(key);
+  if (existing) return existing;
+
+  const headers: Record<string, string> = {};
+  if (forceRefresh) headers['Cache-Control'] = 'no-cache';
+
+  const promise = apiClient
+    .get(`/data-quality/${endpoint}${queryStr}`, { headers })
+    .then((res) => res.data)
+    .catch((err: any) => {
+      const msg = err?.response?.data?.detail || err?.message || 'Request failed';
+      console.error(`[DataQuality] ${endpoint} failed:`, msg);
+      throw new Error(msg);
+    })
+    .finally(() => {
+      // Clear after settle so the next call re-fetches.
+      _inFlight.delete(key);
+    });
+
+  _inFlight.set(key, promise);
+  return promise;
 }
 
 // ── Skeleton Components ──
@@ -794,12 +821,23 @@ function QualityScoreDistribution({ tabData }: { tabData: Record<string, MetricR
   );
 }
 
+// Truncate long table names so Y-axis labels don't collide on the vertical bar
+// chart. Full name is preserved on the data row and surfaced in the tooltip.
+function _truncateLabel(name: string, max = 16): string {
+  if (name.length <= max) return name;
+  return name.slice(0, max - 1) + '…';
+}
+
 function FreshnessHeatmap({ tabData }: { tabData: Record<string, MetricRow[]> }) {
   const data = useMemo(() => {
-    return (tabData.freshness || []).slice(0, 20).map((row) => ({
-      name: String(row.TABLE_NAME || '').split('.').pop() || '',
-      hours: Number(row.AGE_HOURS || 0),
-    }));
+    return (tabData.freshness || []).slice(0, 20).map((row) => {
+      const fullName = String(row.TABLE_NAME || '').split('.').pop() || '';
+      return {
+        name: _truncateLabel(fullName),
+        fullName,
+        hours: Number(row.AGE_HOURS || 0),
+      };
+    });
   }, [tabData.freshness]);
 
   if (data.length === 0) return null;
@@ -807,12 +845,23 @@ function FreshnessHeatmap({ tabData }: { tabData: Record<string, MetricRow[]> })
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
       <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Freshness by Table (hours since update)</h3>
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={Math.max(200, data.length * 22)}>
         <BarChart data={data} layout="vertical">
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
           <XAxis type="number" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-          <YAxis dataKey="name" type="category" tick={{ fill: '#9CA3AF', fontSize: 10 }} width={100} />
-          <RechartsTooltip contentStyle={DARK_TOOLTIP_STYLE} />
+          <YAxis
+            dataKey="name"
+            type="category"
+            tick={{ fill: '#9CA3AF', fontSize: 10 }}
+            width={140}
+            interval={0}
+          />
+          <RechartsTooltip
+            contentStyle={DARK_TOOLTIP_STYLE}
+            labelFormatter={(_label: string, payload: any[]) =>
+              payload?.[0]?.payload?.fullName || _label
+            }
+          />
           <Bar dataKey="hours" name="Age (hours)" radius={[0, 4, 4, 0]}>
             {data.map((entry, i) => (
               <Cell key={i} fill={entry.hours > 48 ? '#EF4444' : entry.hours > 24 ? '#F59E0B' : '#10B981'} />
@@ -824,29 +873,62 @@ function FreshnessHeatmap({ tabData }: { tabData: Record<string, MetricRow[]> })
   );
 }
 
-function DimensionRadar({ summary }: { summary: QualitySummary | null }) {
+function DimensionRadar({ summary, tabData }: { summary: QualitySummary | null; tabData: Record<string, MetricRow[]> }) {
   if (!summary) return null;
 
+  // A dimension is "unmeasured" if its score is 0 AND we have no rows for the
+  // corresponding tab (which means we have no data to back the score). Ghost
+  // grey bars indistinguishable from genuine zero are a known UX hazard
+  // (DQ-H1) — we render unmeasured bars with a dashed outline + label.
+  const ingestionMeasured = (tabData.ingestion?.length ?? 0) > 0;
+  const classificationMeasured = (tabData.classification?.length ?? 0) > 0;
+  const dmfMeasured = (tabData.dmf?.length ?? 0) > 0;
+  const schemaMeasured = (tabData.schema?.length ?? 0) > 0;
+
   const data = [
-    { dimension: 'Health', value: summary.health_score, fill: '#10B981' },
-    { dimension: 'Schema', value: summary.schema_score, fill: '#3B82F6' },
-    { dimension: 'DMF Pass', value: summary.dmf_pass_rate, fill: '#8B5CF6' },
-    { dimension: 'Classification', value: summary.classification_coverage, fill: '#F59E0B' },
-    { dimension: 'Ingestion', value: summary.ingestion_success_rate, fill: '#06B6D4' },
+    { dimension: 'Health', value: summary.health_score, fill: '#10B981', measured: true },
+    { dimension: 'Schema', value: summary.schema_score, fill: '#3B82F6', measured: schemaMeasured || summary.schema_score > 0 },
+    { dimension: 'DMF Pass', value: summary.dmf_pass_rate, fill: '#8B5CF6', measured: dmfMeasured || summary.dmf_pass_rate > 0 },
+    { dimension: 'Classification', value: summary.classification_coverage, fill: '#F59E0B', measured: classificationMeasured || summary.classification_coverage > 0 },
+    { dimension: 'Ingestion', value: summary.ingestion_success_rate, fill: '#06B6D4', measured: ingestionMeasured || summary.ingestion_success_rate > 0 },
   ];
+
+  const hasUnmeasured = data.some((d) => !d.measured);
 
   return (
     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Quality Dimensions</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Quality Dimensions</h3>
+        {hasUnmeasured && (
+          <span className="text-[10px] text-gray-500 dark:text-gray-400 inline-flex items-center gap-1">
+            <span className="inline-block w-3 h-3 border-2 border-dashed border-gray-400 rounded-sm" />
+            Not yet measured
+          </span>
+        )}
+      </div>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
           <XAxis dataKey="dimension" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
           <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} domain={[0, 100]} />
-          <RechartsTooltip contentStyle={DARK_TOOLTIP_STYLE} formatter={(value: number) => [`${value}%`, 'Score']} />
+          <RechartsTooltip
+            contentStyle={DARK_TOOLTIP_STYLE}
+            formatter={(value: number, _name: string, item: any) => {
+              const measured = item?.payload?.measured;
+              return measured
+                ? [`${value}%`, 'Score']
+                : ['Not yet measured — Run Check', 'Status'];
+            }}
+          />
           <Bar dataKey="value" name="Score %" radius={[4, 4, 0, 0]}>
             {data.map((entry, i) => (
-              <Cell key={i} fill={entry.fill} />
+              <Cell
+                key={i}
+                fill={entry.measured ? entry.fill : 'transparent'}
+                stroke={entry.measured ? entry.fill : '#9CA3AF'}
+                strokeWidth={entry.measured ? 0 : 2}
+                strokeDasharray={entry.measured ? undefined : '4 2'}
+              />
             ))}
           </Bar>
         </BarChart>
@@ -1033,6 +1115,7 @@ export default function DataQualityPage() {
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
+    const refreshToast = toast.loading('Refreshing quality data…');
     try {
       await Promise.all([
         loadSummary(true),
@@ -1040,22 +1123,44 @@ export default function DataQualityPage() {
       ]);
       // Force reload all tabs for recommendations
       const allData: Record<string, MetricRow[]> = {};
+      let succeeded = 0;
+      let failed = 0;
       await Promise.allSettled(
         TAB_IDS.map(async (tab) => {
           try {
             const data = await fetchQualityData(TAB_ENDPOINTS[tab], true);
             const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
             allData[tab] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
+            succeeded++;
           } catch {
             allData[tab] = [];
+            failed++;
           }
         })
       );
       setTabData(allData);
       setCacheInfo({ loadedAt: Date.now(), fromCache: false });
-      toast.success('Data refreshed');
+      // Count tables touched across all dimensions for user-visible feedback.
+      const tablesScanned = new Set<string>();
+      for (const rows of Object.values(allData)) {
+        for (const row of rows) {
+          const name = String(row.TABLE_NAME || row.table_name || row.NAME || '');
+          if (name) tablesScanned.add(name);
+        }
+      }
+      if (failed === 0) {
+        toast.success(
+          `Refresh complete — ${tablesScanned.size} table${tablesScanned.size === 1 ? '' : 's'} re-scanned`,
+          { id: refreshToast }
+        );
+      } else {
+        toast.success(
+          `Refresh complete — ${succeeded}/${TAB_IDS.length} dimensions, ${tablesScanned.size} tables (${failed} failed)`,
+          { id: refreshToast }
+        );
+      }
     } catch {
-      toast.error('Some data failed to refresh');
+      toast.error('Some data failed to refresh', { id: refreshToast });
     } finally {
       setRefreshing(false);
     }
@@ -1076,18 +1181,61 @@ export default function DataQualityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastInvalidation]);
 
-  // Initial load
+  // Initial load — LAZY by default: only fetch summary + trend + the active tab.
+  // Other tabs fetch on click via the tab-change effect below. Recommendations
+  // are computed from whatever tabs have been loaded so far (they only need data
+  // from tabs the user has actually opened — fine for first-paint).
+  //
+  // When NEXT_PUBLIC_DQ_USE_SNAPSHOT is enabled, we hit the unified /snapshot
+  // endpoint which returns all 9 dimensions in one fanned-out request.
   useEffect(() => {
     setLoading(true);
+
+    if (USE_SNAPSHOT) {
+      // Single-shot: backend fans out for us.
+      (async () => {
+        try {
+          const snap = await fetchQualityData('snapshot');
+          const payload = snap?.data || {};
+          // Map snapshot keys → tabData keys
+          const next: Record<string, MetricRow[]> = {};
+          for (const [key, value] of Object.entries(payload)) {
+            const v = value as any;
+            const rows = v?.rows || v?.data || v?.results || (Array.isArray(v) ? v : []);
+            if (key === 'quality_summary') {
+              setSummary(v?.data || v);
+            } else {
+              next[key] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
+            }
+          }
+          setTabData(next);
+          setCacheInfo({ loadedAt: Date.now(), fromCache: false });
+          // Trend is not yet part of snapshot — fetch separately, non-blocking.
+          loadTrend();
+        } catch (err: any) {
+          toast.error(`Snapshot load failed: ${err.message}`);
+          // Fallback to legacy lazy path so the page is still usable.
+          await Promise.all([loadSummary(), loadTrend(), loadTabData(activeTab)]);
+        } finally {
+          setLoading(false);
+        }
+      })();
+      return;
+    }
+
+    // Legacy lazy path: summary + trend + only the visible tab.
     Promise.all([
       loadSummary(),
       loadTrend(),
-      loadAllTabsForRecs(),
+      loadTabData(activeTab),
     ]).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Tab change — reset pagination when switching tabs
+  // Tab change — reset pagination when switching tabs.
+  // Skips the initial render (activeTab === 'completeness' is already loaded
+  // by the initial-load effect above, and the in-flight dedupe map would catch
+  // a duplicate anyway).
   useEffect(() => {
     setPage(1);
     loadTabData(activeTab, false, 1, pageSize);
@@ -1178,7 +1326,7 @@ export default function DataQualityPage() {
   return (
     <ErrorBoundary>
     <div className="p-4 space-y-4 max-w-[1600px] mx-auto">
-      <Breadcrumb items={[{ label: 'Data Health', href: '/data-quality' }]} />
+      <Breadcrumb items={[{ label: 'Data Quality', href: '/data-quality' }]} />
       {/* ── Header Bar ── */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl px-5 py-4 flex items-center justify-between">
         <div>
@@ -1346,7 +1494,7 @@ export default function DataQualityPage() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-3">
-                <DimensionRadar summary={summary} />
+                <DimensionRadar summary={summary} tabData={tabData} />
                 <QualityScoreDistribution tabData={tabData} />
                 <FreshnessHeatmap tabData={tabData} />
                 {trendData.length > 0 && <TrendChart trendData={trendData} />}
@@ -1744,7 +1892,7 @@ export default function DataQualityPage() {
       {/* Related Modules */}
       <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>
-        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Lineage)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Catalog)</a>
       </div>

@@ -60,7 +60,7 @@ const TOUR_STEPS: TourStep[] = [
     description: '10 policy types: masking, RLS, tags, network, session. Manage roles, users, and compliance (GDPR, HIPAA, SOC2).',
     icon: Shield,
     color: 'rose',
-    targetSelector: 'a[href*="gouvernance"],button:has-text("Governance"),[class*="Governance"]',
+    targetSelector: 'a[href*="governance"],button:has-text("Governance"),[class*="Governance"]',
     position: 'right',
   },
   {

@@ -1,0 +1,176 @@
+file,route,kind,verbs,is_client,dynamic_segments,requires_auth,matcher_pattern,auth_hooks,backend_api_calls,swr_keys,lines_of_code,body_hash,duplicate_flags,recommendation
+apps/data360/src/app/(dashboard)/account-overview/error.tsx,/account-overview,error-boundary,,true,0,true,/account-overview,,,,79,ef359af8002f,,OK
+apps/data360/src/app/(dashboard)/account-overview/loading.tsx,/account-overview,loading,,false,0,true,/account-overview,,,,92,38a7caa39836,,OK
+apps/data360/src/app/(dashboard)/account-overview/page.tsx,/account-overview,page,,true,0,true,/account-overview,,,,400,2e188388e836,,OK
+apps/data360/src/app/(dashboard)/admin/data360-config/error.tsx,/admin/data360-config,error-boundary,,true,0,false,,,,,31,be39e4ab730f,,OK
+apps/data360/src/app/(dashboard)/admin/data360-config/loading.tsx,/admin/data360-config,loading,,false,0,false,,,,,17,de822b7415e0,,OK
+apps/data360/src/app/(dashboard)/admin/data360-config/page.tsx,/admin/data360-config,page,,true,0,false,,,,,227,af0f5f114f82,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/admin/data360-platform/error.tsx,/admin/data360-platform,error-boundary,,true,0,false,,,,,31,be39e4ab730f,,OK
+apps/data360/src/app/(dashboard)/admin/data360-platform/loading.tsx,/admin/data360-platform,loading,,false,0,false,,,,,21,2146efa9dc9c,,OK
+apps/data360/src/app/(dashboard)/admin/data360-platform/page.tsx,/admin/data360-platform,page,,true,0,false,,,,,237,3253ee3bbeb1,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/affiliate/page.tsx,/affiliate,page,,false,0,false,,,,,4,a86e0bb184e1,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/analytics/page.tsx,/analytics,page,,false,0,true,/analytics,,,,12,16ab18ef5639,,OK
+apps/data360/src/app/(dashboard)/appointment/list/page.tsx,/appointment/list,page,,false,0,false,,,,,18,be236855fe41,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/appointment/page.tsx,/appointment,page,,false,0,false,,,,,8,7275ede27d63,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/bi-dashboard/error.tsx,/bi-dashboard,error-boundary,,true,0,true,/bi-dashboard/:path*,,,,31,c2d8e536d865,,OK
+apps/data360/src/app/(dashboard)/bi-dashboard/loading.tsx,/bi-dashboard,loading,,false,0,true,/bi-dashboard/:path*,,,,22,b8bc86253bc3,,OK
+apps/data360/src/app/(dashboard)/bi-dashboard/page.tsx,/bi-dashboard,page,,true,0,true,/bi-dashboard/:path*,,/bi-dashboard | /bi-dashboard/templates | /bi-dashboard/from-template | /bi-dashboard/nl-to-chart | /bi-dashboard/auto-create,,375,056adefcc3bd,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/blank/page.tsx,/blank,page,,false,0,false,,,,,24,5ed5c5ca8cad,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/client-accounts/error.tsx,/client-accounts,error-boundary,,true,0,true,/client-accounts,,,,87,02e40f167b16,,OK
+apps/data360/src/app/(dashboard)/client-accounts/loading.tsx,/client-accounts,loading,,true,0,true,/client-accounts,,,,98,4cd2c8eb00aa,,OK
+apps/data360/src/app/(dashboard)/client-accounts/page.tsx,/client-accounts,page,,true,0,true,/client-accounts,,,,110,0205526d6b66,,OK
+apps/data360/src/app/(dashboard)/crm/page.tsx,/crm,page,,false,0,false,,,,,4,1a9e472c3363,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/data-products/error.tsx,/data-products,error-boundary,,true,0,false,,,,,31,be39e4ab730f,,OK
+apps/data360/src/app/(dashboard)/data-products/loading.tsx,/data-products,loading,,false,0,false,,,,,31,53e4f5b4601f,,OK
+apps/data360/src/app/(dashboard)/data-products/page.tsx,/data-products,page,,true,0,false,,,,,267,c6f7e7c62005,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/data-quality/error.tsx,/data-quality,error-boundary,,true,0,true,/data-quality/:path*,,,,69,50e887e0f180,,OK
+apps/data360/src/app/(dashboard)/data-quality/loading.tsx,/data-quality,loading,,false,0,true,/data-quality/:path*,,,,42,bfa9605f212e,,OK
+apps/data360/src/app/(dashboard)/data-quality/page.tsx,/data-quality,page,,true,0,true,/data-quality/:path*,,/data-quality/${endpoint}${queryStr} | /data-quality/thresholds | /data-quality/run-check | /gouvernance/policies/classification/classify | /gouvernance/policies/masking/apply,,1668,b3ee02bc5a8e,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/data-source-config/page.tsx,/data-source-config,page,,false,0,false,,,,,52,f021f425ade7,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/data-source-connection/error.tsx,/data-source-connection,error-boundary,,true,0,true,/data-source-connection/:path*,,,,38,e0416ca157b0,,OK
+apps/data360/src/app/(dashboard)/data-source-connection/loading.tsx,/data-source-connection,loading,,false,0,true,/data-source-connection/:path*,,,,28,c0cf4e764a12,,OK
+apps/data360/src/app/(dashboard)/data-source-connection/page.tsx,/data-source-connection,page,,true,0,true,/data-source-connection/:path*,"useSession,auth(",,,2928,337ed78e5c94,,OK
+apps/data360/src/app/(dashboard)/demo-showcase/page.tsx,/demo-showcase,page,,false,0,false,,,,,606,50e771c93134,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/ecommerce/cart/page.tsx,/ecommerce/cart,page,,false,0,true,/ecommerce/:path*,,,,30,0dc7d95fcd03,,OK
+apps/data360/src/app/(dashboard)/ecommerce/categories/[id]/edit/page.tsx,/ecommerce/categories/[id]/edit,page,,false,1,true,/ecommerce/:path*,,,,59,63f5fe27cd66,,OK
+apps/data360/src/app/(dashboard)/ecommerce/categories/create/page.tsx,/ecommerce/categories/create,page,,false,0,true,/ecommerce/:path*,,,,42,a128c32b591a,,OK
+apps/data360/src/app/(dashboard)/ecommerce/categories/page.tsx,/ecommerce/categories,page,,false,0,true,/ecommerce/:path*,,,,34,da098802146a,,OK
+apps/data360/src/app/(dashboard)/ecommerce/checkout/page.tsx,/ecommerce/checkout,page,,false,0,true,/ecommerce/:path*,,,,30,1ee7134e837d,,OK
+apps/data360/src/app/(dashboard)/ecommerce/layout.tsx,/ecommerce,layout,,false,0,true,/ecommerce/:path*,,,,14,dc9dc6e4bd65,,OK
+apps/data360/src/app/(dashboard)/ecommerce/orders/[id]/edit/page.tsx,/ecommerce/orders/[id]/edit,page,,false,1,true,/ecommerce/:path*,,,,52,7eec18589a85,,OK
+apps/data360/src/app/(dashboard)/ecommerce/orders/[id]/page.tsx,/ecommerce/orders/[id],page,,false,1,true,/ecommerce/:path*,,,,38,1963bb5a1711,,OK
+apps/data360/src/app/(dashboard)/ecommerce/orders/create/page.tsx,/ecommerce/orders/create,page,,false,0,true,/ecommerce/:path*,,,,38,424ffb77726b,,OK
+apps/data360/src/app/(dashboard)/ecommerce/orders/page.tsx,/ecommerce/orders,page,,false,0,true,/ecommerce/:path*,,,,53,18ba5ac10285,,OK
+apps/data360/src/app/(dashboard)/ecommerce/page.tsx,/ecommerce,page,,false,0,true,/ecommerce/:path*,,,,8,2b2993b92ff7,,OK
+apps/data360/src/app/(dashboard)/ecommerce/products/[slug]/edit/page.tsx,/ecommerce/products/[slug]/edit,page,,false,1,true,/ecommerce/:path*,,,,58,16bbd6844c5a,,OK
+apps/data360/src/app/(dashboard)/ecommerce/products/[slug]/page.tsx,/ecommerce/products/[slug],page,,false,1,true,/ecommerce/:path*,,,,31,2d76b538d830,,OK
+apps/data360/src/app/(dashboard)/ecommerce/products/create/page.tsx,/ecommerce/products/create,page,,false,0,true,/ecommerce/:path*,,,,44,9accfa28b4a9,,OK
+apps/data360/src/app/(dashboard)/ecommerce/products/page.tsx,/ecommerce/products,page,,false,0,true,/ecommerce/:path*,,,,53,f1fbc5b854b3,,OK
+apps/data360/src/app/(dashboard)/ecommerce/reviews/page.tsx,/ecommerce/reviews,page,,false,0,true,/ecommerce/:path*,,,,44,57728601cb38,,OK
+apps/data360/src/app/(dashboard)/ecommerce/shop/page.tsx,/ecommerce/shop,page,,false,0,true,/ecommerce/:path*,,,,40,346d70fc3423,,OK
+apps/data360/src/app/(dashboard)/email-templates/page.tsx,/email-templates,page,,false,0,false,,,,,32,a0dfe2f83f96,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/event-calendar/page.tsx,/event-calendar,page,,false,0,false,,,,,46,3db4499310b0,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/executive/page.tsx,/executive,page,,false,0,true,/executive,,,,8,1425c79fc28d,,OK
+apps/data360/src/app/(dashboard)/explore-design/error.tsx,/explore-design,error-boundary,,true,0,true,/explore-design/:path*,,,,31,c2d8e536d865,,OK
+apps/data360/src/app/(dashboard)/explore-design/loading.tsx,/explore-design,loading,,false,0,true,/explore-design/:path*,,,,22,b8bc86253bc3,,OK
+apps/data360/src/app/(dashboard)/explore-design/page.tsx,/explore-design,page,,true,0,true,/explore-design/:path*,useSession,/explore-design/catalog/trending | /explore-design/${selectedProjectId}/ddl-actions | /explore-design/catalog/search | /explore-design/smart/detect-pk | /explore-design/smart/detect-fk | /explore-design/smart/suggest-clustering,,5401,ec14839af9aa,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/file/page.tsx,/file,page,,false,0,true,/file/:path*,,,,8,d3e1a3b5035e,,OK
+apps/data360/src/app/(dashboard)/file-manager/page.tsx,/file-manager,page,,false,0,true,/file-manager,,,,40,5eb1c2ee671a,,OK
+apps/data360/src/app/(dashboard)/financial/page.tsx,/financial,page,,false,0,true,/financial,,,,8,da21114b2f5c,,OK
+apps/data360/src/app/(dashboard)/forms/newsletter/page.tsx,/forms/newsletter,page,,false,0,false,,,,,43,0c43a2d1105e,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/forms/profile-settings/billing/page.tsx,/forms/profile-settings/billing,page,,false,0,true,/forms/profile-settings/:path*,,,,8,152e0aa7ba59,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/integration/page.tsx,/forms/profile-settings/integration,page,,false,0,true,/forms/profile-settings/:path*,,,,8,02ab3022ca51,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/layout.tsx,/forms/profile-settings,layout,,false,0,true,/forms/profile-settings/:path*,,,,32,49c985a30366,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/notification/page.tsx,/forms/profile-settings/notification,page,,false,0,true,/forms/profile-settings/:path*,,,,8,a9b79f549bfa,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/page.tsx,/forms/profile-settings,page,,false,0,true,/forms/profile-settings/:path*,,,,8,b207798d2faa,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/password/page.tsx,/forms/profile-settings/password,page,,false,0,true,/forms/profile-settings/:path*,,,,16,a7dfecb54d4e,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/profile/page.tsx,/forms/profile-settings/profile,page,,false,0,true,/forms/profile-settings/:path*,,,,8,f236cdfe0d66,,OK
+apps/data360/src/app/(dashboard)/forms/profile-settings/team/page.tsx,/forms/profile-settings/team,page,,false,0,true,/forms/profile-settings/:path*,,,,8,96c10d5da70b,,OK
+apps/data360/src/app/(dashboard)/gouvernance/access-control/page.tsx,/gouvernance/access-control,page,,true,0,true,/gouvernance/:path*,,/gouvernance/d360-roles | /gouvernance/d360-roles/user-assignments | /gouvernance/gui-permissions | /gouvernance/dashboard/activity | /gouvernance/get_dwh_schemas,,535,176b48b02f02,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/error.tsx,/gouvernance,error-boundary,,true,0,true,/gouvernance/:path*,,,,31,c2d8e536d865,,OK
+apps/data360/src/app/(dashboard)/gouvernance/grants/page.tsx,/gouvernance/grants,page,,true,0,true,/gouvernance/:path*,,,,272,e56869a9252f,,OK
+apps/data360/src/app/(dashboard)/gouvernance/loading.tsx,/gouvernance,loading,,false,0,true,/gouvernance/:path*,,,,22,b8bc86253bc3,,OK
+apps/data360/src/app/(dashboard)/gouvernance/network-policies/page.tsx,/gouvernance/network-policies,page,,true,0,true,/gouvernance/:path*,,,,411,3671f0a14b25,,OK
+apps/data360/src/app/(dashboard)/gouvernance/oauth/page.tsx,/gouvernance/oauth,page,,true,0,true,/gouvernance/:path*,,/cache/clear/pattern,,1581,7f2e53b3b7ab,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/page.tsx,/gouvernance,page,,true,0,true,/gouvernance/:path*,,,,24,d74c131fe49c,,OK
+apps/data360/src/app/(dashboard)/gouvernance/policies/page.tsx,/gouvernance/policies,page,,true,0,true,/gouvernance/:path*,,,,288,c2ac4ea38555,,OK
+apps/data360/src/app/(dashboard)/gouvernance/projects/page.tsx,/gouvernance/projects,page,,true,0,true,/gouvernance/:path*,,/cache/clear/pattern,,712,7380e19a419f,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/rls-policies/page.tsx,/gouvernance/rls-policies,page,,true,0,true,/gouvernance/:path*,,/cache/clear/pattern,,526,ae2be9b0832e,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/roles/edit/[id]/page.tsx,/gouvernance/roles/edit/[id],page,,true,1,true,/gouvernance/:path*,,/cache/clear/pattern,,178,24f73a5572f8,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/roles/page.tsx,/gouvernance/roles,page,,true,0,true,/gouvernance/:path*,,,,47,a947fa5924e9,,OK
+apps/data360/src/app/(dashboard)/gouvernance/roles/view/[id]/page.tsx,/gouvernance/roles/view/[id],page,,true,1,true,/gouvernance/:path*,,,,209,1be3c7a50823,,OK
+apps/data360/src/app/(dashboard)/gouvernance/security-matrix/page.tsx,/gouvernance/security-matrix,page,,true,0,true,/gouvernance/:path*,,/cache/clear/pattern,,1063,38fa7f374382,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/users/edit/[id]/page.tsx,/gouvernance/users/edit/[id],page,,true,1,true,/gouvernance/:path*,,/cache/clear/pattern,,251,50ba29d7741f,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/gouvernance/users/page.tsx,/gouvernance/users,page,,true,0,true,/gouvernance/:path*,,,,49,1f0ea63fa0c7,,OK
+apps/data360/src/app/(dashboard)/gouvernance/users/view/[id]/page.tsx,/gouvernance/users/view/[id],page,,true,1,true,/gouvernance/:path*,,,,272,c6af83643706,,OK
+apps/data360/src/app/(dashboard)/image-viewer/page.tsx,/image-viewer,page,,false,0,false,,,,,4,bc9c3a8b4247,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/intelligence-hub/error.tsx,/intelligence-hub,error-boundary,,true,0,false,,,,,31,be39e4ab730f,,OK
+apps/data360/src/app/(dashboard)/intelligence-hub/loading.tsx,/intelligence-hub,loading,,false,0,false,,,,,30,2f23480f388a,,OK
+apps/data360/src/app/(dashboard)/intelligence-hub/page.tsx,/intelligence-hub,page,,true,0,false,,,,,511,b221f98b4553,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/intelligent/error.tsx,/intelligent,error-boundary,,true,0,true,/intelligent/:path*,,,,31,c2d8e536d865,,OK
+apps/data360/src/app/(dashboard)/intelligent/loading.tsx,/intelligent,loading,,false,0,true,/intelligent/:path*,,,,22,b8bc86253bc3,,OK
+apps/data360/src/app/(dashboard)/intelligent/page.tsx,/intelligent,page,,true,0,true,/intelligent/:path*,,/cortex/semantic-search | /cortex/agents | /cortex/semantic-views/${encodeURIComponent(viewName)} | /cortex/semantic-models/${encodeURIComponent(editingSV.name || editingSV.VIEW_NAME)} | /cortex/semantic-models | /cortex/semantic-views?database=CP_DATA360 | /cortex/embeddings | /cortex/vectors/columns?database=CP_DATA360 | /cortex/semantic-views | /cortex/vectors/columns,,1108,67a05deb8f56,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/invoice/[id]/edit/page.tsx,/invoice/[id]/edit,page,,false,1,true,/invoice/:path*,,,,72,6cd032d21f37,,OK
+apps/data360/src/app/(dashboard)/invoice/[id]/page.tsx,/invoice/[id],page,,false,1,true,/invoice/:path*,,,,42,42459923f5b6,,OK
+apps/data360/src/app/(dashboard)/invoice/builder/page.tsx,/invoice/builder,page,,true,0,true,/invoice/:path*,,,,45,ce6b3d9fb5f3,,OK
+apps/data360/src/app/(dashboard)/invoice/create/page.tsx,/invoice/create,page,,false,0,true,/invoice/:path*,,,,34,50e5114c3a96,,OK
+apps/data360/src/app/(dashboard)/invoice/page.tsx,/invoice,page,,false,0,true,/invoice/:path*,,,,50,9873a8546886,,OK
+apps/data360/src/app/(dashboard)/job-board/feed/page.tsx,/job-board/feed,page,,false,0,false,,,,,4,c1f4e934b2c4,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/job-board/page.tsx,/job-board,page,,false,0,false,,,,,8,e8b635c3d068,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/layout.tsx,/,layout,,true,0,true,/,,,,80,04e4b7a5363a,,OK
+apps/data360/src/app/(dashboard)/logistics/customer-profile/page.tsx,/logistics/customer-profile,page,,false,0,true,/logistics/:path*,,,,34,79b6fa377b7d,,OK
+apps/data360/src/app/(dashboard)/logistics/page.tsx,/logistics,page,,false,0,true,/logistics/:path*,,,,8,0f9087fa07e5,,OK
+apps/data360/src/app/(dashboard)/logistics/shipments/[id]/edit/page.tsx,/logistics/shipments/[id]/edit,page,,false,1,true,/logistics/:path*,,,,48,148d32e9f7a7,,OK
+apps/data360/src/app/(dashboard)/logistics/shipments/[id]/page.tsx,/logistics/shipments/[id],page,,false,1,true,/logistics/:path*,,,,54,94a173fd11ea,,OK
+apps/data360/src/app/(dashboard)/logistics/shipments/create/page.tsx,/logistics/shipments/create,page,,false,0,true,/logistics/:path*,,,,34,3ab60d4093b8,,OK
+apps/data360/src/app/(dashboard)/logistics/shipments/page.tsx,/logistics/shipments,page,,false,0,true,/logistics/:path*,,,,18,1d46ad0fc0bc,,OK
+apps/data360/src/app/(dashboard)/logistics/tracking/[id]/page.tsx,/logistics/tracking/[id],page,,false,1,true,/logistics/:path*,,,,46,bd5c2ea69c1b,,OK
+apps/data360/src/app/(dashboard)/logistics/tracking/page.tsx,/logistics/tracking,page,,false,0,true,/logistics/:path*,,,,28,27ca7f3f4b36,,OK
+apps/data360/src/app/(dashboard)/mapping/page.tsx,/mapping,page,,true,0,false,,,,,35,40fb2316801c,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/observability/error.tsx,/observability,error-boundary,,true,0,true,/observability/:path*,,,,177,56aa78071d14,,OK
+apps/data360/src/app/(dashboard)/observability/loading.tsx,/observability,loading,,false,0,true,/observability/:path*,,,,126,3100c6b051b5,,OK
+apps/data360/src/app/(dashboard)/observability/page.tsx,/observability,page,,true,0,true,/observability/:path*,,,,465,63a0cfe121ff,,OK
+apps/data360/src/app/(dashboard)/page.tsx,/,page,,false,0,true,/,,,,4,73e2e810b8e6,,OK
+apps/data360/src/app/(dashboard)/point-of-sale/page.tsx,/point-of-sale,page,,false,0,false,,,,,40,690afebdc616,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/profile/page.tsx,/profile,page,,false,0,false,,,,,14,f423d4f464a8,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/project/page.tsx,/project,page,,false,0,false,,,,,14,8369ea0ab858,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/roles-permissions/page.tsx,/roles-permissions,page,,false,0,false,,,,,30,e1b9a829d790,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/search/flight/page.tsx,/search/flight,page,,false,0,false,,,,,33,9be5dcd2486e,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/search/nft/page.tsx,/search/nft,page,,false,0,false,,,,,29,7e20d8a0c6d6,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/search/real-estate/page.tsx,/search/real-estate,page,,false,0,false,,,,,32,10a7fa73b476,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/support/inbox/[id]/page.tsx,/support/inbox/[id],page,,false,1,true,/support/:path*,,,,29,2a7ff610200e,,OK
+apps/data360/src/app/(dashboard)/support/inbox/page.tsx,/support/inbox,page,,false,0,true,/support/:path*,,,,40,1aa780820202,,OK
+apps/data360/src/app/(dashboard)/support/page.tsx,/support,page,,false,0,true,/support/:path*,,,,8,f3b698f44f94,,OK
+apps/data360/src/app/(dashboard)/support/snippets/page.tsx,/support/snippets,page,,false,0,true,/support/:path*,,,,50,54f6ee4b760d,,OK
+apps/data360/src/app/(dashboard)/support/templates/page.tsx,/support/templates,page,,false,0,true,/support/:path*,,,,34,da9b5528438e,,OK
+apps/data360/src/app/(dashboard)/tables/basic/page.tsx,/tables/basic,page,,false,0,false,,,,,58,dd77b2869e33,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/collapsible/page.tsx,/tables/collapsible,page,,false,0,false,,,,,36,adc2fea13da7,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/dnd/page.tsx,/tables/dnd,page,,false,0,false,,,,,38,78af53c0d892,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/enhanced/page.tsx,/tables/enhanced,page,,false,0,false,,,,,36,a6a084d761b8,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/pagination/page.tsx,/tables/pagination,page,,false,0,false,,,,,49,3f5fce494185,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/pinning/page.tsx,/tables/pinning,page,,false,0,false,,,,,38,8c329970e549,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/resizable/page.tsx,/tables/resizable,page,,false,0,false,,,,,36,bf28ea853973,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/search/page.tsx,/tables/search,page,,false,0,false,,,,,39,71afc176149c,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/tables/sticky-header/page.tsx,/tables/sticky-header,page,,false,0,false,,,,,39,67dc1350a2e2,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/users/edit/[id]/page.tsx,/users/edit/[id],page,,true,1,false,,,/gouvernance/users/${userId},,262,b6d8db29456a,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.  Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/users/view/[id]/page.tsx,/users/view/[id],page,,true,1,false,,,/gouvernance/users/${userId},,263,05f7f38a68bb,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.  Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(dashboard)/widgets/cards/page.tsx,/widgets/cards,page,,false,0,false,,,,,99,bd16234b9cf5,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/widgets/charts/page.tsx,/widgets/charts,page,,false,0,false,,,,,44,8495ee0ea4b9,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/widgets/icons/page.tsx,/widgets/icons,page,,false,0,false,,,,,8,2cf1cb28afbb,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/widgets/maps/page.tsx,/widgets/maps,page,,false,0,false,,,,,51,6f585712f025,,Page not in middleware.ts matcher — add to RBAC matcher unless intentionally public.
+apps/data360/src/app/(dashboard)/workflow/error.tsx,/workflow,error-boundary,,true,0,true,/workflow/:path*,,,,31,c2d8e536d865,,OK
+apps/data360/src/app/(dashboard)/workflow/loading.tsx,/workflow,loading,,false,0,true,/workflow/:path*,,,,22,b8bc86253bc3,,OK
+apps/data360/src/app/(dashboard)/workflow/page.tsx,/workflow,page,,true,0,true,/workflow/:path*,,/api/auth/session,,1256,9a92cf5ccd64,,Client component fetching backend — verify API client uses session cookie / Bearer token.
+apps/data360/src/app/(other-pages)/access-denied/page.tsx,/access-denied,page,,false,0,false,,,,,47,eb476431fb92,,OK
+apps/data360/src/app/(other-pages)/coming-soon/page.tsx,/coming-soon,page,,false,0,false,,,,,63,73a8760b5f8d,,OK
+apps/data360/src/app/(other-pages)/layout.tsx,/,layout,,true,0,true,/,,,,53,1afe79a62208,,OK
+apps/data360/src/app/(other-pages)/maintenance/page.tsx,/maintenance,page,,false,0,false,,,,,39,d60812762c56,,OK
+apps/data360/src/app/(other-pages)/not-found/page.tsx,/not-found,page,,true,0,false,,,,,41,10495ba792b7,,OK
+apps/data360/src/app/(other-pages)/welcome/page.tsx,/welcome,page,,false,0,false,,,,,56,178d36651524,,OK
+apps/data360/src/app/api/auth/[...nextauth]/route.ts,/api/auth/[...nextauth],route,,false,1,false,,,,,4,81d479b35c66,,Route file with no exported HTTP handler — dead code?
+apps/data360/src/app/api/auth/error/route.ts,/api/auth/error,route,"GET,POST",false,0,false,,,,,16,119f20b667a8,,OK
+apps/data360/src/app/api/uploadthing/route.ts,/api/uploadthing,route,,false,0,false,,,,,5,aa0951c3636d,,Route file with no exported HTTP handler — dead code?
+apps/data360/src/app/auth/(forgot-password)/forgot-password-1/page.tsx,/auth/forgot-password-1,page,,false,0,false,,,,,38,69311c008633,,OK
+apps/data360/src/app/auth/(forgot-password)/forgot-password-2/page.tsx,/auth/forgot-password-2,page,,false,0,false,,,,,9,ffc16b6e5f32,,OK
+apps/data360/src/app/auth/(forgot-password)/forgot-password-3/page.tsx,/auth/forgot-password-3,page,,false,0,false,,,,,18,08850b80e26e,,OK
+apps/data360/src/app/auth/(forgot-password)/forgot-password-4/page.tsx,/auth/forgot-password-4,page,,false,0,false,,,,,16,a83e70b47096,,OK
+apps/data360/src/app/auth/(forgot-password)/forgot-password-5/page.tsx,/auth/forgot-password-5,page,,false,0,false,,,,,36,6f7ed388c1c0,,OK
+apps/data360/src/app/auth/(otp)/otp-1/page.tsx,/auth/otp-1,page,,false,0,false,,,,,42,de76936aff5c,,OK
+apps/data360/src/app/auth/(otp)/otp-2/page.tsx,/auth/otp-2,page,,false,0,false,,,,,16,5f3cb74dc63f,,OK
+apps/data360/src/app/auth/(otp)/otp-3/page.tsx,/auth/otp-3,page,,false,0,false,,,,,22,55276e240b70,,OK
+apps/data360/src/app/auth/(otp)/otp-4/page.tsx,/auth/otp-4,page,,false,0,false,,,,,13,832887b14046,,OK
+apps/data360/src/app/auth/(otp)/otp-5/page.tsx,/auth/otp-5,page,,false,0,false,,,,,43,cec04947063b,,OK
+apps/data360/src/app/auth/(sign-in)/sign-in-1/page.tsx,/auth/sign-in-1,page,,false,0,false,,,,,46,d1a8c5edd229,,OK
+apps/data360/src/app/auth/(sign-in)/sign-in-2/page.tsx,/auth/sign-in-2,page,,false,0,false,,,,,13,e6161e7c88f0,,OK
+apps/data360/src/app/auth/(sign-in)/sign-in-3/page.tsx,/auth/sign-in-3,page,,false,0,false,,,,,24,de5e9c1398d7,,OK
+apps/data360/src/app/auth/(sign-in)/sign-in-4/page.tsx,/auth/sign-in-4,page,,false,0,false,,,,,21,c77b4a35d414,,OK
+apps/data360/src/app/auth/(sign-in)/sign-in-5/page.tsx,/auth/sign-in-5,page,,false,0,false,,,,,40,e89749c5cb54,,OK
+apps/data360/src/app/auth/(sign-up)/sign-up-1/page.tsx,/auth/sign-up-1,page,,false,0,false,,,,,43,ec9c21213af1,,OK
+apps/data360/src/app/auth/(sign-up)/sign-up-2/page.tsx,/auth/sign-up-2,page,,false,0,false,,,,,13,43aecb6dcf3f,,OK
+apps/data360/src/app/auth/(sign-up)/sign-up-3/page.tsx,/auth/sign-up-3,page,,false,0,false,,,,,23,657c2b3f2815,,OK
+apps/data360/src/app/auth/(sign-up)/sign-up-4/page.tsx,/auth/sign-up-4,page,,false,0,false,,,,,16,f774abd7082f,,OK
+apps/data360/src/app/auth/(sign-up)/sign-up-5/page.tsx,/auth/sign-up-5,page,,false,0,false,,,,,40,2761159cbfa5,,OK
+apps/data360/src/app/layout.tsx,/,layout,,false,0,true,/,getServerSession,,,49,144859d444f3,,OK
+apps/data360/src/app/not-found.tsx,/,not-found,,false,0,true,/,,,,56,ccd2180676a3,,OK
+apps/data360/src/app/signin/layout.tsx,/signin,layout,,false,0,false,,,,,15,80b5c767f974,,OK
+apps/data360/src/app/signin/page.tsx,/signin,page,,false,0,false,,,,,43,fafd0874dc13,,OK

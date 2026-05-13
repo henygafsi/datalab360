@@ -8,7 +8,60 @@ import {
   getAuthSession,
   AuthError,
   TokenExpiredError,
+  type SnowflakeSession,
 } from '@/lib/auth';
+
+/**
+ * Cached session promise to avoid hammering /api/auth/session on every request.
+ *
+ * NextAuth's `getSession()` fetches /api/auth/session unconditionally. Without a
+ * cache, every axios request triggers a session fetch → "session storm".
+ *
+ * Strategy:
+ *  - Share a single in-flight promise for a short TTL (30s).
+ *  - If the cached session's `expires` is < 60s away, refresh proactively.
+ *  - Invalidate on 401 responses (handled in the response interceptor below).
+ */
+const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_EXPIRY_GRACE_MS = 60_000;
+let cachedSessionPromise: Promise<SnowflakeSession | null> | null = null;
+let cachedSessionExpiry = 0;
+
+function invalidateSessionCache(): void {
+  cachedSessionPromise = null;
+  cachedSessionExpiry = 0;
+}
+
+async function getCachedSession(): Promise<SnowflakeSession | null> {
+  const now = Date.now();
+
+  // If we have a resolved cached value, check if it's near expiry and bust if so.
+  if (cachedSessionPromise && now <= cachedSessionExpiry) {
+    try {
+      const cached = await cachedSessionPromise;
+      const expiresIso = cached?.expires;
+      if (expiresIso) {
+        const expiresMs = new Date(expiresIso).getTime();
+        if (!Number.isNaN(expiresMs) && expiresMs - now < SESSION_EXPIRY_GRACE_MS) {
+          invalidateSessionCache();
+        }
+      }
+    } catch {
+      // If the cached promise rejected, drop it and refetch.
+      invalidateSessionCache();
+    }
+  }
+
+  if (!cachedSessionPromise || now > cachedSessionExpiry) {
+    cachedSessionPromise = getAuthSession().catch((err) => {
+      // Don't keep a rejected promise stuck in the cache.
+      invalidateSessionCache();
+      throw err;
+    });
+    cachedSessionExpiry = now + SESSION_CACHE_TTL_MS;
+  }
+  return cachedSessionPromise;
+}
 
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
@@ -37,14 +90,23 @@ function _detectRedundantCall(method: string, url: string): void {
 // Request interceptor - Add authentication token and account context to all requests
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
+    // Defensive: force HTTPS on any absolute baseURL / url that slipped through env
+    // (mixed-content protection — should never hit http://api.datalab360.io).
+    if (config.baseURL && config.baseURL.startsWith('http://')) {
+      config.baseURL = `https://${config.baseURL.slice(7)}`;
+    }
+    if (config.url && config.url.startsWith('http://')) {
+      config.url = `https://${config.url.slice(7)}`;
+    }
+
     const url = config.url ?? '';
     const method = (config.method ?? 'get').toUpperCase();
     const fullUrl = config.baseURL ? `${config.baseURL}${url}` : url;
     _detectRedundantCall(method, fullUrl);
 
     try {
-      // Use unified auth helper that works in both server and client
-      const session = await getAuthSession();
+      // Use cached session helper to avoid /api/auth/session storm on every request.
+      const session = await getCachedSession();
 
       if (session?.user?.access_token) {
         // Check for token expiration
@@ -90,6 +152,8 @@ apiClient.interceptors.response.use(
     // 401 = real auth only (no token, invalid/expired token). Do NOT redirect on endpoint/infra issues.
     // Backend uses 503 for SESSION_NOT_IN_PROCESS so only real auth returns 401 → redirect to sign-in
     if (status === 401) {
+      // Invalidate the cached session so the next request refetches from /api/auth/session.
+      invalidateSessionCache();
       const data = error.response?.data as { error_code?: string; detail?: string } | undefined;
       const errorCode = data?.error_code;
       const isRealAuth = !errorCode || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(errorCode);

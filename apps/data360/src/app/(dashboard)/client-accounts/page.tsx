@@ -12,7 +12,7 @@ export default function ClientAccountsPage() {
       <OrgAccountsDashboard />
       <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 px-4">
         <span>Related:</span>
-        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Users)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Users)</a>
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Cost)</a>
       </div>
     </ErrorBoundary>

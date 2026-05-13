@@ -84,7 +84,12 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                     <Menu.Trigger>
                       {collapsed ? (
                         <Tooltip content={item.name} placement="right">
-                          <div
+                          <button
+                            type="button"
+                            aria-label={item.name}
+                            aria-expanded={isDropdownOpen}
+                            aria-haspopup="menu"
+                            aria-disabled={disabled || undefined}
                             className={cn(
                               'group relative mx-auto flex flex-col items-center justify-center rounded-xl p-2 transition-all duration-200 lg:my-1 2xl:my-1.5',
                               isDropdownOpen
@@ -95,6 +100,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                           >
                             {/* Colored icon badge */}
                             <span
+                              aria-hidden="true"
                               className={cn(
                                 'inline-flex size-8 items-center justify-center rounded-lg transition-all duration-200 [&>svg]:size-[18px]',
                                 isDropdownOpen
@@ -106,12 +112,17 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                             </span>
                             {/* Active dot indicator */}
                             {isDropdownOpen && (
-                              <span className={cn('mt-1 h-1 w-1 rounded-full', colors.activeBg)} />
+                              <span aria-hidden="true" className={cn('mt-1 h-1 w-1 rounded-full', colors.activeBg)} />
                             )}
-                          </div>
+                          </button>
                         </Tooltip>
                       ) : (
-                        <div
+                        <button
+                          type="button"
+                          aria-label={item.name}
+                          aria-expanded={isDropdownOpen}
+                          aria-haspopup="menu"
+                          aria-disabled={disabled || undefined}
                           className={cn(
                             'group relative mx-3 flex grow items-center justify-between rounded-xl px-3 py-2 font-medium transition-all duration-200 lg:my-0.5 2xl:my-0.5 2xl:me-5',
                             isDropdownOpen
@@ -123,7 +134,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                         >
                           {/* Left accent bar for active state */}
                           {isDropdownOpen && (
-                            <span className={cn('absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-full', colors.activeBg)} />
+                            <span aria-hidden="true" className={cn('absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-full', colors.activeBg)} />
                           )}
 
                           <span className="flex items-center">
@@ -138,6 +149,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                             {/* Colored icon badge */}
                             {Icon && (
                               <span
+                                aria-hidden="true"
                                 className={cn(
                                   'me-2.5 inline-flex size-8 items-center justify-center rounded-lg transition-all duration-200 [&>svg]:size-[20px]',
                                   isDropdownOpen
@@ -159,6 +171,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                           </span>
 
                           <PiCaretRightBold
+                            aria-hidden="true"
                             className={cn(
                               'h-3 w-3 transition-all duration-200',
                               isDropdownOpen
@@ -166,7 +179,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                                 : 'text-slate-300 group-hover:text-slate-400 dark:text-slate-600'
                             )}
                           />
-                        </div>
+                        </button>
                       )}
                     </Menu.Trigger>
 
@@ -265,6 +278,7 @@ function NestedDropdown({
             <span className="flex items-center">
               {DropdownIcon && (
                 <span
+                  aria-hidden="true"
                   className={cn(
                     'me-2.5 inline-flex h-4 w-4 items-center justify-center',
                     isChildDropdownOpen
@@ -283,6 +297,7 @@ function NestedDropdown({
             </span>
 
             <PiCaretRightBold
+              aria-hidden="true"
               className={cn(
                 'h-3 w-3 transition-colors',
                 isChildDropdownOpen ? 'text-slate-400' : 'text-slate-300 dark:text-slate-600'
@@ -324,6 +339,7 @@ function MenuLink({ item, isChildActive, itemColor }: { item: any; isChildActive
       <span className="flex items-center truncate">
         {Icon && (
           <span
+            aria-hidden="true"
             className={cn(
               'me-2.5 inline-flex h-4 w-4 items-center justify-center',
               isChildActive

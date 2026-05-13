@@ -8,11 +8,12 @@ import {
   FolderPlus, Clock, User, Search, Users, Crown, Pencil, Eye, Trash2,
   Sparkles,
 } from 'lucide-react';
+import { PiCheckCircleDuotone } from 'react-icons/pi';
 import { cn } from '@/lib/utils';
 import { listProjects, addContributor } from '@/app/services/api/projectsApi';
 import { createExploreProject } from '@/app/services/api/exploreDesignApi';
 import type { Project as ApiProject } from '@/app/services/api/types';
-import { getUsers } from '@/app/services/gouvernance/fetch_users';
+import { getUsers } from '@/app/services/governance/fetch_users';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useAuth } from '@/hooks/useAuth';
@@ -68,6 +69,13 @@ export default function ProjectSelector({
   const [isCreating, setIsCreating] = useState(false);
   const [selectedInModal, setSelectedInModal] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+
+  // Form is dirty when user has typed anything into name or description fields
+  const isDirty = useMemo(
+    () => newProjectName.trim().length > 0 || newProjectDescription.trim().length > 0,
+    [newProjectName, newProjectDescription],
+  );
 
   // Team members for new project
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -194,6 +202,22 @@ export default function ProjectSelector({
     setShowMemberDropdown(false);
   };
 
+  // Attempt to close the main modal: if the create form is dirty and no project
+  // is currently selected, prompt to confirm discard. Otherwise close immediately.
+  const attemptCloseModal = useCallback(() => {
+    if (isDirty && !selectedProjectId) {
+      setShowDiscardConfirm(true);
+      return;
+    }
+    setShowModal(false);
+  }, [isDirty, selectedProjectId]);
+
+  const confirmDiscard = useCallback(() => {
+    resetCreateForm();
+    setShowDiscardConfirm(false);
+    setShowModal(false);
+  }, []);
+
   const handleSelectProject = () => {
     if (!selectedInModal) {
       toast.error('Please select a project');
@@ -289,11 +313,15 @@ export default function ProjectSelector({
       <Modal
         isOpen={showModal}
         onClose={() => {
-          if (selectedProjectId) {
-            setShowModal(false);
-          } else {
-            toast.error('Please select or create a project to continue');
+          if (!selectedProjectId) {
+            if (isDirty) {
+              setShowDiscardConfirm(true);
+            } else {
+              toast.error('Please select or create a project to continue');
+            }
+            return;
           }
+          attemptCloseModal();
         }}
         customSize="860px"
       >
@@ -325,10 +353,11 @@ export default function ProjectSelector({
                   />
                 </button>
               </Tooltip>
-              {selectedProjectId && (
+              {(selectedProjectId || isDirty) && (
                 <button
                   className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  onClick={() => setShowModal(false)}
+                  onClick={attemptCloseModal}
+                  aria-label="Close project management"
                 >
                   <X className="h-4.5 w-4.5 text-slate-400" />
                 </button>
@@ -600,24 +629,57 @@ export default function ProjectSelector({
                 </div>
               ) : (
                 <>
-                  <div className="max-h-[320px] overflow-auto space-y-1.5 mb-3">
-                    {filteredProjects.map((project) => {
+                  <div
+                    className="max-h-[320px] overflow-auto space-y-1.5 mb-3"
+                    role="listbox"
+                    aria-label="Existing projects"
+                  >
+                    {filteredProjects.map((project, idx) => {
                       const isSelected = selectedInModal === project.project_id;
                       return (
                         <button
                           key={project.project_id}
+                          role="option"
+                          aria-selected={isSelected}
+                          tabIndex={0}
                           className={cn(
-                            'w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all',
+                            'w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all select-none',
                             'border dark:border-slate-700',
+                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
                             isSelected
-                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-1 ring-blue-400'
+                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500 ring-offset-2'
                               : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent',
                           )}
                           onClick={() => setSelectedInModal(project.project_id)}
-                          onDoubleClick={() => {
+                          onDoubleClick={(e) => {
+                            e.preventDefault();
                             setSelectedInModal(project.project_id);
                             onProjectSelect(project.project_id, project.name);
                             setShowModal(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              setSelectedInModal(project.project_id);
+                              onProjectSelect(project.project_id, project.name);
+                              setShowModal(false);
+                            } else if (e.key === 'ArrowDown') {
+                              e.preventDefault();
+                              const next = filteredProjects[idx + 1];
+                              if (next) {
+                                setSelectedInModal(next.project_id);
+                                const el = e.currentTarget.parentElement?.children[idx + 1] as HTMLElement | undefined;
+                                el?.focus();
+                              }
+                            } else if (e.key === 'ArrowUp') {
+                              e.preventDefault();
+                              const prev = filteredProjects[idx - 1];
+                              if (prev) {
+                                setSelectedInModal(prev.project_id);
+                                const el = e.currentTarget.parentElement?.children[idx - 1] as HTMLElement | undefined;
+                                el?.focus();
+                              }
+                            }
                           }}
                         >
                           <div
@@ -680,7 +742,10 @@ export default function ProjectSelector({
                             </div>
                           </div>
                           {isSelected && (
-                            <Check className="h-4 w-4 text-blue-600 flex-shrink-0" />
+                            <PiCheckCircleDuotone
+                              className="h-5 w-5 text-blue-600 flex-shrink-0"
+                              aria-hidden="true"
+                            />
                           )}
                         </button>
                       );
@@ -719,12 +784,55 @@ export default function ProjectSelector({
                     {selectedProject?.name}
                   </span>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setShowModal(false)}>
+                <Button variant="outline" size="sm" onClick={attemptCloseModal}>
                   Close
                 </Button>
               </div>
             </div>
           )}
+        </div>
+      </Modal>
+
+      {/* Discard-changes confirmation */}
+      <Modal
+        isOpen={showDiscardConfirm}
+        onClose={() => setShowDiscardConfirm(false)}
+        size="sm"
+      >
+        <div
+          role="alertdialog"
+          aria-labelledby="discard-changes-title"
+          aria-describedby="discard-changes-desc"
+          className="p-6"
+        >
+          <h3
+            id="discard-changes-title"
+            className="text-base font-semibold text-slate-900 dark:text-white"
+          >
+            Discard changes?
+          </h3>
+          <p
+            id="discard-changes-desc"
+            className="mt-2 text-sm text-slate-600 dark:text-slate-400"
+          >
+            Your project name and description will be lost.
+          </p>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDiscardConfirm(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              color="danger"
+              onClick={confirmDiscard}
+            >
+              Discard
+            </Button>
+          </div>
         </div>
       </Modal>
     </>

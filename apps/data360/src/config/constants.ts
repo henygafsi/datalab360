@@ -9,7 +9,18 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
-export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://www.api.datalab360.io:8443';
+// Force HTTPS to avoid mixed-content blocks when env var is mis-set to http://...
+function _enforceHttps(u: string): string {
+  let url = (u || '').trim();
+  if (!url) return 'https://www.api.datalab360.io:8443';
+  if (url.startsWith('//')) url = `https:${url}`;
+  if (url.startsWith('http://')) url = `https://${url.slice(7)}`;
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  return url;
+}
+export const API_BASE_URL = _enforceHttps(
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://www.api.datalab360.io:8443',
+);
 
 export const ROW_PER_PAGE_OPTIONS = [
   {

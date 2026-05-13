@@ -88,7 +88,7 @@ export default function UserEditPage() {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       toast.success(`User ${userId} updated successfully!`);
-      router.push('/gouvernance/users');
+      router.push('/governance/users');
     } catch (err: any) {
       console.error('Failed to update user:', err);
       toast.error(err.message || 'Failed to update user');
@@ -112,7 +112,7 @@ export default function UserEditPage() {
           <p className="font-semibold">Error loading user data</p>
           <p className="text-sm mt-1">{error}</p>
           <Button
-            onClick={() => router.push('/gouvernance/users')}
+            onClick={() => router.push('/governance/users')}
             className="mt-4"
             size="sm"
           >
@@ -131,7 +131,7 @@ export default function UserEditPage() {
         color="blue"
         actions={
           <Button
-            onClick={() => router.push('/gouvernance/users')}
+            onClick={() => router.push('/governance/users')}
             variant="outline"
             className="gap-2"
           >
@@ -257,7 +257,7 @@ export default function UserEditPage() {
             This form is ready but currently uses mock data. Once the backend
             implements{' '}
             <code className="bg-blue-100 px-1 rounded">
-              PUT /gouvernance/users/{'{username}'}
+              PUT /governance/users/{'{username}'}
             </code>
             , changes will be saved to Snowflake.
           </p>
@@ -268,7 +268,7 @@ export default function UserEditPage() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => router.push('/gouvernance/users')}
+            onClick={() => router.push('/governance/users')}
             disabled={saving}
           >
             Cancel

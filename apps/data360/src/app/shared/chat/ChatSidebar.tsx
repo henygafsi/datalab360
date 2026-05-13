@@ -41,7 +41,7 @@ function getModuleContext(pathname: string): ChatContext {
     '/data-source-connection': { module: 'connect', moduleName: 'Connect Data' },
     '/explore-design': { module: 'explore_design', moduleName: 'Explore & Design' },
     '/workflow': { module: 'workflow', moduleName: 'Workflow' },
-    '/gouvernance': { module: 'governance', moduleName: 'Governance' },
+    '/governance': { module: 'governance', moduleName: 'Governance' },
     '/bi-dashboard': { module: 'bi_dashboard', moduleName: 'BI Dashboard' },
     '/intelligent': { module: 'intelligence', moduleName: 'AI Intelligence' },
     '/data-quality': { module: 'data_quality', moduleName: 'Data Quality' },

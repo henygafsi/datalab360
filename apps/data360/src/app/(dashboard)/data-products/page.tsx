@@ -287,7 +287,7 @@ function DataProductsPage() {
         <span>Related:</span>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Source Tables)</a>
         <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (SLA Monitoring)</a>
-        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Access Policies)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Access Policies)</a>
       </div>
     </div>
   );

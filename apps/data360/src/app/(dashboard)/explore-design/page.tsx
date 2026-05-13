@@ -1,6 +1,6 @@
 'use client';
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
-// ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.gouvernance (policies)
+// ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
@@ -15,15 +15,15 @@ import {
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
-  BookTemplate, Activity
+  BookTemplate, Activity, AlertCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
-import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import { getTableColumns, TableColumnsTimeoutError } from '@/app/services/mapping/fetch_tables';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
-import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
+import { getMaskingPolicies, MaskingPolicy } from '@/app/services/governance/policies';
 import {
   getRecentDeploymentErrors,
   TableRelationship,
@@ -851,6 +851,8 @@ export default function ExploreDesignPage() {
   const [isLoadingSchemas, setIsLoadingSchemas] = useState(false);
   const [isLoadingTables, setIsLoadingTables] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  const [columnsLoadError, setColumnsLoadError] = useState<null | { kind: 'timeout' | 'generic'; message: string }>(null);
+  const [columnsLoadAttempt, setColumnsLoadAttempt] = useState(0);
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
 
   // Masking policies from API
@@ -1691,6 +1693,7 @@ export default function ExploreDesignPage() {
 
     const loadColumns = async () => {
       setIsLoadingColumns(true);
+      setColumnsLoadError(null);
       try {
         const columns = await getTableColumns(
           selectedTable.database,
@@ -1742,14 +1745,21 @@ export default function ExploreDesignPage() {
       } catch (error) {
         // Don't show error for template/DWH tables that don't exist in Snowflake yet
         if (!targetTableIds.has(selectedTable.id)) {
-          toast.error('Failed to load columns');
+          if (error instanceof TableColumnsTimeoutError) {
+            setColumnsLoadError({ kind: 'timeout', message: error.message });
+            toast.error('Snowflake query timed out');
+          } else {
+            const msg = (error as { message?: string })?.message || 'Failed to load columns';
+            setColumnsLoadError({ kind: 'generic', message: msg });
+            toast.error('Failed to load columns');
+          }
         }
       } finally {
         setIsLoadingColumns(false);
       }
     };
     loadColumns();
-  }, [selectedTable, allTableConfigs, targetTableIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedTable, allTableConfigs, targetTableIds, columnsLoadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset inline panels when selected table changes
   useEffect(() => {
@@ -1759,12 +1769,15 @@ export default function ExploreDesignPage() {
     setInlineProfileData(null);
   }, [selectedTable?.id]);
 
-  // Fetch inline preview data when toggled on
+  // Inline preview is INDEPENDENT from the column-metadata fetch:
+  // even if `get_table_columns` errors, the user can still preview rows.
+  const [inlinePreviewError, setInlinePreviewError] = useState<string | null>(null);
   useEffect(() => {
     if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
     let cancelled = false;
     const load = async () => {
       setIsLoadingInlinePreview(true);
+      setInlinePreviewError(null);
       try {
         const data = await tablePreview(selectedProjectId, selectedTable.database, selectedTable.schema, selectedTable.table, { limit: 5 });
         if (!cancelled) {
@@ -1772,7 +1785,11 @@ export default function ExploreDesignPage() {
         }
       } catch (err) {
         console.error('[E&D] Inline preview failed:', err);
-        if (!cancelled) setInlinePreviewData(null);
+        if (!cancelled) {
+          setInlinePreviewData(null);
+          const msg = (err as { message?: string })?.message || 'Preview failed';
+          setInlinePreviewError(msg);
+        }
       } finally {
         if (!cancelled) setIsLoadingInlinePreview(false);
       }
@@ -3900,6 +3917,25 @@ export default function ExploreDesignPage() {
                               </div>
                             </div>
                           ))
+                        ) : columnsLoadError ? (
+                          <div className="py-8 text-center text-slate-500">
+                            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500" />
+                            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                              {columnsLoadError.kind === 'timeout'
+                                ? 'Snowflake query timed out'
+                                : 'Could not load columns'}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
+                              {columnsLoadError.message}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setColumnsLoadAttempt((n) => n + 1)}
+                              className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-900/40 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/60"
+                            >
+                              <RefreshCw className="h-3 w-3" /> Retry
+                            </button>
+                          </div>
                         ) : (
                           <div className="py-8 text-center text-slate-500">
                             <Columns3 className="h-8 w-8 mx-auto mb-2 text-slate-300" />
@@ -3963,8 +3999,14 @@ export default function ExploreDesignPage() {
                                 ))}
                               </tbody>
                             </table>
+                          ) : inlinePreviewError ? (
+                            <div className="py-6 text-center text-sm">
+                              <AlertCircle className="h-5 w-5 mx-auto mb-1.5 text-amber-500" />
+                              <p className="text-slate-700 dark:text-slate-200 font-medium">Preview failed</p>
+                              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{inlinePreviewError}</p>
+                            </div>
                           ) : (
-                            <div className="py-6 text-center text-sm text-slate-400">No preview data available</div>
+                            <div className="py-6 text-center text-sm text-slate-400">No rows returned (table is empty)</div>
                           )}
                         </div>
                       </div>
@@ -5374,7 +5416,7 @@ export default function ExploreDesignPage() {
         <span>Related:</span>
         <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Pipelines)</a>
         <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
-        <a href="/gouvernance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
       </div>
     </div>
     </ErrorBoundary>

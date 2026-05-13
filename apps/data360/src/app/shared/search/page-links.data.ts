@@ -32,23 +32,23 @@ export const pageLinks = [
   },
   {
     name: 'Users',
-    href: routes.gouvernance.users,
+    href: routes.governance.users,
   },
   {
     name: 'Roles',
-    href: routes.gouvernance.roles,
+    href: routes.governance.roles,
   },
   {
     name: 'Grants',
-    href: routes.gouvernance.grants,
+    href: routes.governance.grants,
   },
     {
     name: 'Policies',
-    href: routes.gouvernance.policies,
+    href: routes.governance.policies,
   },
    {
     name: 'Projects',
-    href: routes.gouvernance.projects,
+    href: routes.governance.projects,
   },
   {
     name: "KPI's Store",

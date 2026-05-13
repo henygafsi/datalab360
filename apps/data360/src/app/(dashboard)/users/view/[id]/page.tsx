@@ -95,7 +95,7 @@ export default function UserViewPage() {
           <p className="font-semibold">Error loading user details</p>
           <p className="text-sm mt-1">{error}</p>
           <Button
-            onClick={() => router.push('/gouvernance/users')}
+            onClick={() => router.push('/governance/users')}
             className="mt-4"
             size="sm"
           >
@@ -125,7 +125,7 @@ export default function UserViewPage() {
         actions={
           <>
             <Button
-              onClick={() => router.push('/gouvernance/users')}
+              onClick={() => router.push('/governance/users')}
               variant="outline"
               className="gap-2"
             >
@@ -257,7 +257,7 @@ export default function UserViewPage() {
         <p className="text-sm mt-1">
           This page currently displays mock data. Once the backend implements{' '}
           <code className="bg-blue-100 px-1 rounded">
-            GET /gouvernance/users/{'{username}'}
+            GET /governance/users/{'{username}'}
           </code>
           , real user data will be fetched.
         </p>

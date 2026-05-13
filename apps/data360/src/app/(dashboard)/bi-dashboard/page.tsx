@@ -99,8 +99,6 @@ function BiDashboardContent() {
             <div className="flex items-center space-x-3 text-sm">
               <span className="text-slate-500 dark:text-slate-400 font-medium">Home</span>
               <div className="w-1 h-1 bg-slate-400 rounded-full" />
-              <span className="text-slate-500 dark:text-slate-400 font-medium">Business Reporting</span>
-              <div className="w-1 h-1 bg-slate-400 rounded-full" />
               <span className="text-slate-900 dark:text-slate-200 font-semibold">BI Dashboard</span>
             </div>
           </nav>

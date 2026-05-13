@@ -16,7 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getCortexRecommend } from '@/app/services/cortex';
 import * as ExploreDesignService from '@/app/services/explore-design';
-import * as GouvernanceService from '@/app/services/gouvernance';
+import * as GouvernanceService from '@/app/services/governance';
 
 export type ProjectContextTabId = 'deployment' | 'versions' | 'history' | 'grants' | 'errors' | 'recos';
 
@@ -49,7 +49,7 @@ const TAB_CONFIG: { id: ProjectContextTabId; label: string; icon: React.ElementT
   { id: 'history', label: 'History', icon: History },
   { id: 'grants', label: 'Grants', icon: Shield },
   { id: 'errors', label: 'Errors', icon: AlertTriangle },
-  { id: 'recos', label: 'Recos (Cortex)', icon: Sparkles },
+  { id: 'recos', label: 'Cortex Recommendations', icon: Sparkles },
 ];
 
 export function ProjectContextPanel({

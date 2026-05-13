@@ -10,7 +10,7 @@ const MODULE_ID_MAP: Record<string, number> = {
   workflow: 3,
   bi_reporting: 4,
   data_quality: 5,
-  gouvernance: 6,
+  governance: 6,
   kpis_store: 7,
   dashboard: 8,
   observability: 9,

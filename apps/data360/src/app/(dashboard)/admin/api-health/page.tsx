@@ -208,18 +208,18 @@ import {
   setUserMfa, getUserMfaStatus,
   createOAuthIntegration, createSAMLIntegration,
   createServiceUser, assignRSAKey, revokeRSAKey,
-} from '@/app/services/gouvernance';
-import { getPermissions, getGrantsForRole, grantPermission } from '@/app/services/gouvernance/fetch_grants';
+} from '@/app/services/governance';
+import { getPermissions, getGrantsForRole, grantPermission } from '@/app/services/governance/fetch_grants';
 import {
   getRoles, addRole, getRolesForUser, getRoleDetails, getRoleForEdit,
   deleteRole, deleteMultipleRoles, updateRole,
-} from '@/app/services/gouvernance/fetch_roles';
+} from '@/app/services/governance/fetch_roles';
 import {
   getUsers, addUser, assignRoleToUser, getUserDetails,
   deleteUser, deleteMultipleUsers, disableUser, enableUser, updateUser,
-} from '@/app/services/gouvernance/fetch_users';
-import { getUsersWithRolesAndModules, updateUserRoles } from '@/app/services/gouvernance/user_roles';
-import { getRoles as grantsGetRoles, updateGrants } from '@/app/services/gouvernance/grants';
+} from '@/app/services/governance/fetch_users';
+import { getUsersWithRolesAndModules, updateUserRoles } from '@/app/services/governance/user_roles';
+import { getRoles as grantsGetRoles, updateGrants } from '@/app/services/governance/grants';
 import {
   getRLSPolicies as polGetRLS, createRLSPolicy as polCreateRLS,
   applyRLSPolicy as polApplyRLS, removeRLSPolicy as polRemoveRLS, deleteRLSPolicy,
@@ -240,13 +240,13 @@ import {
   getTables as polGetTables, getColumns as polGetColumns,
   getPolicyReferences, unapplyPolicyFromAll, safeDeletePolicy,
   getTablePolicies, replaceMaskingPolicy, replaceRLSPolicy, replaceAggregationPolicy,
-} from '@/app/services/gouvernance/policies';
+} from '@/app/services/governance/policies';
 import {
   listDMFs, createDMF, describeDMF, deleteDMF,
   associateDMF, disassociateDMF, setDMFSchedule,
   getDMFReferences, classifyTable, extractSemanticCategories,
   applySemanticTags, createCustomClassifier, addClassifierRegex,
-} from '@/app/services/gouvernance/dmf';
+} from '@/app/services/governance/dmf';
 import {
   initializeSecurityMatrix, getSecurityMatrix,
   createSecurityMatrixEntry, bulkCreateSecurityMatrixEntries,
@@ -256,7 +256,7 @@ import {
   getEnterpriseUsers, updateEnterpriseUser, deleteEnterpriseUser, syncEnterpriseUsers,
   getRLSPolicies as smGetRLS, createRLSPolicy as smCreateRLS,
   applyRLSPolicy as smApplyRLS, removeRLSPolicy as smRemoveRLS,
-} from '@/app/services/gouvernance/security_matrix';
+} from '@/app/services/governance/security_matrix';
 
 // ── Mapping ──
 import { getDatabases } from '@/app/services/mapping';

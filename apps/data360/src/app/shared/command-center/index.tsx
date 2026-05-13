@@ -135,6 +135,61 @@ function safeStr(value: unknown, fallback = ''): string {
   return fallback;
 }
 
+/**
+ * Backfill missing day buckets so daily-trend charts render an even category
+ * axis. Returns an array of `days` entries, each carrying the original row
+ * when present and zero-filled defaults otherwise. Dates are ISO yyyy-mm-dd.
+ */
+function backfillDailySeries<T extends { date: string }>(
+  rows: T[],
+  days: number,
+  defaults: Omit<T, 'date'>,
+): T[] {
+  const byDate = new Map<string, T>();
+  for (const r of rows) {
+    if (r && typeof r.date === 'string') byDate.set(r.date.slice(0, 10), r);
+  }
+  const result: T[] = [];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const existing = byDate.get(key);
+    result.push(existing ?? ({ date: key, ...defaults } as T));
+  }
+  return result;
+}
+
+/** Coalesces consecutive activity events from the same user/module/event_type
+ *  occurring within `windowMs` of each other into a single grouped row. */
+function coalesceActivityEvents<E extends { module?: unknown; username?: unknown; event_type?: unknown; timestamp?: string | null }>(
+  events: E[],
+  windowMs = 60_000,
+): Array<E & { count: number }> {
+  const out: Array<E & { count: number }> = [];
+  for (const evt of events) {
+    const prev = out[out.length - 1];
+    const prevTs = prev?.timestamp ? new Date(prev.timestamp).getTime() : NaN;
+    const curTs = evt.timestamp ? new Date(evt.timestamp).getTime() : NaN;
+    const sameBucket =
+      prev !== undefined &&
+      prev.module === evt.module &&
+      prev.username === evt.username &&
+      prev.event_type === evt.event_type &&
+      !isNaN(prevTs) &&
+      !isNaN(curTs) &&
+      Math.abs(prevTs - curTs) <= windowMs;
+    if (sameBucket) {
+      prev.count += 1;
+    } else {
+      out.push({ ...evt, count: 1 });
+    }
+  }
+  return out;
+}
+
 const KpiCard = memo(function KpiCard({
   label, value, icon: Icon, trend, color = 'blue', suffix, previousValue, invertTrend,
 }: {
@@ -246,7 +301,7 @@ function relativeTime(ts: string | null): string {
 
 const MODULE_COLORS: Record<string, string> = {
   connect: 'blue', explore_design: 'violet', workflow: 'amber',
-  gouvernance: 'rose', bi_reporting: 'cyan', cortex: 'purple',
+  governance: 'rose', bi_reporting: 'cyan', cortex: 'purple',
   data_quality: 'green', observability: 'orange',
 };
 
@@ -1115,12 +1170,21 @@ function TasksQuickWidget() {
           View All &rarr;
         </a>
       </div>
-      <div className="grid grid-cols-4 gap-2 text-center">
-        <div><p className="text-lg font-bold text-green-600">{active}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p></div>
-        <div><p className="text-lg font-bold text-amber-600">{suspended}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p></div>
-        <div><p className="text-lg font-bold text-blue-600">{succeeded}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p></div>
-        <div><p className="text-lg font-bold text-red-600">{failed}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p></div>
-      </div>
+      {active + suspended + succeeded + failed > 0 ? (
+        <div className="grid grid-cols-4 gap-2 text-center">
+          <div><p className="text-lg font-bold text-green-600">{active}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p></div>
+          <div><p className="text-lg font-bold text-amber-600">{suspended}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p></div>
+          <div><p className="text-lg font-bold text-blue-600">{succeeded}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p></div>
+          <div><p className="text-lg font-bold text-red-600">{failed}</p><p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p></div>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center py-4 text-center">
+          <div className="text-sm font-medium text-gray-600 dark:text-gray-300">No Snowflake tasks scheduled</div>
+          <p className="mt-1 text-xs text-gray-500">
+            Active and historical task runs appear here once a Snowflake task is created and executed.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -1184,8 +1248,8 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
       {/* Radar + Activity Feed */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Observability Radar */}
-        {radarData.length > 0 && (
-          <SectionCard title="Observability Scores">
+        <SectionCard title="Observability Scores">
+          {radarData.length > 0 && radarData.some((p) => (p.value ?? 0) > 0) ? (
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <RadarChart data={radarData}>
@@ -1196,25 +1260,49 @@ const OverviewTab = memo(function OverviewTab({ summary, moduleHealth, activityF
                 </RadarChart>
               </ResponsiveContainer>
             </div>
-          </SectionCard>
-        )}
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                Observability scores are still being computed
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Scores for governance, cost, performance, usage, and compliance appear here once Snowflake metrics have been collected.
+              </p>
+            </div>
+          )}
+        </SectionCard>
 
         {/* Recent Activity */}
         <SectionCard title="Recent Activity">
           <div className="max-h-64 overflow-y-auto space-y-2">
-            {(Array.isArray(activityFeed?.events) ? activityFeed.events : []).slice(0, 10).map((evt, i) => (
-              <div key={i} className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Badge size="sm" variant="flat" color={evt.status === 'SUCCESS' ? 'success' : 'danger'} className="shrink-0">
-                    {safeStr(evt.module)}
-                  </Badge>
-                  <span className="text-xs text-gray-700 dark:text-gray-300 truncate">{safeStr(evt.username)} — {safeStr(evt.event_type)}</span>
+            {coalesceActivityEvents(
+              Array.isArray(activityFeed?.events) ? activityFeed.events : [],
+            )
+              .slice(0, 10)
+              .map((evt, i) => (
+                <div
+                  key={`${safeStr(evt.module)}:${safeStr(evt.event_type)}:${evt.timestamp ?? ''}:${i}`}
+                  className="flex items-center justify-between gap-2 rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Badge size="sm" variant="flat" color={evt.status === 'SUCCESS' ? 'success' : 'danger'} className="shrink-0">
+                      {safeStr(evt.module)}
+                    </Badge>
+                    <span className="text-xs text-gray-700 dark:text-gray-300 truncate">
+                      {safeStr(evt.username)} — {safeStr(evt.event_type)}
+                      {evt.count > 1 ? ` (×${evt.count})` : ''}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400 whitespace-nowrap">{relativeTime(evt.timestamp)}</span>
                 </div>
-                <span className="text-xs text-gray-400 whitespace-nowrap">{relativeTime(evt.timestamp)}</span>
-              </div>
-            ))}
+              ))}
             {(!activityFeed || !Array.isArray(activityFeed.events) || activityFeed.events.length === 0) && (
-              <p className="text-sm text-gray-400 text-center py-8">No recent activity</p>
+              <div className="flex flex-col items-center justify-center py-8 text-center">
+                <div className="text-sm font-medium text-gray-600 dark:text-gray-300">No recent activity</div>
+                <p className="mt-1 text-xs text-gray-500">
+                  User events appear here as soon as someone interacts with a module.
+                </p>
+              </div>
             )}
           </div>
         </SectionCard>
@@ -1418,7 +1506,7 @@ const ProjectsTab = memo(function ProjectsTab({ data: dataProp, loading, onRefre
       {/* Recent Deployments Audit Table */}
       <AuditTable
         data={recentDeployments}
-        title={`Recent Deployments (${data.period_days}d)`}
+        title={`Recent Deployments (${data.period_days ?? 7}d)`}
         emptyMessage="No deployments in this period"
         columns={[
           { key: 'project_name', label: 'Project', sortable: true, filterable: true,
@@ -1829,7 +1917,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({ data, loading }: {
       </div>
 
       {/* Login Trend Chart */}
-      <SectionCard title={`Login Activity (${data.period_days}d)`}>
+      <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={loginTrend}>
@@ -2326,7 +2414,7 @@ const PerformanceTab = memo(function PerformanceTab({ data, loading }: {
       </div>
 
       {/* Query Latency Trend */}
-      <SectionCard title={`Query Latency Trend (${data.period_days}d)`}>
+      <SectionCard title={`Query Latency Trend (${data.period_days ?? 7}d)`}>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={queryPerf}>
@@ -2565,23 +2653,49 @@ const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, ac
       </div>
 
       {/* User Sessions Trend */}
-      {platformData?.user_sessions && platformData.user_sessions.length > 0 && (
-        <SectionCard title={`User Sessions (${platformData.period_days}d)`}>
+      <SectionCard title={`User Sessions (${platformData?.period_days ?? 30}d)`}>
+        {safeUserSessions.length >= 3 ? (
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={platformData.user_sessions}>
+              <ComposedChart
+                data={backfillDailySeries(
+                  safeUserSessions,
+                  platformData?.period_days ?? 30,
+                  { sessions: 0, unique_users: 0 },
+                )}
+              >
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <XAxis
+                  dataKey="date"
+                  type="category"
+                  interval="preserveStartEnd"
+                  tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                />
                 <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
                 <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="sessions" fill="#3B82F6" name="Sessions" radius={[4, 4, 0, 0]} />
+                <Bar
+                  dataKey="sessions"
+                  fill="#3B82F6"
+                  name="Sessions"
+                  radius={[4, 4, 0, 0]}
+                  barSize={20}
+                />
                 <Line type="monotone" dataKey="unique_users" stroke="#10B981" strokeWidth={2} name="Unique Users" dot={false} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </SectionCard>
-      )}
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
+              Not enough activity yet to render a 30-day trend
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Sessions appear here once at least three days of user activity have been recorded.
+            </p>
+          </div>
+        )}
+      </SectionCard>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Module Usage Distribution */}
@@ -2598,25 +2712,43 @@ const PlatformActivityTab = memo(function PlatformActivityTab({ platformData, ac
                 </PieChart>
               </ResponsiveContainer>
             </div>
-          ) : <p className="text-sm text-gray-400 text-center py-8">No module activity</p>}
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-sm font-medium text-gray-600 dark:text-gray-300">No module activity yet</div>
+              <p className="mt-1 text-xs text-gray-500">
+                A breakdown of usage by module appears here once users start interacting with Data360 modules.
+              </p>
+            </div>
+          )}
         </SectionCard>
 
         {/* Governance Stats */}
         <SectionCard title="Platform Governance">
-          <div className="grid grid-cols-3 gap-3 mb-4">
-            <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
-              <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{platformData?.governance_stats?.roles ?? 0}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Roles</p>
+          {((platformData?.governance_stats?.roles ?? 0) +
+            (platformData?.governance_stats?.permissions ?? 0) +
+            (platformData?.governance_stats?.module_grants ?? 0)) > 0 ? (
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{platformData?.governance_stats?.roles ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Roles</p>
+              </div>
+              <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{platformData?.governance_stats?.permissions ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Permissions</p>
+              </div>
+              <div className="rounded-lg bg-violet-50 dark:bg-violet-900/20 p-4 text-center">
+                <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{platformData?.governance_stats?.module_grants ?? 0}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Module Grants</p>
+              </div>
             </div>
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 p-4 text-center">
-              <p className="text-2xl font-bold text-green-600 dark:text-green-400">{platformData?.governance_stats?.permissions ?? 0}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Permissions</p>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-sm font-medium text-gray-600 dark:text-gray-300">No governance objects configured yet</div>
+              <p className="mt-1 text-xs text-gray-500">
+                Role, permission, and module-grant counts appear here once governance has been provisioned in Snowflake.
+              </p>
             </div>
-            <div className="rounded-lg bg-violet-50 dark:bg-violet-900/20 p-4 text-center">
-              <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">{platformData?.governance_stats?.module_grants ?? 0}</p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Module Grants</p>
-            </div>
-          </div>
+          )}
         </SectionCard>
       </div>
 

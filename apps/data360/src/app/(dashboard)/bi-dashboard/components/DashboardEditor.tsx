@@ -92,8 +92,11 @@ function toChartConfig(cfg: ComponentConfig): BIDashboardChartConfig {
 export default function DashboardEditor({ projectId, projectName }: DashboardEditorProps) {
   const { data: dashboard, loading, error, refetch } = useDashboard(projectId);
   const {
-    executing, executingWidgetId, results, previousResults, errors, executeAll, executeSingle, clearResults, setWidgetResult,
-  } = useExecuteDashboard();
+    executing, executingWidgetId, results, previousResults, errors,
+    statuses, lastSummary,
+    executeAll, executeSingle, clearResults, setWidgetResult,
+  } = useExecuteDashboard(projectId);
+  const [statusDrawerOpen, setStatusDrawerOpen] = useState(false);
 
   // Time intelligence state
   const [timeState, setTimeState] = useState<TimeIntelligenceState>(createDefaultTimeState);
@@ -507,6 +510,39 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
               {pages.length} pages
             </Badge>
           )}
+          {lastSummary && lastSummary.total > 0 && (() => {
+            const { ok, empty, errored, mismatched, total } = lastSummary;
+            const tone =
+              errored > 0 ? 'red'
+              : (mismatched > 0 || empty > 0) ? 'amber'
+              : 'green';
+            const toneClasses: Record<string, string> = {
+              green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300 border-green-200 dark:border-green-800',
+              amber: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+              red: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800',
+            };
+            const dotColors: Record<string, string> = {
+              green: 'bg-green-500',
+              amber: 'bg-amber-500',
+              red: 'bg-red-500',
+            };
+            const label =
+              errored > 0 ? `${errored}/${total} errored`
+              : mismatched > 0 ? `${mismatched}/${total} need config`
+              : empty > 0 ? `${ok}/${total} with data`
+              : `${ok}/${total} loaded`;
+            return (
+              <button
+                type="button"
+                onClick={() => setStatusDrawerOpen(true)}
+                aria-label={`Widget render status — ${label}. Click for details.`}
+                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${toneClasses[tone]} hover:opacity-90`}
+              >
+                <span className={`w-2 h-2 rounded-full ${dotColors[tone]}`} />
+                {label}
+              </button>
+            );
+          })()}
           {Object.keys(crossWidgetFilter).length > 0 && (
             <div className="flex items-center gap-2">
               {Object.entries(crossWidgetFilter).map(([col, val]) => (
@@ -700,6 +736,74 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
           dashboardId={projectId}
           widget={drillWidget}
         />
+      )}
+
+      {/* Widget render status drawer — opened by the status pill in the toolbar. */}
+      {statusDrawerOpen && (
+        <div
+          className="fixed inset-0 z-50 flex justify-end"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Widget render status"
+          onClick={() => setStatusDrawerOpen(false)}
+        >
+          <div className="absolute inset-0 bg-black/30" />
+          <div
+            className="relative w-full max-w-md bg-white dark:bg-slate-900 shadow-xl h-full overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Widget render status</h3>
+              <button
+                type="button"
+                onClick={() => setStatusDrawerOpen(false)}
+                aria-label="Close"
+                className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <XCircle className="h-4 w-4 text-slate-500" />
+              </button>
+            </div>
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {Object.values(statuses).length === 0 && (
+                <li className="p-4 text-sm text-slate-500 dark:text-slate-400">No widgets rendered yet.</li>
+              )}
+              {Object.values(statuses).map((s) => {
+                const palette: Record<string, string> = {
+                  ok: 'bg-green-500',
+                  empty: 'bg-amber-500',
+                  config_mismatch: 'bg-amber-500',
+                  error: 'bg-red-500',
+                };
+                const labelMap: Record<string, string> = {
+                  ok: 'Loaded',
+                  empty: 'No data',
+                  config_mismatch: 'Config mismatch',
+                  error: 'Error',
+                };
+                return (
+                  <li key={s.widget_id} className="p-4">
+                    <div className="flex items-start gap-3">
+                      <span className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${palette[s.status]}`} />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-900 dark:text-white truncate">
+                          {s.title || s.widget_id}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {labelMap[s.status]} · {s.row_count} row{s.row_count === 1 ? '' : 's'}
+                        </p>
+                        {s.error && (
+                          <p className="mt-1 text-xs text-red-600 dark:text-red-400 break-words">
+                            {s.error}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
       )}
     </div>
   );

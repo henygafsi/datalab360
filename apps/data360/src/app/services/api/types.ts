@@ -1568,6 +1568,36 @@ export interface ChartDataResponse {
   data: Record<string, unknown>[];
 }
 
+// --- Batch render (POST /{project_id}/render) ---
+
+export type WidgetRenderStatus = 'ok' | 'empty' | 'config_mismatch' | 'error';
+
+export interface RenderWidgetRequest {
+  widget_id: string;
+  /** Serialized ChartConfig — same shape as POST /charts/data body. */
+  config: Record<string, unknown>;
+}
+
+export interface RenderWidgetResult {
+  widget_id: string;
+  status: WidgetRenderStatus;
+  data: Record<string, unknown>[];
+  error: string | null;
+  row_count: number;
+}
+
+export interface RenderDashboardResponse {
+  project_id: string;
+  widgets: RenderWidgetResult[];
+  summary: {
+    ok: number;
+    empty: number;
+    errored: number;
+    mismatched: number;
+    total: number;
+  };
+}
+
 // --- Retail KPIs ---
 
 export interface RetailKpisParams {

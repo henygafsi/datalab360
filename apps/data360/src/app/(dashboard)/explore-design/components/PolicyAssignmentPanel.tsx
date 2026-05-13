@@ -36,7 +36,7 @@ import {
   MaskingType,
   TablePoliciesResponse,
   ObjectPolicy,
-} from '@/app/services/gouvernance/policies';
+} from '@/app/services/governance/policies';
 
 // Policy types that can be applied
 type PolicyCategory = 'masking' | 'rls' | 'tags' | 'aggregation';
