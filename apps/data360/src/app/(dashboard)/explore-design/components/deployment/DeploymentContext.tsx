@@ -1,7 +1,19 @@
 'use client';
 
-import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import type { DesignEvent, EventType, EventStatus } from '../../stores/event-store';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useMemo,
+  useCallback,
+  useEffect,
+  useRef,
+} from 'react';
+import type {
+  DesignEvent,
+  EventType,
+  EventStatus,
+} from '../../stores/event-store';
 import {
   startDeployment as trackStart,
   advanceStep as trackAdvance,
@@ -118,7 +130,11 @@ export const DEPLOYMENT_STEPS: Array<{
   description: string;
 }> = [
   { key: 'review', label: 'Review', description: 'Review DDL & ETL changes' },
-  { key: 'config', label: 'Configure', description: 'Deployment configuration' },
+  {
+    key: 'config',
+    label: 'Configure',
+    description: 'Deployment configuration',
+  },
   { key: 'pre_checks', label: 'Pre-Checks', description: 'Validate schema' },
   { key: 'dry_run', label: 'Dry Run', description: 'Simulate deployment' },
   { key: 'sql_diff', label: 'SQL Diff', description: 'Compare changes' },
@@ -189,7 +205,11 @@ export interface DeploymentContextValue {
   // Events
   events: DesignEvent[];
   pendingEvents: DesignEvent[];
-  updateEventStatus: (params: { eventId: string; status: EventStatus; error?: string }) => void;
+  updateEventStatus: (params: {
+    eventId: string;
+    status: EventStatus;
+    error?: string;
+  }) => void;
   cleanupAppliedEvents: () => void;
 
   // Navigation
@@ -201,7 +221,10 @@ export interface DeploymentContextValue {
 
   // Config
   config: DeploymentConfig;
-  updateConfig: <K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) => void;
+  updateConfig: <K extends keyof DeploymentConfig>(
+    key: K,
+    value: DeploymentConfig[K]
+  ) => void;
 
   // Results
   results: DeploymentResults;
@@ -217,7 +240,9 @@ export interface DeploymentContextValue {
   schemaVersions: ProjectVersion[];
   setSchemaVersions: React.Dispatch<React.SetStateAction<ProjectVersion[]>>;
   currentSchemaVersion: ProjectVersion | null;
-  setCurrentSchemaVersion: React.Dispatch<React.SetStateAction<ProjectVersion | null>>;
+  setCurrentSchemaVersion: React.Dispatch<
+    React.SetStateAction<ProjectVersion | null>
+  >;
 
   // Close handler
   onClose?: () => void;
@@ -227,7 +252,10 @@ const DeploymentContext = createContext<DeploymentContextValue | null>(null);
 
 export function useDeploymentContext() {
   const ctx = useContext(DeploymentContext);
-  if (!ctx) throw new Error('useDeploymentContext must be used within DeploymentProvider');
+  if (!ctx)
+    throw new Error(
+      'useDeploymentContext must be used within DeploymentProvider'
+    );
   return ctx;
 }
 
@@ -238,7 +266,11 @@ interface DeploymentProviderProps {
   currentUser: string;
   events: DesignEvent[];
   pendingEvents: DesignEvent[];
-  updateEventStatus: (params: { eventId: string; status: EventStatus; error?: string }) => void;
+  updateEventStatus: (params: {
+    eventId: string;
+    status: EventStatus;
+    error?: string;
+  }) => void;
   cleanupAppliedEvents: () => void;
   onClose?: () => void;
   /** Optional: name displayed in tracking notifications. */
@@ -259,11 +291,16 @@ interface DeploymentProviderProps {
  */
 function toTrackedStep(step: DeploymentStep): TrackedStep {
   switch (step) {
-    case 'review':     return 'review';
-    case 'config':     return 'configure';
-    case 'deploy':     return 'deploy';
-    case 'verify':     return 'verify';
-    default:           return 'dry_run';
+    case 'review':
+      return 'review';
+    case 'config':
+      return 'configure';
+    case 'deploy':
+      return 'deploy';
+    case 'verify':
+      return 'verify';
+    default:
+      return 'dry_run';
   }
 }
 
@@ -285,7 +322,8 @@ export function DeploymentProvider({
   const [isValidating, setIsValidating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [schemaVersions, setSchemaVersions] = useState<ProjectVersion[]>([]);
-  const [currentSchemaVersion, setCurrentSchemaVersion] = useState<ProjectVersion | null>(null);
+  const [currentSchemaVersion, setCurrentSchemaVersion] =
+    useState<ProjectVersion | null>(null);
 
   // ----- Deployment tracking sync -----
   // Mirror every popup step transition + terminal state into the backend
@@ -305,9 +343,10 @@ export function DeploymentProvider({
           project_id: projectId,
           project_name: projectName,
           requires_approval: config.deploymentType === 'with_approval',
-          approver_username: config.deploymentType === 'with_approval'
-            ? (config.selectedApprovers[0] ?? undefined)
-            : undefined,
+          approver_username:
+            config.deploymentType === 'with_approval'
+              ? (config.selectedApprovers[0] ?? undefined)
+              : undefined,
           payload: { events_pending: pendingEvents.length },
           ui_origin: 'explore-design',
         });
@@ -319,7 +358,9 @@ export function DeploymentProvider({
         // Tracking is a side-channel — never block the user's deploy.
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -332,7 +373,7 @@ export function DeploymentProvider({
     trackedStepRef.current = target;
     void trackAdvance(trackedIdRef.current, {
       step: target,
-      completed: prior !== null,   // mark the previous step done when we move on
+      completed: prior !== null, // mark the previous step done when we move on
     }).catch(() => undefined);
   }, [currentStep]);
 
@@ -366,13 +407,17 @@ export function DeploymentProvider({
     completedRef.current = true;
     void trackComplete(trackedIdRef.current, {
       status,
-      error: r.status === 'failed' ? (r.errors?.[0] ?? 'Deploy failed') : undefined,
-    }).then(() => pingNotifications()).catch(() => undefined);
+      error:
+        r.status === 'failed' ? (r.errors?.[0] ?? 'Deploy failed') : undefined,
+    })
+      .then(() => pingNotifications())
+      .catch(() => undefined);
   }, [results.schemaDeploymentResult]);
 
   // Surface backend errors per step into the tracked errors_by_step.
   useEffect(() => {
-    if (!trackedIdRef.current || completedRef.current || !results.backendError) return;
+    if (!trackedIdRef.current || completedRef.current || !results.backendError)
+      return;
     void trackAdvance(trackedIdRef.current, {
       step: toTrackedStep(currentStep),
       errors: [{ message: results.backendError }],
@@ -380,11 +425,14 @@ export function DeploymentProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [results.backendError]);
 
-  const updateConfig = useCallback(<K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) => {
-    setConfig(prev => ({ ...prev, [key]: value }));
-  }, []);
+  const updateConfig = useCallback(
+    <K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) => {
+      setConfig((prev) => ({ ...prev, [key]: value }));
+    },
+    []
+  );
 
-  const stepIndex = DEPLOYMENT_STEPS.findIndex(s => s.key === currentStep);
+  const stepIndex = DEPLOYMENT_STEPS.findIndex((s) => s.key === currentStep);
 
   const goNext = useCallback(() => {
     const nextIdx = stepIndex + 1;
@@ -400,40 +448,58 @@ export function DeploymentProvider({
     }
   }, [stepIndex]);
 
-  const value = useMemo<DeploymentContextValue>(() => ({
-    projectId,
-    database,
-    schemas,
-    currentUser,
-    events,
-    pendingEvents,
-    updateEventStatus,
-    cleanupAppliedEvents,
-    currentStep,
-    setCurrentStep,
-    goNext,
-    goPrev,
-    canGoNext: stepIndex < DEPLOYMENT_STEPS.length - 1,
-    config,
-    updateConfig,
-    results,
-    setResults,
-    isValidating,
-    setIsValidating,
-    isDeploying,
-    setIsDeploying,
-    schemaVersions,
-    setSchemaVersions,
-    currentSchemaVersion,
-    setCurrentSchemaVersion,
-    onClose,
-  }), [
-    projectId, database, schemas, currentUser,
-    events, pendingEvents, updateEventStatus, cleanupAppliedEvents,
-    currentStep, goNext, goPrev, stepIndex,
-    config, updateConfig, results, isValidating, isDeploying,
-    schemaVersions, currentSchemaVersion, onClose,
-  ]);
+  const value = useMemo<DeploymentContextValue>(
+    () => ({
+      projectId,
+      database,
+      schemas,
+      currentUser,
+      events,
+      pendingEvents,
+      updateEventStatus,
+      cleanupAppliedEvents,
+      currentStep,
+      setCurrentStep,
+      goNext,
+      goPrev,
+      canGoNext: stepIndex < DEPLOYMENT_STEPS.length - 1,
+      config,
+      updateConfig,
+      results,
+      setResults,
+      isValidating,
+      setIsValidating,
+      isDeploying,
+      setIsDeploying,
+      schemaVersions,
+      setSchemaVersions,
+      currentSchemaVersion,
+      setCurrentSchemaVersion,
+      onClose,
+    }),
+    [
+      projectId,
+      database,
+      schemas,
+      currentUser,
+      events,
+      pendingEvents,
+      updateEventStatus,
+      cleanupAppliedEvents,
+      currentStep,
+      goNext,
+      goPrev,
+      stepIndex,
+      config,
+      updateConfig,
+      results,
+      isValidating,
+      isDeploying,
+      schemaVersions,
+      currentSchemaVersion,
+      onClose,
+    ]
+  );
 
   return (
     <DeploymentContext.Provider value={value}>

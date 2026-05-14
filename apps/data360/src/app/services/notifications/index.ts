@@ -19,12 +19,7 @@ export type NotificationKind =
   | 'workflow_failed'
   | 'system';
 
-export type UiOrigin =
-  | 'explore-design'
-  | 'workflow'
-  | 'bi'
-  | 'dq'
-  | 'system';
+export type UiOrigin = 'explore-design' | 'workflow' | 'bi' | 'dq' | 'system';
 
 export interface NotificationItem {
   notification_id: string;
@@ -62,7 +57,9 @@ function unwrap<T>(res: { data: any }): T {
   return (res.data?.data ?? res.data) as T;
 }
 
-export async function listNotifications(params: ListParams = {}): Promise<NotificationListResponse> {
+export async function listNotifications(
+  params: ListParams = {}
+): Promise<NotificationListResponse> {
   const res = await apiClient.get('/notifications', { params });
   return unwrap<NotificationListResponse>(res);
 }
@@ -75,7 +72,7 @@ export async function getUnreadCount(): Promise<number> {
 
 export async function markRead(notificationId: string): Promise<boolean> {
   const res = await apiClient.patch(
-    `/notifications/${encodeURIComponent(notificationId)}/read`,
+    `/notifications/${encodeURIComponent(notificationId)}/read`
   );
   const data = unwrap<{ updated: boolean }>(res);
   return Boolean(data?.updated);
@@ -104,7 +101,9 @@ export type BroadcastInput = {
 
 /** Internal-only helper. UI code rarely calls this directly — backend
  *  workers (deploy, workflow) are the typical broadcasters. */
-export async function broadcast(input: BroadcastInput): Promise<{ raw_id: string }> {
+export async function broadcast(
+  input: BroadcastInput
+): Promise<{ raw_id: string }> {
   const res = await apiClient.post('/notifications/broadcast', input);
   return unwrap<{ raw_id: string }>(res);
 }

@@ -33,7 +33,7 @@ type IconAppearance = {
 
 const KIND_ICON: Record<string, IconAppearance> = {
   deploy_started: { Icon: PiRocketLaunchDuotone, tone: 'text-blue-500' },
-  deploy_step:    { Icon: PiRocketLaunchDuotone, tone: 'text-blue-500' },
+  deploy_step: { Icon: PiRocketLaunchDuotone, tone: 'text-blue-500' },
   deploy_success: { Icon: PiCheckCircleDuotone, tone: 'text-emerald-500' },
   deploy_failure: { Icon: PiXCircleDuotone, tone: 'text-rose-500' },
   deploy_cancelled: { Icon: PiXCircleDuotone, tone: 'text-slate-500' },
@@ -53,11 +53,14 @@ function deployMeta(item: NotificationItem): {
   status?: string;
   duration_ms?: number;
 } | null {
-  if (!item.kind?.startsWith('deploy_') && item.kind !== 'approval_request') return null;
+  if (!item.kind?.startsWith('deploy_') && item.kind !== 'approval_request')
+    return null;
   const p = (item.payload || {}) as Record<string, unknown>;
   return {
-    deployment_id: typeof p.deployment_id === 'string' ? p.deployment_id : undefined,
-    project_name: typeof p.project_name === 'string' ? p.project_name : undefined,
+    deployment_id:
+      typeof p.deployment_id === 'string' ? p.deployment_id : undefined,
+    project_name:
+      typeof p.project_name === 'string' ? p.project_name : undefined,
     step: typeof p.step === 'string' ? (p.step as DeploymentStep) : undefined,
     status: typeof p.status === 'string' ? p.status : undefined,
     duration_ms: typeof p.duration_ms === 'number' ? p.duration_ms : undefined,
@@ -72,14 +75,20 @@ function deployStatusBadge(status?: string) {
   if (!status) return null;
   const tone: Record<string, string> = {
     RUNNING: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-    PENDING_APPROVAL: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-    SUCCEEDED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    PENDING_APPROVAL:
+      'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    SUCCEEDED:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
     FAILED: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
-    CANCELLED: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
-    PENDING: 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    CANCELLED:
+      'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
+    PENDING:
+      'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300',
   };
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${tone[status] ?? tone.PENDING}`}>
+    <span
+      className={`rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${tone[status] ?? tone.PENDING}`}
+    >
       {status.replace('_', ' ')}
     </span>
   );
@@ -109,27 +118,35 @@ function NotificationRow({
         <div className="w-full min-w-0">
           <Text
             className={`mb-0.5 truncate text-sm ${
-              unread ? 'font-semibold text-gray-900 dark:text-gray-700' : 'font-normal text-slate-600'
+              unread
+                ? 'font-semibold text-gray-900 dark:text-gray-700'
+                : 'font-normal text-slate-600'
             }`}
           >
             {item.title}
           </Text>
           {body && (
-            <Text className="mb-0.5 line-clamp-2 text-xs text-slate-500">{body}</Text>
+            <Text className="mb-0.5 line-clamp-2 text-xs text-slate-500">
+              {body}
+            </Text>
           )}
           {deploy && (
-            <div className="mb-1 flex items-center gap-1.5 flex-wrap">
+            <div className="mb-1 flex flex-wrap items-center gap-1.5">
               {deployStatusBadge(deploy.status)}
               {deploy.step && (
                 <span className="text-[10px] text-slate-500">
-                  Step: <span className="font-medium text-slate-700 dark:text-slate-300">{stepLabel(deploy.step)}</span>
+                  Step:{' '}
+                  <span className="font-medium text-slate-700 dark:text-slate-300">
+                    {stepLabel(deploy.step)}
+                  </span>
                 </span>
               )}
-              {typeof deploy.duration_ms === 'number' && deploy.duration_ms > 0 && (
-                <span className="text-[10px] text-slate-500">
-                  {fmtDuration(deploy.duration_ms)}
-                </span>
-              )}
+              {typeof deploy.duration_ms === 'number' &&
+                deploy.duration_ms > 0 && (
+                  <span className="text-[10px] text-slate-500">
+                    {fmtDuration(deploy.duration_ms)}
+                  </span>
+                )}
             </div>
           )}
           <Text className="whitespace-nowrap text-xs text-slate-400">
@@ -164,7 +181,7 @@ function NotificationsList({
   return (
     <div className="w-[320px] text-left sm:w-[360px] 2xl:w-[420px] rtl:text-right">
       {/* Header */}
-      <div className="mb-3 flex items-center justify-between ps-6 pe-2">
+      <div className="mb-3 flex items-center justify-between pe-2 ps-6">
         <div className="flex items-center gap-2">
           <Title as="h5" fontWeight="semibold">
             Notifications
@@ -210,7 +227,7 @@ function NotificationsList({
           {unreadCount > 0 && (
             <button
               type="button"
-              className="text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100 ps-1"
+              className="ps-1 text-xs text-slate-500 hover:text-slate-900 dark:hover:text-slate-100"
               onClick={() => markAllRead()}
             >
               Mark all read

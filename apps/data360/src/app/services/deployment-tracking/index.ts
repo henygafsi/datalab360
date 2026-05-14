@@ -82,40 +82,46 @@ function unwrap<T>(res: { data: any }): T {
   return (res.data?.data ?? res.data) as T;
 }
 
-export async function startDeployment(input: StartInput): Promise<DeploymentRow> {
+export async function startDeployment(
+  input: StartInput
+): Promise<DeploymentRow> {
   const res = await apiClient.post('/deployments/track', input);
   return unwrap<DeploymentRow>(res);
 }
 
 export async function advanceStep(
   deploymentId: string,
-  input: AdvanceStepInput,
+  input: AdvanceStepInput
 ): Promise<DeploymentRow> {
   const res = await apiClient.patch(
     `/deployments/track/${encodeURIComponent(deploymentId)}/step`,
-    input,
+    input
   );
   return unwrap<DeploymentRow>(res);
 }
 
 export async function completeDeployment(
   deploymentId: string,
-  input: CompleteInput,
+  input: CompleteInput
 ): Promise<DeploymentRow> {
   const res = await apiClient.post(
     `/deployments/track/${encodeURIComponent(deploymentId)}/complete`,
-    input,
+    input
   );
   return unwrap<DeploymentRow>(res);
 }
 
-export async function getDeployment(deploymentId: string): Promise<DeploymentRow> {
-  const res = await apiClient.get(`/deployments/track/${encodeURIComponent(deploymentId)}`);
+export async function getDeployment(
+  deploymentId: string
+): Promise<DeploymentRow> {
+  const res = await apiClient.get(
+    `/deployments/track/${encodeURIComponent(deploymentId)}`
+  );
   return unwrap<DeploymentRow>(res);
 }
 
 export async function listActiveDeployments(
-  opts: { include_approvals_for_me?: boolean } = {},
+  opts: { include_approvals_for_me?: boolean } = {}
 ): Promise<DeploymentRow[]> {
   const res = await apiClient.get('/deployments/track', { params: opts });
   const data = unwrap<{ items: DeploymentRow[] }>(res);
@@ -127,29 +133,40 @@ export async function listActiveDeployments(
 // chip, the row, and the popup speak the same language.
 // ---------------------------------------------------------------------------
 export function isTerminal(status: DeploymentStatus): boolean {
-  return status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELLED';
+  return (
+    status === 'SUCCEEDED' || status === 'FAILED' || status === 'CANCELLED'
+  );
 }
 
 export function statusLabel(status: DeploymentStatus): string {
   switch (status) {
-    case 'PENDING': return 'Queued';
-    case 'RUNNING': return 'Running';
-    case 'PENDING_APPROVAL': return 'Pending approval';
-    case 'SUCCEEDED': return 'Succeeded';
-    case 'FAILED': return 'Failed';
-    case 'CANCELLED': return 'Cancelled';
-    default: return status;
+    case 'PENDING':
+      return 'Queued';
+    case 'RUNNING':
+      return 'Running';
+    case 'PENDING_APPROVAL':
+      return 'Pending approval';
+    case 'SUCCEEDED':
+      return 'Succeeded';
+    case 'FAILED':
+      return 'Failed';
+    case 'CANCELLED':
+      return 'Cancelled';
+    default:
+      return status;
   }
 }
 
 export function stepLabel(step: DeploymentStep): string {
-  return ({
-    review: 'Review',
-    configure: 'Configure',
-    dry_run: 'Dry-run',
-    deploy: 'Deploy',
-    verify: 'Verify',
-  } as const)[step];
+  return (
+    {
+      review: 'Review',
+      configure: 'Configure',
+      dry_run: 'Dry-run',
+      deploy: 'Deploy',
+      verify: 'Verify',
+    } as const
+  )[step];
 }
 
 export function progressPct(row: DeploymentRow): number {

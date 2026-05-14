@@ -71,7 +71,7 @@ export function useUnreadBadge() {
 // ----- dropdown list -----------------------------------------------------
 export function useNotificationsList(
   params: ListParams = {},
-  opts: { enabled?: boolean } = {},
+  opts: { enabled?: boolean } = {}
 ) {
   const { enabled = true } = opts;
   const [data, setData] = useState<NotificationListResponse | null>(null);
@@ -112,10 +112,10 @@ export function useNotificationsList(
               items: prev.items.map((i) =>
                 i.notification_id === id
                   ? { ...i, read_at: new Date().toISOString() }
-                  : i,
+                  : i
               ),
             }
-          : prev,
+          : prev
       );
       try {
         await svcMarkRead(id);
@@ -125,7 +125,7 @@ export function useNotificationsList(
         throw e;
       }
     },
-    [refresh],
+    [refresh]
   );
 
   const markAllRead = useCallback(async () => {
@@ -139,7 +139,7 @@ export function useNotificationsList(
               read_at: i.read_at ?? new Date().toISOString(),
             })),
           }
-        : prev,
+        : prev
     );
     try {
       await svcMarkAllRead();

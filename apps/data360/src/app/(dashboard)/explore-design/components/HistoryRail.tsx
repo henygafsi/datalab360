@@ -32,24 +32,35 @@ dayjs.extend(relativeTime);
 
 const POLL_MS = 20_000;
 
-type StatusTone = { Icon: React.ComponentType<{ className?: string }>; tone: string };
+type StatusTone = {
+  Icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+};
 
 const STATUS_TONE: Record<string, StatusTone> = {
-  SUCCESS:   { Icon: PiCheckCircleDuotone,    tone: 'text-emerald-500' },
-  COMPLETED: { Icon: PiCheckCircleDuotone,    tone: 'text-emerald-500' },
-  FAILED:    { Icon: PiXCircleDuotone,        tone: 'text-rose-500' },
-  ERROR:     { Icon: PiXCircleDuotone,        tone: 'text-rose-500' },
-  PENDING:   { Icon: PiClockCountdownDuotone, tone: 'text-amber-500' },
-  RUNNING:   { Icon: PiClockCountdownDuotone, tone: 'text-blue-500' },
+  SUCCESS: { Icon: PiCheckCircleDuotone, tone: 'text-emerald-500' },
+  COMPLETED: { Icon: PiCheckCircleDuotone, tone: 'text-emerald-500' },
+  FAILED: { Icon: PiXCircleDuotone, tone: 'text-rose-500' },
+  ERROR: { Icon: PiXCircleDuotone, tone: 'text-rose-500' },
+  PENDING: { Icon: PiClockCountdownDuotone, tone: 'text-amber-500' },
+  RUNNING: { Icon: PiClockCountdownDuotone, tone: 'text-blue-500' },
 };
 
 function eventAppearance(status: string | null | undefined): StatusTone {
   if (!status) return { Icon: PiInfoDuotone, tone: 'text-slate-400' };
-  return STATUS_TONE[status.toUpperCase()] ?? { Icon: PiInfoDuotone, tone: 'text-slate-400' };
+  return (
+    STATUS_TONE[status.toUpperCase()] ?? {
+      Icon: PiInfoDuotone,
+      tone: 'text-slate-400',
+    }
+  );
 }
 
 function formatEventType(t: string): string {
-  return t.replace(/_/g, ' ').toLowerCase().replace(/(^|\s)\w/g, m => m.toUpperCase());
+  return t
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/(^|\s)\w/g, (m) => m.toUpperCase());
 }
 
 export interface HistoryRailProps {
@@ -77,7 +88,9 @@ export default function HistoryRail({
     setLoading(true);
     try {
       const res = await listEvents(projectId, { limit: 25 });
-      const list = ((res as any)?.data?.events ?? (res as any)?.events ?? []) as ProjectEvent[];
+      const list = ((res as any)?.data?.events ??
+        (res as any)?.events ??
+        []) as ProjectEvent[];
       setItems(list);
       setError(null);
     } catch (e) {
@@ -114,8 +127,8 @@ export default function HistoryRail({
         aria-label="Open history rail"
         onClick={onToggle}
         className={cn(
-          'flex h-full w-7 flex-col items-center justify-start gap-2 border-l bg-slate-50 py-2 dark:bg-slate-900 dark:border-slate-800',
-          className,
+          'flex h-full w-7 flex-col items-center justify-start gap-2 border-l bg-slate-50 py-2 dark:border-slate-800 dark:bg-slate-900',
+          className
         )}
       >
         <ChevronLeft className="h-3.5 w-3.5 text-slate-400" />
@@ -127,15 +140,17 @@ export default function HistoryRail({
   return (
     <aside
       className={cn(
-        'flex h-full w-80 flex-col border-l bg-white dark:bg-slate-900 dark:border-slate-800',
-        className,
+        'flex h-full w-80 flex-col border-l bg-white dark:border-slate-800 dark:bg-slate-900',
+        className
       )}
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b px-3 py-2 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <History className="h-4 w-4 text-slate-500" />
-          <span className="text-sm font-semibold text-slate-900 dark:text-white">History</span>
+          <span className="text-sm font-semibold text-slate-900 dark:text-white">
+            History
+          </span>
           {items.length > 0 && (
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
               {items.length}
@@ -152,7 +167,12 @@ export default function HistoryRail({
           >
             <PiArrowsClockwiseBold />
           </ActionIcon>
-          <ActionIcon size="sm" variant="text" aria-label="Collapse" onClick={onToggle}>
+          <ActionIcon
+            size="sm"
+            variant="text"
+            aria-label="Collapse"
+            onClick={onToggle}
+          >
             <ChevronRight className="h-3.5 w-3.5" />
           </ActionIcon>
         </div>
@@ -166,11 +186,14 @@ export default function HistoryRail({
           </div>
         )}
         {projectId && loading && items.length === 0 && (
-          <div className="px-2 py-6 text-center text-xs text-slate-400">Loading…</div>
+          <div className="px-2 py-6 text-center text-xs text-slate-400">
+            Loading…
+          </div>
         )}
         {projectId && !loading && items.length === 0 && (
           <div className="px-2 py-6 text-center text-xs text-slate-400">
-            No events yet. Actions you take (rename, mapping, ingest, deploy) will show up here.
+            No events yet. Actions you take (rename, mapping, ingest, deploy)
+            will show up here.
           </div>
         )}
         {error && (
@@ -210,12 +233,16 @@ export default function HistoryRail({
                         {ev.username}
                         {ev.entity_type && ev.entity_id && (
                           <span className="ml-1">
-                            · {ev.entity_type}:<span className="font-mono">{ev.entity_id}</span>
+                            · {ev.entity_type}:
+                            <span className="font-mono">{ev.entity_id}</span>
                           </span>
                         )}
-                        {typeof ev.duration_ms === 'number' && ev.duration_ms > 0 && (
-                          <span className="ml-1">· {Math.round(ev.duration_ms)}ms</span>
-                        )}
+                        {typeof ev.duration_ms === 'number' &&
+                          ev.duration_ms > 0 && (
+                            <span className="ml-1">
+                              · {Math.round(ev.duration_ms)}ms
+                            </span>
+                          )}
                       </div>
                       {ev.error_message && (
                         <div className="mt-0.5 line-clamp-2 text-[11px] text-rose-500">

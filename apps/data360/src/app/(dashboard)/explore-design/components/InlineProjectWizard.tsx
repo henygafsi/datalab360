@@ -60,9 +60,10 @@ export default function InlineProjectWizard({
 
   if (!open) return null;
 
-  const nameError = step === 0 && name.trim().length > 0 && name.trim().length < 3
-    ? 'At least 3 characters.'
-    : '';
+  const nameError =
+    step === 0 && name.trim().length > 0 && name.trim().length < 3
+      ? 'At least 3 characters.'
+      : '';
   const canAdvance = step === 0 ? name.trim().length >= 3 : true;
 
   const handleCancel = () => {
@@ -72,11 +73,11 @@ export default function InlineProjectWizard({
 
   const handleNext = () => {
     if (!canAdvance) return;
-    if (step < 2) setStep(((step + 1) as Step));
+    if (step < 2) setStep((step + 1) as Step);
   };
 
   const handleBack = () => {
-    if (step > 0) setStep(((step - 1) as Step));
+    if (step > 0) setStep((step - 1) as Step);
   };
 
   const handleSubmit = async () => {
@@ -128,8 +129,10 @@ export default function InlineProjectWizard({
                   className={cn(
                     'flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-semibold',
                     s < step && 'border-emerald-500 bg-emerald-500 text-white',
-                    s === step && 'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300',
-                    s > step && 'border-slate-300 text-slate-400 dark:border-slate-600',
+                    s === step &&
+                      'border-blue-500 bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300',
+                    s > step &&
+                      'border-slate-300 text-slate-400 dark:border-slate-600'
                   )}
                 >
                   {s < step ? <Check className="h-3 w-3" /> : s + 1}
@@ -139,12 +142,14 @@ export default function InlineProjectWizard({
                     'text-xs',
                     s === step
                       ? 'font-medium text-slate-900 dark:text-white'
-                      : 'text-slate-500',
+                      : 'text-slate-500'
                   )}
                 >
                   {STEP_LABELS[s]}
                 </span>
-                {s < 2 && <div className="h-px w-6 bg-slate-200 dark:bg-slate-700" />}
+                {s < 2 && (
+                  <div className="h-px w-6 bg-slate-200 dark:bg-slate-700" />
+                )}
               </div>
             ))}
           </div>
@@ -194,9 +199,9 @@ export default function InlineProjectWizard({
               disabled={submitting}
             />
             <p className="text-xs text-slate-500">
-              You can attach source tables and configure ingestion later from the
-              Catalog tab. This wizard only creates the project shell so you can
-              start exploring right away.
+              You can attach source tables and configure ingestion later from
+              the Catalog tab. This wizard only creates the project shell so you
+              can start exploring right away.
             </p>
           </div>
         )}
@@ -211,7 +216,9 @@ export default function InlineProjectWizard({
             </div>
             {description.trim() && (
               <div className="flex items-baseline gap-2">
-                <span className="w-24 shrink-0 text-slate-500">Description</span>
+                <span className="w-24 shrink-0 text-slate-500">
+                  Description
+                </span>
                 <span className="text-slate-700 dark:text-slate-200">
                   {description.trim()}
                 </span>
@@ -245,26 +252,28 @@ export default function InlineProjectWizard({
             'Cancel'
           ) : (
             <>
-              <ArrowLeft className="h-4 w-4 mr-1" /> Back
+              <ArrowLeft className="mr-1 h-4 w-4" /> Back
             </>
           )}
         </Button>
-        <div className="text-xs text-slate-400">
-          Step {step + 1} of 3
-        </div>
+        <div className="text-xs text-slate-400">Step {step + 1} of 3</div>
         {step < 2 ? (
-          <Button size="sm" onClick={handleNext} disabled={!canAdvance || submitting}>
-            Next <ArrowRight className="h-4 w-4 ml-1" />
+          <Button
+            size="sm"
+            onClick={handleNext}
+            disabled={!canAdvance || submitting}
+          >
+            Next <ArrowRight className="ml-1 h-4 w-4" />
           </Button>
         ) : (
           <Button size="sm" onClick={handleSubmit} disabled={submitting}>
             {submitting ? (
               <>
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" /> Creating…
+                <Loader2 className="mr-1 h-4 w-4 animate-spin" /> Creating…
               </>
             ) : (
               <>
-                <Check className="h-4 w-4 mr-1" /> Create project
+                <Check className="mr-1 h-4 w-4" /> Create project
               </>
             )}
           </Button>

@@ -84,9 +84,12 @@ export function useDeploymentDetail(deploymentId: string | null) {
     void refresh();
     let timer: number;
     const schedule = () => {
-      const next = row && isTerminal(row.status)
-        ? 0                                       // stop polling
-        : (document.hidden ? DETAIL_POLL_MS_BG : DETAIL_POLL_MS);
+      const next =
+        row && isTerminal(row.status)
+          ? 0 // stop polling
+          : document.hidden
+            ? DETAIL_POLL_MS_BG
+            : DETAIL_POLL_MS;
       if (next > 0) {
         timer = window.setTimeout(async () => {
           await refresh();

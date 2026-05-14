@@ -48,7 +48,7 @@ cache:
 install:
   stage: prepare
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - pnpm -r --filter './apps/data360' exec node -e "console.log('next:', require('next/package.json').version)"
   artifacts:

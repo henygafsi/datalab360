@@ -2,11 +2,7 @@ import { Badge, ActionIcon } from 'rizzui';
 import ProfileMenu from '@/layouts/profile-menu';
 import NotificationDropdown from './notification-dropdown';
 import DeploymentProgressChip from './deployment-progress-chip';
-import {
-  HiOutlineBell,
-  HiOutlineSun,
-  HiOutlineMoon
-} from 'react-icons/hi2';
+import { HiOutlineBell, HiOutlineSun, HiOutlineMoon } from 'react-icons/hi2';
 import { useState } from 'react';
 import { useUnreadBadge } from '@/hooks/useNotifications';
 
@@ -14,11 +10,11 @@ function BellWithBadge() {
   const { count } = useUnreadBadge();
   return (
     <div className="relative">
-      <button className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all duration-200 hover:scale-110 group">
-        <HiOutlineBell className="w-5 h-5 text-slate-600 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-white" />
+      <button className="group rounded-xl bg-slate-100/70 p-2.5 transition-all duration-200 hover:scale-110 hover:bg-slate-200 dark:bg-slate-800/70 dark:hover:bg-slate-700">
+        <HiOutlineBell className="h-5 w-5 text-slate-600 group-hover:text-slate-900 dark:text-slate-300 dark:group-hover:text-white" />
       </button>
       {count > 0 && (
-        <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 border-2 border-white dark:border-slate-900 text-[10px] font-semibold text-white leading-[14px] text-center">
+        <span className="absolute -right-1 -top-1 h-[18px] min-w-[18px] rounded-full border-2 border-white bg-red-500 px-1 text-center text-[10px] font-semibold leading-[14px] text-white dark:border-slate-900">
           {count > 99 ? '99+' : count}
         </span>
       )}
@@ -40,13 +36,13 @@ export default function HeaderMenuRight() {
       {/* Theme Toggle */}
       <button
         onClick={toggleDarkMode}
-        className="p-2.5 rounded-xl bg-slate-100/70 dark:bg-slate-800/70 hover:bg-slate-200 dark:hover:bg-slate-700 transition-all duration-200 hover:scale-110"
+        className="rounded-xl bg-slate-100/70 p-2.5 transition-all duration-200 hover:scale-110 hover:bg-slate-200 dark:bg-slate-800/70 dark:hover:bg-slate-700"
         aria-label="Toggle theme"
       >
         {isDarkMode ? (
-          <HiOutlineSun className="w-5 h-5 text-amber-500" />
+          <HiOutlineSun className="h-5 w-5 text-amber-500" />
         ) : (
-          <HiOutlineMoon className="w-5 h-5 text-slate-600" />
+          <HiOutlineMoon className="h-5 w-5 text-slate-600" />
         )}
       </button>
 
@@ -59,7 +55,7 @@ export default function HeaderMenuRight() {
       </NotificationDropdown>
 
       {/* Divider */}
-      <div className="w-px h-8 bg-slate-200 dark:bg-slate-700" />
+      <div className="h-8 w-px bg-slate-200 dark:bg-slate-700" />
 
       {/* Profile Menu */}
       <ProfileMenu />
