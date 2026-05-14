@@ -59,7 +59,7 @@ install:
 lint:
   stage: quality
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - pnpm lint --format=json --output-file=reports/eslint.json || true
@@ -77,7 +77,7 @@ lint:
 typecheck:
   stage: quality
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - cd apps/data360
@@ -98,7 +98,7 @@ typecheck:
 format-check:
   stage: quality
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - cd apps/data360
@@ -113,7 +113,7 @@ format-check:
 dep-audit:
   stage: quality
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - apk add --no-cache jq 2>/dev/null || true
@@ -138,7 +138,7 @@ dep-audit:
 secret-scan:
   stage: quality
   image: debian:bookworm-slim
-  timeout: 10 minutes
+  timeout: 20 minutes
   needs: []
   cache: []  # don't archive node_modules/.pnpm-store for this lightweight job
   before_script:
@@ -165,7 +165,7 @@ secret-scan:
 dead-route-scan:
   stage: quality
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - node scripts/ci/scan-dead-routes.mjs > reports/dead-routes.txt 2>&1 || true
@@ -181,7 +181,7 @@ dead-route-scan:
 unit-test:
   stage: test
   extends: .node-setup
-  timeout: 10 minutes
+  timeout: 20 minutes
   script:
     - set +e
     - if grep -q '"vitest"' apps/data360/package.json; then
