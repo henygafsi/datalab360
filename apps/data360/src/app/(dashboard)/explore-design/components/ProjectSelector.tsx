@@ -38,6 +38,12 @@ interface ProjectSelectorProps {
   className?: string;
   /** If provided, auto-select this project once projects are loaded */
   autoSelectProjectId?: string | null;
+  /**
+   * Slide-1 redesign: when provided, the "+ New project" button emits this
+   * callback instead of opening the legacy modal. Hosting page renders the
+   * `InlineProjectWizard` inline.
+   */
+  onCreateRequested?: () => void;
 }
 
 function getInitials(username: string): string {
@@ -60,6 +66,7 @@ export default function ProjectSelector({
   onProjectSelect,
   className,
   autoSelectProjectId,
+  onCreateRequested,
 }: ProjectSelectorProps) {
   const { username: currentUsername } = useAuth();
 
@@ -260,12 +267,15 @@ export default function ProjectSelector({
     }
   }, [loading, safeProjects, autoSelectProjectId, onProjectSelect]);
 
-  // Always open modal when no project is selected (user must pick)
+  // Slide-1 redesign: when the parent renders an inline wizard
+  // (`onCreateRequested` provided), do NOT auto-pop the legacy modal.
+  // Only the legacy callers (no `onCreateRequested`) still open it.
   useEffect(() => {
+    if (onCreateRequested) return;
     if (!loading && !selectedProjectId) {
       setShowModal(true);
     }
-  }, [loading, selectedProjectId]);
+  }, [loading, selectedProjectId, onCreateRequested]);
 
   return (
     <>
@@ -279,7 +289,13 @@ export default function ProjectSelector({
             'min-w-[180px] max-w-[280px]',
             !selectedProjectId && 'border-amber-300 bg-amber-50 dark:bg-amber-900/20',
           )}
-          onClick={() => setShowModal(true)}
+          onClick={() => {
+            if (onCreateRequested && !selectedProjectId) {
+              onCreateRequested();
+            } else {
+              setShowModal(true);
+            }
+          }}
         >
           <FolderOpen
             className={cn(

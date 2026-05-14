@@ -56,6 +56,7 @@ import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
 import SelfServeIngestionModal from './components/SelfServeIngestionModal';
 import ProjectSelector from './components/ProjectSelector';
+import InlineProjectWizard from './components/InlineProjectWizard';
 import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
 import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
@@ -820,6 +821,8 @@ export default function ExploreDesignPage() {
   const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
+  // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
+  const [showProjectWizard, setShowProjectWizard] = useState(false);
 
   // Only auto-select from URL query param (deep-linking), NOT from localStorage
   const autoProjectId = urlProjectId || null;
@@ -2983,6 +2986,7 @@ export default function ExploreDesignPage() {
               selectedProjectId={selectedProjectId}
               onProjectSelect={handleProjectSelect}
               autoSelectProjectId={autoProjectId}
+              onCreateRequested={() => setShowProjectWizard(true)}
             />
             {isReadOnly && (
               <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-2 py-0.5 flex items-center gap-1">
@@ -3210,6 +3214,20 @@ export default function ExploreDesignPage() {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Slide-1: inline project-creation wizard (replaces ProjectSelector modal) */}
+      {showProjectWizard && !isFullscreen && (
+        <div className="px-3 lg:px-4 py-3 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          <InlineProjectWizard
+            open={showProjectWizard}
+            onCancel={() => setShowProjectWizard(false)}
+            onCreated={(projectId, projectName) => {
+              setShowProjectWizard(false);
+              handleProjectSelect(projectId, projectName);
+            }}
+          />
+        </div>
       )}
 
       {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
