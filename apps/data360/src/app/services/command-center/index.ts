@@ -20,6 +20,73 @@ import type {
 
 const PREFIX = '/command-center';
 
+// =============================================================================
+// Overview KPIs — consolidated single-call payload for Account-overview → Overview
+// =============================================================================
+
+export type OverviewRange = '24h' | '7d' | '30d' | '90d';
+
+export interface OverviewKpiPayload {
+  range: OverviewRange;
+  account_locator: string | null;
+  data360_users: number;
+  connected_accounts: number;
+  modules_active: number;
+  modules_total: number;
+  edition: string | null;
+  region: string | null;
+  current_role: string | null;
+  account_name: string | null;
+  subscription_end: string | null;
+  workspace_health_pct: number;
+  snowflake_health_pct: number;
+  credits_used: number;
+  active_projects: number;
+  open_alerts: number;
+  optimization_score_pct: number;
+  projects_by_type: Record<string, number> | null;
+  module_usage_7d: Record<string, number> | null;
+  deployments_30d: number;
+  deployments_30d_failed: number;
+  workflow_runs_24h: number;
+  workflow_runs_24h_failed: number;
+  daily_snapshot: Array<{
+    date: string;
+    service_type: string;
+    credits: number;
+  }> | null;
+  storage_bytes: number;
+  stage_bytes: number;
+  failsafe_bytes: number;
+  cortex_credits: number;
+  computed_at: string | null;
+  cache_age_seconds: number | null;
+}
+
+/**
+ * Single call backing the entire Account-overview → Overview tab.
+ * Replaces 4-6 live ACCOUNT_USAGE round-trips (8-28s) with one cached
+ * payload (~50ms). Cache: CP_DATA360.DATA360_CACHE.OVERVIEW_KPIS
+ * refreshed every 5 min by Snowflake task.
+ */
+export async function getOverviewKpis(
+  range: OverviewRange = '30d'
+): Promise<OverviewKpiPayload> {
+  const res = await apiClient.get(`${PREFIX}/overview-kpis`, {
+    params: { range },
+  });
+  return (res.data?.data ?? res.data) as OverviewKpiPayload;
+}
+
+/** User-triggered cache refresh (Refresh button on the Overview header). */
+export async function refreshOverviewKpis(
+  range: OverviewRange = '30d'
+): Promise<void> {
+  await apiClient.post(`${PREFIX}/overview-kpis/refresh`, null, {
+    params: { range },
+  });
+}
+
 /** Build filter params — strips undefined values */
 function buildParams(params: Record<string, any>): Record<string, any> {
   const clean: Record<string, any> = {};
@@ -44,7 +111,9 @@ export interface FilterParams {
 }
 
 /** Executive summary — top KPIs from all modules */
-export async function getSummary(params?: FilterParams): Promise<SummaryResponse> {
+export async function getSummary(
+  params?: FilterParams
+): Promise<SummaryResponse> {
   const { data } = await apiClient.get<SummaryResponse>(`${PREFIX}/summary`, {
     params: buildParams(params || {}),
   });
@@ -52,42 +121,75 @@ export async function getSummary(params?: FilterParams): Promise<SummaryResponse
 }
 
 /** Per-module health status */
-export async function getModuleHealth(params?: { days?: number; module?: string }): Promise<ModuleHealthResponse> {
-  const { data } = await apiClient.get<ModuleHealthResponse>(`${PREFIX}/module-health`, {
-    params: buildParams(params || {}),
-  });
+export async function getModuleHealth(params?: {
+  days?: number;
+  module?: string;
+}): Promise<ModuleHealthResponse> {
+  const { data } = await apiClient.get<ModuleHealthResponse>(
+    `${PREFIX}/module-health`,
+    {
+      params: buildParams(params || {}),
+    }
+  );
   return data;
 }
 
 /** Unified activity feed across all modules */
-export async function getActivityFeed(limit = 50, params?: { days?: number; module_name?: string; username?: string }): Promise<ActivityFeedResponse> {
-  const { data } = await apiClient.get<ActivityFeedResponse>(`${PREFIX}/activity-feed`, {
-    params: buildParams({ limit, ...params }),
-  });
+export async function getActivityFeed(
+  limit = 50,
+  params?: { days?: number; module_name?: string; username?: string }
+): Promise<ActivityFeedResponse> {
+  const { data } = await apiClient.get<ActivityFeedResponse>(
+    `${PREFIX}/activity-feed`,
+    {
+      params: buildParams({ limit, ...params }),
+    }
+  );
   return data;
 }
 
 /** Snowflake infrastructure snapshot */
-export async function getInfrastructure(params?: { days?: number }): Promise<InfrastructureResponse> {
-  const { data } = await apiClient.get<InfrastructureResponse>(`${PREFIX}/infrastructure`, {
-    params: buildParams(params || {}),
-  });
+export async function getInfrastructure(params?: {
+  days?: number;
+}): Promise<InfrastructureResponse> {
+  const { data } = await apiClient.get<InfrastructureResponse>(
+    `${PREFIX}/infrastructure`,
+    {
+      params: buildParams(params || {}),
+    }
+  );
   return data;
 }
 
 /** Pipeline & ingestion health */
-export async function getPipelines(params?: { days?: number }): Promise<PipelinesResponse> {
-  const { data } = await apiClient.get<PipelinesResponse>(`${PREFIX}/pipelines`, {
-    params: buildParams(params || {}),
-  });
+export async function getPipelines(params?: {
+  days?: number;
+}): Promise<PipelinesResponse> {
+  const { data } = await apiClient.get<PipelinesResponse>(
+    `${PREFIX}/pipelines`,
+    {
+      params: buildParams(params || {}),
+    }
+  );
   return data;
 }
 
 /** Comprehensive cost intelligence */
-export async function getCostBreakdown(days = 30, params?: { start_date?: string; end_date?: string; warehouse?: string; user?: string }): Promise<CostBreakdownResponse> {
-  const { data } = await apiClient.get<CostBreakdownResponse>(`${PREFIX}/cost-breakdown`, {
-    params: buildParams({ days, ...params }),
-  });
+export async function getCostBreakdown(
+  days = 30,
+  params?: {
+    start_date?: string;
+    end_date?: string;
+    warehouse?: string;
+    user?: string;
+  }
+): Promise<CostBreakdownResponse> {
+  const { data } = await apiClient.get<CostBreakdownResponse>(
+    `${PREFIX}/cost-breakdown`,
+    {
+      params: buildParams({ days, ...params }),
+    }
+  );
   return data;
 }
 
@@ -96,42 +198,74 @@ export async function getCostBreakdown(days = 30, params?: { start_date?: string
 // =============================================================================
 
 /** Smart filter options with activity counts for dropdowns */
-export async function getFilterOptions(days?: number): Promise<FilterOptionsResponse> {
-  const { data } = await apiClient.get<FilterOptionsResponse>(`${PREFIX}/filter-options`, {
-    params: buildParams({ days: days ?? 30 }),
-  });
+export async function getFilterOptions(
+  days?: number
+): Promise<FilterOptionsResponse> {
+  const { data } = await apiClient.get<FilterOptionsResponse>(
+    `${PREFIX}/filter-options`,
+    {
+      params: buildParams({ days: days ?? 30 }),
+    }
+  );
   return data;
 }
 
 /** Cross-module intelligence — joins Snowflake + Data360 metadata */
-export async function getCrossModuleIntelligence(filters?: FilterParams): Promise<CrossModuleResponse> {
-  const { data } = await apiClient.get<CrossModuleResponse>(`${PREFIX}/cross-module`, {
-    params: buildParams(filters || {}),
-  });
+export async function getCrossModuleIntelligence(
+  filters?: FilterParams
+): Promise<CrossModuleResponse> {
+  const { data } = await apiClient.get<CrossModuleResponse>(
+    `${PREFIX}/cross-module`,
+    {
+      params: buildParams(filters || {}),
+    }
+  );
   return data;
 }
 
 /** Security & audit intelligence — logins, grants, policies, PII */
-export async function getSecurityAudit(filters?: FilterParams): Promise<SecurityAuditResponse> {
-  const { data } = await apiClient.get<SecurityAuditResponse>(`${PREFIX}/security-audit`, {
-    params: buildParams({ days: filters?.days ?? 7, user: filters?.user }),
-  });
+export async function getSecurityAudit(
+  filters?: FilterParams
+): Promise<SecurityAuditResponse> {
+  const { data } = await apiClient.get<SecurityAuditResponse>(
+    `${PREFIX}/security-audit`,
+    {
+      params: buildParams({ days: filters?.days ?? 7, user: filters?.user }),
+    }
+  );
   return data;
 }
 
 /** Warehouse utilization & performance metrics */
-export async function getWarehousePerformance(filters?: FilterParams): Promise<WarehousePerformanceResponse> {
-  const { data } = await apiClient.get<WarehousePerformanceResponse>(`${PREFIX}/warehouse-performance`, {
-    params: buildParams({ days: filters?.days ?? 7, warehouse: filters?.warehouse }),
-  });
+export async function getWarehousePerformance(
+  filters?: FilterParams
+): Promise<WarehousePerformanceResponse> {
+  const { data } = await apiClient.get<WarehousePerformanceResponse>(
+    `${PREFIX}/warehouse-performance`,
+    {
+      params: buildParams({
+        days: filters?.days ?? 7,
+        warehouse: filters?.warehouse,
+      }),
+    }
+  );
   return data;
 }
 
 /** Top queries, slow queries, errors, volume trends */
-export async function getQueryIntelligence(filters?: FilterParams): Promise<QueryIntelligenceResponse> {
-  const { data } = await apiClient.get<QueryIntelligenceResponse>(`${PREFIX}/query-intelligence`, {
-    params: buildParams({ days: filters?.days ?? 7, user: filters?.user, warehouse: filters?.warehouse }),
-  });
+export async function getQueryIntelligence(
+  filters?: FilterParams
+): Promise<QueryIntelligenceResponse> {
+  const { data } = await apiClient.get<QueryIntelligenceResponse>(
+    `${PREFIX}/query-intelligence`,
+    {
+      params: buildParams({
+        days: filters?.days ?? 7,
+        user: filters?.user,
+        warehouse: filters?.warehouse,
+      }),
+    }
+  );
   return data;
 }
 
@@ -149,7 +283,7 @@ export async function getSensors(): Promise<Record<string, any>> {
 export async function getTimeContext(
   preset?: string,
   startDate?: string,
-  endDate?: string,
+  endDate?: string
 ) {
   const params: Record<string, string> = {};
   if (preset) params.preset = preset;
