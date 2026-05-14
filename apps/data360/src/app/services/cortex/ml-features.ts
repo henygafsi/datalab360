@@ -333,14 +333,6 @@ export function getSentimentEmoji(score: number): string {
   return '😞';
 }
 
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-  return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
-}
-
 export function formatBytes(bytes?: number): string {
   if (!bytes) return 'N/A';
   if (bytes < 1024) return `${bytes} B`;

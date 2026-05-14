@@ -95,14 +95,6 @@ export async function deleteStep(workflowId: string, stepId: string) {
   return data;
 }
 
-export async function reorderSteps(workflowId: string, body: ReorderStepsRequest) {
-  const { data } = await apiClient.post<ReorderStepsResponse>(
-    `${PREFIX}/${workflowId}/steps/reorder`,
-    body,
-  );
-  return data;
-}
-
 // ============================================================================
 // Action Templates
 // ============================================================================
@@ -110,14 +102,6 @@ export async function reorderSteps(workflowId: string, body: ReorderStepsRequest
 export async function listActionTemplates() {
   const { data } = await apiClient.get<ActionTemplatesResponse>(
     `${PREFIX}/actions/templates`,
-  );
-  return data;
-}
-
-export async function createActionTemplate(body: CreateActionTemplateRequest) {
-  const { data } = await apiClient.post<CreateActionTemplateResponse>(
-    `${PREFIX}/actions/templates`,
-    body,
   );
   return data;
 }
@@ -189,32 +173,6 @@ export async function scheduleWorkflow(
   const { data } = await apiClient.post<WorkflowSchedule>(
     `${PREFIX}/${workflowId}/schedule`,
     body,
-  );
-  return data;
-}
-
-export async function approveSchedule(workflowId: string, scheduleId: string) {
-  const { data } = await apiClient.post<WorkflowSchedule>(
-    `${PREFIX}/${workflowId}/schedule/${scheduleId}/approve`,
-  );
-  return data;
-}
-
-export async function rejectSchedule(
-  workflowId: string,
-  scheduleId: string,
-  body?: RejectWorkflowScheduleRequest,
-) {
-  const { data } = await apiClient.post<WorkflowSchedule>(
-    `${PREFIX}/${workflowId}/schedule/${scheduleId}/reject`,
-    body,
-  );
-  return data;
-}
-
-export async function activateSchedule(workflowId: string, scheduleId: string) {
-  const { data } = await apiClient.post<WorkflowSchedule>(
-    `${PREFIX}/${workflowId}/schedule/${scheduleId}/activate`,
   );
   return data;
 }
@@ -320,13 +278,6 @@ export async function rejectDeployment(
 export async function executeDeployment(workflowId: string, deploymentId: string) {
   const { data } = await apiClient.post<WorkflowDeployment>(
     `${PREFIX}/${workflowId}/deployments/${deploymentId}/execute`,
-  );
-  return data;
-}
-
-export async function cancelDeployment(workflowId: string, deploymentId: string) {
-  const { data } = await apiClient.post<WorkflowDeployment>(
-    `${PREFIX}/${workflowId}/deployments/${deploymentId}/cancel`,
   );
   return data;
 }

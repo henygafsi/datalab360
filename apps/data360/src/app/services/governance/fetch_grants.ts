@@ -97,13 +97,3 @@ export async function grantPermission(
   }
 }
 
-export const availablePrivileges = [
-  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'USAGE', 'CREATE', 'MODIFY',
-  'MONITOR', 'OWNERSHIP', 'REFERENCES', 'READ', 'WRITE', 'TRUNCATE',
-  'OPERATE', 'EXECUTE', 'ALL PRIVILEGES'
-];
-
-export const availableObjectTypes = [
-  'DATABASE', 'SCHEMA', 'TABLE', 'VIEW', 'STAGE', 'PIPE', 'FUNCTION',
-  'PROCEDURE', 'WAREHOUSE', 'STREAM', 'TASK', 'FILE FORMAT', 'SEQUENCE'
-];

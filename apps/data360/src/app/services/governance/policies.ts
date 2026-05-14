@@ -411,91 +411,6 @@ export async function deleteRLSPolicy(
 
 // ============= RLS POLICY HELPERS =============
 
-/**
- * Helper to create an RLS policy that restricts access by role
- * @param policyName - Name of the policy (e.g., "ROLE_ADMIN_ONLY")
- * @param columnName - Column name in the signature (e.g., "user_role")
- * @param allowedRoles - Array of roles that should have access
- * @param schema - Schema where the policy will be created
- */
-export async function createRoleBasedRLSPolicy(
-  policyName: string,
-  columnName: string,
-  allowedRoles: string[],
-): Promise<RLSPolicy> {
-  const rolesCondition = allowedRoles.map(role => `CURRENT_ROLE() = '${role}'`).join(' OR ');
-  return createRLSPolicy({
-    policy_name: policyName,
-    signature: `${columnName} VARCHAR`,
-    expression: rolesCondition,
-    description: `Restricts access to rows based on user role. Allowed roles: ${allowedRoles.join(', ')}`,
-  });
-}
-
-/**
- * Helper to create an RLS policy that checks if a role is in session
- * @param policyName - Name of the policy (e.g., "ADMIN_ACCESS")
- * @param columnName - Column name in the signature
- * @param roleName - Role that should have access
- * @param schema - Schema where the policy will be created
- */
-export async function createSessionRoleRLSPolicy(
-  policyName: string,
-  columnName: string,
-  roleName: string,
-): Promise<RLSPolicy> {
-  return createRLSPolicy({
-    policy_name: policyName,
-    signature: `${columnName} VARCHAR`,
-    expression: `IS_ROLE_IN_SESSION('${roleName}')`,
-    description: `Restricts access to rows where ${roleName} role is in session`,
-  });
-}
-
-/**
- * Helper to create an RLS policy that filters by user
- * @param policyName - Name of the policy (e.g., "USER_OWN_DATA")
- * @param columnName - Column name that contains the user identifier
- * @param schema - Schema where the policy will be created
- */
-export async function createUserFilterRLSPolicy(
-  policyName: string,
-  columnName: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
-): Promise<RLSPolicy> {
-  return createRLSPolicy({
-    policy_name: policyName,
-    signature: `${columnName} VARCHAR`,
-    expression: `${columnName} = CURRENT_USER()`,
-    schema,
-    description: `Restricts access to rows where ${columnName} matches current user`,
-  });
-}
-
-/**
- * Helper to create an RLS policy with a custom expression
- * @param policyName - Name of the policy
- * @param signature - Full signature (e.g., "user_id NUMBER, region VARCHAR")
- * @param expression - Custom SQL expression
- * @param description - Description of the policy
- * @param schema - Schema where the policy will be created
- */
-export async function createCustomRLSPolicy(
-  policyName: string,
-  signature: string,
-  expression: string,
-  description?: string,
-  schema: string = DEFAULT_GOVERNANCE_SCHEMA
-): Promise<RLSPolicy> {
-  return createRLSPolicy({
-    policy_name: policyName,
-    signature,
-    expression,
-    schema,
-    description,
-  });
-}
-
 // ============= MASKING POLICY SERVICES =============
 
 export async function getMaskingPolicyDetails(
@@ -1579,60 +1494,6 @@ export async function assignPolicyToRoles(
   }
 }
 
-/**
- * Update policy metadata (e.g., expiration date)
- *
- * Backend endpoint: PUT /gouvernance/policies/{POLICY_TYPE}/{POLICY_NAME}/metadata
- *
- * @param policyName - The policy name (not FQN)
- * @param policyType - Frontend policy type (rls, masking, etc.)
- * @param metadata - Metadata to update (currently only expiration_date)
- */
-export async function updatePolicyMetadata(
-  policyName: string,
-  policyType: 'rls' | 'masking' | 'cls' | 'network' | 'aggregation' | 'authentication' | 'join' | 'packages' | 'password' | 'privacy' | 'projection' | 'session' | 'storage',
-  metadata: {
-    expiration_date?: string;
-  }
-): Promise<{
-  message: string;
-  policy_name: string;
-  policy_type: string;
-  expiration_date?: string;
-}> {
-  // Map frontend policy type to backend policy type
-  const backendPolicyType = POLICY_TYPE_MAP[policyType] || policyType.toUpperCase();
-
-  // console.log('[updatePolicyMetadata] Updating metadata for policy:', policyName);
-  // console.log('[updatePolicyMetadata] Policy type:', policyType, '→', backendPolicyType);
-  // console.log('[updatePolicyMetadata] Metadata:', metadata);
-
-  try {
-    const response = await apiClient.put<StandardResponse<{
-      message: string;
-      policy_name: string;
-      policy_type: string;
-      expiration_date?: string;
-    }>>(`${POLICIES_API}/${backendPolicyType}/${policyName}/metadata`,
-      metadata
-    );
-
-    // console.log('[updatePolicyMetadata] Response:', response.data);
-
-    return response.data.data;
-  } catch (error: any) {
-    console.error('Update policy metadata error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
-      status: error.response?.status,
-      policyType: backendPolicyType,
-      policyName,
-      metadata,
-    });
-    throw error;
-  }
-}
-
 // ============= POLICY REFERENCE MANAGEMENT =============
 
 /**
@@ -1970,7 +1831,3 @@ export async function replaceAggregationPolicy(data: {
 
 // ============= UTILITY SERVICES =============
 
-export async function healthCheck(): Promise<{ status: string; service: string }> {
-  const response = await apiClient.get(`${POLICIES_API}/health`);
-  return response.data;
-}

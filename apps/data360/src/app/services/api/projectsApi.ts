@@ -177,11 +177,6 @@ export async function executeDeployment(
 // Execution Runs
 // ============================================================================
 
-export async function startRun(projectId: string, body: StartRunRequest) {
-  const { data } = await apiClient.post<ProjectRun>(`${PREFIX}/${projectId}/runs`, body);
-  return data;
-}
-
 export async function listRuns(projectId: string, params?: ListRunsParams) {
   const { data } = await apiClient.get<{ runs: ProjectRun[] }>(
     `${PREFIX}/${projectId}/runs`,
@@ -193,18 +188,6 @@ export async function listRuns(projectId: string, params?: ListRunsParams) {
 export async function getRunSummary(projectId: string) {
   const { data } = await apiClient.get<Record<string, unknown>>(
     `${PREFIX}/${projectId}/runs/summary`,
-  );
-  return data;
-}
-
-export async function completeRun(
-  projectId: string,
-  runId: string,
-  body: CompleteRunRequest,
-) {
-  const { data } = await apiClient.patch<ProjectRun>(
-    `${PREFIX}/${projectId}/runs/${runId}/complete`,
-    body,
   );
   return data;
 }
@@ -241,14 +224,6 @@ export async function removeContributor(projectId: string, username: string) {
 
 export async function getState(projectId: string) {
   const { data } = await apiClient.get<WizardState>(`${PREFIX}/${projectId}/state`);
-  return data;
-}
-
-export async function saveState(projectId: string, body: SaveStateRequest) {
-  const { data } = await apiClient.put<SaveStateResponse>(
-    `${PREFIX}/${projectId}/state`,
-    body,
-  );
   return data;
 }
 

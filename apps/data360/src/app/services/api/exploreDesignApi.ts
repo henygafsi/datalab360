@@ -185,14 +185,6 @@ export async function getExploreState(projectId: string) {
   return data;
 }
 
-export async function saveExploreState(projectId: string, body: SaveStateRequest) {
-  const { data } = await apiClient.put<SaveStateResponse>(
-    `${PREFIX}/${projectId}/state`,
-    body,
-  );
-  return data;
-}
-
 // ============================================================================
 // Events (Module-filtered)
 // ============================================================================
@@ -230,31 +222,6 @@ export async function createTemplate(projectId: string, body: CreateTemplateRequ
 // ============================================================================
 // Metadata
 // ============================================================================
-
-export async function batchMetadata(
-  projectId: string,
-  tables: TableRef[],
-  params?: BatchMetadataParams,
-) {
-  const { data } = await apiClient.post<BatchMetadataResponse>(
-    `${PREFIX}/${projectId}/tables/metadata`,
-    tables,
-    { params },
-  );
-  return data;
-}
-
-export async function singleMetadata(
-  projectId: string,
-  database: string,
-  schema: string,
-  table: string,
-) {
-  const { data } = await apiClient.get<TableMetadata>(
-    `${PREFIX}/${projectId}/tables/${database}/${schema}/${table}/metadata`,
-  );
-  return data;
-}
 
 // ============================================================================
 // Profiling
@@ -326,14 +293,6 @@ export async function columnPreview(
 // Detection
 // ============================================================================
 
-export async function detectSensitive(projectId: string, body: DetectSensitiveRequest) {
-  const { data } = await apiClient.post<DetectSensitiveResponse>(
-    `${PREFIX}/${projectId}/detect/sensitive`,
-    body,
-  );
-  return data;
-}
-
 export async function detectRelations(projectId: string, body: DetectRelationsRequest) {
   const { data } = await apiClient.post<DetectRelationsResponse>(
     `${PREFIX}/${projectId}/detect/relations`,
@@ -346,56 +305,9 @@ export async function detectRelations(projectId: string, body: DetectRelationsRe
 // Schema Clone
 // ============================================================================
 
-export async function createClone(projectId: string, body: SchemaCloneRequest) {
-  const { data } = await apiClient.post<SchemaClone>(
-    `${PREFIX}/${projectId}/schema-clone`,
-    body,
-  );
-  return data;
-}
-
-export async function executeClone(
-  projectId: string,
-  cloneId: string,
-  warehouse?: string,
-) {
-  const { data } = await apiClient.post<ExecuteCloneResponse>(
-    `${PREFIX}/${projectId}/schema-clone/${cloneId}/execute`,
-    undefined,
-    { params: warehouse ? { warehouse } : undefined },
-  );
-  return data;
-}
-
-export async function rollbackClone(projectId: string, cloneId: string) {
-  const { data } = await apiClient.post<RollbackCloneResponse>(
-    `${PREFIX}/${projectId}/schema-clone/${cloneId}/rollback`,
-  );
-  return data;
-}
-
 // ============================================================================
 // Ingestion
 // ============================================================================
-
-export async function configIngestion(projectId: string, body: IngestionConfigRequest) {
-  const { data } = await apiClient.post<IngestionConfigResponse>(
-    `${PREFIX}/${projectId}/ingestion/config`,
-    body,
-  );
-  return data;
-}
-
-export async function bulkConfigIngestion(
-  projectId: string,
-  body: BulkIngestionConfigRequest,
-) {
-  const { data } = await apiClient.post<BulkIngestionConfigResponse>(
-    `${PREFIX}/${projectId}/ingestion/bulk-config`,
-    body,
-  );
-  return data;
-}
 
 export async function executeIngestion(
   projectId: string,
@@ -422,14 +334,6 @@ export async function scheduleIngestion(
 // ============================================================================
 // Masking
 // ============================================================================
-
-export async function configMasking(projectId: string, body: MaskingConfigRequest) {
-  const { data } = await apiClient.post<MaskingConfigResponse>(
-    `${PREFIX}/${projectId}/masking/config`,
-    body,
-  );
-  return data;
-}
 
 // ============================================================================
 // Column Mappings
@@ -503,13 +407,6 @@ export async function executeDDLActions(
   return data;
 }
 
-export async function rollbackDDLAction(projectId: string, eventId: string) {
-  const { data } = await apiClient.post<RollbackDDLResponse>(
-    `${PREFIX}/${projectId}/ddl-actions/${eventId}/rollback`,
-  );
-  return data;
-}
-
 export async function removeDDLAction(projectId: string, eventId: string) {
   const { data } = await apiClient.delete<{ status: string; event_id: string }>(
     `${PREFIX}/${projectId}/ddl-actions/${eventId}`,
@@ -520,14 +417,6 @@ export async function removeDDLAction(projectId: string, eventId: string) {
 // ============================================================================
 // Model Versions
 // ============================================================================
-
-export async function saveModel(projectId: string, body: SaveModelRequest) {
-  const { data } = await apiClient.post<SaveModelResponse>(
-    `${PREFIX}/${projectId}/models`,
-    body,
-  );
-  return data;
-}
 
 export async function listModels(projectId: string, params?: ListModelsParams) {
   const { data } = await apiClient.get<ModelVersionListResponse>(
@@ -598,50 +487,9 @@ export async function executeDeployment(projectId: string, deploymentId: string)
   return data;
 }
 
-export async function cancelDeployment(projectId: string, deploymentId: string) {
-  const { data } = await apiClient.post<ExploreDeployment>(
-    `${PREFIX}/${projectId}/deployments/${deploymentId}/cancel`,
-  );
-  return data;
-}
-
 // ============================================================================
 // Scheduling
 // ============================================================================
-
-export async function createSchedule(projectId: string, body: CreateScheduleRequest) {
-  const { data } = await apiClient.post<Schedule>(
-    `${PREFIX}/${projectId}/schedule`,
-    body,
-  );
-  return data;
-}
-
-export async function approveSchedule(projectId: string, scheduleId: string) {
-  const { data } = await apiClient.post<Schedule>(
-    `${PREFIX}/${projectId}/schedule/${scheduleId}/approve`,
-  );
-  return data;
-}
-
-export async function rejectSchedule(
-  projectId: string,
-  scheduleId: string,
-  body?: RejectScheduleRequest,
-) {
-  const { data } = await apiClient.post<Schedule>(
-    `${PREFIX}/${projectId}/schedule/${scheduleId}/reject`,
-    body,
-  );
-  return data;
-}
-
-export async function activateSchedule(projectId: string, scheduleId: string) {
-  const { data } = await apiClient.post<Schedule>(
-    `${PREFIX}/${projectId}/schedule/${scheduleId}/activate`,
-  );
-  return data;
-}
 
 export async function suspendTask(projectId: string) {
   const { data } = await apiClient.post<{ status: string }>(
@@ -815,17 +663,6 @@ export async function validateFkTypes(
   return data;
 }
 
-// Mode A — project-wide FK scan (empty body)
-export async function validateAllFkTypes(
-  projectId: string,
-) {
-  const { data } = await apiClient.post<ValidateFkTypesProjectResult>(
-    `${PREFIX}/${projectId}/validate/fk-types`,
-    {},
-  );
-  return data;
-}
-
 export async function cascadeRename(
   projectId: string,
   body: CascadeRenameRequest,
@@ -922,16 +759,6 @@ export async function getAuditTrail(
   const { data } = await apiClient.get<AuditTrailResult>(
     `${PREFIX}/${projectId}/audit-trail`,
     { params },
-  );
-  return data;
-}
-
-export async function createEventTemplate(
-  body: CreateEventTemplateRequest,
-) {
-  const { data } = await apiClient.post<CreateEventTemplateResult>(
-    `${PREFIX}/event-templates`,
-    body,
   );
   return data;
 }

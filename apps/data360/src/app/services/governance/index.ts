@@ -136,16 +136,6 @@ export async function getAllUsersActivity(
 }
 
 /**
- * Alias for getAllUsersActivity for backward compatibility
- * @deprecated Use getAllUsersActivity instead
- */
-export async function getClientDashboardAll(
-  filters: ActivityFilterParams = {}
-): Promise<UserActivityWithQuery[]> {
-  return getAllUsersActivity(filters);
-}
-
-/**
  * Get recent ERROR events for audit and AI recommendations
  * GET /gouvernance/dashboard/errors
  */

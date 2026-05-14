@@ -43,13 +43,6 @@ export function formatDate(dateString: string): string {
   });
 }
 
-export function formatShortDate(dateString: string): string {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms.toFixed(0)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
@@ -63,60 +56,6 @@ export function formatNumber(value: number): string {
     return `${(value / 1000).toFixed(1)}K`;
   }
   return value.toLocaleString();
-}
-
-export function getCloudIcon(cloud: string): string {
-  switch (cloud) {
-    case 'AWS':
-      return '🔶';
-    case 'AZURE':
-      return '🔷';
-    case 'GCP':
-      return '🔴';
-    default:
-      return '☁️';
-  }
-}
-
-export function getCloudColor(cloud: string): string {
-  switch (cloud) {
-    case 'AWS':
-      return '#ff9900';
-    case 'AZURE':
-      return '#0078d4';
-    case 'GCP':
-      return '#4285f4';
-    default:
-      return '#6b7280';
-  }
-}
-
-export function getEditionColor(edition: string): string {
-  switch (edition) {
-    case 'BUSINESS_CRITICAL':
-      return '#ef4444';
-    case 'ENTERPRISE':
-      return '#3b82f6';
-    case 'STANDARD':
-      return '#6b7280';
-    default:
-      return '#9ca3af';
-  }
-}
-
-export function getAlertIcon(type: string): string {
-  switch (type) {
-    case 'critical':
-      return '🔴';
-    case 'warning':
-      return '🟡';
-    case 'security':
-      return '🔒';
-    case 'info':
-      return '🔵';
-    default:
-      return '⚪';
-  }
 }
 
 export function getHealthColor(score: number): string {

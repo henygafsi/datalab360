@@ -206,9 +206,4 @@ export interface ThresholdConfig {
   threshold: number;
 }
 
-export async function setQualityThresholds(config: ThresholdConfig): Promise<{ status: string }> {
-  const { data } = await apiClient.post(`${PREFIX}/thresholds`, config);
-  return data?.data || data;
-}
-
 // Local report service removed (reports-local.ts deleted — was unused)

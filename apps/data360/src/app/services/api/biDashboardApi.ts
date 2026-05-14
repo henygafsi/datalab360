@@ -49,11 +49,6 @@ export async function getDashboard(projectId: string) {
   return data;
 }
 
-export async function updateDashboard(projectId: string, body: UpdateDashboardRequest) {
-  const { data } = await apiClient.put<FullDashboard>(`${PREFIX}/${projectId}`, body);
-  return data;
-}
-
 export async function deleteDashboard(projectId: string) {
   const { data } = await apiClient.delete(`${PREFIX}/${projectId}`);
   return data;
@@ -166,14 +161,6 @@ export async function deleteFilter(projectId: string, filterId: string) {
 // ============================================================================
 // Chart Data (replaces old POST /bi_reporting/charts/data)
 // ============================================================================
-
-export async function fetchWidgetChartData(chartConfig: BIDashboardChartConfig) {
-  const { data } = await apiClient.post<ChartDataResponse>(
-    `${PREFIX}/charts/data`,
-    chartConfig
-  );
-  return data;
-}
 
 // ============================================================================
 // Batch render — one POST returns per-widget {status, data, error}.
