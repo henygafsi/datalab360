@@ -1,7 +1,14 @@
 'use client';
 
-import React, { createContext, useContext, useState, useMemo, useCallback } from 'react';
+import React, { createContext, useContext, useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import type { DesignEvent, EventType, EventStatus } from '../../stores/event-store';
+import {
+  startDeployment as trackStart,
+  advanceStep as trackAdvance,
+  completeDeployment as trackComplete,
+  type DeploymentStep as TrackedStep,
+} from '@/app/services/deployment-tracking';
+import { pingNotifications } from '@/hooks/useNotifications';
 import type {
   IngestionMode,
   CronChoice,
@@ -234,7 +241,30 @@ interface DeploymentProviderProps {
   updateEventStatus: (params: { eventId: string; status: EventStatus; error?: string }) => void;
   cleanupAppliedEvents: () => void;
   onClose?: () => void;
+  /** Optional: name displayed in tracking notifications. */
+  projectName?: string;
   children: React.ReactNode;
+}
+
+/**
+ * Map the popup's 8-step lifecycle onto the 5-step tracking model:
+ *   review        → review
+ *   config        → configure
+ *   pre_checks    → dry_run
+ *   dry_run       → dry_run
+ *   sql_diff      → dry_run
+ *   impact        → dry_run
+ *   deploy        → deploy
+ *   verify        → verify
+ */
+function toTrackedStep(step: DeploymentStep): TrackedStep {
+  switch (step) {
+    case 'review':     return 'review';
+    case 'config':     return 'configure';
+    case 'deploy':     return 'deploy';
+    case 'verify':     return 'verify';
+    default:           return 'dry_run';
+  }
 }
 
 export function DeploymentProvider({
@@ -247,6 +277,7 @@ export function DeploymentProvider({
   updateEventStatus,
   cleanupAppliedEvents,
   onClose,
+  projectName,
   children,
 }: DeploymentProviderProps) {
   const [currentStep, setCurrentStep] = useState<DeploymentStep>('review');
@@ -255,6 +286,61 @@ export function DeploymentProvider({
   const [isDeploying, setIsDeploying] = useState(false);
   const [schemaVersions, setSchemaVersions] = useState<ProjectVersion[]>([]);
   const [currentSchemaVersion, setCurrentSchemaVersion] = useState<ProjectVersion | null>(null);
+
+  // ----- Deployment tracking sync -----
+  // Mirror every popup step transition + terminal state into the backend
+  // /deployments/track lifecycle. The header chip + notification dropdown
+  // pick it up automatically via their own polling.
+  const trackedIdRef = useRef<string | null>(null);
+  const trackedStepRef = useRef<TrackedStep | null>(null);
+  const completedRef = useRef(false);
+
+  // 1. Start lifecycle on first mount.
+  useEffect(() => {
+    if (trackedIdRef.current || !projectId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await trackStart({
+          project_id: projectId,
+          project_name: projectName,
+          requires_approval: config.deploymentType === 'with_approval',
+          approver_username: config.deploymentType === 'with_approval'
+            ? (config.selectedApprovers[0] ?? undefined)
+            : undefined,
+          payload: { events_pending: pendingEvents.length },
+          ui_origin: 'explore-design',
+        });
+        if (cancelled) return;
+        trackedIdRef.current = row.deployment_id;
+        trackedStepRef.current = 'review';
+        pingNotifications();
+      } catch {
+        // Tracking is a side-channel — never block the user's deploy.
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  // 2. Advance step whenever currentStep changes.
+  useEffect(() => {
+    if (!trackedIdRef.current || completedRef.current) return;
+    const target = toTrackedStep(currentStep);
+    if (target === trackedStepRef.current) return;
+    const prior = trackedStepRef.current;
+    trackedStepRef.current = target;
+    void trackAdvance(trackedIdRef.current, {
+      step: target,
+      completed: prior !== null,   // mark the previous step done when we move on
+    }).catch(() => undefined);
+  }, [currentStep]);
+
+  // 3. Finalize when schemaDeploymentResult is set (success or failure).
+  // Wired below in setResults wrapper.
+  // 4. Cancel-on-close: if user closes the popup before a terminal state,
+  // we leave the tracked deploy as-is. The chip will keep showing it as
+  // active; the user can come back to resume.
 
   const [results, setResults] = useState<DeploymentResults>({
     testResults: new Map(),
@@ -270,6 +356,29 @@ export function DeploymentProvider({
     deploymentPhase: 'schema',
     backendError: null,
   });
+
+  // 3. Finalize tracking when the schema deploy returns a terminal result.
+  useEffect(() => {
+    if (!trackedIdRef.current || completedRef.current) return;
+    const r = results.schemaDeploymentResult;
+    if (!r) return;
+    const status = r.status === 'success' ? 'SUCCEEDED' : 'FAILED';
+    completedRef.current = true;
+    void trackComplete(trackedIdRef.current, {
+      status,
+      error: r.status === 'failed' ? (r.errors?.[0] ?? 'Deploy failed') : undefined,
+    }).then(() => pingNotifications()).catch(() => undefined);
+  }, [results.schemaDeploymentResult]);
+
+  // Surface backend errors per step into the tracked errors_by_step.
+  useEffect(() => {
+    if (!trackedIdRef.current || completedRef.current || !results.backendError) return;
+    void trackAdvance(trackedIdRef.current, {
+      step: toTrackedStep(currentStep),
+      errors: [{ message: results.backendError }],
+    }).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [results.backendError]);
 
   const updateConfig = useCallback(<K extends keyof DeploymentConfig>(key: K, value: DeploymentConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
