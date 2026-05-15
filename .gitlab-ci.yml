@@ -121,7 +121,7 @@ typecheck:
 deploy:
   stage: deploy
   image: node:20-alpine
-  timeout: 10 minutes
+  timeout: 15 minutes
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   needs: ["build"]
@@ -129,16 +129,20 @@ deploy:
   before_script:
     - apk add --no-cache git
   script:
+    # Surface every command so the next failure is debuggable from the job log.
+    - set -x
     - |
       if [ -z "$VERCEL_TOKEN" ]; then
         echo "FAIL: VERCEL_TOKEN missing in CI/CD variables (Settings → CI/CD → Variables, masked, protected)"
+        echo "Generate at: https://vercel.com/account/tokens"
         exit 1
       fi
-    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@latest
+    # Pin a known-good vercel CLI rather than @latest to avoid surprise breakage.
+    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@37.14.0
     - export PATH="/tmp/vercel-bin/node_modules/.bin:$PATH"
+    - vercel --version
     # The linked Vercel project has rootDirectory=apps/data360. .vercel/ is
-    # gitignored so we synthesise project.json at WORKSPACE ROOT — the dir we
-    # run vercel from. rootDirectory is relative to that root.
+    # gitignored so we synthesise project.json at WORKSPACE ROOT.
     - mkdir -p .vercel
     - |
       cat > .vercel/project.json <<EOF
@@ -151,12 +155,21 @@ deploy:
         }
       }
       EOF
-    - vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-    - vercel build --prod --token="$VERCEL_TOKEN"
-    - vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" 2>&1 | tee deploy.log
-    - tail -n 1 deploy.log > vercel-deploy-url.txt
-    - 'echo "Deployed -> $(cat vercel-deploy-url.txt)"'
+    - echo "--- .vercel/project.json ---" && cat .vercel/project.json && echo "---"
+    # Single-shot deploy: Vercel uploads the source tree, runs its own build
+    # using ENV VARS DEFINED ON THE VERCEL PROJECT, and returns the URL.
+    # This avoids two-phase pull/build/deploy env-var inheritance issues — the
+    # CLI never tries to inject runner env into the Vercel build sandbox.
+    # IMPORTANT: env vars (NEXTAUTH_URL, NEXTAUTH_SECRET, NEXT_PUBLIC_API_URL,
+    # SKIP_ENV_VALIDATION=true) must be set in Vercel Project → Settings →
+    # Environment Variables → Production scope. Otherwise next build will fail
+    # at env.mjs validation.
+    - vercel deploy --prod --token="$VERCEL_TOKEN" --yes 2>&1 | tee deploy.log
+    - DEPLOY_URL=$(grep -E '^https?://' deploy.log | tail -n 1)
+    - 'echo "Deployed -> $DEPLOY_URL"'
+    - echo "$DEPLOY_URL" > vercel-deploy-url.txt
   artifacts:
+    when: always
     paths: [vercel-deploy-url.txt, deploy.log]
     expire_in: 30 days
 
