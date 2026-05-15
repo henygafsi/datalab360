@@ -862,11 +862,10 @@ export default function ExploreDesignPage() {
   // Backend-persisted column mappings (loaded via listMappings on project select)
   const [backendMappings, setBackendMappings] = useState<BackendColumnMapping[]>([]);
 
-  // "Offline" here means the user's SESSION is expired or the API itself is
-  // unreachable — NOT just the SSE invalidation stream being unavailable
-  // (which is a soft degradation). The SSE hook now clears connectionError
-  // on 404/502 so isOffline only flips true on session-level failures.
-  const isOffline = !isConnected && !!connectionError;
+  // True only when the SSE stream was rejected with 401/403 — i.e. the user's
+  // JWT is actually invalid. All other SSE failures (network, 5xx, CORS) are
+  // soft-degraded by useCacheInvalidation so the banner doesn't fire on them.
+  const isOffline = connectionError === 'session_expired';
 
   const [showBulkPKModal, setShowBulkPKModal] = useState(false);
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);

@@ -184,13 +184,16 @@ export default function OrgAccountsTab() {
   const totalAccounts = o?.total_client_accounts ?? 0;
   const activeAccounts = o?.active_accounts ?? 0;
   const inactiveAccounts = o?.inactive_accounts ?? 0;
-  const orgCredits = (o as any)?.total_credits_30d ?? 0;
-  const orgStorageBytes = (o as any)?.total_storage_bytes ?? 0;
-  const replicationGroupsCount = (o as any)?.replication_groups_count ?? 0;
-  const failoverGroupsCount = (o as any)?.failover_groups_count ?? 0;
+  const orgCredits = o?.total_credits_30d ?? 0;
+  const orgStorageBytes = o?.total_storage_bytes ?? 0;
+  const replicationGroupsCount = o?.replication_groups_count ?? 0;
+  const failoverGroupsCount = o?.failover_groups_count ?? 0;
   const managedAccountsCount =
-    (o as any)?.managed_accounts_count ?? state.accounts?.accounts?.length ?? 0;
-  const networkPoliciesCount = (o as any)?.network_policies_count ?? 0;
+    o?.managed_accounts_count ?? state.accounts?.accounts?.length ?? 0;
+  const networkPoliciesCount = o?.network_policies_count ?? 0;
+  // Backend tells us when the Snowflake role can't see org-level data so
+  // the UI can show a clear empty/CTA state instead of a wall of zeros.
+  const orgAdminAvailable = o?.org_admin_available !== false;
 
   // Recent org account events — last 8 by created_on desc
   const recentEvents = useMemo(() => {
@@ -206,6 +209,26 @@ export default function OrgAccountsTab() {
 
   return (
     <div className="space-y-6">
+      {/* ORGADMIN-not-granted notice — the Snowflake role used by this user
+          can't see org-level views, so every aggregate below would be 0. */}
+      {!state.loading && !orgAdminAvailable && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          <div className="flex items-start gap-3">
+            <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold">Organization-level access not enabled</p>
+              <p className="mt-1 text-xs leading-relaxed">
+                This Snowflake account does not have the <code>ORGADMIN</code> role granted,
+                so the multi-account organization views are unavailable. Per-account
+                metrics (credits, storage, warehouses) are still loaded below.
+                Ask a Snowflake org administrator to grant <code>ORGADMIN</code> to enable
+                cross-account roll-ups.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top-strip KPIs */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard

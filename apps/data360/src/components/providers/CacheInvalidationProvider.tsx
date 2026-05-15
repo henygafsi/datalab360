@@ -172,8 +172,7 @@ function SSEIndicator({ isConnected, error }: { isConnected: boolean; error: str
     },
   }[tone];
 
-  const isSessionExpired =
-    !!error && (error.includes('session expired') || error.includes('Sync offline'));
+  const isSessionExpired = error === 'session_expired';
 
   return (
     <div className="fixed bottom-4 right-4 z-50">

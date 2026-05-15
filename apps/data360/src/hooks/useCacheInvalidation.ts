@@ -388,18 +388,31 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
         });
 
         if (!response.ok) {
-          // 404/502 → backend doesn't expose /cache-stream/stream (the SSE
-          // service is down or the path was removed). Stop reconnecting; the
-          // UI gracefully degrades to manual refresh.
-          if (response.status === 404 || response.status === 502 || response.status === 503) {
-            log(`SSE endpoint unavailable (${response.status}) — not retrying.`);
-            if (initialConnectTimer) { clearTimeout(initialConnectTimer); initialConnectTimer = null; }
+          if (initialConnectTimer) { clearTimeout(initialConnectTimer); initialConnectTimer = null; }
+          // 401/403 — the JWT used for the SSE stream was rejected. This is
+          // the only path where the session is actually expired.
+          if (response.status === 401 || response.status === 403) {
+            log(`SSE auth rejected (${response.status}) — session expired.`);
             setIsConnected(false);
-            setError(null);  // not an error — just unsupported
-            reconnectAttemptsRef.current = maxReconnectAttempts;  // prevent retry
+            setError('session_expired');
+            reconnectAttemptsRef.current = maxReconnectAttempts;
             return;
           }
-          throw new Error(`SSE HTTP ${response.status}`);
+          // 404/502/503 → SSE endpoint not available; soft-degrade silently.
+          if (response.status === 404 || response.status === 502 || response.status === 503) {
+            log(`SSE endpoint unavailable (${response.status}) — not retrying.`);
+            setIsConnected(false);
+            setError(null);
+            reconnectAttemptsRef.current = maxReconnectAttempts;
+            return;
+          }
+          // Any other non-OK is a transient network/server hiccup — soft-degrade
+          // and keep retrying quietly. Do NOT surface as "session expired".
+          log(`SSE non-OK status ${response.status} — soft-degrade, will retry.`);
+          setIsConnected(false);
+          setError(null);
+          scheduleReconnect();
+          return;
         }
         if (!response.body) {
           throw new Error('SSE response has no body');
@@ -454,7 +467,9 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
         }
         log('SSE stream error:', (err as Error)?.message || err);
         setIsConnected(false);
-        setError('Connection lost');
+        // Transient network failure — keep retrying quietly. Don't paint the
+        // page red; the session itself is fine.
+        setError(null);
         scheduleReconnect();
       } finally {
         clearAllTimers();
