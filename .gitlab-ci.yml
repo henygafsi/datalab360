@@ -25,8 +25,10 @@ stages:
   - extras
 
 variables:
-  VERCEL_ORG_ID: "team_kC7CPyVYhZTxlOrqAlaKbKfi"
-  VERCEL_PROJECT_ID: "prj_P5hsPsdZ24jZUqJzaULd0hFYkKkL"
+  # New Vercel project under data360 team (henygafsi@gmail.com account).
+  # Previous (decommissioned): team_kC7CPyVYhZTxlOrqAlaKbKfi / prj_P5hsPsdZ24jZUqJzaULd0hFYkKkL.
+  VERCEL_ORG_ID: "team_870F5F869lfDNHP6WhOk065P"
+  VERCEL_PROJECT_ID: "prj_yrcCWe5lKXX7o3IxIui7Q5h3saci"
   SKIP_ENV_VALIDATION: "true"
   NEXTAUTH_URL: "http://localhost:3000"
   NEXTAUTH_SECRET: "ci-only-not-used-at-runtime-32chars-minimum-padding"
