@@ -862,7 +862,10 @@ export default function ExploreDesignPage() {
   // Backend-persisted column mappings (loaded via listMappings on project select)
   const [backendMappings, setBackendMappings] = useState<BackendColumnMapping[]>([]);
 
-  // Check if offline and redirect to sign-in
+  // "Offline" here means the user's SESSION is expired or the API itself is
+  // unreachable — NOT just the SSE invalidation stream being unavailable
+  // (which is a soft degradation). The SSE hook now clears connectionError
+  // on 404/502 so isOffline only flips true on session-level failures.
   const isOffline = !isConnected && !!connectionError;
 
   const [showBulkPKModal, setShowBulkPKModal] = useState(false);
@@ -2927,10 +2930,11 @@ export default function ExploreDesignPage() {
             <WifiOff className="h-5 w-5 text-red-500 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                Connection Lost - Sync Offline
+                Session expired
               </p>
               <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-                You are not connected to Snowflake. Data shown may be cached. Please sign in again.
+                Your authentication token is no longer valid. Sign in again to
+                resume saving changes.
               </p>
             </div>
             <Button

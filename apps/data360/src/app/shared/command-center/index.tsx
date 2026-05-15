@@ -1222,6 +1222,21 @@ function CommandCenterDashboardInner() {
   const [isTabTransitioning, startTabTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // True when the overview fetcher attempted all four backend calls and every
+  // one came back null/error — used to surface a clear "backend offline" banner
+  // instead of an empty chart wall.
+  const [backendUnreachable, setBackendUnreachable] = useState(false);
+
+  // Safety net: the page-level skeleton blocks every tab until `isLoading`
+  // flips false. If the very first fetch hangs (e.g. the request is queued
+  // behind a session refresh that never resolves), we never escape the
+  // skeleton. Force-escape after 10s so the user at least sees tabs + an
+  // empty/error state with a Retry button.
+  useEffect(() => {
+    if (!isLoading) return;
+    const t = setTimeout(() => setIsLoading(false), 10_000);
+    return () => clearTimeout(t);
+  }, [isLoading]);
 
   // Client-side tab data cache — prevents re-fetching on every tab switch
   const tabDataCache = useRef<Record<string, { data: any; timestamp: number }>>(
@@ -1325,10 +1340,18 @@ function CommandCenterDashboardInner() {
         ),
         withTimeout(getIntelligentKpis()),
       ]);
-      if (s && !isApiError(s)) setSummary(s);
-      if (mh && !isApiError(mh)) setModuleHealth(mh);
-      if (af && !isApiError(af)) setActivityFeed(af);
-      if (kpis && !isApiError(kpis)) setObsKpis(kpis);
+      const gotSummary = !!(s && !isApiError(s));
+      const gotModuleHealth = !!(mh && !isApiError(mh));
+      const gotActivity = !!(af && !isApiError(af));
+      const gotKpis = !!(kpis && !isApiError(kpis));
+      if (gotSummary) setSummary(s!);
+      if (gotModuleHealth) setModuleHealth(mh!);
+      if (gotActivity) setActivityFeed(af!);
+      if (gotKpis) setObsKpis(kpis!);
+      // If every backend call returned null/error, the API is unreachable —
+      // flag it so the page can render a one-shot banner instead of four
+      // empty chart cards.
+      setBackendUnreachable(!gotSummary && !gotModuleHealth && !gotActivity && !gotKpis);
       setLastUpdated(new Date());
       tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
     } catch (err) {
@@ -1624,6 +1647,7 @@ function CommandCenterDashboardInner() {
     setPerformanceData(null);
     setPlatformData(null);
     setHealthScore(null);
+    setBackendUnreachable(false);
     setAutoRefreshCountdown(AUTO_REFRESH_INTERVAL);
     // Re-fetch current active tab
     switch (activeTab) {
@@ -1722,6 +1746,29 @@ function CommandCenterDashboardInner() {
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
           <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
           <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      )}
+
+      {/* Backend-offline banner — fires when every overview call returned null
+          (server down, network blocked, JWT rejected). Gives the user a clear
+          single message + retry instead of a wall of empty cards. */}
+      {backendUnreachable && !error && (
+        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-950/50">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+              Backend unreachable
+            </p>
+            <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+              Data360 API didn't respond. Charts and KPIs are empty until the connection is restored.
+            </p>
+          </div>
+          <button
+            onClick={handleRefresh}
+            className="flex-shrink-0 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-200 dark:hover:bg-amber-900/50"
+          >
+            Retry
+          </button>
         </div>
       )}
 

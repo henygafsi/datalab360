@@ -235,12 +235,15 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       abortControllerRef.current = null;
     }
 
-    // Force HTTPS — never let a misconfigured env var leak to http:// (mixed content).
+    // Resolve API URL. In production force HTTPS (mixed-content protection).
+    // In dev keep the explicit scheme — local backend listens on http://...:80.
     const rawApiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
     let apiUrl = (rawApiUrl || '').trim();
     if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
-    if (apiUrl.startsWith('http://')) apiUrl = `https://${apiUrl.slice(7)}`;
     if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
+    if (process.env.NODE_ENV === 'production' && apiUrl.startsWith('http://')) {
+      apiUrl = `https://${apiUrl.slice(7)}`;
+    }
     // No token in URL — JWT is passed via Authorization header in fetch().
     const streamUrl = `${apiUrl}/cache-stream/stream`;
     const token = session.user.access_token;
@@ -385,6 +388,17 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
         });
 
         if (!response.ok) {
+          // 404/502 → backend doesn't expose /cache-stream/stream (the SSE
+          // service is down or the path was removed). Stop reconnecting; the
+          // UI gracefully degrades to manual refresh.
+          if (response.status === 404 || response.status === 502 || response.status === 503) {
+            log(`SSE endpoint unavailable (${response.status}) — not retrying.`);
+            if (initialConnectTimer) { clearTimeout(initialConnectTimer); initialConnectTimer = null; }
+            setIsConnected(false);
+            setError(null);  // not an error — just unsupported
+            reconnectAttemptsRef.current = maxReconnectAttempts;  // prevent retry
+            return;
+          }
           throw new Error(`SSE HTTP ${response.status}`);
         }
         if (!response.body) {
