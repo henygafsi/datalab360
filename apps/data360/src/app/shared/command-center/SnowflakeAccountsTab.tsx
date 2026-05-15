@@ -230,8 +230,25 @@ export default function SnowflakeAccountsTab() {
 
   if (!state.selected) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900">
-        No Snowflake accounts connected yet.
+      <div className="rounded-xl border border-slate-200 bg-white p-8 dark:border-slate-700 dark:bg-slate-900">
+        <div className="mx-auto max-w-md text-center">
+          <Cloud className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
+          <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+            No Snowflake accounts in this organization
+          </h3>
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            The backend's <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] dark:bg-slate-800">/org-accounts/accounts</code> endpoint
+            returned an empty list. Once a Snowflake account is registered
+            against this Data360 org, it will appear here with credits,
+            warehouses and login activity.
+          </p>
+          <a
+            href="/connect-data"
+            className="mt-4 inline-flex items-center rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+          >
+            Connect an account
+          </a>
+        </div>
       </div>
     );
   }

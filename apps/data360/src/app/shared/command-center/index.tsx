@@ -1314,13 +1314,12 @@ function CommandCenterDashboardInner() {
         end_date: filters.end_date,
       };
       // Each call wrapped in .catch(() => null) so one slow/404 endpoint
-      // doesn't block Promise.all — the page should render whatever data
-      // came back, not stay stuck on the skeleton when /module-health
-      // or /observability/kpis time out. We also race each call against
-      // a 6s timeout: the global axios timeout is 600s for slow Snowflake
-      // jobs, but for the overview tab we want the empty-state to fire
-      // fast when the backend is unreachable.
-      const OVERVIEW_TIMEOUT_MS = 6000;
+      // doesn't block Promise.all. Per-call timeout is 25s: the slowest
+      // valid backend response we measured is /command-center/module-health
+      // at ~17s, so 25s leaves a small safety margin. The page-level safety
+      // timeout (10s on `isLoading`) still escapes the skeleton at 10s,
+      // and per-card empty-states render gracefully while slow calls land.
+      const OVERVIEW_TIMEOUT_MS = 25000;
       const withTimeout = <T,>(p: Promise<T>): Promise<T | null> =>
         Promise.race<T | null>([
           p.catch(() => null),
