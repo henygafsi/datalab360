@@ -61,7 +61,7 @@ interface Step4Props {
     username: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io';
 
 const Step4AddColumns: React.FC<Step4Props> = ({
     onNext,

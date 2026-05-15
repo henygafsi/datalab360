@@ -3,7 +3,7 @@ import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
 import { formatApiDetail } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io';
 
 interface LatestStepEventResponse {
     project_id: string;

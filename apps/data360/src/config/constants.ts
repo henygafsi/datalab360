@@ -9,20 +9,15 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
-// Resolve API URL — force HTTPS only in production (mixed-content protection).
-// In development, respect the operator's env var so local HTTP backends work.
-function _enforceHttps(u: string): string {
+function _normalizeApiUrl(u: string): string {
   let url = (u || '').trim();
-  if (!url) return 'https://www.api.datalab360.io:8443';
+  if (!url) return 'https://api.datalab360.io';
   if (url.startsWith('//')) url = `https:${url}`;
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
-  if (process.env.NODE_ENV === 'production' && url.startsWith('http://')) {
-    url = `https://${url.slice(7)}`;
-  }
   return url;
 }
-export const API_BASE_URL = _enforceHttps(
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://www.api.datalab360.io:8443',
+export const API_BASE_URL = _normalizeApiUrl(
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.datalab360.io',
 );
 
 export const ROW_PER_PAGE_OPTIONS = [
