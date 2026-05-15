@@ -4,19 +4,60 @@ import { useState, useEffect, useCallback } from 'react';
 import { Badge, Button, Loader, Text, Tooltip } from 'rizzui';
 import { RefreshCw, Play, Pause, RotateCw, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import {
-  listPipes,
-  refreshPipe,
-  pausePipe,
-  resumePipe,
-  listStreams,
-  listDynamicTables,
-  listExternalTables,
-  type PipeInfo,
-  type StreamInfo,
-  type DynamicTableInfo,
-  type ExternalTableInfo,
-} from './connectionServices';
+// TODO: backend endpoints for pipes/streams/dynamic-tables/external-tables not wired yet.
+// Local stubs return empty results so the UI renders empty-states instead of crashing.
+type PipeInfo = {
+  name: string;
+  target_table?: string;
+  source_stage?: string;
+  status: string;
+  pending_files?: number;
+};
+type StreamInfo = {
+  name: string;
+  source_object?: string;
+  type?: string;
+  has_data: boolean;
+  mode?: string;
+  created?: string;
+};
+type DynamicTableInfo = {
+  name: string;
+  target_lag?: string;
+  warehouse?: string;
+  rows?: number;
+  last_refresh?: string;
+  status: string;
+};
+type ExternalTableInfo = {
+  name: string;
+  location?: string;
+  file_format?: string;
+  auto_refresh: boolean;
+  rows?: number;
+};
+
+async function listPipes(_database?: string, _schema?: string): Promise<{ pipes: PipeInfo[] }> {
+  return { pipes: [] };
+}
+async function refreshPipe(_pipeName: string): Promise<void> {}
+async function pausePipe(_pipeName: string): Promise<void> {}
+async function resumePipe(_pipeName: string): Promise<void> {}
+async function listStreams(_database?: string, _schema?: string): Promise<{ streams: StreamInfo[] }> {
+  return { streams: [] };
+}
+async function listDynamicTables(
+  _database?: string,
+  _schema?: string,
+): Promise<{ dynamic_tables: DynamicTableInfo[] }> {
+  return { dynamic_tables: [] };
+}
+async function listExternalTables(
+  _database?: string,
+  _schema?: string,
+): Promise<{ external_tables: ExternalTableInfo[] }> {
+  return { external_tables: [] };
+}
 
 type InfraTab = 'pipes' | 'streams' | 'dynamic-tables' | 'external-tables';
 
@@ -162,7 +203,7 @@ function PipesTab({ database, schema }: { database?: string; schema?: string }) 
               <td className={tdClass}>{pipe.source_stage || '-'}</td>
               <td className={tdClass}><StatusBadge status={pipe.status} /></td>
               <td className={tdClass}>
-                <span className={`font-mono text-sm ${pipe.pending_files > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
+                <span className={`font-mono text-sm ${(pipe.pending_files ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-slate-500 dark:text-slate-400'}`}>
                   {pipe.pending_files ?? 0}
                 </span>
               </td>

@@ -40,7 +40,7 @@ export interface UserGrantTableData {
  */
 export async function getUsersWithRolesAndModules(): Promise<UserGrantTableData[]> {
   const response = await apiClient.get('/gouvernance/users-with-roles');
-  const raw: RawSnowflakeUser[] = Array.isArray(response.data) ? response.data : [];
+  const raw: RawSnowflakeUser[] = Array.isArray(response.data) ? (response.data as RawSnowflakeUser[]) : [];
 
   return raw.map((u) => ({
     username: u.name || u.login_name || '',

@@ -66,7 +66,7 @@ export function useAuth() {
         // Fallback: fetch from NextAuth session and persist to localStorage
         fetch('/api/auth/session')
           .then((r) => r.json())
-          .then((session) => {
+          .then((session: any) => {
             const t = session?.user?.access_token;
             if (t) {
               localStorage.setItem('access_token', t);

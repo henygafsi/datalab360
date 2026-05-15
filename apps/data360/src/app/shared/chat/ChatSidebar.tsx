@@ -158,7 +158,7 @@ export default function ChatSidebar() {
     try {
       const { data } = await apiClient.get('/chat/online-users');
       const users = data?.data?.online_users || data?.online_users || [];
-      setOnlineUsers(Array.isArray(users) ? users : []);
+      setOnlineUsers(Array.isArray(users) ? (users as string[]) : []);
     } catch { setOnlineUsers([]); }
   };
 

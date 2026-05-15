@@ -120,6 +120,7 @@ export default function GouvernanceDashboard() {
 
   // Track previous deployment count for smart refresh
   const prevDeploymentCountRef = useRef(0);
+  const hasFetchedScheduledRef = useRef(false);
   // Track if we've already fetched to prevent infinite loops
   const hasFetchedRef = useRef(false);
   // Store access token as stable reference
@@ -1807,7 +1808,7 @@ export default function GouvernanceDashboard() {
                     </h4>
                     <div className="space-y-2">
                       {sqlQueries.map((sql: string, i: number) => (
-                        <pre key={i} className="text-xs text-slate-700 dark:text-slate-300 bg-slate-900 dark:bg-slate-950 text-green-400 rounded p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+                        <pre key={i} className="text-xs bg-slate-900 dark:bg-slate-950 text-green-400 dark:text-green-300 rounded p-3 overflow-x-auto font-mono whitespace-pre-wrap">
                           {sql}
                         </pre>
                       ))}

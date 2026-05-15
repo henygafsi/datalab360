@@ -103,7 +103,7 @@ function ProductCard({ product, onSubscribe, subscribing }: { product: DataProdu
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{product.NAME}</h3>
             {isCertified && (
-              <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" title="Certified" />
+              <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" aria-label="Certified" />
             )}
           </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 truncate">{product.OWNER || product.CREATED_BY}</p>

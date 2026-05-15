@@ -1046,7 +1046,7 @@ function TasksLineageTab() {
           <Text className="text-sm text-gray-500 dark:text-gray-400">Dependency Graph</Text>
         </div>
         <div className="h-[600px] rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-          <DependencyFlowView />
+          <DependencyFlowView data={taskLineageData} loading={taskLineageLoading} />
         </div>
       </div>
     );

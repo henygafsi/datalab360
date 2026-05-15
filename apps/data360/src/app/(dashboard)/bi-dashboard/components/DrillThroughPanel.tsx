@@ -26,7 +26,13 @@ export default function DrillThroughPanel({
   initialDimension,
   initialValue,
 }: DrillThroughPanelProps) {
-  const cfg = widget.chart_config || {};
+  const cfg = (widget.chart_config || {}) as {
+    x?: string;
+    groupBy?: string[];
+    database?: string;
+    schema?: string;
+    table?: string;
+  };
   const candidateDimensions = [
     cfg.x,
     ...(Array.isArray(cfg.groupBy) ? cfg.groupBy : []),

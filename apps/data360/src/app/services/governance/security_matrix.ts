@@ -200,7 +200,7 @@ export async function getEnterpriseUsers(): Promise<EnterpriseUser[]> {
   const data = response.data;
   // Handle pagination response { data: { items: [...] } } or direct array [...]
   const items = data?.data?.items ?? data?.data ?? data;
-  return Array.isArray(items) ? items : [];
+  return Array.isArray(items) ? (items as EnterpriseUser[]) : [];
 }
 
 export async function updateEnterpriseUser(
