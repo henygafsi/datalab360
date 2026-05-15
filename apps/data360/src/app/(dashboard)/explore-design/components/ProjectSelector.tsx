@@ -96,7 +96,10 @@ export default function ProjectSelector({
 
   // Fetch explore projects (declared early so safeProjects below can reference it)
   const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
-    const response = await listProjects({ project_type: 'explore_design', mine_only: true });
+    // mine_only=false: account admins should see all explore-design projects, not
+    // just ones they personally created. Backend's "mine" predicate is contributor-
+    // based and returns 0 for accountadmins on projects they made.
+    const response = await listProjects({ project_type: 'explore_design', mine_only: false });
     if (!response.projects || response.projects.length === 0) return [];
     return response.projects.map((p: ApiProject) => ({
       project_id: p.project_id,

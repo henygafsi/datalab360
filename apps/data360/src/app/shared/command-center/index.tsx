@@ -1301,16 +1301,29 @@ function CommandCenterDashboardInner() {
       // Each call wrapped in .catch(() => null) so one slow/404 endpoint
       // doesn't block Promise.all — the page should render whatever data
       // came back, not stay stuck on the skeleton when /module-health
-      // or /observability/kpis time out.
+      // or /observability/kpis time out. We also race each call against
+      // a 6s timeout: the global axios timeout is 600s for slow Snowflake
+      // jobs, but for the overview tab we want the empty-state to fire
+      // fast when the backend is unreachable.
+      const OVERVIEW_TIMEOUT_MS = 6000;
+      const withTimeout = <T,>(p: Promise<T>): Promise<T | null> =>
+        Promise.race<T | null>([
+          p.catch(() => null),
+          new Promise<null>((resolve) =>
+            setTimeout(() => resolve(null), OVERVIEW_TIMEOUT_MS),
+          ),
+        ]);
       const [s, mh, af, kpis] = await Promise.all([
-        getSummary(filterParams).catch(() => null),
-        getModuleHealth({ days: filters.days }).catch(() => null),
-        getActivityFeed(10, {
-          days: filters.days,
-          module_name: filters.module_name,
-          username: filters.username,
-        }).catch(() => null),
-        getIntelligentKpis().catch(() => null),
+        withTimeout(getSummary(filterParams)),
+        withTimeout(getModuleHealth({ days: filters.days })),
+        withTimeout(
+          getActivityFeed(10, {
+            days: filters.days,
+            module_name: filters.module_name,
+            username: filters.username,
+          }),
+        ),
+        withTimeout(getIntelligentKpis()),
       ]);
       if (s && !isApiError(s)) setSummary(s);
       if (mh && !isApiError(mh)) setModuleHealth(mh);

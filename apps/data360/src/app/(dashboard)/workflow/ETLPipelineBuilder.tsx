@@ -429,7 +429,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   // Load workflows on mount
   const loadWorkflowsFn = useCallback(
-    () => listProjects({ project_type: 'workflow', mine_only: true }),
+    // mine_only=false: same reason as ProjectSelector — backend's "mine" filter
+    // is contributor-based and returns 0 for accountadmins on projects they made.
+    () => listProjects({ project_type: 'workflow', mine_only: false }),
     [accessToken]
   );
 
