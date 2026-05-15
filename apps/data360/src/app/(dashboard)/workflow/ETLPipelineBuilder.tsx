@@ -1499,6 +1499,29 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
   const joinInputColumns = useMemo(() => getJoinInputColumns(), [getJoinInputColumns]);
 
+  // Project-gate selector callback — declared BEFORE any early returns so
+  // React's rules-of-hooks aren't violated when the gate renders.
+  const handleGateSelect = useCallback(
+    (workflowId: string, workflowName: string) => {
+      projectGateDismissedRef.current = true;
+      const wf = workflows.find((w) => w.id === workflowId);
+      if (wf) {
+        handleLoadPipeline(wf);
+      } else {
+        // Newly-created workflow may not be in the list yet — set directly
+        setActiveWorkflowId(workflowId);
+        setActiveWorkflowName(workflowName);
+        setPipelineName(workflowName);
+        setUserRole('owner');
+        setNodes([]);
+        setEdges([]);
+        setIsDirty(false);
+        loadWorkflows();
+      }
+    },
+    [workflows, handleLoadPipeline, setNodes, setEdges, loadWorkflows],
+  );
+
   // Page-level loading state
   if (isLoading && workflows.length === 0) {
     return (
@@ -1527,27 +1550,6 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     !isLoading &&
     !isPipelineLoading &&
     !projectGateDismissedRef.current;
-
-  const handleGateSelect = useCallback(
-    (workflowId: string, workflowName: string) => {
-      projectGateDismissedRef.current = true;
-      const wf = workflows.find((w) => w.id === workflowId);
-      if (wf) {
-        handleLoadPipeline(wf);
-      } else {
-        // Newly-created workflow may not be in the list yet — set directly
-        setActiveWorkflowId(workflowId);
-        setActiveWorkflowName(workflowName);
-        setPipelineName(workflowName);
-        setUserRole('owner');
-        setNodes([]);
-        setEdges([]);
-        setIsDirty(false);
-        loadWorkflows();
-      }
-    },
-    [workflows, handleLoadPipeline, setNodes, setEdges, loadWorkflows],
-  );
 
   // Inline pre-state: render a visible project picker + create CTA when no
   // workflow is selected. Replaces the modal-only gate so the page never

@@ -188,6 +188,29 @@ function ModulesTab() {
     load();
   }, []);
 
+  // Aggregate usage trend across modules (sum per day) — declared BEFORE any
+  // early return so the hook order stays stable across renders.
+  const usageTrend = useMemo(() => {
+    const days = 7;
+    const buckets: number[] = Array(days).fill(0);
+    let hasAny = false;
+    rawModules.forEach((m) => {
+      const series = Array.isArray(m?.last_7_days_events)
+        ? m.last_7_days_events
+        : [];
+      series.forEach((v: any, i: number) => {
+        if (i < days) {
+          const n = typeof v === 'number' ? v : (v?.count ?? v?.value ?? 0);
+          if (n > 0) hasAny = true;
+          buckets[i] += n;
+        }
+      });
+    });
+    return hasAny
+      ? buckets.map((value, idx) => ({ day: `D-${days - idx}`, value }))
+      : [];
+  }, [rawModules]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -237,28 +260,6 @@ function ModulesTab() {
       moduleStatus: m?.status as 'healthy' | 'degraded' | 'inactive' | undefined,
     };
   });
-
-  // Aggregate usage trend across modules (sum per day)
-  const usageTrend = useMemo(() => {
-    const days = 7;
-    const buckets: number[] = Array(days).fill(0);
-    let hasAny = false;
-    rawModules.forEach((m) => {
-      const series = Array.isArray(m?.last_7_days_events)
-        ? m.last_7_days_events
-        : [];
-      series.forEach((v: any, i: number) => {
-        if (i < days) {
-          const n = typeof v === 'number' ? v : (v?.count ?? v?.value ?? 0);
-          if (n > 0) hasAny = true;
-          buckets[i] += n;
-        }
-      });
-    });
-    return hasAny
-      ? buckets.map((value, idx) => ({ day: `D-${days - idx}`, value }))
-      : [];
-  }, [rawModules]);
 
   // Issues donut: degraded + inactive count contribution by module
   const issuesByModule = moduleCards
