@@ -237,7 +237,7 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
 
     // Resolve API URL. In production force HTTPS (mixed-content protection).
     // In dev keep the explicit scheme — local backend listens on http://...:80.
-    const rawApiUrl = sseUrl || process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io';
+    const rawApiUrl = sseUrl || (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
     let apiUrl = (rawApiUrl || '').trim();
     if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
     if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;

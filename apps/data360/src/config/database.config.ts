@@ -9,16 +9,21 @@
 // Environment-based configuration with secure defaults
 const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
 
+// Client-side calls go through the Next.js rewrite (`/api-proxy/*`) so the browser
+// only sees same-origin HTTPS — the rewrite proxies to the backend over HTTP on
+// the server. Server-side calls (NextAuth authorize, RSC, route handlers) hit the
+// backend directly using NEXT_PUBLIC_API_URL.
 function resolveApiUrl(rawUrl: string): string {
+  if (typeof window !== 'undefined') return '/api-proxy';
   let url = (rawUrl || '').trim();
-  if (!url) return 'https://api.datalab360.io';
-  if (url.startsWith('//')) url = `https:${url}`;
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (!url) return 'http://api.datalab360.io';
+  if (url.startsWith('//')) url = `http:${url}`;
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   return url;
 }
 
 const ENV_API_URL = resolveApiUrl(
-  process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io',
+  process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io',
 );
 
 /**

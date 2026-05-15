@@ -51,7 +51,7 @@ interface Step5Props {
     username: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId, username }) => {
     const router = useRouter();

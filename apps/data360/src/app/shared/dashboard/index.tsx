@@ -24,7 +24,7 @@ import { getCortexRecommend } from '@/app/services/cortex';
 import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://api.datalab360.io';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 /** Links to all platform modules for Account Overview "Features across modules" section */
 const MODULE_FEATURES: { href: string; name: string; description: string; eventKey?: string }[] = [

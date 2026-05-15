@@ -9,15 +9,18 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
+// Client → /api-proxy (Next rewrite, same-origin HTTPS).
+// Server → backend direct via NEXT_PUBLIC_API_BASE_URL or default HTTP.
 function _normalizeApiUrl(u: string): string {
+  if (typeof window !== 'undefined') return '/api-proxy';
   let url = (u || '').trim();
-  if (!url) return 'https://api.datalab360.io';
-  if (url.startsWith('//')) url = `https:${url}`;
-  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (!url) return 'http://api.datalab360.io';
+  if (url.startsWith('//')) url = `http:${url}`;
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   return url;
 }
 export const API_BASE_URL = _normalizeApiUrl(
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'https://api.datalab360.io',
+  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://api.datalab360.io',
 );
 
 export const ROW_PER_PAGE_OPTIONS = [

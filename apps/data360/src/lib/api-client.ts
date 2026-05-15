@@ -90,18 +90,6 @@ function _detectRedundantCall(method: string, url: string): void {
 // Request interceptor - Add authentication token and account context to all requests
 apiClient.interceptors.request.use(
   async (config: InternalAxiosRequestConfig) => {
-    // Force HTTPS ONLY in production — in dev we allow http://api.datalab360.io
-    // since the backend listens on plain HTTP port 80 and has no HTTPS listener
-    // (ECONNREFUSED on :443). Mixed-content concerns don't apply in dev.
-    if (process.env.NODE_ENV === 'production') {
-      if (config.baseURL && config.baseURL.startsWith('http://')) {
-        config.baseURL = `https://${config.baseURL.slice(7)}`;
-      }
-      if (config.url && config.url.startsWith('http://')) {
-        config.url = `https://${config.url.slice(7)}`;
-      }
-    }
-
     const url = config.url ?? '';
     const method = (config.method ?? 'get').toUpperCase();
     const fullUrl = config.baseURL ? `${config.baseURL}${url}` : url;
