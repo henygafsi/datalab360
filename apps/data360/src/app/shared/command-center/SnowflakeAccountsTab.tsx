@@ -508,7 +508,7 @@ export default function SnowflakeAccountsTab() {
           <HealthTile
             icon={CheckCircle2}
             label="Uptime"
-            value="99.9%"
+            value="—"
             tone="ok"
           />
           <HealthTile

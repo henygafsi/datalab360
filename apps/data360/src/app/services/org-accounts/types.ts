@@ -32,18 +32,27 @@ export interface ClientAccount {
 
 export interface DashboardOverviewResponse {
   overview: {
-    organization_name: string;
+    organization_name?: string;
     total_client_accounts: number;
     active_accounts: number;
     inactive_accounts: number;
-    suspended_accounts: number;
+    suspended_accounts?: number;
     accounts_by_region: Record<string, number>;
     accounts_by_edition: Record<string, number>;
     accounts_by_cloud: Record<string, number>;
+    total_credits_30d?: number;
+    credits_prev_30d?: number;
+    credits_trend_pct?: number | null;
+    total_storage_bytes?: number;
+    replication_groups_count?: number;
+    failover_groups_count?: number;
+    managed_accounts_count?: number;
+    network_policies_count?: number;
+    org_admin_available?: boolean;
   };
-  accounts: ClientAccount[];
+  accounts?: ClientAccount[];
   generated_at: string;
-  execution_time_ms: number;
+  execution_time_ms?: number;
 }
 
 // =============================================================================

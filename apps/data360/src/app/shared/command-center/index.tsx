@@ -161,6 +161,9 @@ const STATUS_COLOR: Record<string, string> = {
 const STATUS_BG: Record<string, string> = {
   healthy: 'bg-green-500',
   degraded: 'bg-amber-500',
+  needs_setup: 'bg-amber-500',
+  warning: 'bg-amber-500',
+  critical: 'bg-red-500',
   inactive: 'bg-gray-300 dark:bg-gray-600',
 };
 
@@ -646,13 +649,11 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
   setFilters,
   options,
   lastUpdated,
-  autoRefreshCountdown,
 }: {
   filters: CommandCenterFilters;
   setFilters: (f: CommandCenterFilters) => void;
   options: FilterOptionsResponse | null;
   lastUpdated: Date | null;
-  autoRefreshCountdown: number;
 }) {
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [customStart, setCustomStart] = useState(filters.start_date || '');
@@ -749,16 +750,6 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
             <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-400">
               <Timer className="h-3 w-3" />
               Updated {relativeTime(lastUpdated.toISOString())}
-            </span>
-          )}
-          {autoRefreshCountdown > 0 && (
-            <span className="flex items-center gap-1 text-xs tabular-nums text-gray-400 dark:text-gray-400">
-              <RefreshCw
-                className="h-3 w-3 animate-spin"
-                style={{ animationDuration: '3s' }}
-              />
-              {Math.floor(autoRefreshCountdown / 60)}:
-              {String(autoRefreshCountdown % 60).padStart(2, '0')}
             </span>
           )}
         </div>
@@ -1281,14 +1272,10 @@ function CommandCenterDashboardInner() {
   const [filterOptions, setFilterOptions] =
     useState<FilterOptionsResponse | null>(null);
 
-  // Auto-refresh state (every 5 minutes)
-  const AUTO_REFRESH_INTERVAL = 300; // seconds
+  // Auto-refresh has been removed entirely. Data freshness is now driven only
+  // by SSE cache-invalidation events from the backend + the manual refresh
+  // button in the header.
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [autoRefreshCountdown, setAutoRefreshCountdown] = useState(
-    AUTO_REFRESH_INTERVAL
-  );
-  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true,
@@ -1585,49 +1572,8 @@ function CommandCenterDashboardInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, filters]);
 
-  // Auto-refresh every 5 minutes
-  useEffect(() => {
-    // Reset countdown when data is fetched
-    setAutoRefreshCountdown(AUTO_REFRESH_INTERVAL);
-
-    // Countdown timer
-    if (countdownRef.current) clearInterval(countdownRef.current);
-    countdownRef.current = setInterval(() => {
-      setAutoRefreshCountdown((prev) => {
-        if (prev <= 1) return AUTO_REFRESH_INTERVAL;
-        return prev - 1;
-      });
-    }, 1000);
-
-    // Auto-refresh timer
-    if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
-    autoRefreshRef.current = setInterval(() => {
-      // Silently re-fetch the active tab
-      switch (activeTab) {
-        case 'overview':
-          fetchOverview();
-          break;
-        case 'projects':
-          fetchProjects();
-          break;
-        case 'security':
-          fetchSecurityAdv();
-          break;
-        case 'finops':
-          fetchCost();
-          break;
-        case 'platform-activity':
-          fetchPlatformActivity();
-          break;
-      }
-    }, AUTO_REFRESH_INTERVAL * 1000);
-
-    return () => {
-      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
-      if (countdownRef.current) clearInterval(countdownRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  // Refresh is now driven solely by SSE cache-invalidation events (handled
+  // elsewhere via useCacheInvalidation) and by the manual refresh button.
 
   const handleRefresh = useCallback(() => {
     // Invalidate client-side tab cache on manual refresh
@@ -1647,7 +1593,6 @@ function CommandCenterDashboardInner() {
     setPlatformData(null);
     setHealthScore(null);
     setBackendUnreachable(false);
-    setAutoRefreshCountdown(AUTO_REFRESH_INTERVAL);
     // Re-fetch current active tab
     switch (activeTab) {
       case 'overview':
@@ -1810,7 +1755,6 @@ function CommandCenterDashboardInner() {
         setFilters={setFilters}
         options={filterOptions}
         lastUpdated={lastUpdated}
-        autoRefreshCountdown={autoRefreshCountdown}
       />
 
       {/* ── Tab Content ───────────────────────────────────────────── */}
@@ -1990,6 +1934,10 @@ const OverviewTab = memo(function OverviewTab({
   // summary is still null (every backend call failed or timed out), render
   // an empty-state with retry instead of an infinite skeleton.
   if (loading) return <LoadingSection />;
+  // Backend now returns a structured empty envelope with _fallback=true when
+  // the metadata DB / ACCOUNT_USAGE views aren't reachable, so the Overview
+  // can still render with zeros + a notice instead of an opaque error.
+  const summaryFallback = (summary as { _fallback?: boolean } | null)?._fallback === true;
   if (!summary) {
     return (
       <div className="mx-4 mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900/40 dark:bg-amber-900/20">
@@ -2059,6 +2007,18 @@ const OverviewTab = memo(function OverviewTab({
 
   return (
     <>
+      {/* Backend served an empty envelope — the Snowflake metadata tables or
+          ACCOUNT_USAGE views aren't readable for this account. Show one
+          clear notice instead of leaving the user puzzled at all-zero cards. */}
+      {summaryFallback && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          <span className="font-semibold">Limited data available.</span>{' '}
+          Some Snowflake views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
+          <code> CP_DATA360.EVENT_STORE.*</code>) are not readable with the
+          current role. KPIs that depend on them show as zero.
+        </div>
+      )}
+
       {/* Account identity strip — account_name / edition / region / role / subscription */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
         <Database className="h-4 w-4 text-blue-500" />
@@ -2097,7 +2057,14 @@ const OverviewTab = memo(function OverviewTab({
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
             {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
-            {kpisError && <span className="text-amber-500">· cache miss</span>}
+            {kpisError && (
+              <span
+                className="text-amber-500"
+                title={kpisError.message || 'overview-kpis cache unavailable'}
+              >
+                · live mode
+              </span>
+            )}
           </div>
           <div className="flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
             {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => (
@@ -2198,32 +2165,35 @@ const OverviewTab = memo(function OverviewTab({
       </div>
 
       {/* Module Health Grid */}
-      {moduleHealth && Array.isArray(moduleHealth.modules) && (
+      {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {moduleHealth.modules.map((m) => (
-              <div
-                key={m.module_key}
-                className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-              >
+            {moduleHealth.modules.map((m) => {
+              // Backend uses status_reason (e.g. "4 stages, 0 streams, 0 tasks");
+              // older builds returned key_metric. Pick whichever is populated.
+              const subtitle =
+                (typeof m.status_reason === 'string' && m.status_reason) ||
+                (typeof m.key_metric === 'string' && m.key_metric) ||
+                '';
+              const dot = STATUS_BG[m.status] ?? 'bg-gray-300 dark:bg-gray-600';
+              return (
                 <div
-                  className={cn(
-                    'h-2.5 w-2.5 rounded-full',
-                    STATUS_BG[m.status]
-                  )}
-                />
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
-                    {safeStr(m.module)}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {typeof m.key_metric === 'object' && m.key_metric !== null
-                      ? ''
-                      : (m.key_metric ?? '')}
-                  </p>
+                  key={m.module_key}
+                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+                  title={m.status}
+                >
+                  <div className={cn('h-2.5 w-2.5 rounded-full', dot)} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                      {safeStr(m.module)}
+                    </p>
+                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                      {subtitle}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </SectionCard>
       )}
@@ -2413,28 +2383,45 @@ const OverviewTab = memo(function OverviewTab({
           return [];
         })();
 
+        // Recommendations may arrive as either strings or structured objects
+        // ({ title, description, category, priority, impact }). Normalise to
+        // a plain string before rendering so React never receives a raw object
+        // as a child (this used to crash the Overview tab).
+        type RecoObject = {
+          title?: string;
+          description?: string;
+          category?: string;
+          priority?: string;
+          impact?: string;
+          message?: string;
+        };
+        const toRecoString = (r: unknown): string | null => {
+          if (typeof r === 'string') return r.trim() || null;
+          if (r && typeof r === 'object') {
+            const o = r as RecoObject;
+            const head = o.title || o.message || '';
+            const tail = o.description || '';
+            const combined = [head, tail].filter(Boolean).join(' — ');
+            return combined.trim() || null;
+          }
+          return null;
+        };
         const recommendations: string[] = (() => {
           const fromSummary =
-            (summary as unknown as { recommendations?: string[] | null })
+            (summary as unknown as { recommendations?: unknown[] | null })
               ?.recommendations ?? null;
           if (Array.isArray(fromSummary) && fromSummary.length > 0) {
-            return fromSummary.slice(0, 5);
+            const mapped = fromSummary.map(toRecoString).filter((s): s is string => !!s);
+            if (mapped.length > 0) return mapped.slice(0, 5);
           }
           const fromObs =
-            (obsKpis as unknown as { recommendations?: string[] | null })
+            (obsKpis as unknown as { recommendations?: unknown[] | null })
               ?.recommendations ?? null;
           if (Array.isArray(fromObs) && fromObs.length > 0) {
-            return fromObs.slice(0, 5);
+            const mapped = fromObs.map(toRecoString).filter((s): s is string => !!s);
+            if (mapped.length > 0) return mapped.slice(0, 5);
           }
-          const remainingMfa = Math.max(
-            0,
-            Math.round(((100 - (mfaCoverage || 0)) / 100) * 10)
-          );
-          return [
-            `Enable MFA on remaining ${remainingMfa} privileged accounts`,
-            'Set up cost alerts for warehouses exceeding daily threshold',
-            'Review failing data quality checks (trends declining)',
-          ];
+          return [];
         })();
 
         return (
@@ -2583,19 +2570,25 @@ const OverviewTab = memo(function OverviewTab({
                   Top Recommendations
                 </h3>
               </div>
-              <ul className="space-y-2">
-                {recommendations.map((r, i) => (
-                  <li
-                    key={`reco-${i}`}
-                    className="flex items-start gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
-                  >
-                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
-                    <span className="text-xs text-gray-700 dark:text-gray-300">
-                      {r}
-                    </span>
-                  </li>
-                ))}
-              </ul>
+              {recommendations.length === 0 ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  No active recommendations.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {recommendations.map((r, i) => (
+                    <li
+                      key={`reco-${i}`}
+                      className="flex items-start gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+                    >
+                      <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+                      <span className="text-xs text-gray-700 dark:text-gray-300">
+                        {r}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         );
@@ -3496,24 +3489,9 @@ const CostTab = memo(function CostTab({
   const recommendationItems: any[] = Array.isArray(optimization.items)
     ? optimization.items
     : [];
-  const fallbackRecommendations = [
-    {
-      title: 'Resize underutilized warehouses',
-      detail: 'Targets idle warehouses — est. saving ~120 credits/wk.',
-    },
-    {
-      title: 'Suspend warehouses idle > 1h',
-      detail: 'Auto-suspend reduces idle compute charges.',
-    },
-    {
-      title: 'Switch large tables to incremental clustering',
-      detail: 'Tables > 500 GB — saves recluster credits.',
-    },
-  ];
-  const recommendationsToShow =
-    recommendationItems.length > 0
-      ? recommendationItems.slice(0, 5)
-      : fallbackRecommendations;
+  // No frontend fallbacks — if the backend can't produce recommendations the
+  // panel renders its empty state. Anything else would be invented data.
+  const recommendationsToShow = recommendationItems.slice(0, 5);
 
   const computeVsStorage = dailyTrend.map((d: any) => ({
     date: d.date,
@@ -3669,39 +3647,45 @@ const CostTab = memo(function CostTab({
           title="Optimization Recommendations"
           className="lg:col-span-1"
         >
-          <ul className="space-y-3">
-            {recommendationsToShow.map((rec: any, i: number) => {
-              const title =
-                rec.title ?? rec.label ?? rec.name ?? `Recommendation ${i + 1}`;
-              const detail =
-                rec.detail ?? rec.description ?? rec.message ?? '';
-              const saving =
-                rec.estimated_savings ?? rec.savings ?? rec.credits ?? null;
-              return (
-                <li
-                  key={i}
-                  className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/10"
-                >
-                  <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold text-gray-900 dark:text-white">
-                      {title}
-                    </p>
-                    {detail ? (
-                      <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-                        {detail}
+          {recommendationsToShow.length === 0 ? (
+            <p className="py-8 text-center text-xs text-gray-400">
+              No optimization recommendations yet.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {recommendationsToShow.map((rec: any, i: number) => {
+                const title = String(
+                  rec?.title ?? rec?.label ?? rec?.name ?? `Recommendation ${i + 1}`
+                );
+                const detail = String(rec?.detail ?? rec?.description ?? rec?.message ?? '');
+                const saving =
+                  rec?.estimated_savings ?? rec?.savings ?? rec?.credits ?? null;
+                return (
+                  <li
+                    key={i}
+                    className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/10"
+                  >
+                    <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-gray-900 dark:text-white">
+                        {title}
                       </p>
-                    ) : null}
-                    {saving != null ? (
-                      <p className="mt-1 text-[11px] font-medium text-green-600 dark:text-green-400">
-                        Save ~{Number(saving).toLocaleString()} credits
-                      </p>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                      {detail ? (
+                        <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                          {detail}
+                        </p>
+                      ) : null}
+                      {saving != null ? (
+                        <p className="mt-1 text-[11px] font-medium text-green-600 dark:text-green-400">
+                          Save ~{Number(saving).toLocaleString()} credits
+                        </p>
+                      ) : null}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </SectionCard>
       </div>
 
@@ -4008,7 +3992,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
     service_accounts?: number;
     inactive_users?: number;
   };
-  const userSecurityScore = (data as any)?.user_security_score ?? 74;
+  const userSecurityScore =
+    (data as any)?.user_security_score ?? null;
   const policies = ((data as any)?.policies ?? {}) as {
     network_pct?: number;
     password_pct?: number;
@@ -4018,15 +4003,8 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
   )
     ? (data as any).risks
     : [];
-  const fallbackRisks = [
-    { title: 'Privileged accounts without MFA', severity: 'high' },
-    { title: 'Stale service-account credentials > 90d', severity: 'medium' },
-    { title: 'Public network policy detected', severity: 'high' },
-  ];
-  const topRisks = (risksFromApi.length > 0 ? risksFromApi : fallbackRisks).slice(
-    0,
-    5
-  );
+  // No fake risks. Empty list renders the panel's empty state.
+  const topRisks = risksFromApi.slice(0, 5);
   const identityHasData =
     (identity.roles ?? 0) +
       (identity.privileged_users ?? 0) +
@@ -4101,10 +4079,10 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="User Security Score"
-          value={userSecurityScore}
+          value={userSecurityScore == null ? '—' : userSecurityScore}
           icon={Gauge}
           color="cyan"
-          suffix="/100"
+          suffix={userSecurityScore == null ? undefined : '/100'}
         />
       </div>
 
@@ -4272,29 +4250,35 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         </SectionCard>
 
         <SectionCard title="Top Risks">
-          <ul className="space-y-2">
-            {topRisks.map((risk, i) => (
-              <li
-                key={`${risk.title}-${i}`}
-                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
-              >
-                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-gray-900 dark:text-white">
-                    {risk.title}
-                  </p>
-                  <span
-                    className={cn(
-                      'mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium',
-                      severityCls(risk.severity)
-                    )}
-                  >
-                    {(risk.severity || 'info').toString().toUpperCase()}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          {topRisks.length === 0 ? (
+            <p className="py-6 text-center text-xs text-gray-400">
+              No active risks detected.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {topRisks.map((risk, i) => (
+                <li
+                  key={`${risk.title ?? 'risk'}-${i}`}
+                  className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                  <div className="flex-1">
+                    <p className="text-xs font-medium text-gray-900 dark:text-white">
+                      {String(risk.title ?? '—')}
+                    </p>
+                    <span
+                      className={cn(
+                        'mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        severityCls(risk.severity)
+                      )}
+                    >
+                      {(risk.severity || 'info').toString().toUpperCase()}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </SectionCard>
       </div>
 
@@ -5703,25 +5687,8 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
     Array.isArray((platformData as any)?.notifications)
       ? (platformData as any).notifications
       : [];
-  const fallbackNotifications = [
-    {
-      title:
-        'Daily aggregation job completed successfully (CC_STAR refresh)',
-      level: 'info',
-    },
-    {
-      title:
-        'New observability connector available — enable in Module settings',
-      level: 'info',
-    },
-    {
-      title:
-        'Reminder: Quarterly RBAC review window opens in 7 days',
-      level: 'info',
-    },
-  ];
-  const notifications =
-    apiNotifications.length > 0 ? apiNotifications.slice(0, 5) : fallbackNotifications;
+  // No invented notifications. Empty list renders the panel's empty state.
+  const notifications = apiNotifications.slice(0, 5);
 
   return (
     <>
@@ -6045,19 +6012,25 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         </SectionCard>
 
         <SectionCard title="System Notifications">
-          <ul className="space-y-2">
-            {notifications.map((n, i) => (
-              <li
-                key={`${n.title}-${i}`}
-                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
-              >
-                <Activity className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" />
-                <p className="text-xs text-gray-700 dark:text-gray-300">
-                  {n.title}
-                </p>
-              </li>
-            ))}
-          </ul>
+          {notifications.length === 0 ? (
+            <p className="py-6 text-center text-xs text-gray-400">
+              No system notifications.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {notifications.map((n, i) => (
+                <li
+                  key={`${n.title ?? 'notif'}-${i}`}
+                  className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+                >
+                  <Activity className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
+                    {String(n.title ?? '')}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
         </SectionCard>
       </div>
 

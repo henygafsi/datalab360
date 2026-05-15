@@ -51,10 +51,28 @@ export interface SummaryResponse {
 export interface ModuleHealthItem {
   module: string;
   module_key: string;
-  status: 'healthy' | 'degraded' | 'inactive';
-  events_7d: number;
-  failures_7d: number;
-  key_metric: string;
+  // Backend emits 'healthy' | 'degraded' | 'needs_setup' | 'warning' | 'critical' | 'inactive'
+  status: string;
+  // Legacy fields (kept optional for back-compat with older payloads)
+  events_7d?: number;
+  failures_7d?: number;
+  key_metric?: string;
+  // Current backend fields
+  status_reason?: string;
+  kpi1?: number | string;
+  kpi1_label?: string;
+  kpi1_status?: string;
+  kpi2?: number | string;
+  kpi2_label?: string;
+  kpi2_status?: string;
+  kpi3?: number | string;
+  kpi3_label?: string;
+  kpi3_status?: string;
+  health_score?: number;
+  issues?: Array<{ severity: string; message: string }>;
+  recent_events?: unknown[];
+  page_url?: string;
+  icon?: string;
 }
 
 export interface ModuleHealthResponse {

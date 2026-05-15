@@ -83,12 +83,6 @@ const KNOWN_MODULES: Array<{
   },
 ];
 
-const RECOMMENDATIONS: string[] = [
-  'Activate Snowflake Tasks observability for Workflow runs',
-  'Enable lineage capture across Connect → Explore',
-  'Set up RBAC review reminders for Governance module',
-];
-
 interface ModuleCard {
   id: string;
   name: string;
@@ -236,6 +230,21 @@ function ModulesTab() {
   const inactiveCount = moduleCards.filter(
     (m) => m.status === 'inactive'
   ).length;
+
+  // Recommendations derived from module-health data — never hardcoded text.
+  const moduleRecommendations: string[] = [];
+  moduleCards
+    .filter((m) => m.status === 'degraded' || m.status === 'error')
+    .slice(0, 3)
+    .forEach((m) => {
+      moduleRecommendations.push(`Investigate ${m.name} — status is ${m.status}.`);
+    });
+  moduleCards
+    .filter((m) => m.status === 'inactive')
+    .slice(0, 3)
+    .forEach((m) => {
+      moduleRecommendations.push(`${m.name} has no recent activity — onboard a project or remove the module from the navigation.`);
+    });
 
   // ── Iter 5 — sparkline tiles, usage trend, and issues donut ──────────────
   const moduleByKey: Record<string, any> = {};
@@ -516,17 +525,23 @@ function ModulesTab() {
           <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
             Cross-module Recommendations
           </h3>
-          <ul className="space-y-2">
-            {RECOMMENDATIONS.map((rec, i) => (
-              <li
-                key={i}
-                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
-              >
-                <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
-                <p className="text-xs text-gray-700 dark:text-gray-300">{rec}</p>
-              </li>
-            ))}
-          </ul>
+          {moduleRecommendations.length === 0 ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              All modules look healthy — no recommendations right now.
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {moduleRecommendations.map((rec, i) => (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+                >
+                  <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                  <p className="text-xs text-gray-700 dark:text-gray-300">{rec}</p>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </div>
