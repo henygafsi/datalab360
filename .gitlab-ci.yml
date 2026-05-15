@@ -1,19 +1,22 @@
 # =============================================================================
-# Data360 Front — GitLab CI (minimal)
+# Data360 Front — GitLab CI (shell-executor compatible)
+#
+# Runner: frontend-shell (shell executor). `image:` is IGNORED by shell
+# executors — they run on the host as a normal bash process. So:
+#   - No apk / no apt / no docker image pulls
+#   - Trust the host to have node + npm + git already installed
+#   - pnpm gets installed locally per pipeline via `npm install --prefix`
 #
 # Fast path on every push: build → (deploy on main).
-# Quality jobs (lint, typecheck) run in parallel WITH build (non-blocking).
-# Heavy stuff (a11y, playwright, dep-audit, secret-scan, prettier, bundle,
-# unit-test) runs only on `schedule` pipelines or when `RUN_EXTRAS=1`.
+# lint + typecheck run parallel with build, non-blocking.
+# Heavy stuff (extras stage) runs only on schedule | main | RUN_EXTRAS=1.
 #
 # Required CI/CD variables (Settings → CI/CD → Variables):
 #   - VERCEL_TOKEN        : masked + protected (from vercel.com/account/tokens)
-#   - NEXTAUTH_SECRET     : masked + protected (32+ char random string)
-#   - NEXT_PUBLIC_API_URL : `https://api.datalab360.io` (or your prod URL)
-# Optional:
-#   - SF_ACCOUNT, SF_USER, SF_PASSWORD, SF_WAREHOUSE, SF_DATABASE, SF_SCHEMA,
-#     SF_ROLE  → only needed if the runtime needs them at build time (it does
-#     not today; the front talks to backend via NEXT_PUBLIC_API_URL).
+# Vercel project env vars (vercel.com → Project → Settings → Env Variables):
+#   - NEXTAUTH_SECRET     : 32+ char random
+#   - NEXT_PUBLIC_API_URL : https://api.datalab360.io
+#   - SKIP_ENV_VALIDATION : true (escape hatch)
 # =============================================================================
 
 stages:
@@ -25,29 +28,30 @@ variables:
   VERCEL_ORG_ID: "team_kC7CPyVYhZTxlOrqAlaKbKfi"
   VERCEL_PROJECT_ID: "prj_P5hsPsdZ24jZUqJzaULd0hFYkKkL"
   SKIP_ENV_VALIDATION: "true"
-  NEXTAUTH_URL: "http://localhost:3000"          # CI build doesn't need a real URL
+  NEXTAUTH_URL: "http://localhost:3000"
+  NEXTAUTH_SECRET: "ci-only-not-used-at-runtime-32chars-minimum-padding"
   NEXT_TELEMETRY_DISABLED: "1"
   CI: "true"
   PNPM_VERSION: "9.1.4"
-  # Default secret value for CI build — overridden by GitLab if NEXTAUTH_SECRET
-  # is set in CI/CD Variables (recommended for production builds).
-  NEXTAUTH_SECRET: "ci-only-not-used-at-runtime-32chars-minimum-padding"
+  # pnpm + vercel installed locally per pipeline. PNPM_BIN_DIR is reused
+  # across jobs via cache so cold-start cost is paid once.
+  PNPM_BIN_DIR: "$CI_PROJECT_DIR/.pnpm-bin"
 
 default:
-  image: node:20-alpine
   interruptible: true
   retry:
     max: 1
     when: [runner_system_failure, scheduler_failure, stuck_or_timeout_failure]
 
-# Single shared cache, keyed by lockfile hash (warm across branches & MRs).
+# Shared install + cache.
 .with-pnpm:
   cache:
     key:
       files: [pnpm-lock.yaml]
-      prefix: pnpm-v2
+      prefix: pnpm-v3
     paths:
       - .pnpm-store/
+      - .pnpm-bin/
       - node_modules/
       - apps/data360/node_modules/
       - apps/data360/.next/cache/
@@ -55,21 +59,27 @@ default:
       - packages/config-typescript/node_modules/
       - packages/data360-core/node_modules/
   before_script:
-    - apk add --no-cache git
-    - corepack enable
-    - corepack prepare pnpm@${PNPM_VERSION} --activate
+    - 'echo "Node: $(node --version), npm: $(npm --version)"'
+    # Install pnpm into a local prefix (works on any host with node+npm).
+    - |
+      if ! "$PNPM_BIN_DIR/node_modules/.bin/pnpm" --version > /dev/null 2>&1; then
+        echo "Installing pnpm@${PNPM_VERSION} into $PNPM_BIN_DIR"
+        npm install --prefix "$PNPM_BIN_DIR" --silent --no-save pnpm@${PNPM_VERSION}
+      fi
+    - export PATH="$PNPM_BIN_DIR/node_modules/.bin:$PATH"
+    - pnpm --version
     - pnpm config set store-dir .pnpm-store
     - pnpm install --frozen-lockfile --prefer-offline --reporter=append-only
     - mkdir -p reports
 
 # ============================================================================
-# BUILD — gates deploy. Lint + typecheck run in parallel, non-blocking.
+# BUILD STAGE — build (gate) + lint + typecheck in parallel
 # ============================================================================
 
 build:
   stage: build
   extends: .with-pnpm
-  timeout: 12 minutes
+  timeout: 15 minutes
   script:
     - pnpm --filter iso build 2>&1 | tee reports/build.txt
   artifacts:
@@ -80,7 +90,7 @@ build:
 lint:
   stage: build
   extends: .with-pnpm
-  timeout: 6 minutes
+  timeout: 8 minutes
   script:
     - set +e
     - pnpm lint 2>&1 | tee reports/eslint.txt
@@ -97,7 +107,7 @@ lint:
 typecheck:
   stage: build
   extends: .with-pnpm
-  timeout: 6 minutes
+  timeout: 8 minutes
   script:
     - set +e
     - cd apps/data360
@@ -114,35 +124,32 @@ typecheck:
   allow_failure: true
 
 # ============================================================================
-# DEPLOY — main branch only. Vercel rebuilds from source so we don't pull
-# the build artifact (saves ~30s + bandwidth).
+# DEPLOY — main branch only, single-shot vercel deploy (Vercel builds server-
+# side using its own env vars). Build gates deploy via `needs`.
 # ============================================================================
 
 deploy:
   stage: deploy
-  image: node:20-alpine
   timeout: 15 minutes
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
   needs: ["build"]
   dependencies: []
-  before_script:
-    - apk add --no-cache git
   script:
-    # Surface every command so the next failure is debuggable from the job log.
     - set -x
     - |
       if [ -z "$VERCEL_TOKEN" ]; then
-        echo "FAIL: VERCEL_TOKEN missing in CI/CD variables (Settings → CI/CD → Variables, masked, protected)"
+        echo "FAIL: VERCEL_TOKEN missing in CI/CD variables (Settings → CI/CD → Variables, masked + protected)"
         echo "Generate at: https://vercel.com/account/tokens"
         exit 1
       fi
-    # Pin a known-good vercel CLI rather than @latest to avoid surprise breakage.
-    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@37.14.0
-    - export PATH="/tmp/vercel-bin/node_modules/.bin:$PATH"
+    - 'echo "Node: $(node --version), npm: $(npm --version)"'
+    - VERCEL_BIN_DIR="$CI_PROJECT_DIR/.vercel-bin"
+    - npm install --prefix "$VERCEL_BIN_DIR" --silent --no-save vercel@37.14.0
+    - export PATH="$VERCEL_BIN_DIR/node_modules/.bin:$PATH"
     - vercel --version
-    # The linked Vercel project has rootDirectory=apps/data360. .vercel/ is
-    # gitignored so we synthesise project.json at WORKSPACE ROOT.
+    # .vercel/ is gitignored; synthesise project.json at workspace root with
+    # rootDirectory=apps/data360 so the linked Vercel project resolves Next.
     - mkdir -p .vercel
     - |
       cat > .vercel/project.json <<EOF
@@ -156,14 +163,9 @@ deploy:
       }
       EOF
     - echo "--- .vercel/project.json ---" && cat .vercel/project.json && echo "---"
-    # Single-shot deploy: Vercel uploads the source tree, runs its own build
-    # using ENV VARS DEFINED ON THE VERCEL PROJECT, and returns the URL.
-    # This avoids two-phase pull/build/deploy env-var inheritance issues — the
-    # CLI never tries to inject runner env into the Vercel build sandbox.
-    # IMPORTANT: env vars (NEXTAUTH_URL, NEXTAUTH_SECRET, NEXT_PUBLIC_API_URL,
-    # SKIP_ENV_VALIDATION=true) must be set in Vercel Project → Settings →
-    # Environment Variables → Production scope. Otherwise next build will fail
-    # at env.mjs validation.
+    # Single-shot deploy: Vercel uploads source, builds server-side using
+    # ENV VARS ON THE VERCEL PROJECT (not GitLab). This avoids env inheritance
+    # issues across pull → build → deploy phases.
     - vercel deploy --prod --token="$VERCEL_TOKEN" --yes 2>&1 | tee deploy.log
     - DEPLOY_URL=$(grep -E '^https?://' deploy.log | tail -n 1)
     - 'echo "Deployed -> $DEPLOY_URL"'
@@ -174,10 +176,7 @@ deploy:
     expire_in: 30 days
 
 # ============================================================================
-# EXTRAS — opt-in heavy quality lane. Trigger via:
-#   - schedule pipelines (GitLab → CI/CD → Schedules)
-#   - main branch (auto)
-#   - any pipeline with RUN_EXTRAS=1 set as a variable
+# EXTRAS — opt-in heavy lane (schedule | main | RUN_EXTRAS=1)
 # ============================================================================
 
 .extras-rules:
@@ -219,17 +218,14 @@ extras:dep-audit:
 
 extras:secret-scan:
   stage: extras
-  image: debian:bookworm-slim
   rules: !reference [.extras-rules, rules]
   timeout: 5 minutes
   needs: []
-  cache: []
   before_script:
-    - apt-get update -qq && apt-get install -y -qq grep findutils > /dev/null
     - mkdir -p reports
   script:
     - set +e
-    - find apps packages -type d \( -name node_modules -o -name .next -o -name .pnpm-store -o -name .turbo -o -name dist -o -name build \) -prune -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' \) -print > /tmp/scan-files.txt 2>/dev/null || true
+    - find apps packages -type d \( -name node_modules -o -name .next -o -name .pnpm-store -o -name .pnpm-bin -o -name .turbo -o -name dist -o -name build \) -prune -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' \) -print > /tmp/scan-files.txt 2>/dev/null || true
     - xargs -a /tmp/scan-files.txt grep -EHn '(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["\x27][^"\x27]{8,}' 2>/dev/null | tee reports/secrets.txt || true
     - xargs -a /tmp/scan-files.txt grep -EHn 'eyJhbGciOi[A-Za-z0-9_-]{20,}' 2>/dev/null | tee -a reports/secrets.txt || true
     - xargs -a /tmp/scan-files.txt grep -EHn 'http://api\.datalab360\.io' 2>/dev/null | tee -a reports/secrets.txt || true
@@ -263,7 +259,7 @@ extras:bundle-size:
   stage: extras
   extends: .with-pnpm
   rules: !reference [.extras-rules, rules]
-  timeout: 6 minutes
+  timeout: 8 minutes
   needs:
     - job: build
       artifacts: false
