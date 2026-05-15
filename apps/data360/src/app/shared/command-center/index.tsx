@@ -1298,19 +1298,23 @@ function CommandCenterDashboardInner() {
         start_date: filters.start_date,
         end_date: filters.end_date,
       };
+      // Each call wrapped in .catch(() => null) so one slow/404 endpoint
+      // doesn't block Promise.all — the page should render whatever data
+      // came back, not stay stuck on the skeleton when /module-health
+      // or /observability/kpis time out.
       const [s, mh, af, kpis] = await Promise.all([
-        getSummary(filterParams),
-        getModuleHealth({ days: filters.days }),
+        getSummary(filterParams).catch(() => null),
+        getModuleHealth({ days: filters.days }).catch(() => null),
         getActivityFeed(10, {
           days: filters.days,
           module_name: filters.module_name,
           username: filters.username,
-        }),
+        }).catch(() => null),
         getIntelligentKpis().catch(() => null),
       ]);
-      if (!isApiError(s)) setSummary(s);
-      if (!isApiError(mh)) setModuleHealth(mh);
-      if (!isApiError(af)) setActivityFeed(af);
+      if (s && !isApiError(s)) setSummary(s);
+      if (mh && !isApiError(mh)) setModuleHealth(mh);
+      if (af && !isApiError(af)) setActivityFeed(af);
       if (kpis && !isApiError(kpis)) setObsKpis(kpis);
       setLastUpdated(new Date());
       tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
@@ -1923,7 +1927,29 @@ const OverviewTab = memo(function OverviewTab({
     refresh: refreshKpis,
   } = useOverviewKpis('30d');
 
-  if (loading || !summary) return <LoadingSection />;
+  // Only skeleton while we're actively loading. When loading is false but
+  // summary is still null (every backend call failed or timed out), render
+  // an empty-state with retry instead of an infinite skeleton.
+  if (loading) return <LoadingSection />;
+  if (!summary) {
+    return (
+      <div className="mx-4 mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900/40 dark:bg-amber-900/20">
+        <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+          Couldn't load the overview
+        </h3>
+        <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
+          Some backend endpoints (e.g. /command-center/summary) didn't respond.
+          You can retry, or switch to another tab that has its own data fetch.
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-3 inline-flex items-center rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
 
   const gradeColor: Record<string, string> = {
     A: 'text-green-500',
