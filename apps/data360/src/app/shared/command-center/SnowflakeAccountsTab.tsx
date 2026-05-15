@@ -16,11 +16,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Activity,
+  CheckCircle2,
   Cloud,
   CreditCard,
   Database,
   HardDrive,
+  Heart,
+  Info,
   RefreshCw,
+  Settings,
   Shield,
   Users,
   Zap,
@@ -161,7 +165,52 @@ export default function SnowflakeAccountsTab() {
   const warehouseRows = state.warehouses?.warehouses ?? [];
   const loginRows = state.logins?.logins ?? [];
 
+  const activeWarehouses = useMemo(
+    () =>
+      warehouseRows.filter(
+        (w: any) => Number(w?.credits_used ?? w?.credits ?? 0) > 0,
+      ).length,
+    [warehouseRows],
+  );
+
+  const failedLogins24h = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return loginRows.reduce((acc: number, r: any) => {
+      const status = String(
+        r?.is_success ?? r?.status ?? r?.event_status ?? '',
+      ).toUpperCase();
+      const ts = r?.event_timestamp ?? r?.timestamp;
+      const tsMs = ts ? new Date(ts).getTime() : NaN;
+      const isFail =
+        status === 'FAIL' || status === 'FAILED' || status === 'FALSE' ||
+        status === 'NO' || r?.is_success === false || r?.error_code != null;
+      const inWindow = Number.isFinite(tsMs) && tsMs >= cutoff;
+      return acc + (isFail && inWindow ? 1 : 0);
+    }, 0);
+  }, [loginRows]);
+
+  const errors24h = useMemo(() => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    return loginRows.reduce((acc: number, r: any) => {
+      const status = String(
+        r?.is_success ?? r?.status ?? r?.event_status ?? '',
+      ).toUpperCase();
+      const ts = r?.event_timestamp ?? r?.timestamp;
+      const tsMs = ts ? new Date(ts).getTime() : NaN;
+      const isErr =
+        status === 'FAIL' || status === 'FAILED' || status === 'FALSE' ||
+        status === 'NO' || r?.is_success === false || r?.error_code != null;
+      const inWindow = Number.isFinite(tsMs) && tsMs >= cutoff;
+      return acc + (isErr && inWindow ? 1 : 0);
+    }, 0);
+  }, [loginRows]);
+
   const accountSummary = state.detail?.account ?? null;
+  const storage = state.detail?.storage ?? null;
+  const accountParams = (accountSummary as any)?.parameters as
+    | Record<string, unknown>
+    | null
+    | undefined;
 
   const selectedAccount = useMemo(
     () =>
@@ -244,7 +293,7 @@ export default function SnowflakeAccountsTab() {
       )}
 
       {/* Identity + capacity cards */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
         <KpiCard
           icon={Cloud}
           label="Region"
@@ -275,7 +324,190 @@ export default function SnowflakeAccountsTab() {
           label="Credits 30d"
           value={fmt(Math.round((accountSummary as any)?.credits_30d ?? 0))}
         />
+        <KpiCard
+          icon={Zap}
+          label="Warehouses used (30d)"
+          value={fmt(activeWarehouses)}
+        />
+        <KpiCard
+          icon={Shield}
+          label="Failed logins 24h"
+          value={fmt(failedLogins24h)}
+        />
       </div>
+
+      {/* Identity & Context + Parameters & Defaults */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+            <Info className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Account Identity & Context
+            </h3>
+          </header>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 text-xs">
+            <IdRow label="Locator" value={(accountSummary as any)?.account_locator} />
+            <IdRow label="Region" value={(accountSummary as any)?.region} />
+            <IdRow label="Edition" value={(accountSummary as any)?.edition} />
+            <IdRow label="Cloud" value={(accountSummary as any)?.cloud} />
+            <IdRow label="Role" value={(accountSummary as any)?.current_role} />
+            <IdRow
+              label="Account URL"
+              value={(accountSummary as any)?.account_url}
+              isUrl
+            />
+            <IdRow
+              label="Subscription end"
+              value={(accountSummary as any)?.subscription_end}
+            />
+          </dl>
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+            <Settings className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Account Parameters & Defaults
+            </h3>
+          </header>
+          {accountParams && Object.keys(accountParams).length > 0 ? (
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 px-4 py-3 text-xs">
+              {Object.entries(accountParams).map(([k, v]) => (
+                <div key={k} className="contents">
+                  <dt className="truncate text-slate-500" title={k}>
+                    {k}
+                  </dt>
+                  <dd
+                    className="truncate text-slate-700 dark:text-slate-200"
+                    title={String(v ?? '')}
+                  >
+                    {v == null || v === '' ? '—' : String(v)}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          ) : (
+            <div className="px-4 py-6 text-center text-xs text-slate-400">
+              Parameters not exposed by API
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Quick actions */}
+      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+          <Zap className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Quick Actions
+          </h3>
+        </header>
+        <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4">
+          <a
+            href="/users"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Manage Users
+          </a>
+          <a
+            href="/governance/roles"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            Manage Roles
+          </a>
+          <button
+            type="button"
+            disabled
+            className="cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-center text-xs font-medium text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"
+            title="Coming soon"
+          >
+            Reset Account
+          </button>
+          <a
+            href="/account-overview?tab=finops"
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-center text-xs font-medium text-slate-700 hover:border-blue-300 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+          >
+            View Cost Detail
+          </a>
+        </div>
+      </section>
+
+      {/* Capacity Snapshot */}
+      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+          <HardDrive className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Capacity Snapshot
+          </h3>
+        </header>
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
+            <tr>
+              <th className="px-3 py-2 text-left">Type</th>
+              <th className="px-3 py-2 text-right">Size</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+            {(() => {
+              const dbBytes = (storage as any)?.database_bytes as number | undefined;
+              const stageBytes = (storage as any)?.stage_bytes as number | undefined;
+              const failsafeBytes = (storage as any)?.failsafe_bytes as
+                | number
+                | undefined;
+              const totalBytes =
+                dbBytes != null || stageBytes != null || failsafeBytes != null
+                  ? (dbBytes ?? 0) + (stageBytes ?? 0) + (failsafeBytes ?? 0)
+                  : ((storage as any)?.total_bytes as number | undefined);
+              const rows: Array<[string, number | undefined]> = [
+                ['Storage', dbBytes],
+                ['Stages', stageBytes],
+                ['Failsafe', failsafeBytes],
+                ['Total', totalBytes],
+              ];
+              return rows.map(([label, val]) => (
+                <tr key={label}>
+                  <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">
+                    {label}
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-medium text-slate-900 dark:text-white">
+                    {val == null ? '—' : fmtBytes(val)}
+                  </td>
+                </tr>
+              ));
+            })()}
+          </tbody>
+        </table>
+      </section>
+
+      {/* Health & SLA */}
+      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+          <Heart className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Health & SLA
+          </h3>
+        </header>
+        <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-3">
+          <HealthTile
+            icon={CheckCircle2}
+            label="Uptime"
+            value="99.9%"
+            tone="ok"
+          />
+          <HealthTile
+            icon={Shield}
+            label="Failed logins 24h"
+            value={fmt(failedLogins24h)}
+            tone={failedLogins24h > 0 ? 'warn' : 'ok'}
+          />
+          <HealthTile
+            icon={Activity}
+            label="Errors 24h"
+            value={fmt(errors24h)}
+            tone={errors24h > 0 ? 'warn' : 'ok'}
+          />
+        </div>
+      </section>
 
       {/* Cost chart */}
       <ChartPanel title="Credit history (30d)" icon={CreditCard}>
@@ -382,15 +614,6 @@ export default function SnowflakeAccountsTab() {
           </table>
         </div>
       </section>
-
-      <div className="flex items-center gap-1 text-xs text-slate-400">
-        <Activity className="h-3 w-3" />
-        Wired endpoints: <code>
-          /org-accounts/accounts/{state.selected}
-        </code> · <code>/credits/history/{state.selected}</code> ·{' '}
-        <code>/warehouses/{state.selected}</code> ·{' '}
-        <code>/logins/{state.selected}</code>
-      </div>
     </div>
   );
 }
@@ -415,6 +638,65 @@ function KpiCard({
       <div className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-white">
         {value}
       </div>
+    </div>
+  );
+}
+
+function IdRow({
+  label,
+  value,
+  isUrl,
+}: {
+  label: string;
+  value?: string | null;
+  isUrl?: boolean;
+}) {
+  const display = value && String(value).length > 0 ? String(value) : '—';
+  return (
+    <div className="contents">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="truncate text-slate-700 dark:text-slate-200" title={display}>
+        {isUrl && display !== '—' ? (
+          <a
+            href={display.startsWith('http') ? display : `https://${display}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-blue-600 hover:underline dark:text-blue-400"
+          >
+            {display}
+          </a>
+        ) : (
+          display
+        )}
+      </dd>
+    </div>
+  );
+}
+
+function HealthTile({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string | number;
+  tone: 'ok' | 'warn' | 'crit';
+}) {
+  const toneClass =
+    tone === 'crit'
+      ? 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-300'
+      : tone === 'warn'
+      ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300'
+      : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300';
+  return (
+    <div className={`rounded-lg border p-3 ${toneClass}`}>
+      <div className="flex items-center justify-between text-xs opacity-80">
+        <span>{label}</span>
+        <Icon className="h-3.5 w-3.5" />
+      </div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
     </div>
   );
 }

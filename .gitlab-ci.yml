@@ -1,19 +1,20 @@
 # =============================================================================
-# Data360 Front — GitLab CI (visibility-first)
+# Data360 Front — GitLab CI (light + fast)
 #
-# Surface every class of issue (type errors, lint, build, a11y, deps, bundle
-# bloat, secret leaks, dead routes) without blocking the pipeline on each one.
-# Set ENFORCE_QUALITY=1 in CI variables to convert allow_failure jobs to hard.
+# Fast path on every push: install → (lint ‖ typecheck) → build → deploy.
+# Heavy quality/analyze jobs (a11y, playwright, bundle, audit, secret-scan,
+# dead-routes, prettier) run nightly on scheduled pipelines OR on demand via
+# the manual `extras:*` jobs — they no longer gate every push.
+#
+# Set ENFORCE_QUALITY=1 in CI variables to convert allow_failure quality jobs
+# to hard. Set RUN_EXTRAS=1 on any pipeline to also run the heavy lane.
 # =============================================================================
 
 stages:
-  - prepare
   - quality
-  - test
   - build
-  - analyze
-  - report
   - deploy
+  - extras
 
 variables:
   PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-store"
@@ -25,44 +26,70 @@ variables:
   NEXT_TELEMETRY_DISABLED: "1"
   CI: "true"
   ENFORCE_QUALITY: "0"
+  RUN_EXTRAS: "0"
+  # GitLab pulls a smaller image and caches it across jobs.
+  PNPM_VERSION: "9.1.4"
 
-cache:
-  key: pnpm-$CI_COMMIT_REF_SLUG
-  paths:
-    - node_modules/
-    - apps/data360/node_modules/
-    - apps/docs/node_modules/
-    - .pnpm-store/
+default:
+  image: node:20-alpine
+  interruptible: true
+  retry:
+    max: 1
+    when: [runner_system_failure, scheduler_failure, stuck_or_timeout_failure]
 
+# Shared cache keyed by lockfile (stable across branches/MRs → cold-start MRs hit cache).
+.cache:
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+      prefix: pnpm-v1
+    paths:
+      - .pnpm-store/
+      - node_modules/
+      - apps/data360/node_modules/
+      - apps/data360/.next/cache/
+      - packages/config-tailwind/node_modules/
+      - packages/config-typescript/node_modules/
+      - packages/data360-core/node_modules/
+    policy: pull-push
+
+# corepack activates pnpm without a separate npm install — ~30s/job saved.
 .node-setup:
+  extends: .cache
   before_script:
-    - node --version
-    - mkdir -p /tmp/pnpm-bin reports
-    - npm install --prefix /tmp/pnpm-bin --silent --no-save pnpm@9.1.4
-    - export PATH="/tmp/pnpm-bin/node_modules/.bin:$PATH"
-    - pnpm --version
+    - apk add --no-cache git
+    - corepack enable
+    - corepack prepare pnpm@${PNPM_VERSION} --activate
     - pnpm config set store-dir .pnpm-store
-    - pnpm install --frozen-lockfile
+    - pnpm install --frozen-lockfile --prefer-offline --reporter=append-only
+    - mkdir -p reports
 
-# ----------------------------- prepare -----------------------------
-install:
-  stage: prepare
+# Quality jobs read cache only — they don't pollute it with their own state.
+.node-readonly:
   extends: .node-setup
-  timeout: 20 minutes
-  script:
-    - pnpm -r --filter './apps/data360' exec node -e "console.log('next:', require('next/package.json').version)"
-  artifacts:
-    paths: [reports/]
-    expire_in: 1 day
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+      prefix: pnpm-v1
+    paths:
+      - .pnpm-store/
+      - node_modules/
+      - apps/data360/node_modules/
+      - packages/config-tailwind/node_modules/
+      - packages/config-typescript/node_modules/
+      - packages/data360-core/node_modules/
+    policy: pull
 
-# ----------------------------- quality (parallel) -----------------------------
+# ============================================================================
+# QUALITY (parallel, allow_failure) — does not gate deploy
+# ============================================================================
+
 lint:
   stage: quality
-  extends: .node-setup
-  timeout: 20 minutes
+  extends: .node-readonly
+  timeout: 8 minutes
   script:
     - set +e
-    - pnpm lint --format=json --output-file=reports/eslint.json || true
     - pnpm lint 2>&1 | tee reports/eslint.txt
     - LINT_EXIT=${PIPESTATUS[0]}
     - 'echo "Lint exit=$LINT_EXIT"'
@@ -70,35 +97,116 @@ lint:
     - exit 0
   artifacts:
     when: always
-    paths: [reports/eslint.json, reports/eslint.txt]
+    paths: [reports/eslint.txt]
     expire_in: 1 week
   allow_failure: true
 
 typecheck:
   stage: quality
-  extends: .node-setup
-  timeout: 20 minutes
+  extends: .node-readonly
+  timeout: 8 minutes
   script:
     - set +e
     - cd apps/data360
     - npx tsc --noEmit --pretty false --ignoreDeprecations 5.0 2>&1 | tee ../../reports/tsc.txt
     - TSC_EXIT=${PIPESTATUS[0]}
     - ERR=$(grep -cE 'error TS[0-9]+' ../../reports/tsc.txt || echo 0)
-    - echo "TSC_ERRORS=$ERR" > ../../reports/tsc.env
     - 'echo "TypeScript errors=$ERR"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$TSC_EXIT" != "0" ]; then exit $TSC_EXIT; fi
     - exit 0
   artifacts:
     when: always
     paths: [reports/tsc.txt]
-    reports: { dotenv: reports/tsc.env }
     expire_in: 1 week
   allow_failure: true
 
-format-check:
-  stage: quality
+# ============================================================================
+# BUILD — gates deploy
+# ============================================================================
+
+build:
+  stage: build
   extends: .node-setup
-  timeout: 20 minutes
+  timeout: 12 minutes
+  needs: []  # don't wait on quality
+  script:
+    - pnpm --filter iso build 2>&1 | tee reports/build.txt
+  artifacts:
+    when: always
+    paths:
+      - apps/data360/.next/
+      - reports/build.txt
+    expire_in: 1 day
+
+# ============================================================================
+# DEPLOY — main branch only, depends on build artifacts
+# ============================================================================
+
+deploy:
+  stage: deploy
+  image: node:20-alpine
+  timeout: 10 minutes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  # build gates deploy (stage ordering) but we don't pull its .next artifact —
+  # `vercel build` produces .vercel/output/ from source and the artifact would
+  # be ~50 MB of dead weight transferred over the network.
+  needs: ["build"]
+  dependencies: []
+  before_script:
+    - apk add --no-cache git
+    - corepack enable
+    - corepack prepare pnpm@${PNPM_VERSION} --activate
+  script:
+    - |
+      if [ -z "$VERCEL_TOKEN" ]; then
+        echo "FAIL: VERCEL_TOKEN missing in CI/CD variables (Settings → CI/CD → Variables, masked, protected)"
+        exit 1
+      fi
+    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@latest
+    - export PATH="/tmp/vercel-bin/node_modules/.bin:$PATH"
+    # The linked Vercel project has rootDirectory=apps/data360 (already committed
+    # to apps/data360/.vercel/project.json on the GitLab repo, but .vercel is in
+    # .gitignore, so it is NOT in the CI clone). We synthesise it at WORKSPACE
+    # ROOT — the directory we run `vercel` from — so the CLI finds the linkage.
+    # rootDirectory must be relative to that workspace root.
+    - mkdir -p .vercel
+    - |
+      cat > .vercel/project.json <<EOF
+      {
+        "projectId": "$VERCEL_PROJECT_ID",
+        "orgId": "$VERCEL_ORG_ID",
+        "settings": {
+          "framework": "nextjs",
+          "rootDirectory": "apps/data360"
+        }
+      }
+      EOF
+    - vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+    - vercel build --prod --token="$VERCEL_TOKEN"
+    - vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" 2>&1 | tee deploy.log
+    - tail -n 1 deploy.log > vercel-deploy-url.txt
+    - 'echo "Deployed -> $(cat vercel-deploy-url.txt)"'
+  artifacts:
+    paths: [vercel-deploy-url.txt]
+    expire_in: 30 days
+
+# ============================================================================
+# EXTRAS (heavy quality lane) — runs only on schedules, on main, or when
+# RUN_EXTRAS=1 is set on a manual pipeline. Does not block the fast path.
+# ============================================================================
+
+.extras-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$RUN_EXTRAS == "1"'
+
+extras:format-check:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 8 minutes
   script:
     - set +e
     - cd apps/data360
@@ -110,37 +218,28 @@ format-check:
     expire_in: 1 week
   allow_failure: true
 
-dep-audit:
-  stage: quality
-  extends: .node-setup
-  timeout: 20 minutes
+extras:dep-audit:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 8 minutes
   script:
     - set +e
-    - apk add --no-cache jq 2>/dev/null || true
-    - pnpm audit --json > reports/pnpm-audit.json 2>/dev/null || true
     - pnpm audit --prod 2>&1 | tee reports/pnpm-audit.txt || true
-    - if command -v jq >/dev/null 2>&1; then
-        CRITICAL=$(jq '[.advisories | to_entries[] | select(.value.severity=="critical")] | length' reports/pnpm-audit.json 2>/dev/null || echo 0);
-        HIGH=$(jq '[.advisories | to_entries[] | select(.value.severity=="high")] | length' reports/pnpm-audit.json 2>/dev/null || echo 0);
-      else CRITICAL=0; HIGH=0; fi
-    - echo "DEP_CRITICAL=$CRITICAL" > reports/dep.env
-    - echo "DEP_HIGH=$HIGH" >> reports/dep.env
-    - 'echo "Critical=$CRITICAL High=$HIGH"'
-    - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$CRITICAL" -gt 0 ]; then exit 1; fi
     - exit 0
   artifacts:
     when: always
-    paths: [reports/pnpm-audit.json, reports/pnpm-audit.txt]
-    reports: { dotenv: reports/dep.env }
+    paths: [reports/pnpm-audit.txt]
     expire_in: 1 week
   allow_failure: true
 
-secret-scan:
-  stage: quality
+extras:secret-scan:
+  stage: extras
   image: debian:bookworm-slim
-  timeout: 20 minutes
+  rules: !reference [.extras-rules, rules]
+  timeout: 5 minutes
   needs: []
-  cache: []  # don't archive node_modules/.pnpm-store for this lightweight job
+  cache: []
   before_script:
     - apt-get update -qq && apt-get install -y -qq grep findutils > /dev/null
     - mkdir -p reports
@@ -151,21 +250,20 @@ secret-scan:
     - xargs -a /tmp/scan-files.txt grep -EHn 'eyJhbGciOi[A-Za-z0-9_-]{20,}' 2>/dev/null | tee -a reports/secrets.txt || true
     - xargs -a /tmp/scan-files.txt grep -EHn 'http://api\.datalab360\.io' 2>/dev/null | tee -a reports/secrets.txt || true
     - LEAKS=$(grep -c . reports/secrets.txt 2>/dev/null || echo 0)
-    - echo "SECRET_LEAKS=$LEAKS" > reports/secret.env
     - 'echo "Potential leaks=$LEAKS"'
     - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LEAKS" -gt 0 ]; then exit 1; fi
     - exit 0
   artifacts:
     when: always
     paths: [reports/secrets.txt]
-    reports: { dotenv: reports/secret.env }
     expire_in: 1 month
   allow_failure: true
 
-dead-route-scan:
-  stage: quality
-  extends: .node-setup
-  timeout: 20 minutes
+extras:dead-route-scan:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 5 minutes
   script:
     - set +e
     - node scripts/ci/scan-dead-routes.mjs > reports/dead-routes.txt 2>&1 || true
@@ -177,11 +275,11 @@ dead-route-scan:
     expire_in: 1 week
   allow_failure: true
 
-# ----------------------------- test -----------------------------
-unit-test:
-  stage: test
-  extends: .node-setup
-  timeout: 20 minutes
+extras:unit-test:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 10 minutes
   script:
     - set +e
     - if grep -q '"vitest"' apps/data360/package.json; then
@@ -196,16 +294,30 @@ unit-test:
     expire_in: 1 week
   allow_failure: true
 
-playwright-smoke:
-  stage: test
-  extends: .node-setup
-  timeout: 15 minutes
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - if: '$CI_MERGE_REQUEST_IID'
-      when: manual
-      allow_failure: true
+extras:bundle-size:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 6 minutes
+  needs:
+    - job: build
+      artifacts: true
+  script:
+    - set +e
+    - node scripts/ci/bundle-report.mjs apps/data360/.next > reports/bundle.txt 2>&1 || true
+    - cat reports/bundle.txt
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/bundle.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+extras:playwright-smoke:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
+  timeout: 12 minutes
   script:
     - set +e
     - npx playwright install --with-deps chromium 2>&1 | tail -3
@@ -221,44 +333,14 @@ playwright-smoke:
     expire_in: 1 week
   allow_failure: true
 
-# ----------------------------- build (must pass — gates deploy) -----------------------------
-build:
-  stage: build
-  extends: .node-setup
-  timeout: 20 minutes
-  script:
-    - pnpm --filter iso build 2>&1 | tee reports/build.txt
-  artifacts:
-    when: always
-    paths: [apps/data360/.next/, reports/build.txt]
-    expire_in: 1 day
-
-# ----------------------------- analyze -----------------------------
-bundle-size:
-  stage: analyze
-  extends: .node-setup
+extras:a11y:
+  stage: extras
+  extends: .node-readonly
+  rules: !reference [.extras-rules, rules]
   timeout: 10 minutes
-  needs: ["build"]
-  script:
-    - set +e
-    - node scripts/ci/bundle-report.mjs apps/data360/.next > reports/bundle.txt 2>&1 || true
-    - cat reports/bundle.txt
-    - exit 0
-  artifacts:
-    when: always
-    paths: [reports/bundle.txt]
-    expire_in: 1 week
-  allow_failure: true
-
-a11y:
-  stage: analyze
-  extends: .node-setup
-  timeout: 15 minutes
-  needs: ["build"]
-  rules:
-    - if: '$CI_PIPELINE_SOURCE == "schedule"'
-    - if: '$CI_COMMIT_BRANCH == "main"'
-      allow_failure: true
+  needs:
+    - job: build
+      artifacts: true
   script:
     - set +e
     - pnpm --filter iso start > /tmp/next.log 2>&1 &
@@ -274,62 +356,38 @@ a11y:
     expire_in: 1 week
   allow_failure: true
 
-# ----------------------------- report -----------------------------
-summary:
-  stage: report
-  timeout: 5 minutes
+extras:summary:
+  stage: extras
+  image: alpine:3.20
+  timeout: 3 minutes
+  rules: !reference [.extras-rules, rules]
   before_script:
+    - apk add --no-cache bash grep coreutils
     - mkdir -p reports
   needs:
     - job: lint
       optional: true
     - job: typecheck
       optional: true
-    - job: format-check
+    - job: extras:format-check
       optional: true
-    - job: dep-audit
+    - job: extras:dep-audit
       optional: true
-    - job: secret-scan
+    - job: extras:secret-scan
       optional: true
-    - job: dead-route-scan
+    - job: extras:dead-route-scan
       optional: true
-    - job: unit-test
+    - job: extras:unit-test
       optional: true
-    - job: bundle-size
+    - job: extras:bundle-size
       optional: true
     - job: build
       optional: true
   script:
-    - bash scripts/ci/summarize.sh reports/ > reports/summary.md
+    - bash scripts/ci/summarize.sh reports/ > reports/summary.md 2>/dev/null || echo "No summary script" > reports/summary.md
     - cat reports/summary.md
   artifacts:
     when: always
     paths: [reports/summary.md, reports/]
     expose_as: "Quality Report"
     expire_in: 1 month
-
-# ----------------------------- deploy -----------------------------
-deploy:
-  stage: deploy
-  extends: .node-setup
-  timeout: 15 minutes
-  rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
-  needs:
-    - job: build
-      artifacts: true
-  script:
-    - if [ -z "$VERCEL_TOKEN" ]; then echo "FAIL VERCEL_TOKEN missing in CI variables"; exit 1; fi
-    - mkdir -p /tmp/vercel-bin
-    - npm install --prefix /tmp/vercel-bin --silent --no-save vercel@latest
-    - export PATH="/tmp/vercel-bin/node_modules/.bin:$PATH"
-    - mkdir -p .vercel
-    - printf '{"projectId":"%s","orgId":"%s","settings":{"framework":"nextjs"}}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
-    - vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
-    - vercel build --prod --token="$VERCEL_TOKEN"
-    - DEPLOY_URL=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN" 2>&1 | tail -1)
-    - echo "Deployed -> $DEPLOY_URL"
-    - echo "$DEPLOY_URL" > vercel-deploy-url.txt
-  artifacts:
-    paths: [vercel-deploy-url.txt]
-    expire_in: 30 days

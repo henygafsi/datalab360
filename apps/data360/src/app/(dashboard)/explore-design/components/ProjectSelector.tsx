@@ -267,15 +267,15 @@ export default function ProjectSelector({
     }
   }, [loading, safeProjects, autoSelectProjectId, onProjectSelect]);
 
-  // Slide-1 redesign: when the parent renders an inline wizard
-  // (`onCreateRequested` provided), do NOT auto-pop the legacy modal.
-  // Only the legacy callers (no `onCreateRequested`) still open it.
+  // Auto-open project management when no project is selected so the user
+  // always has a visible way to switch / create / list projects. The modal
+  // already exposes a "Create New Project" panel; the inline wizard
+  // (`onCreateRequested`) remains reachable from inside the modal.
   useEffect(() => {
-    if (onCreateRequested) return;
     if (!loading && !selectedProjectId) {
       setShowModal(true);
     }
-  }, [loading, selectedProjectId, onCreateRequested]);
+  }, [loading, selectedProjectId]);
 
   return (
     <>
@@ -289,13 +289,7 @@ export default function ProjectSelector({
             'min-w-[180px] max-w-[280px]',
             !selectedProjectId && 'border-amber-300 bg-amber-50 dark:bg-amber-900/20',
           )}
-          onClick={() => {
-            if (onCreateRequested && !selectedProjectId) {
-              onCreateRequested();
-            } else {
-              setShowModal(true);
-            }
-          }}
+          onClick={() => setShowModal(true)}
         >
           <FolderOpen
             className={cn(

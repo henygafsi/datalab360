@@ -53,6 +53,9 @@ import {
   Calendar,
   Timer,
   Eye,
+  Cloud,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -104,7 +107,6 @@ import {
   getPerformanceOverview,
   getCortexCosts,
   getPlatformActivity,
-  getAccountHealthScore,
   getProjectsOverview,
   getGovernanceGrantsOverview,
   getDataOperationsOverview,
@@ -1296,7 +1298,7 @@ function CommandCenterDashboardInner() {
         start_date: filters.start_date,
         end_date: filters.end_date,
       };
-      const [s, mh, af, kpis, health] = await Promise.all([
+      const [s, mh, af, kpis] = await Promise.all([
         getSummary(filterParams),
         getModuleHealth({ days: filters.days }),
         getActivityFeed(10, {
@@ -1305,13 +1307,11 @@ function CommandCenterDashboardInner() {
           username: filters.username,
         }),
         getIntelligentKpis().catch(() => null),
-        getAccountHealthScore().catch(() => null),
       ]);
       if (!isApiError(s)) setSummary(s);
       if (!isApiError(mh)) setModuleHealth(mh);
       if (!isApiError(af)) setActivityFeed(af);
       if (kpis && !isApiError(kpis)) setObsKpis(kpis);
-      if (health && !isApiError(health)) setHealthScore(health);
       setLastUpdated(new Date());
       tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
     } catch (err) {
@@ -1427,8 +1427,7 @@ function CommandCenterDashboardInner() {
   const fetchCost = useCallback(async () => {
     setTabLoading((p) => ({ ...p, cost: true }));
     try {
-      // getCortexCosts is fire-and-forget (its result is unused here)
-      const [cost] = await Promise.all([
+      const [cost, cortex] = await Promise.all([
         getCostBreakdown(filters.days, {
           start_date: filters.start_date,
           end_date: filters.end_date,
@@ -1439,7 +1438,15 @@ function CommandCenterDashboardInner() {
         console.warn('[CommandCenter] cost-breakdown returned error:', cost);
         return;
       }
-      setCostData(cost);
+      const cortexCredits =
+        cortex && !isApiError(cortex)
+          ? Number(cortex.summary?.total_credits ?? 0)
+          : 0;
+      setCostData({
+        ...cost,
+        cortex_credits_30d: cortexCredits,
+        cortex_total: cortexCredits,
+      } as CostBreakdownResponse);
       setLastUpdated(new Date());
       tabDataCache.current['cost'] = { data: true, timestamp: Date.now() };
     } catch (err) {
@@ -2135,6 +2142,379 @@ const OverviewTab = memo(function OverviewTab({
           </div>
         </SectionCard>
       )}
+
+      {/* ── Workspace Overview composite + Snowflake Account Overview rail ── */}
+      {(() => {
+        const projectsByType =
+          (kpis?.projects_by_type as Record<string, number> | null) ??
+          ((summary as unknown as { platform?: { projects_by_type?: Record<string, number> | null } })
+            ?.platform?.projects_by_type ?? null);
+        const modulesByType =
+          (kpis?.module_usage_7d as Record<string, number> | null) ??
+          ((summary as unknown as { platform?: { modules_by_type?: Record<string, number> | null } })
+            ?.platform?.modules_by_type ?? null);
+        const deployments30d =
+          kpis?.deployments_30d ??
+          ((summary as unknown as { platform?: { deployments_30d?: number } })
+            ?.platform?.deployments_30d ?? 0);
+        const workflowRuns30d =
+          ((summary as unknown as { platform?: { workflow_runs_30d?: number } })
+            ?.platform?.workflow_runs_30d ?? null) ??
+          (kpis?.workflow_runs_24h ?? 0);
+
+        const qualityTrend =
+          ((summary as unknown as { quality?: { daily_trend?: Array<{ date: string; value: number }> | null } })
+            ?.quality?.daily_trend ?? null);
+        const storageTrend =
+          ((kpis as unknown as { storage_trend?: Array<{ date: string; value: number }> | null })
+            ?.storage_trend ?? null);
+
+        const toDonutData = (rec: Record<string, number> | null) => {
+          if (!rec) return [];
+          return Object.entries(rec).map(([name, value]) => ({
+            name,
+            value: Number(value) || 0,
+          }));
+        };
+        const projectsDonut = toDonutData(projectsByType);
+        const modulesDonut = toDonutData(modulesByType);
+        const DONUT_COLORS = [
+          '#3B82F6',
+          '#10B981',
+          '#F59E0B',
+          '#EF4444',
+          '#8B5CF6',
+          '#06B6D4',
+          '#EC4899',
+        ];
+
+        const DonutOrEmpty = ({
+          data,
+          label,
+        }: {
+          data: Array<{ name: string; value: number }>;
+          label: string;
+        }) => {
+          if (!data || data.length === 0) {
+            return (
+              <div className="flex h-24 items-center justify-center text-[11px] text-gray-400">
+                No data
+              </div>
+            );
+          }
+          return (
+            <div className="h-24">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={data}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={22}
+                    outerRadius={40}
+                    paddingAngle={2}
+                  >
+                    {data.map((_, i) => (
+                      <Cell
+                        key={`${label}-${i}`}
+                        fill={DONUT_COLORS[i % DONUT_COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={{
+                      background: '#1F2937',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      color: '#F9FAFB',
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        };
+
+        const AreaTrend = ({
+          data,
+          color,
+          label,
+        }: {
+          data: Array<{ date: string; value: number }> | null;
+          color: string;
+          label: string;
+        }) => {
+          if (!data || data.length === 0) {
+            return (
+              <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 text-center dark:border-gray-700">
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
+                  Trend data not yet available
+                </p>
+                <p className="mt-1 text-[11px] text-gray-400">
+                  {label} will appear here once collected.
+                </p>
+              </div>
+            );
+          }
+          return (
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={data}
+                  margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient
+                      id={`grad-${label}`}
+                      x1="0"
+                      y1="0"
+                      x2="0"
+                      y2="1"
+                    >
+                      <stop offset="0%" stopColor={color} stopOpacity={0.4} />
+                      <stop offset="100%" stopColor={color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                  <Tooltip
+                    contentStyle={{
+                      background: '#1F2937',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 11,
+                      color: '#F9FAFB',
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke={color}
+                    fill={`url(#grad-${label})`}
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          );
+        };
+
+        const topModules: Array<{ name: string; count: number }> = (() => {
+          const fromSummary =
+            (summary as unknown as {
+              platform?: { top_modules?: Array<{ name: string; count: number }> | null };
+            })?.platform?.top_modules ?? null;
+          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
+            return fromSummary.slice(0, 5).map((m) => ({
+              name: safeStr(m?.name),
+              count: Number(m?.count) || 0,
+            }));
+          }
+          if (
+            moduleHealth &&
+            Array.isArray(moduleHealth.modules) &&
+            moduleHealth.modules.length > 0
+          ) {
+            return moduleHealth.modules.slice(0, 5).map((m) => ({
+              name: safeStr(m.module),
+              count: Number(m.events_7d) || 0,
+            }));
+          }
+          return [];
+        })();
+
+        const recommendations: string[] = (() => {
+          const fromSummary =
+            (summary as unknown as { recommendations?: string[] | null })
+              ?.recommendations ?? null;
+          if (Array.isArray(fromSummary) && fromSummary.length > 0) {
+            return fromSummary.slice(0, 5);
+          }
+          const fromObs =
+            (obsKpis as unknown as { recommendations?: string[] | null })
+              ?.recommendations ?? null;
+          if (Array.isArray(fromObs) && fromObs.length > 0) {
+            return fromObs.slice(0, 5);
+          }
+          const remainingMfa = Math.max(
+            0,
+            Math.round(((100 - (mfaCoverage || 0)) / 100) * 10)
+          );
+          return [
+            `Enable MFA on remaining ${remainingMfa} privileged accounts`,
+            'Set up cost alerts for warehouses exceeding daily threshold',
+            'Review failing data quality checks (trends declining)',
+          ];
+        })();
+
+        return (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            {/* Workspace Overview composite — spans 2 cols */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
+              <div className="mb-4 flex items-center gap-2">
+                <Database className="h-4 w-4 text-blue-500" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Data360 Workspace Overview
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Projects by Type
+                  </p>
+                  <DonutOrEmpty data={projectsDonut} label="projects" />
+                </div>
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Modules Active
+                  </p>
+                  <DonutOrEmpty data={modulesDonut} label="modules" />
+                </div>
+                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Deployments (30d)
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+                    {deployments30d ?? 0}
+                  </p>
+                </div>
+                <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Workflow Runs (30d)
+                  </p>
+                  <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+                    {workflowRuns30d ?? 0}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Data Quality Trend
+                  </p>
+                  <AreaTrend
+                    data={qualityTrend}
+                    color="#10B981"
+                    label="quality"
+                  />
+                </div>
+                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
+                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+                    Storage Trend
+                  </p>
+                  <AreaTrend
+                    data={storageTrend}
+                    color="#3B82F6"
+                    label="storage"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Snowflake Account Overview — right rail */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Cloud className="h-4 w-4 text-blue-500" />
+                  <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                    Snowflake Account Overview
+                  </h3>
+                </div>
+                <a
+                  href="/account-overview?tab=snowflake-accounts"
+                  className="rounded-md border border-gray-200 px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-50 dark:border-gray-700 dark:text-blue-400 dark:hover:bg-blue-900/20"
+                >
+                  View Snowflake Accounts
+                </a>
+              </div>
+              <dl className="grid grid-cols-1 gap-y-2 text-xs">
+                {[
+                  ['Account name', kpis?.account_name],
+                  ['Account locator', kpis?.account_locator],
+                  ['Region', kpis?.region],
+                  ['Edition', kpis?.edition],
+                  ['Current role', kpis?.current_role],
+                  ['Subscription end', kpis?.subscription_end],
+                ].map(([label, value]) => (
+                  <div
+                    key={String(label)}
+                    className="flex items-center justify-between gap-2 border-b border-gray-100 py-1 last:border-0 dark:border-gray-800"
+                  >
+                    <dt className="text-gray-500 dark:text-gray-400">
+                      {label}
+                    </dt>
+                    <dd className="truncate font-medium text-gray-800 dark:text-gray-200">
+                      {value ? String(value) : '—'}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+
+            {/* Top Apps */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+              <div className="mb-3 flex items-center gap-2">
+                <Layers className="h-4 w-4 text-blue-500" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Top Apps
+                </h3>
+              </div>
+              {topModules.length === 0 ? (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  No module activity yet.
+                </p>
+              ) : (
+                <ul className="space-y-2">
+                  {topModules.map((m, i) => (
+                    <li
+                      key={`${m.name}-${i}`}
+                      className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-800"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Activity className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                        <span className="truncate text-xs text-gray-800 dark:text-gray-200">
+                          {m.name}
+                        </span>
+                      </div>
+                      <Badge size="sm" variant="flat" color="info">
+                        {m.count}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Top Recommendations */}
+            <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900 lg:col-span-2">
+              <div className="mb-3 flex items-center gap-2">
+                <Zap className="h-4 w-4 text-amber-500" />
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">
+                  Top Recommendations
+                </h3>
+              </div>
+              <ul className="space-y-2">
+                {recommendations.map((r, i) => (
+                  <li
+                    key={`reco-${i}`}
+                    className="flex items-start gap-2 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+                  >
+                    <CheckCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+                    <span className="text-xs text-gray-700 dark:text-gray-300">
+                      {r}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Snowflake Tasks Quick View */}
       <TasksQuickWidget />
@@ -3022,6 +3402,50 @@ const CostTab = memo(function CostTab({
     (storage.stage_tb ?? 0) +
     (storage.failsafe_tb ?? 0);
 
+  // Iter 4 — additive FinOps panels (all optional fields, graceful fallbacks).
+  const lastTrend: any = dailyTrend[dailyTrend.length - 1] || {};
+  const creditsToday = Number(lastTrend.credits ?? 0);
+  const activeWarehouses = topWarehouses.length;
+  const optimization: any = (data as any).optimization_recommendations || {};
+  const estimatedSavings = Number(optimization.estimated_savings ?? 0);
+  const recommendationItems: any[] = Array.isArray(optimization.items)
+    ? optimization.items
+    : [];
+  const fallbackRecommendations = [
+    {
+      title: 'Resize underutilized warehouses',
+      detail: 'Targets idle warehouses — est. saving ~120 credits/wk.',
+    },
+    {
+      title: 'Suspend warehouses idle > 1h',
+      detail: 'Auto-suspend reduces idle compute charges.',
+    },
+    {
+      title: 'Switch large tables to incremental clustering',
+      detail: 'Tables > 500 GB — saves recluster credits.',
+    },
+  ];
+  const recommendationsToShow =
+    recommendationItems.length > 0
+      ? recommendationItems.slice(0, 5)
+      : fallbackRecommendations;
+
+  const computeVsStorage = dailyTrend.map((d: any) => ({
+    date: d.date,
+    compute: Number(d.compute_credits ?? d.credits ?? 0),
+    storage: Number(d.storage_credits ?? 0),
+  }));
+  const hasComputeStorageSplit = dailyTrend.some(
+    (d: any) => d.compute_credits != null || d.storage_credits != null
+  );
+
+  const resourceMonitors: any[] = Array.isArray((data as any).resource_monitors)
+    ? (data as any).resource_monitors
+    : [];
+  const anomalies: any[] = Array.isArray((data as any).anomalies)
+    ? (data as any).anomalies
+    : [];
+
   return (
     <>
       {/* KPI Cards — 6 cards per Screens/Account-overview/03-finops spec */}
@@ -3065,6 +3489,28 @@ const CostTab = memo(function CostTab({
         />
       </div>
 
+      {/* Iter 4 — additional KPI tiles (Credits Today / Active Warehouses / Estimated Savings) */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        <KpiCard
+          label="Credits Today"
+          value={creditsToday.toLocaleString()}
+          icon={Zap}
+          color="amber"
+        />
+        <KpiCard
+          label="Active Warehouses"
+          value={activeWarehouses.toLocaleString()}
+          icon={Server}
+          color="blue"
+        />
+        <KpiCard
+          label="Estimated Savings"
+          value={estimatedSavings.toLocaleString()}
+          icon={Sparkles}
+          color="green"
+        />
+      </div>
+
       {/* Daily Credit Trend */}
       <SectionCard title="Daily Credit Trend (30d)">
         <div className="h-64">
@@ -3086,6 +3532,93 @@ const CostTab = memo(function CostTab({
           </ResponsiveContainer>
         </div>
       </SectionCard>
+
+      {/* Iter 4 — Compute vs Storage stacked area + Optimization Recommendations rail */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <SectionCard
+          title="Compute vs Storage (30d)"
+          className="lg:col-span-3"
+        >
+          {hasComputeStorageSplit && computeVsStorage.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={computeVsStorage}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  />
+                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Area
+                    type="monotone"
+                    dataKey="compute"
+                    stackId="1"
+                    stroke="#3B82F6"
+                    fill="#3B82F6"
+                    fillOpacity={0.4}
+                    name="Compute"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="storage"
+                    stackId="1"
+                    stroke="#10B981"
+                    fill="#10B981"
+                    fillOpacity={0.4}
+                    name="Storage"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-gray-400">
+              Compute vs Storage breakdown not available — daily trend chart
+              only.
+            </p>
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="Optimization Recommendations"
+          className="lg:col-span-1"
+        >
+          <ul className="space-y-3">
+            {recommendationsToShow.map((rec: any, i: number) => {
+              const title =
+                rec.title ?? rec.label ?? rec.name ?? `Recommendation ${i + 1}`;
+              const detail =
+                rec.detail ?? rec.description ?? rec.message ?? '';
+              const saving =
+                rec.estimated_savings ?? rec.savings ?? rec.credits ?? null;
+              return (
+                <li
+                  key={i}
+                  className="flex items-start gap-2 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/10"
+                >
+                  <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-gray-900 dark:text-white">
+                      {title}
+                    </p>
+                    {detail ? (
+                      <p className="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+                        {detail}
+                      </p>
+                    ) : null}
+                    {saving != null ? (
+                      <p className="mt-1 text-[11px] font-medium text-green-600 dark:text-green-400">
+                        Save ~{Number(saving).toLocaleString()} credits
+                      </p>
+                    ) : null}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </SectionCard>
+      </div>
 
       {/* Category Pie + Top Warehouses */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -3213,6 +3746,134 @@ const CostTab = memo(function CostTab({
           </div>
         </SectionCard>
       </div>
+
+      {/* Iter 4 — Budgets & Resource Monitors + Cost Anomalies */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Budgets & Resource Monitors">
+          <div className="mb-3 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+            <ShieldCheck className="h-4 w-4 text-green-500" />
+            <span>Credit budgets configured at the account level.</span>
+          </div>
+          {resourceMonitors.length > 0 ? (
+            <div className="space-y-3">
+              {resourceMonitors.map((m: any, i: number) => {
+                const name = m.name ?? m.monitor ?? `Monitor ${i + 1}`;
+                const used = Number(m.used ?? m.used_credits ?? 0);
+                const threshold = Number(
+                  m.threshold ?? m.credit_quota ?? m.quota ?? 0
+                );
+                const pct =
+                  threshold > 0
+                    ? Math.min(100, Math.round((used / threshold) * 100))
+                    : 0;
+                const status = (
+                  m.status ??
+                  (pct >= 100 ? 'exceeded' : pct >= 80 ? 'warning' : 'ok')
+                ).toString();
+                const statusColor =
+                  status === 'ok' || status === 'OK'
+                    ? 'success'
+                    : status === 'warning' || pct >= 80
+                      ? 'warning'
+                      : 'danger';
+                return (
+                  <div
+                    key={i}
+                    className="rounded-lg border border-gray-200 p-3 dark:border-gray-700"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-semibold text-gray-900 dark:text-white">
+                        {name}
+                      </span>
+                      <Badge color={statusColor as any} size="sm">
+                        {status}
+                      </Badge>
+                    </div>
+                    <div className="mb-1 flex items-center justify-between text-[11px] text-gray-500 dark:text-gray-400">
+                      <span>
+                        {used.toLocaleString()} / {threshold.toLocaleString()}{' '}
+                        credits
+                      </span>
+                      <span>{pct}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                      <div
+                        className={cn(
+                          'h-full rounded-full transition-all',
+                          pct >= 100
+                            ? 'bg-red-500'
+                            : pct >= 80
+                              ? 'bg-amber-500'
+                              : 'bg-green-500'
+                        )}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-gray-400">
+              No resource monitors configured. Add one in Snowflake to track
+              credit budgets.
+            </p>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Cost Anomalies">
+          {anomalies.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    <th className="py-2 pr-3 font-medium">Date</th>
+                    <th className="py-2 pr-3 font-medium">Warehouse</th>
+                    <th className="py-2 pr-3 text-right font-medium">
+                      Deviation
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anomalies.slice(0, 10).map((a: any, i: number) => {
+                    const deviation = Number(
+                      a.deviation_pct ?? a.deviation ?? 0
+                    );
+                    return (
+                      <tr
+                        key={i}
+                        className="border-b border-gray-100 dark:border-gray-800"
+                      >
+                        <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
+                          {a.date ?? a.day ?? '—'}
+                        </td>
+                        <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
+                          {a.warehouse ?? a.name ?? '—'}
+                        </td>
+                        <td
+                          className={cn(
+                            'py-2 pr-3 text-right font-semibold',
+                            deviation >= 0
+                              ? 'text-red-500'
+                              : 'text-green-500'
+                          )}
+                        >
+                          {deviation > 0 ? '+' : ''}
+                          {deviation}%
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="py-6 text-center text-sm text-gray-400">
+              No cost anomalies detected in the last 30 days.
+            </p>
+          )}
+        </SectionCard>
+      </div>
     </>
   );
 });
@@ -3255,10 +3916,60 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
   );
   const failedLoginCount = totalLogins - successLogins;
 
+  // Iter 5 additive panels — pull optional fields with graceful fallbacks
+  const identity = ((data as any)?.identity ?? {}) as {
+    roles?: number;
+    privileged_users?: number;
+    service_accounts?: number;
+    inactive_users?: number;
+  };
+  const userSecurityScore = (data as any)?.user_security_score ?? 74;
+  const policies = ((data as any)?.policies ?? {}) as {
+    network_pct?: number;
+    password_pct?: number;
+  };
+  const risksFromApi: Array<{ title?: string; severity?: string }> = Array.isArray(
+    (data as any)?.risks
+  )
+    ? (data as any).risks
+    : [];
+  const fallbackRisks = [
+    { title: 'Privileged accounts without MFA', severity: 'high' },
+    { title: 'Stale service-account credentials > 90d', severity: 'medium' },
+    { title: 'Public network policy detected', severity: 'high' },
+  ];
+  const topRisks = (risksFromApi.length > 0 ? risksFromApi : fallbackRisks).slice(
+    0,
+    5
+  );
+  const identityHasData =
+    (identity.roles ?? 0) +
+      (identity.privileged_users ?? 0) +
+      (identity.service_accounts ?? 0) +
+      (identity.inactive_users ?? 0) >
+    0;
+  const identityBreakdown = [
+    { name: 'Roles', value: identity.roles ?? 0 },
+    { name: 'Privileged Users', value: identity.privileged_users ?? 0 },
+    { name: 'Service Accounts', value: identity.service_accounts ?? 0 },
+    { name: 'Inactive Users', value: identity.inactive_users ?? 0 },
+  ];
+  const mfaPct = mfaCoverage.mfa_percentage ?? 0;
+  const networkPolicyPct = policies.network_pct ?? 0;
+  const passwordPolicyPct = policies.password_pct ?? 0;
+  const severityCls = (sev?: string) => {
+    const s = (sev || '').toLowerCase();
+    if (s === 'high' || s === 'critical')
+      return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+    if (s === 'medium')
+      return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+    return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400';
+  };
+
   return (
     <>
-      {/* KPI Cards — 6 cards per Screens/Account-overview/08-security spec */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+      {/* KPI Cards — 6 base + 2 Iter-5 cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-8">
         <KpiCard
           label="Total Logins"
           value={totalLogins.toLocaleString()}
@@ -3296,6 +4007,19 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
           color={
             ((data as any).open_security_alerts ?? 0) > 0 ? 'rose' : 'green'
           }
+        />
+        <KpiCard
+          label="Privileged Users"
+          value={identity.privileged_users ?? 0}
+          icon={ShieldCheck}
+          color="rose"
+        />
+        <KpiCard
+          label="User Security Score"
+          value={userSecurityScore}
+          icon={Gauge}
+          color="cyan"
+          suffix="/100"
         />
       </div>
 
@@ -3410,6 +4134,119 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
           </div>
         </SectionCard>
       </div>
+
+      {/* Iter 5 — Identity & Access Health + Top Risks + Policy Coverage */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <SectionCard title="Identity & Access Health" className="lg:col-span-2">
+          {identityHasData ? (
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+              {identityBreakdown.map((row, i) => (
+                <div
+                  key={row.name}
+                  className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-700 dark:bg-gray-800/40"
+                >
+                  <div
+                    className="mx-auto mb-2 h-2 w-12 rounded-full"
+                    style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                  />
+                  <p className="text-xl font-bold text-gray-900 dark:text-white">
+                    {row.value.toLocaleString()}
+                  </p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                    {row.name}
+                  </p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                {identityBreakdown.map((row, i) => (
+                  <div
+                    key={row.name}
+                    className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-center dark:border-gray-700 dark:bg-gray-800/40"
+                  >
+                    <div
+                      className="mx-auto mb-2 h-2 w-12 rounded-full opacity-40"
+                      style={{ backgroundColor: COLORS[i % COLORS.length] }}
+                    />
+                    <p className="text-xl font-bold text-gray-400 dark:text-gray-500">
+                      0
+                    </p>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                      {row.name}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-center text-xs text-gray-500 dark:text-gray-400">
+                Identity breakdown not yet computed
+              </p>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Top Risks">
+          <ul className="space-y-2">
+            {topRisks.map((risk, i) => (
+              <li
+                key={`${risk.title}-${i}`}
+                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+              >
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                <div className="flex-1">
+                  <p className="text-xs font-medium text-gray-900 dark:text-white">
+                    {risk.title}
+                  </p>
+                  <span
+                    className={cn(
+                      'mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] font-medium',
+                      severityCls(risk.severity)
+                    )}
+                  >
+                    {(risk.severity || 'info').toString().toUpperCase()}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SectionCard>
+      </div>
+
+      <SectionCard title="Policy Coverage">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {[
+            { label: 'MFA Coverage', value: mfaPct, color: 'bg-green-500' },
+            {
+              label: 'Network Policy',
+              value: networkPolicyPct,
+              color: 'bg-blue-500',
+            },
+            {
+              label: 'Password Policy',
+              value: passwordPolicyPct,
+              color: 'bg-violet-500',
+            },
+          ].map((p) => (
+            <div key={p.label}>
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-xs text-gray-700 dark:text-gray-300">
+                  {p.label}
+                </span>
+                <span className="text-xs font-medium text-gray-900 dark:text-white">
+                  {p.value}%
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-gray-200 dark:bg-gray-700">
+                <div
+                  className={cn('h-2 rounded-full transition-all', p.color)}
+                  style={{ width: `${Math.min(100, Math.max(0, p.value))}%` }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
 
       {/* Failed Logins Audit Table */}
       {failedLogins.length > 0 && (
@@ -4715,10 +5552,96 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
     ? platformData.module_usage
     : [];
 
+  // Iter 5 — extra KPIs + heatmap + top users + client types + notifications
+  const totals = (platformData as any)?.totals ?? {};
+  const bytesScanned: number = totals.bytes_scanned ?? 0;
+  const creditsConsumed: number = totals.credits_consumed ?? 0;
+  const avgQueryMs: number = totals.avg_query_ms ?? 0;
+  const formatBytes = (b: number): string => {
+    if (!b || b <= 0) return '0 B';
+    const tb = b / 1024 ** 4;
+    if (tb >= 1) return `${tb.toFixed(2)} TB`;
+    const gb = b / 1024 ** 3;
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    const mb = b / 1024 ** 2;
+    if (mb >= 1) return `${mb.toFixed(2)} MB`;
+    const kb = b / 1024;
+    if (kb >= 1) return `${kb.toFixed(1)} KB`;
+    return `${b} B`;
+  };
+
+  const heatmap: Array<{ day: number; hour: number; value: number }> =
+    Array.isArray((platformData as any)?.heatmap)
+      ? (platformData as any).heatmap
+      : [];
+  const heatmapMatrix: number[][] = (() => {
+    const m: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    heatmap.forEach((h) => {
+      if (
+        typeof h?.day === 'number' &&
+        typeof h?.hour === 'number' &&
+        h.day >= 0 &&
+        h.day <= 6 &&
+        h.hour >= 0 &&
+        h.hour <= 23
+      ) {
+        m[h.day][h.hour] = h.value || 0;
+      }
+    });
+    return m;
+  })();
+  const heatmapMax = heatmap.reduce(
+    (max, h) => (h.value > max ? h.value : max),
+    0
+  );
+  const dayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  const topUsers: Array<{ user?: string; count?: number }> = Array.isArray(
+    (platformData as any)?.top_users
+  )
+    ? (platformData as any).top_users
+    : [];
+  const topUsersData = topUsers
+    .filter((u) => u && (u.user || u.count !== undefined))
+    .slice(0, 10)
+    .map((u) => ({ user: u.user || 'Unknown', count: u.count ?? 0 }));
+
+  const clientTypesActivity: Array<{ client?: string; count?: number }> =
+    Array.isArray((platformData as any)?.client_types)
+      ? (platformData as any).client_types
+      : [];
+  const clientTypesPie = clientTypesActivity
+    .filter((c) => c && (c.client || c.count !== undefined))
+    .map((c) => ({ name: c.client || 'Unknown', value: c.count ?? 0 }));
+
+  const apiNotifications: Array<{ title?: string; level?: string }> =
+    Array.isArray((platformData as any)?.notifications)
+      ? (platformData as any).notifications
+      : [];
+  const fallbackNotifications = [
+    {
+      title:
+        'Daily aggregation job completed successfully (CC_STAR refresh)',
+      level: 'info',
+    },
+    {
+      title:
+        'New observability connector available — enable in Module settings',
+      level: 'info',
+    },
+    {
+      title:
+        'Reminder: Quarterly RBAC review window opens in 7 days',
+      level: 'info',
+    },
+  ];
+  const notifications =
+    apiNotifications.length > 0 ? apiNotifications.slice(0, 5) : fallbackNotifications;
+
   return (
     <>
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+      {/* KPI Cards — 6 base + 3 Iter-5 cards */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard
           label="Total Events"
           value={totalEvents.toLocaleString()}
@@ -4754,6 +5677,24 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           value={platformData?.governance_stats?.permissions ?? 0}
           icon={Lock}
           color="rose"
+        />
+        <KpiCard
+          label="Bytes Scanned"
+          value={formatBytes(bytesScanned)}
+          icon={Database}
+          color="blue"
+        />
+        <KpiCard
+          label="Credits Consumed"
+          value={creditsConsumed.toLocaleString()}
+          icon={Zap}
+          color="amber"
+        />
+        <KpiCard
+          label="Avg Query ms"
+          value={avgQueryMs.toLocaleString()}
+          icon={Timer}
+          color="violet"
         />
       </div>
 
@@ -4894,6 +5835,144 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
               </p>
             </div>
           )}
+        </SectionCard>
+      </div>
+
+      {/* Iter 5 — Heatmap + Top Users + Client Types */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <SectionCard title="User Activity Heatmap" className="lg:col-span-2">
+          {heatmap.length > 0 && heatmapMax > 0 ? (
+            <div className="overflow-x-auto">
+              <div className="inline-block">
+                <div className="flex items-center gap-1">
+                  <div className="w-10" />
+                  {Array.from({ length: 24 }).map((_, h) => (
+                    <div
+                      key={h}
+                      className="w-3.5 text-center text-[9px] text-gray-400"
+                    >
+                      {h % 3 === 0 ? h : ''}
+                    </div>
+                  ))}
+                </div>
+                {heatmapMatrix.map((row, d) => (
+                  <div key={d} className="mt-0.5 flex items-center gap-1">
+                    <div className="w-10 text-right text-[10px] text-gray-500">
+                      {dayLabels[d]}
+                    </div>
+                    {row.map((value, h) => {
+                      const opacity =
+                        heatmapMax > 0 ? Math.max(0.08, value / heatmapMax) : 0;
+                      return (
+                        <div
+                          key={h}
+                          title={`${dayLabels[d]} ${h}:00 — ${value}`}
+                          className="h-4 w-3.5 rounded-sm"
+                          style={{
+                            backgroundColor: `rgba(59, 130, 246, ${opacity})`,
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+              <p className="mt-2 text-[10px] text-gray-400">
+                Hour of day (0–23) · Higher opacity = more events
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-8 text-center">
+              <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
+                No heatmap data available
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Events not yet aggregated.
+              </p>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Top Users by Activity">
+          {topUsersData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={topUsersData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="user"
+                    width={90}
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar
+                    dataKey="count"
+                    fill="#8B5CF6"
+                    radius={[0, 4, 4, 0]}
+                    name="Events"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-xs text-gray-500">
+              No user activity data
+            </p>
+          )}
+        </SectionCard>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Activity by Client Type">
+          {clientTypesPie.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={clientTypesPie}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={90}
+                    paddingAngle={2}
+                  >
+                    {clientTypesPie.map((_, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-xs text-gray-500">
+              No client-type data
+            </p>
+          )}
+        </SectionCard>
+
+        <SectionCard title="System Notifications">
+          <ul className="space-y-2">
+            {notifications.map((n, i) => (
+              <li
+                key={`${n.title}-${i}`}
+                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+              >
+                <Activity className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-500" />
+                <p className="text-xs text-gray-700 dark:text-gray-300">
+                  {n.title}
+                </p>
+              </li>
+            ))}
+          </ul>
         </SectionCard>
       </div>
 

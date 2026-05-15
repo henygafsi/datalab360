@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { Badge, Loader } from 'rizzui';
 import {
   Database,
@@ -16,9 +16,78 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Lightbulb,
 } from 'lucide-react';
 import Link from 'next/link';
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from 'recharts';
 import { getModuleHealth, getSummary } from '@/app/services/command-center';
+
+const KNOWN_MODULES: Array<{
+  key: string;
+  name: string;
+  icon: React.ElementType;
+  color: string;
+  hex: string;
+}> = [
+  { key: 'connect', name: 'Connect', icon: Upload, color: 'blue', hex: '#3B82F6' },
+  { key: 'workflow', name: 'Workflow', icon: GitBranch, color: 'amber', hex: '#F59E0B' },
+  {
+    key: 'explore_design',
+    name: 'Explore & Design',
+    icon: Database,
+    color: 'violet',
+    hex: '#8B5CF6',
+  },
+  {
+    key: 'bi_reporting',
+    name: 'BI Reporting',
+    icon: BarChart3,
+    color: 'cyan',
+    hex: '#06B6D4',
+  },
+  {
+    key: 'data_quality',
+    name: 'Data Quality',
+    icon: CheckCircle,
+    color: 'green',
+    hex: '#10B981',
+  },
+  { key: 'cortex', name: 'Cortex', icon: Brain, color: 'purple', hex: '#A855F7' },
+  {
+    key: 'governance',
+    name: 'Governance',
+    icon: Shield,
+    color: 'rose',
+    hex: '#F43F5E',
+  },
+  {
+    key: 'observability',
+    name: 'Observability',
+    icon: Eye,
+    color: 'orange',
+    hex: '#F97316',
+  },
+];
+
+const RECOMMENDATIONS: string[] = [
+  'Activate Snowflake Tasks observability for Workflow runs',
+  'Enable lineage capture across Connect → Explore',
+  'Set up RBAC review reminders for Governance module',
+];
 
 interface ModuleCard {
   id: string;
@@ -93,6 +162,7 @@ function buildModuleCards(moduleHealth: any, _summary: any): ModuleCard[] {
 function ModulesTab() {
   const [loading, setLoading] = useState(true);
   const [moduleCards, setModuleCards] = useState<ModuleCard[]>([]);
+  const [rawModules, setRawModules] = useState<any[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,6 +174,11 @@ function ModulesTab() {
           getSummary(),
         ]);
         setModuleCards(buildModuleCards(health, summary));
+        setRawModules(
+          Array.isArray((health as any)?.modules)
+            ? (health as any).modules
+            : []
+        );
       } catch (err: any) {
         setError(err?.message || 'Failed to load module health');
       } finally {
@@ -138,6 +213,63 @@ function ModulesTab() {
   const inactiveCount = moduleCards.filter(
     (m) => m.status === 'inactive'
   ).length;
+
+  // ── Iter 5 — sparkline tiles, usage trend, and issues donut ──────────────
+  const moduleByKey: Record<string, any> = {};
+  rawModules.forEach((m) => {
+    if (m?.module_key) moduleByKey[m.module_key] = m;
+  });
+
+  const sparkTiles = KNOWN_MODULES.map((spec) => {
+    const m = moduleByKey[spec.key];
+    const series: number[] = Array.isArray(m?.last_7_days_events)
+      ? m.last_7_days_events.map((v: any) =>
+          typeof v === 'number' ? v : (v?.count ?? v?.value ?? 0)
+        )
+      : [];
+    const sparkData = series.map((v, i) => ({ i, v }));
+    const count = series.reduce((s, v) => s + v, 0);
+    return {
+      ...spec,
+      hasData: series.length > 0,
+      count,
+      sparkData,
+      moduleStatus: m?.status as 'healthy' | 'degraded' | 'inactive' | undefined,
+    };
+  });
+
+  // Aggregate usage trend across modules (sum per day)
+  const usageTrend = useMemo(() => {
+    const days = 7;
+    const buckets: number[] = Array(days).fill(0);
+    let hasAny = false;
+    rawModules.forEach((m) => {
+      const series = Array.isArray(m?.last_7_days_events)
+        ? m.last_7_days_events
+        : [];
+      series.forEach((v: any, i: number) => {
+        if (i < days) {
+          const n = typeof v === 'number' ? v : (v?.count ?? v?.value ?? 0);
+          if (n > 0) hasAny = true;
+          buckets[i] += n;
+        }
+      });
+    });
+    return hasAny
+      ? buckets.map((value, idx) => ({ day: `D-${days - idx}`, value }))
+      : [];
+  }, [rawModules]);
+
+  // Issues donut: degraded + inactive count contribution by module
+  const issuesByModule = moduleCards
+    .filter((m) => m.status === 'degraded' || m.status === 'inactive')
+    .map((m) => ({
+      name: m.name,
+      value: 1,
+      hex:
+        KNOWN_MODULES.find((k) => k.key === m.id)?.hex || '#9CA3AF',
+    }));
+  const totalIssues = degradedCount + inactiveCount;
 
   return (
     <div className="space-y-6">
@@ -179,6 +311,53 @@ function ModulesTab() {
             {inactiveCount}
           </p>
         </div>
+      </div>
+
+      {/* Iter 5 — Sparkline KPI tiles per module */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-8">
+        {sparkTiles.map((tile) => {
+          const Icon = tile.icon;
+          return (
+            <div
+              key={tile.key}
+              className="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+            >
+              <div className="mb-2 flex items-center gap-2">
+                <div
+                  className={`flex h-7 w-7 items-center justify-center rounded-md bg-${tile.color}-100 dark:bg-${tile.color}-900/30`}
+                >
+                  <Icon
+                    className={`h-3.5 w-3.5 text-${tile.color}-600 dark:text-${tile.color}-400`}
+                  />
+                </div>
+                <span className="truncate text-[11px] font-medium text-gray-700 dark:text-gray-300">
+                  {tile.name}
+                </span>
+              </div>
+              <p className="text-lg font-bold text-gray-900 dark:text-white">
+                {tile.count.toLocaleString()}
+              </p>
+              {tile.hasData && tile.sparkData.length > 1 ? (
+                <div className="mt-1 h-7">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={tile.sparkData}>
+                      <Line
+                        type="monotone"
+                        dataKey="v"
+                        stroke={tile.hex}
+                        strokeWidth={1.5}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="mt-1 text-[10px] text-gray-400">no events 7d</p>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -241,6 +420,113 @@ function ModulesTab() {
             </Link>
           );
         })}
+      </div>
+
+      {/* Iter 5 — Usage trend, issues donut, recommendations */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+            Module Usage Trend
+          </h3>
+          {usageTrend.length > 0 ? (
+            <div className="h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={usageTrend}>
+                  <defs>
+                    <linearGradient id="modUsageGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#3B82F6" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#3B82F6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis dataKey="day" tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} />
+                  <Tooltip />
+                  <Area
+                    type="monotone"
+                    dataKey="value"
+                    stroke="#3B82F6"
+                    fill="url(#modUsageGrad)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-48 flex-col items-center justify-center text-center">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                No 7-day events available yet
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                The trend will appear once modules emit usage events.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+            Issues by Module
+          </h3>
+          {issuesByModule.length > 0 ? (
+            <div className="relative h-48">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={issuesByModule}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={45}
+                    outerRadius={75}
+                    paddingAngle={2}
+                  >
+                    {issuesByModule.map((d, i) => (
+                      <Cell key={i} fill={d.hex} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                  <Legend wrapperStyle={{ fontSize: 10 }} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white">
+                  {totalIssues}
+                </p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                  issues
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-48 flex-col items-center justify-center text-center">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
+                No degraded or inactive modules
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                All known modules are reporting healthy.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900">
+          <h3 className="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+            Cross-module Recommendations
+          </h3>
+          <ul className="space-y-2">
+            {RECOMMENDATIONS.map((rec, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-800 dark:bg-gray-800/30"
+              >
+                <Lightbulb className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-500" />
+                <p className="text-xs text-gray-700 dark:text-gray-300">{rec}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );

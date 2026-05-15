@@ -16,7 +16,7 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   async rewrites() {
-    const upstream = process.env.API_PROXY_UPSTREAM || 'http://api.datalab360.io';
+    const upstream = process.env.API_PROXY_UPSTREAM || 'https://api.datalab360.io';
     return [
       {
         source: '/api/mapping/:path*',

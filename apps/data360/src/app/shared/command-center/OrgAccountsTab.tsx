@@ -22,10 +22,16 @@ import {
   Cloud,
   CreditCard,
   Database,
+  GitBranch,
   HardDrive,
+  Layers,
+  Lightbulb,
   RefreshCw,
+  Share2,
   ShieldCheck,
   Users,
+  X,
+  Zap,
 } from 'lucide-react';
 import {
   Bar,
@@ -48,6 +54,7 @@ import {
 } from '@/app/services/org-accounts/hooks';
 import type {
   AccountsListResponse,
+  ClientAccount,
   DashboardOverviewResponse,
   DashboardTrendsResponse,
 } from '@/app/services/org-accounts/types';
@@ -67,6 +74,8 @@ interface OrgAccountsState {
   trends: DashboardTrendsResponse | null;
   readers: number;
   shares: number;
+  readerList: Array<{ name: string; cloud?: string; region?: string }>;
+  shareList: Array<{ name: string; database_name?: string; kind?: string }>;
   loading: boolean;
   error: string | null;
 }
@@ -93,30 +102,43 @@ export default function OrgAccountsTab() {
     trends: null,
     readers: 0,
     shares: 0,
+    readerList: [],
+    shareList: [],
     loading: true,
     error: null,
   });
+  const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(
+    null,
+  );
 
   const fetchAll = async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const [overview, accounts, trends, readers, shares] = await Promise.all([
+      const [overview, accounts, trends, readerRes, shareRes] = await Promise.all([
         getDashboardOverview().catch(() => null),
         getAccounts().catch(() => null),
         getDashboardTrends(30).catch(() => null),
-        getReaderAccounts()
-          .then((r) => r.reader_accounts?.length ?? 0)
-          .catch(() => 0),
-        getShares()
-          .then((r) => r.shares?.length ?? 0)
-          .catch(() => 0),
+        getReaderAccounts().catch(() => ({ reader_accounts: [] as any[] })),
+        getShares().catch(() => ({ shares: [] as any[] })),
       ]);
+      const readerList = (readerRes?.reader_accounts ?? []) as Array<{
+        name: string;
+        cloud?: string;
+        region?: string;
+      }>;
+      const shareList = (shareRes?.shares ?? []) as Array<{
+        name: string;
+        database_name?: string;
+        kind?: string;
+      }>;
       setState({
         overview,
         accounts,
         trends,
-        readers,
-        shares,
+        readers: readerList.length,
+        shares: shareList.length,
+        readerList,
+        shareList,
         loading: false,
         error: null,
       });
@@ -164,11 +186,28 @@ export default function OrgAccountsTab() {
   const inactiveAccounts = o?.inactive_accounts ?? 0;
   const orgCredits = (o as any)?.total_credits_30d ?? 0;
   const orgStorageBytes = (o as any)?.total_storage_bytes ?? 0;
+  const replicationGroupsCount = (o as any)?.replication_groups_count ?? 0;
+  const failoverGroupsCount = (o as any)?.failover_groups_count ?? 0;
+  const managedAccountsCount =
+    (o as any)?.managed_accounts_count ?? state.accounts?.accounts?.length ?? 0;
+  const networkPoliciesCount = (o as any)?.network_policies_count ?? 0;
+
+  // Recent org account events — last 8 by created_on desc
+  const recentEvents = useMemo(() => {
+    const list = (state.accounts?.accounts ?? []).slice();
+    return list
+      .filter((a) => !!a.created_on)
+      .sort(
+        (a, b) =>
+          new Date(b.created_on).getTime() - new Date(a.created_on).getTime(),
+      )
+      .slice(0, 8);
+  }, [state.accounts]);
 
   return (
     <div className="space-y-6">
       {/* Top-strip KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-9">
         <KpiCard
           icon={Building2}
           label="Accounts in org"
@@ -205,6 +244,24 @@ export default function OrgAccountsTab() {
           value={`${state.readers} / ${state.shares}`}
           loading={state.loading}
         />
+        <KpiCard
+          icon={GitBranch}
+          label="Replication Groups"
+          value={replicationGroupsCount > 0 ? fmtNumber(replicationGroupsCount) : '—'}
+          loading={state.loading}
+        />
+        <KpiCard
+          icon={Zap}
+          label="Failover Groups"
+          value={failoverGroupsCount > 0 ? fmtNumber(failoverGroupsCount) : '—'}
+          loading={state.loading}
+        />
+        <KpiCard
+          icon={Layers}
+          label="Managed Accounts"
+          value={fmtNumber(managedAccountsCount)}
+          loading={state.loading}
+        />
       </div>
 
       {/* Error banner */}
@@ -221,7 +278,8 @@ export default function OrgAccountsTab() {
         </div>
       )}
 
-      {/* Accounts grid */}
+      {/* Accounts grid + drilldown rail */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
       <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <header className="flex items-center justify-between border-b px-4 py-3 dark:border-slate-700">
           <div className="flex items-center gap-2">
@@ -260,7 +318,12 @@ export default function OrgAccountsTab() {
               {(state.accounts?.accounts ?? []).slice(0, 50).map((a) => (
                 <tr
                   key={a.account_locator}
-                  className="hover:bg-slate-50 dark:hover:bg-slate-800"
+                  onClick={() => setSelectedAccount(a)}
+                  className={`cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                    selectedAccount?.account_locator === a.account_locator
+                      ? 'bg-slate-50 dark:bg-slate-800'
+                      : ''
+                  }`}
                 >
                   <td className="px-3 py-2 font-medium text-slate-900 dark:text-white">
                     {a.account_name}
@@ -312,6 +375,69 @@ export default function OrgAccountsTab() {
           </table>
         </div>
       </section>
+
+        {/* Right-rail account drilldown */}
+        <aside className="lg:block">
+          {selectedAccount ? (
+            <div className="sticky top-4 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="text-xs uppercase tracking-wide text-slate-400">
+                    Account drilldown
+                  </div>
+                  <div className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
+                    {selectedAccount.account_name}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    {selectedAccount.account_locator}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAccount(null)}
+                  className="rounded p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label="Close drilldown"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <dl className="mt-3 space-y-2 text-xs">
+                <DrillRow label="Region" value={selectedAccount.region || '—'} />
+                <DrillRow label="Edition" value={selectedAccount.edition || '—'} />
+                <DrillRow label="Cloud" value={selectedAccount.cloud || '—'} />
+                <DrillRow
+                  label="Status"
+                  value={selectedAccount.is_active ? 'active' : 'inactive'}
+                />
+                <DrillRow
+                  label="Created"
+                  value={
+                    selectedAccount.created_on
+                      ? new Date(selectedAccount.created_on).toLocaleDateString()
+                      : '—'
+                  }
+                />
+                <DrillRow
+                  label="Credits (30d)"
+                  value={fmtNumber(
+                    Math.round(
+                      (selectedAccount as any)?.credits_30d ?? 0,
+                    ),
+                  )}
+                />
+                <DrillRow
+                  label="Storage"
+                  value={fmtBytes((selectedAccount as any)?.storage_bytes ?? 0)}
+                />
+              </dl>
+            </div>
+          ) : (
+            <div className="sticky top-4 rounded-xl border border-dashed border-slate-200 bg-white p-4 text-xs text-slate-400 dark:border-slate-700 dark:bg-slate-900">
+              Select an account from the table to see its details here.
+            </div>
+          )}
+        </aside>
+      </div>
 
       {/* Trends */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -365,6 +491,101 @@ export default function OrgAccountsTab() {
           </ResponsiveContainer>
         </ChartPanel>
       )}
+
+      {/* Footer band — 4 panels */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <FooterPanel title="Replication Groups" icon={GitBranch}>
+          <EmptyHint label="No replication groups exposed" />
+        </FooterPanel>
+        <FooterPanel title="Failover Groups" icon={Zap}>
+          <EmptyHint label="No failover groups exposed" />
+        </FooterPanel>
+        <FooterPanel title="Permissions / Sharing Roles" icon={Share2}>
+          {state.readerList.length === 0 && state.shareList.length === 0 ? (
+            <EmptyHint label="No reader accounts or shares" />
+          ) : (
+            <ul className="space-y-1.5 text-xs">
+              {state.readerList.slice(0, 4).map((r) => (
+                <li
+                  key={`reader-${r.name}`}
+                  className="flex items-center justify-between"
+                >
+                  <span className="truncate text-slate-700 dark:text-slate-300">
+                    {r.name}
+                  </span>
+                  <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                    reader
+                  </span>
+                </li>
+              ))}
+              {state.shareList.slice(0, 4).map((s) => (
+                <li
+                  key={`share-${s.name}`}
+                  className="flex items-center justify-between"
+                >
+                  <span className="truncate text-slate-700 dark:text-slate-300">
+                    {s.name}
+                  </span>
+                  <span className="ml-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                    share
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </FooterPanel>
+        <FooterPanel title="Recent Org Account Events" icon={Users}>
+          {recentEvents.length === 0 ? (
+            <EmptyHint label="No account activity yet" />
+          ) : (
+            <ul className="space-y-1.5 text-xs">
+              {recentEvents.map((a) => (
+                <li
+                  key={`evt-${a.account_locator}`}
+                  className="flex items-center justify-between"
+                >
+                  <span className="truncate text-slate-700 dark:text-slate-300">
+                    Added <span className="font-medium">{a.account_name}</span>
+                  </span>
+                  <span className="ml-2 text-[10px] text-slate-400">
+                    {new Date(a.created_on).toLocaleDateString()}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </FooterPanel>
+      </div>
+
+      {/* Recommendations */}
+      <div className="grid grid-cols-1 lg:grid-cols-3">
+        <div className="lg:col-start-3">
+          <section className="rounded-xl border border-amber-200 bg-amber-50/40 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
+            <header className="mb-2 flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-600" />
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+                Recommendations
+              </h3>
+            </header>
+            <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
+              <li className="flex gap-2">
+                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                Activate replication on production accounts to enable disaster
+                recovery
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                Review inactive accounts older than 90d for decommissioning
+              </li>
+              <li className="flex gap-2">
+                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                Enable network policies on all accounts (currently{' '}
+                {networkPoliciesCount}/{totalAccounts || 0})
+              </li>
+            </ul>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
@@ -391,6 +612,45 @@ function KpiCard({
       <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">
         {loading ? '…' : value}
       </div>
+    </div>
+  );
+}
+
+function DrillRow({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="flex items-center justify-between">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="font-medium text-slate-900 dark:text-white">{value}</dd>
+    </div>
+  );
+}
+
+function FooterPanel({
+  title,
+  icon: Icon,
+  children,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+      <header className="mb-2 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-slate-500" />
+        <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+          {title}
+        </h3>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function EmptyHint({ label }: { label: string }) {
+  return (
+    <div className="rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-[11px] text-slate-400 dark:border-slate-700">
+      {label}
     </div>
   );
 }
