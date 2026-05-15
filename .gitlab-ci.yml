@@ -76,9 +76,38 @@ default:
 # BUILD STAGE — build (gate) + lint + typecheck in parallel
 # ============================================================================
 
+# Path filter — build/lint/typecheck skip when only CI/docs/markdown changed.
+# Deploy uses its own rule (main branch + this same path filter inverted so
+# CI-only commits to main still deploy via main-branch rule).
+.code-changes:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+    - if: '$CI_MERGE_REQUEST_IID'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH != "main"'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+
 build:
   stage: build
   extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
   timeout: 15 minutes
   script:
     - pnpm --filter iso build 2>&1 | tee reports/build.txt
@@ -90,6 +119,7 @@ build:
 lint:
   stage: build
   extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
   timeout: 8 minutes
   script:
     - set +e
@@ -107,6 +137,7 @@ lint:
 typecheck:
   stage: build
   extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
   timeout: 8 minutes
   script:
     - set +e
@@ -133,7 +164,12 @@ deploy:
   timeout: 15 minutes
   rules:
     - if: '$CI_COMMIT_BRANCH == "main"'
-  needs: ["build"]
+  # `build` is `optional: true` so deploy still runs on CI-only commits where
+  # build was skipped via the `.code-changes` path filter. When build IS
+  # present, deploy waits for it (stage ordering does this too).
+  needs:
+    - job: build
+      optional: true
   dependencies: []
   script:
     - set -x
@@ -145,7 +181,9 @@ deploy:
       fi
     - 'echo "Node: $(node --version), npm: $(npm --version)"'
     - VERCEL_BIN_DIR="$CI_PROJECT_DIR/.vercel-bin"
-    - npm install --prefix "$VERCEL_BIN_DIR" --silent --no-save vercel@37.14.0
+    # vercel CLI: platform endpoint requires >=47.2.2; pin to a known-good
+    # current version rather than `@latest` to avoid surprise breakage.
+    - npm install --prefix "$VERCEL_BIN_DIR" --silent --no-save vercel@47.2.2
     - export PATH="$VERCEL_BIN_DIR/node_modules/.bin:$PATH"
     - vercel --version
     # .vercel/ is gitignored; synthesise project.json at workspace root with

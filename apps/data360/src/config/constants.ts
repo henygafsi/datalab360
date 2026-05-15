@@ -9,13 +9,16 @@ export const CURRENCY_OPTIONS = {
   fractions: 2,
 };
 
-// Force HTTPS to avoid mixed-content blocks when env var is mis-set to http://...
+// Resolve API URL — force HTTPS only in production (mixed-content protection).
+// In development, respect the operator's env var so local HTTP backends work.
 function _enforceHttps(u: string): string {
   let url = (u || '').trim();
   if (!url) return 'https://www.api.datalab360.io:8443';
   if (url.startsWith('//')) url = `https:${url}`;
-  if (url.startsWith('http://')) url = `https://${url.slice(7)}`;
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (process.env.NODE_ENV === 'production' && url.startsWith('http://')) {
+    url = `https://${url.slice(7)}`;
+  }
   return url;
 }
 export const API_BASE_URL = _enforceHttps(

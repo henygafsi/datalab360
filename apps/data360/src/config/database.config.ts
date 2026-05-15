@@ -10,23 +10,28 @@
 const ENV_PRIMARY_DB = process.env.NEXT_PUBLIC_PRIMARY_DB || 'CP_DATA360';
 
 /**
- * Force HTTPS on any external API base URL.
+ * Resolve the API base URL.
  *
- * The browser is served over https in production; calling http://api.datalab360.io
- * from a https page triggers a mixed-content block. Even when the env var is
- * mis-configured (or left at a legacy default), upgrade the scheme so requests
- * never leak in clear text.
+ * In PRODUCTION, force HTTPS so mixed-content (https page → http API) never
+ * leaks credentials in the clear.
+ *
+ * In DEVELOPMENT (`NODE_ENV !== 'production'`) we trust the operator's env
+ * value verbatim — the local backend may legitimately only listen on plain
+ * HTTP (e.g. http://api.datalab360.io on port 80), and silently upgrading
+ * to https://... :443 breaks the dev signin flow with ECONNREFUSED.
  */
-function enforceHttps(rawUrl: string): string {
+function resolveApiUrl(rawUrl: string): string {
   let url = (rawUrl || '').trim();
   if (!url) return 'https://www.api.datalab360.io:8443';
   if (url.startsWith('//')) url = `https:${url}`;
-  if (url.startsWith('http://')) url = `https://${url.slice('http://'.length)}`;
   if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (process.env.NODE_ENV === 'production' && url.startsWith('http://')) {
+    url = `https://${url.slice('http://'.length)}`;
+  }
   return url;
 }
 
-const ENV_API_URL = enforceHttps(
+const ENV_API_URL = resolveApiUrl(
   process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443',
 );
 
