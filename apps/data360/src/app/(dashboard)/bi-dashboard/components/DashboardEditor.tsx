@@ -15,6 +15,7 @@ import PageTabs from './PageTabs';
 import DashboardGrid from './DashboardGrid';
 import FilterBar from './FilterBar';
 import AddWidgetPanel from './AddChartPanel';
+import ChartPaletteRail from './ChartPaletteRail';
 //import DashboardTemplates from './DashboardTemplates';
 //import type { DashboardTemplate } from './DashboardTemplates';
 import TimeIntelligenceBar, {
@@ -106,6 +107,16 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
   const [globalFilters, setGlobalFilters] = useState<DashboardFilter[]>([]);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [showAddWidget, setShowAddWidget] = useState(false);
+  // ChartPaletteRail collapse state — persisted to localStorage so the
+  // user's choice survives page reloads.
+  const [paletteCollapsed, setPaletteCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem('bi-palette-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
   const [editingWidget, setEditingWidget] = useState<DashboardWidget | null>(null);
   const [snapshotting, setSaving] = useState(false);
   const [crossWidgetFilter, setCrossWidgetFilter] = useState<Record<string, string>>({});
@@ -657,26 +668,48 @@ export default function DashboardEditor({ projectId, projectName }: DashboardEdi
         </div>
       )}*/}
 
-      {/* Dashboard Grid */}
+      {/* Dashboard area: ChartPaletteRail (left, replaces popup) + Grid */}
       {activePageId && (
-        <div data-dashboard-grid role="tabpanel" id={`tabpanel-${activePageId}`} aria-label={activePage?.title || 'Dashboard page'}>
-          <DashboardGrid
-            widgets={pageWidgets}
-            widgetResults={results}
-            previousWidgetResults={timeState.compareEnabled ? previousResults : undefined}
-            widgetErrors={errors}
-            compareEnabled={timeState.compareEnabled}
-            executingWidgetId={executingWidgetId}
-            onConfigureWidget={handleConfigureWidget}
-            onDeleteWidget={handleDeleteWidget}
-            onExecuteSingleWidget={handleExecuteSingle}
-            onAddWidget={() => setShowAddWidget(true)}
-            onLayoutChange={handleLayoutChange}
-            crossWidgetFilter={crossWidgetFilter}
-            onCrossWidgetFilter={handleCrossWidgetFilter}
-            onDrillThrough={(widget) => setDrillWidget(widget)}
-
+        <div className="flex min-h-[480px] gap-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900">
+          <ChartPaletteRail
+            projectId={projectId}
+            pageId={activePageId}
+            existingWidgets={pageWidgets}
+            onWidgetAdded={handleWidgetAdded}
+            collapsed={paletteCollapsed}
+            onCollapsedChange={(c) => {
+              setPaletteCollapsed(c);
+              try {
+                window.localStorage.setItem('bi-palette-collapsed', c ? '1' : '0');
+              } catch {
+                /* ignore */
+              }
+            }}
           />
+          <div
+            data-dashboard-grid
+            role="tabpanel"
+            id={`tabpanel-${activePageId}`}
+            aria-label={activePage?.title || 'Dashboard page'}
+            className="min-w-0 flex-1 overflow-auto"
+          >
+            <DashboardGrid
+              widgets={pageWidgets}
+              widgetResults={results}
+              previousWidgetResults={timeState.compareEnabled ? previousResults : undefined}
+              widgetErrors={errors}
+              compareEnabled={timeState.compareEnabled}
+              executingWidgetId={executingWidgetId}
+              onConfigureWidget={handleConfigureWidget}
+              onDeleteWidget={handleDeleteWidget}
+              onExecuteSingleWidget={handleExecuteSingle}
+              onAddWidget={() => setShowAddWidget(true)}
+              onLayoutChange={handleLayoutChange}
+              crossWidgetFilter={crossWidgetFilter}
+              onCrossWidgetFilter={handleCrossWidgetFilter}
+              onDrillThrough={(widget) => setDrillWidget(widget)}
+            />
+          </div>
         </div>
       )}
 

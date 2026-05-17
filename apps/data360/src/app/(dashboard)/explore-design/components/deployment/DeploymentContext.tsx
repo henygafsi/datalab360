@@ -275,6 +275,10 @@ interface DeploymentProviderProps {
   onClose?: () => void;
   /** Optional: name displayed in tracking notifications. */
   projectName?: string;
+  /** Optional: step to start at (used when resuming a saved draft). */
+  initialStep?: DeploymentStep;
+  /** Optional: config to start with (used when resuming a saved draft). */
+  initialConfig?: DeploymentConfig;
   children: React.ReactNode;
 }
 
@@ -315,10 +319,16 @@ export function DeploymentProvider({
   cleanupAppliedEvents,
   onClose,
   projectName,
+  initialStep,
+  initialConfig,
   children,
 }: DeploymentProviderProps) {
-  const [currentStep, setCurrentStep] = useState<DeploymentStep>('review');
-  const [config, setConfig] = useState<DeploymentConfig>(DEFAULT_CONFIG);
+  const [currentStep, setCurrentStep] = useState<DeploymentStep>(
+    initialStep ?? 'review',
+  );
+  const [config, setConfig] = useState<DeploymentConfig>(
+    initialConfig ?? DEFAULT_CONFIG,
+  );
   const [isValidating, setIsValidating] = useState(false);
   const [isDeploying, setIsDeploying] = useState(false);
   const [schemaVersions, setSchemaVersions] = useState<ProjectVersion[]>([]);
@@ -435,11 +445,23 @@ export function DeploymentProvider({
   const stepIndex = DEPLOYMENT_STEPS.findIndex((s) => s.key === currentStep);
 
   const goNext = useCallback(() => {
+    // Pre-checks gate: if we're on pre_checks and there's a recorded
+    // result that's NOT all-passed, block navigation. The wizard surfaces
+    // a "Fix pre-check errors before continuing" inline hint and disables
+    // the Next button — this is a belt-and-braces guard in case any other
+    // code path (e.g. keyboard shortcut) tries to advance.
+    if (
+      currentStep === 'pre_checks' &&
+      results.preChecksResult !== null &&
+      !results.preChecksAllPassed
+    ) {
+      return;
+    }
     const nextIdx = stepIndex + 1;
     if (nextIdx < DEPLOYMENT_STEPS.length) {
       setCurrentStep(DEPLOYMENT_STEPS[nextIdx].key);
     }
-  }, [stepIndex]);
+  }, [stepIndex, currentStep, results.preChecksResult, results.preChecksAllPassed]);
 
   const goPrev = useCallback(() => {
     const prevIdx = stepIndex - 1;

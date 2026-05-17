@@ -7,6 +7,7 @@ import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
+import { motion } from 'framer-motion';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
   Settings, ChevronRight, ChevronDown, Filter, Download, Upload,
@@ -3455,17 +3456,27 @@ export default function ExploreDesignPage() {
                 )}
               </div>
 
-              {/* Add to Modeling Button */}
+              {/* Add to Modeling — animated entrance, shimmer on hover */}
               {selectedTables.size > 0 && (
-                <Button
-                  size="sm"
-                  onClick={handleAddToModeling}
-                  className="w-full gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm"
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add {selectedTables.size} to Modeling
-                  <ArrowRight className="h-3 w-3 ml-auto" />
-                </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleAddToModeling}
+                    className="group relative w-full gap-2 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/40"
+                  >
+                    {/* Shimmer sweep */}
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+                    <Plus className="h-3.5 w-3.5" />
+                    Add {selectedTables.size} to Modeling
+                    <ArrowRight className="ml-auto h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                  </Button>
+                </motion.div>
               )}
             </div>
 
@@ -3658,68 +3669,112 @@ export default function ExploreDesignPage() {
                         </div>
                       </div>
 
-                      {/* Quick Actions Grid */}
+                      {/* Quick Actions Grid — 6 per-table actions with
+                          motion micro-interactions: hover lift, tap squeeze,
+                          stagger entrance. Toggle-on state uses a gradient
+                          ring instead of the older single-tone border. */}
                       <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
-                          <button
-                            className={cn(
-                              "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
-                              showInlinePreview
-                                ? "bg-blue-100 dark:bg-blue-900/40 border-blue-400 dark:border-blue-600 ring-1 ring-blue-400/50"
-                                : "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            )}
-                            onClick={() => { setShowInlinePreview(p => !p); if (!showInlinePreview) setShowInlineProfile(false); }}
-                          >
-                            <Eye className="h-5 w-5 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">{showInlinePreview ? 'Hide Preview' : 'Preview Data'}</span>
-                          </button>
-                          <button
-                            className={cn(
-                              "flex flex-col items-center gap-2 p-3 rounded-lg border hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150",
-                              showInlineProfile
-                                ? "bg-purple-100 dark:bg-purple-900/40 border-purple-400 dark:border-purple-600 ring-1 ring-purple-400/50"
-                                : "bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800 hover:bg-slate-50 dark:hover:bg-slate-800"
-                            )}
-                            onClick={() => { setShowInlineProfile(p => !p); if (!showInlineProfile) setShowInlinePreview(false); }}
-                          >
-                            <BarChart3 className="h-5 w-5 text-purple-600" />
-                            <span className="text-xs font-medium text-purple-700 dark:text-purple-400">{showInlineProfile ? 'Hide Profile' : 'Data Profile'}</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => {
-                              if (readOnlyGuard()) return;
-                              setRenameTableModal({ open: true, currentName: selectedTable.table });
-                            }}
-                          >
-                            <FileText className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                            <span className="text-xs font-medium">Rename</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => setShowIngestionPanel(true)}
-                          >
-                            <RefreshCw className="h-5 w-5 text-blue-500" />
-                            <span className="text-xs font-medium">Ingestion</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => setShowCatalogPolicyPanel(true)}
-                          >
-                            <Shield className="h-5 w-5 text-blue-500" />
-                            <span className="text-xs font-medium">Policies</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => {
-                              if (readOnlyGuard()) return;
-                              if (!selectedTable) return;
-                              setPrimaryKeyModal(true);
-                            }}
-                          >
-                            <Key className="h-5 w-5 text-amber-500" />
-                            <span className="text-xs font-medium">Primary Key</span>
-                          </button>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+                          {[
+                            {
+                              icon: Eye,
+                              label: showInlinePreview ? 'Hide Preview' : 'Preview Data',
+                              active: showInlinePreview,
+                              color: 'blue',
+                              onClick: () => {
+                                setShowInlinePreview((p) => !p);
+                                if (!showInlinePreview) setShowInlineProfile(false);
+                              },
+                            },
+                            {
+                              icon: BarChart3,
+                              label: showInlineProfile ? 'Hide Profile' : 'Data Profile',
+                              active: showInlineProfile,
+                              color: 'purple',
+                              onClick: () => {
+                                setShowInlineProfile((p) => !p);
+                                if (!showInlineProfile) setShowInlinePreview(false);
+                              },
+                            },
+                            {
+                              icon: FileText,
+                              label: 'Rename',
+                              color: 'slate',
+                              onClick: () => {
+                                if (readOnlyGuard()) return;
+                                setRenameTableModal({
+                                  open: true,
+                                  currentName: selectedTable.table,
+                                });
+                              },
+                            },
+                            {
+                              icon: RefreshCw,
+                              label: 'Ingestion',
+                              color: 'cyan',
+                              onClick: () => setShowIngestionPanel(true),
+                            },
+                            {
+                              icon: Shield,
+                              label: 'Policies',
+                              color: 'emerald',
+                              onClick: () => setShowCatalogPolicyPanel(true),
+                            },
+                            {
+                              icon: Key,
+                              label: 'Primary Key',
+                              color: 'amber',
+                              onClick: () => {
+                                if (readOnlyGuard()) return;
+                                if (!selectedTable) return;
+                                setPrimaryKeyModal(true);
+                              },
+                            },
+                          ].map((a, i) => {
+                            const Icon = a.icon;
+                            return (
+                              <motion.button
+                                key={a.label}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ duration: 0.22, delay: i * 0.03 }}
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={a.onClick}
+                                className={cn(
+                                  'group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border p-3 shadow-sm transition-shadow hover:shadow-md',
+                                  a.active
+                                    ? `border-${a.color}-300 bg-gradient-to-b from-${a.color}-50 to-white ring-1 ring-${a.color}-300/40 dark:border-${a.color}-700 dark:from-${a.color}-900/40 dark:to-slate-900`
+                                    : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900/60 dark:hover:border-slate-600',
+                                )}
+                              >
+                                {/* Subtle radial halo on hover, matches accent */}
+                                <span
+                                  className={cn(
+                                    'pointer-events-none absolute -top-6 left-1/2 h-16 w-16 -translate-x-1/2 rounded-full blur-2xl transition-opacity duration-300',
+                                    a.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
+                                    `bg-${a.color}-400/40`,
+                                  )}
+                                />
+                                <Icon
+                                  className={cn(
+                                    'relative h-5 w-5 transition-transform duration-200 group-hover:scale-110',
+                                    `text-${a.color}-600 dark:text-${a.color}-400`,
+                                  )}
+                                />
+                                <span
+                                  className={cn(
+                                    'relative text-xs font-medium',
+                                    a.active
+                                      ? `text-${a.color}-700 dark:text-${a.color}-300`
+                                      : 'text-slate-700 dark:text-slate-200',
+                                  )}
+                                >
+                                  {a.label}
+                                </span>
+                              </motion.button>
+                            );
+                          })}
                           {/*<button
                             className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
                             onClick={() => toast('Column naming rules — coming soon')}
