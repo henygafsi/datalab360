@@ -200,8 +200,13 @@ const DEFAULT_OPTIONS: RecommendationOption[] = [
 
 function buildUnderstandingPrompt(description: string): string {
   const desc = description.slice(0, 500);
-  return `Extract workflow intent. Output ONLY this JSON:
-{"business_context":{"domain":"","primary_goal":"","key_object":"","expected_outcome":"","ai_usage":"Low|Medium|High","automation_level":"Low|Medium|High","users":""},"sources_detected":[{"name":"","status":"existing|requested|missing"}],"intent_confidence":0}
+  // Explicit "integer 0 to 100" stops Mistral from returning 0.85.
+  // Max 3 sources keeps the response short enough to fit in the 15s
+  // Snowflake Cortex window without getting truncated.
+  return `Extract workflow intent. Output ONLY valid JSON (no markdown, all braces closed):
+{"business_context":{"domain":"","primary_goal":"","key_object":"","expected_outcome":"","ai_usage":"Low|Medium|High","automation_level":"Low|Medium|High","users":""},"sources_detected":[{"name":"","status":"existing|requested|missing"}],"intent_confidence":85}
+
+Rules: intent_confidence MUST be an integer between 0 and 100 (not a decimal). Maximum 3 sources_detected items. Use short single-word values where possible.
 
 Input: ${desc}`;
 }
@@ -225,17 +230,109 @@ function buildCodePrompt(workflow: { nodes: Node[]; edges: Edge[] } | null): str
 Workflow: ${summary}`;
 }
 
-// Best-effort parser: strip code fences, JSON.parse, return null on failure.
+/**
+ * Best-effort LLM JSON parser.
+ *
+ * Handles four common failure modes we've observed in prod:
+ *  1. Markdown code fences (```json ... ```) — stripped
+ *  2. Leading commentary before the first `{` — sliced off
+ *  3. Trailing commentary after the last balanced `}` — also sliced
+ *  4. **TRUNCATED JSON** (the model hit a token cap mid-response) —
+ *     we auto-close missing `]` and `}` based on bracket depth tracking
+ *     and a fallback to "trim back to the last syntactically-complete
+ *     position" before re-attempting JSON.parse.
+ *
+ * Returns null only if even the repaired version doesn't parse.
+ */
 function parseLlmJson<T>(raw: string): T | null {
-  const cleaned = raw
+  // 1. Strip code fences
+  let s = raw
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```\s*$/, '')
     .trim();
+
+  // 2. Slice from first '{' or '[' to the end — drops any "Here is the JSON:"
+  const firstBrace = s.search(/[{[]/);
+  if (firstBrace > 0) s = s.slice(firstBrace);
+
+  // 3. Try as-is
   try {
-    return JSON.parse(cleaned) as T;
+    return JSON.parse(s) as T;
   } catch {
-    return null;
+    /* fall through to repair */
   }
+
+  // 4. Repair: count open vs close braces/brackets ignoring those inside
+  // strings, then append the missing closers.
+  let depthBrace = 0;
+  let depthBracket = 0;
+  let inString = false;
+  let escape = false;
+  let lastSafe = -1; // index after last syntactically-complete top-level chunk
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (c === '\\') {
+      escape = true;
+      continue;
+    }
+    if (c === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (c === '{') depthBrace++;
+    else if (c === '}') depthBrace--;
+    else if (c === '[') depthBracket++;
+    else if (c === ']') depthBracket--;
+    if (depthBrace === 0 && depthBracket === 0) lastSafe = i + 1;
+  }
+
+  // If the string ends inside a string literal, close it first
+  if (inString) s += '"';
+  // Append missing closers in the right order — close brackets before
+  // braces matches the typical nesting (arrays inside objects).
+  while (depthBracket > 0) {
+    s += ']';
+    depthBracket--;
+  }
+  while (depthBrace > 0) {
+    s += '}';
+    depthBrace--;
+  }
+
+  try {
+    return JSON.parse(s) as T;
+  } catch {
+    /* fall through */
+  }
+
+  // 5. Last-ditch: trim to the last fully-balanced position and try again
+  if (lastSafe > 0 && lastSafe < s.length) {
+    try {
+      return JSON.parse(s.slice(0, lastSafe)) as T;
+    } catch {
+      /* nothing more we can do */
+    }
+  }
+  return null;
+}
+
+/**
+ * Normalize the AI's `intent_confidence` field. Mistral-7b often returns
+ * 0.85 (decimal 0-1) even when the prompt says 0-100. We accept either
+ * and always store/render as an integer 0-100.
+ */
+function normalizeConfidence(value: unknown): number {
+  const n = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(n)) return 0;
+  // Values 0-1 are treated as a fraction
+  if (n > 0 && n <= 1) return Math.round(n * 100);
+  // Otherwise clamp to 0-100
+  return Math.max(0, Math.min(100, Math.round(n)));
 }
 
 // Topological-ish layout for generated blocks
@@ -403,7 +500,14 @@ export default function GuidedAiWorkflowWizard({
         setAiError({ kind: 'parse', retry: runUnderstanding, raw });
         return;
       }
-      update('understanding', parsed);
+      // Normalize the confidence field — Mistral often returns a fraction
+      // (e.g. 0.85) even when the prompt says "0-100". Defensive cast keeps
+      // the UI bar accurate regardless of which scale the model picked.
+      const normalized: AiUnderstanding = {
+        ...parsed,
+        intent_confidence: normalizeConfidence(parsed.intent_confidence),
+      };
+      update('understanding', normalized);
       setStep(2);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
