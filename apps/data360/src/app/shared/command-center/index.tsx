@@ -649,11 +649,13 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
   setFilters,
   options,
   lastUpdated,
+  isRefreshing,
 }: {
   filters: CommandCenterFilters;
   setFilters: (f: CommandCenterFilters) => void;
   options: FilterOptionsResponse | null;
   lastUpdated: Date | null;
+  isRefreshing?: boolean;
 }) {
   const [showCustomRange, setShowCustomRange] = useState(false);
   const [customStart, setCustomStart] = useState(filters.start_date || '');
@@ -664,14 +666,48 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
   );
   const isCustom = !!filters.start_date;
 
+  // Build active-filter chip list. Each entry includes a clearer so users
+  // can drop one filter without nuking the whole bar.
+  const activeChips: { label: string; value: string; clear: () => void }[] = [];
+  if (filters.project_type)
+    activeChips.push({
+      label: 'Project',
+      value: filters.project_type.replace(/_/g, ' '),
+      clear: () => setFilters({ ...filters, project_type: undefined }),
+    });
+  if (filters.username)
+    activeChips.push({
+      label: 'User',
+      value: filters.username,
+      clear: () => setFilters({ ...filters, username: undefined }),
+    });
+  if (filters.role_name)
+    activeChips.push({
+      label: 'Role',
+      value: filters.role_name,
+      clear: () => setFilters({ ...filters, role_name: undefined }),
+    });
+  if (filters.environment)
+    activeChips.push({
+      label: 'Env',
+      value: filters.environment,
+      clear: () => setFilters({ ...filters, environment: undefined }),
+    });
+  if (filters.status)
+    activeChips.push({
+      label: 'Status',
+      value: filters.status,
+      clear: () => setFilters({ ...filters, status: undefined }),
+    });
+  if (filters.module_name)
+    activeChips.push({
+      label: 'Module',
+      value: filters.module_name,
+      clear: () => setFilters({ ...filters, module_name: undefined }),
+    });
+
   const hasFilters =
-    filters.project_type ||
-    filters.username ||
-    filters.status ||
-    filters.environment ||
-    filters.module_name ||
-    filters.days !== 30 ||
-    filters.start_date;
+    activeChips.length > 0 || filters.days !== 30 || filters.start_date;
 
   const handlePresetClick = useCallback(
     (preset: TimePreset) => {
@@ -746,7 +782,19 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
 
         {/* Last updated + auto-refresh indicator */}
         <div className="ml-auto flex items-center gap-3">
-          {lastUpdated && (
+          {isRefreshing && (
+            <span
+              className="flex items-center gap-1.5 text-xs font-medium text-primary"
+              aria-live="polite"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-primary" />
+              </span>
+              Refreshing…
+            </span>
+          )}
+          {lastUpdated && !isRefreshing && (
             <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-gray-400">
               <Timer className="h-3 w-3" />
               Updated {relativeTime(lastUpdated.toISOString())}
@@ -867,12 +915,45 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
         {hasFilters && (
           <button
             onClick={() => setFilters({ days: 30 })}
+            title="Clear all filters (Esc)"
             className="ml-auto flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1.5 text-xs text-red-600 transition-colors hover:bg-red-100 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50"
           >
-            <X className="h-3 w-3" /> Clear All
+            <X className="h-3 w-3" />
+            Clear all
+            {activeChips.length > 0 && (
+              <span className="ml-1 rounded-full bg-red-100 px-1.5 text-[10px] font-semibold text-red-700 dark:bg-red-800/60 dark:text-red-200">
+                {activeChips.length}
+              </span>
+            )}
           </button>
         )}
       </div>
+
+      {/* Active filter chips — shows exactly what's narrowing the data right now */}
+      {activeChips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 px-1">
+          <span className="text-[11px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            Active:
+          </span>
+          {activeChips.map((chip) => (
+            <span
+              key={`${chip.label}:${chip.value}`}
+              className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[11px] text-primary dark:border-primary/40 dark:bg-primary/10"
+            >
+              <span className="font-medium">{chip.label}:</span>
+              <span className="max-w-[14ch] truncate">{chip.value}</span>
+              <button
+                type="button"
+                onClick={chip.clear}
+                aria-label={`Clear ${chip.label} filter`}
+                className="rounded-full p-0.5 transition-colors hover:bg-primary/20"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 });
@@ -1235,6 +1316,20 @@ function CommandCenterDashboardInner() {
   );
   const CACHE_TTL_MS = 120_000; // 2 minutes client-side cache
 
+  // Shared activity-feed cache (limit=100). Overview slices to 10 in render,
+  // Platform Activity renders the full list — one fetch serves both tabs.
+  // filtersKey ensures we don't reuse a feed fetched for a different scope.
+  const activityFeedRef = useRef<{
+    data: ActivityFeedResponse;
+    timestamp: number;
+    filtersKey: string;
+  } | null>(null);
+  const moduleHealthRef = useRef<{
+    data: ModuleHealthResponse;
+    timestamp: number;
+    daysKey: number;
+  } | null>(null);
+
   // Note: render-level crash protection is handled by CommandCenterErrorBoundary (class component below).
 
   // Data states per tab
@@ -1314,37 +1409,104 @@ function CommandCenterDashboardInner() {
             setTimeout(() => resolve(null), OVERVIEW_TIMEOUT_MS),
           ),
         ]);
-      const [s, mh, af, kpis] = await Promise.all([
-        withTimeout(getSummary(filterParams)),
-        withTimeout(getModuleHealth({ days: filters.days })),
-        withTimeout(
-          getActivityFeed(10, {
-            days: filters.days,
-            module_name: filters.module_name,
-            username: filters.username,
-          }),
-        ),
-        withTimeout(getIntelligentKpis()),
-      ]);
+      // Activity feed: fetch limit=100 (same as Platform Activity tab) so both
+      // tabs share one network round-trip. Overview's render layer already
+      // slices to 10, so behaviour is identical. If Platform Activity already
+      // populated activityFeed during this session, reuse it directly.
+      const cachedFeed = activityFeedRef.current;
+      const cachedFeedFresh =
+        cachedFeed &&
+        cachedFeed.filtersKey ===
+          `${filters.days}|${filters.module_name ?? ''}|${filters.username ?? ''}` &&
+        Date.now() - cachedFeed.timestamp < CACHE_TTL_MS;
+
+      const activityFeedTask = cachedFeedFresh
+        ? Promise.resolve(cachedFeed!.data)
+        : withTimeout(
+            getActivityFeed(100, {
+              days: filters.days,
+              module_name: filters.module_name,
+              username: filters.username,
+            }),
+          );
+
+      // Module-health only depends on `days` — reuse cache when only
+      // user/module filters changed. Backend call is ~17s so the win is real.
+      const cachedMh = moduleHealthRef.current;
+      const cachedMhFresh =
+        cachedMh &&
+        cachedMh.daysKey === filters.days &&
+        Date.now() - cachedMh.timestamp < CACHE_TTL_MS;
+      const moduleHealthTask: Promise<ModuleHealthResponse | null> = cachedMhFresh
+        ? Promise.resolve(cachedMh!.data)
+        : withTimeout(getModuleHealth({ days: filters.days }));
+
+      // Progressive resolution: each call resolves into its own state
+      // independently so the UI reveals as fast as the fastest call.
+      // `getSummary` is the slowest (8-28s); `getIntelligentKpis` is usually
+      // a sub-second cache hit. Previously the whole tab waited for the slow
+      // one. We track readiness flags and tear down the spinner the moment
+      // either kpis OR summary returns successfully — whichever lands first.
+      let firstHit = false;
+      const dropSpinner = () => {
+        if (firstHit) return;
+        firstHit = true;
+        setTabLoading((p) => ({ ...p, overview: false }));
+        setIsLoading(false);
+        setLastUpdated(new Date());
+        tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
+      };
+
+      const summaryP = withTimeout(getSummary(filterParams)).then((s) => {
+        if (s && !isApiError(s)) setSummary(s);
+        dropSpinner();
+        return s;
+      });
+      const mhP = moduleHealthTask.then((mh) => {
+        if (mh && !isApiError(mh)) {
+          setModuleHealth(mh);
+          moduleHealthRef.current = {
+            data: mh,
+            timestamp: Date.now(),
+            daysKey: filters.days,
+          };
+        }
+        return mh;
+      });
+      const afP = activityFeedTask.then((af) => {
+        if (af && !isApiError(af)) {
+          setActivityFeed(af);
+          activityFeedRef.current = {
+            data: af,
+            timestamp: Date.now(),
+            filtersKey: `${filters.days}|${filters.module_name ?? ''}|${filters.username ?? ''}`,
+          };
+        }
+        return af;
+      });
+      const kpisP = withTimeout(getIntelligentKpis()).then((kpis) => {
+        if (kpis && !isApiError(kpis)) setObsKpis(kpis);
+        dropSpinner();
+        return kpis;
+      });
+
+      // Wait for ALL to settle so we can flag "backend unreachable" if every
+      // call failed. Per-call .catch was already inside withTimeout, so this
+      // Promise.all never rejects.
+      const [s, mh, af, kpis] = await Promise.all([summaryP, mhP, afP, kpisP]);
       const gotSummary = !!(s && !isApiError(s));
       const gotModuleHealth = !!(mh && !isApiError(mh));
       const gotActivity = !!(af && !isApiError(af));
       const gotKpis = !!(kpis && !isApiError(kpis));
-      if (gotSummary) setSummary(s!);
-      if (gotModuleHealth) setModuleHealth(mh!);
-      if (gotActivity) setActivityFeed(af!);
-      if (gotKpis) setObsKpis(kpis!);
-      // If every backend call returned null/error, the API is unreachable —
-      // flag it so the page can render a one-shot banner instead of four
-      // empty chart cards.
       setBackendUnreachable(!gotSummary && !gotModuleHealth && !gotActivity && !gotKpis);
-      setLastUpdated(new Date());
-      tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
+      // Safety net: if nothing landed (every call timed out), drop the
+      // spinner so the user sees the empty-state banner instead of an
+      // infinite skeleton.
+      dropSpinner();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load summary';
       setError(msg);
       toast.error(msg);
-    } finally {
       setTabLoading((p) => ({ ...p, overview: false }));
       setIsLoading(false);
     }
@@ -1503,16 +1665,35 @@ function CommandCenterDashboardInner() {
   const fetchPlatformActivity = useCallback(async () => {
     setTabLoading((p) => ({ ...p, 'platform-activity': true }));
     try {
+      const feedFiltersKey = `${filters.days}|${filters.module_name ?? ''}|${filters.username ?? ''}`;
+      const cachedFeed = activityFeedRef.current;
+      const cachedFeedFresh =
+        cachedFeed &&
+        cachedFeed.filtersKey === feedFiltersKey &&
+        Date.now() - cachedFeed.timestamp < CACHE_TTL_MS;
+
+      // Reuse Overview's limit=100 activity-feed fetch when available.
+      const activityFeedTask: Promise<ActivityFeedResponse | null> = cachedFeedFresh
+        ? Promise.resolve(cachedFeed!.data)
+        : getActivityFeed(100, {
+            days: filters.days,
+            module_name: filters.module_name,
+            username: filters.username,
+          });
+
       const [plat, af] = await Promise.all([
         getPlatformActivityFiltered(filters),
-        getActivityFeed(100, {
-          days: filters.days,
-          module_name: filters.module_name,
-          username: filters.username,
-        }),
+        activityFeedTask,
       ]);
       if (!isApiError(plat)) setPlatformData(plat);
-      if (!isApiError(af)) setActivityFeed(af);
+      if (af && !isApiError(af)) {
+        setActivityFeed(af);
+        activityFeedRef.current = {
+          data: af,
+          timestamp: Date.now(),
+          filtersKey: feedFiltersKey,
+        };
+      }
       setLastUpdated(new Date());
       tabDataCache.current['platform-activity'] = {
         data: true,
@@ -1578,6 +1759,8 @@ function CommandCenterDashboardInner() {
   const handleRefresh = useCallback(() => {
     // Invalidate client-side tab cache on manual refresh
     tabDataCache.current = {};
+    activityFeedRef.current = null;
+    moduleHealthRef.current = null;
     setSummary(null);
     setModuleHealth(null);
     setActivityFeed(null);
@@ -1723,9 +1906,26 @@ function CommandCenterDashboardInner() {
           role="tablist"
           aria-label="Account overview tabs"
         >
-          {tabs.map((tab) => {
+          {tabs.map((tab, idx) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
+            const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+              // WAI-ARIA tabs pattern: Left/Right move focus + select; Home/End jump to edges.
+              let nextIdx: number | null = null;
+              if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
+              else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
+              else if (e.key === 'Home') nextIdx = 0;
+              else if (e.key === 'End') nextIdx = tabs.length - 1;
+              if (nextIdx === null) return;
+              e.preventDefault();
+              const nextTab = tabs[nextIdx];
+              startTabTransition(() => setActiveTab(nextTab.id));
+              // Move focus to the newly selected tab on the next paint.
+              window.requestAnimationFrame(() => {
+                const el = document.getElementById(`tab-${nextTab.id}`);
+                el?.focus();
+              });
+            };
             return (
               <button
                 key={tab.id}
@@ -1733,9 +1933,11 @@ function CommandCenterDashboardInner() {
                 aria-selected={isActive}
                 aria-controls={`tabpanel-${tab.id}`}
                 id={`tab-${tab.id}`}
+                tabIndex={isActive ? 0 : -1}
+                onKeyDown={onTabKeyDown}
                 onClick={() => startTabTransition(() => setActiveTab(tab.id))}
                 className={cn(
-                  'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors',
+                  'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
                   isActive
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
@@ -1755,6 +1957,7 @@ function CommandCenterDashboardInner() {
         setFilters={setFilters}
         options={filterOptions}
         lastUpdated={lastUpdated}
+        isRefreshing={!!tabLoading[activeTab]}
       />
 
       {/* ── Tab Content ───────────────────────────────────────────── */}
@@ -1772,6 +1975,7 @@ function CommandCenterDashboardInner() {
             obsKpis={obsKpis}
             healthScore={healthScore}
             loading={tabLoading.overview}
+            onRetry={fetchOverview}
           />
         )}
         {activeTab === 'snowflake-objects' && (
@@ -1827,18 +2031,33 @@ function CommandCenterDashboardInner() {
 
 function TasksQuickWidget() {
   const [taskData, setTaskData] = useState<any>(null);
+  const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setStatus('loading');
     apiClient
       .get('/observability/lineage/with-tasks', { params: { days: 7 } })
-      .then((res) => setTaskData(res.data))
-      .catch(() => {}); // non-blocking — widget is optional
-  }, []);
+      .then((res) => {
+        if (cancelled) return;
+        setTaskData(res.data);
+        setStatus('ok');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt]);
 
   const active = taskData?.summary?.active_tasks ?? 0;
   const suspended = taskData?.summary?.suspended_tasks ?? 0;
   const succeeded = taskData?.task_stats?.succeeded ?? 0;
   const failed = taskData?.task_stats?.failed ?? 0;
+  const total = active + suspended + succeeded + failed;
 
   return (
     <div className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
@@ -1853,34 +2072,53 @@ function TasksQuickWidget() {
           View All &rarr;
         </a>
       </div>
-      {active + suspended + succeeded + failed > 0 ? (
+      {status === 'loading' && (
+        <div className="grid grid-cols-4 gap-2 text-center">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="space-y-1">
+              <div className="mx-auto h-5 w-8 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+              <div className="mx-auto h-3 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" />
+            </div>
+          ))}
+        </div>
+      )}
+      {status === 'error' && (
+        <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
+          <p className="text-sm font-medium text-gray-600 dark:text-gray-300">
+            Couldn't load tasks
+          </p>
+          <p className="text-xs text-gray-500">
+            Observability endpoint didn't respond.
+          </p>
+          <button
+            onClick={() => setAttempt((a) => a + 1)}
+            className="rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-200 dark:hover:bg-gray-800"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+      {status === 'ok' && total > 0 && (
         <div className="grid grid-cols-4 gap-2 text-center">
           <div>
             <p className="text-lg font-bold text-green-600">{active}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">
-              Active
-            </p>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400">Active</p>
           </div>
           <div>
             <p className="text-lg font-bold text-amber-600">{suspended}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">
-              Suspended
-            </p>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400">Suspended</p>
           </div>
           <div>
             <p className="text-lg font-bold text-blue-600">{succeeded}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">
-              Succeeded
-            </p>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400">Succeeded</p>
           </div>
           <div>
             <p className="text-lg font-bold text-red-600">{failed}</p>
-            <p className="text-[10px] text-gray-500 dark:text-gray-400">
-              Failed
-            </p>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400">Failed</p>
           </div>
         </div>
-      ) : (
+      )}
+      {status === 'ok' && total === 0 && (
         <div className="flex flex-col items-center justify-center py-4 text-center">
           <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
             No Snowflake tasks scheduled
@@ -1906,7 +2144,9 @@ const OverviewTab = memo(function OverviewTab({
   obsKpis,
   healthScore,
   loading,
+  onRetry,
 }: {
+  onRetry?: () => void;
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
@@ -1930,30 +2170,36 @@ const OverviewTab = memo(function OverviewTab({
     refresh: refreshKpis,
   } = useOverviewKpis('30d');
 
-  // Only skeleton while we're actively loading. When loading is false but
-  // summary is still null (every backend call failed or timed out), render
-  // an empty-state with retry instead of an infinite skeleton.
-  if (loading) return <LoadingSection />;
-  // Backend now returns a structured empty envelope with _fallback=true when
-  // the metadata DB / ACCOUNT_USAGE views aren't reachable, so the Overview
-  // can still render with zeros + a notice instead of an opaque error.
+  // Only skeleton while we're actively loading AND we have nothing to show.
+  // If kpis or summary has landed, we can render immediately — partial data
+  // is better than a 25s spinner.
+  if (loading && !summary && !kpis) return <LoadingSection />;
+  // Backend may return a structured empty envelope with _fallback=true when
+  // the metadata DB / ACCOUNT_USAGE views aren't reachable.
   const summaryFallback = (summary as { _fallback?: boolean } | null)?._fallback === true;
-  if (!summary) {
+  // Hard-fail state: nothing landed at all (neither summary nor kpis) AND
+  // we're no longer loading — surface a retry instead of empty cards.
+  if (!summary && !kpis && !loading) {
     return (
       <div className="mx-4 mt-6 rounded-xl border border-amber-200 bg-amber-50 p-6 dark:border-amber-900/40 dark:bg-amber-900/20">
         <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">
           Couldn't load the overview
         </h3>
         <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">
-          Some backend endpoints (e.g. /command-center/summary) didn't respond.
-          You can retry, or switch to another tab that has its own data fetch.
+          Both /command-center/summary and /command-center/overview-kpis
+          didn't respond. Retry, or switch to another tab.
         </p>
-        <button
-          onClick={() => window.location.reload()}
-          className="mt-3 inline-flex items-center rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
-        >
-          Retry
-        </button>
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={() => {
+              onRetry?.();
+              refreshKpis();
+            }}
+            className="inline-flex items-center rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -2016,6 +2262,25 @@ const OverviewTab = memo(function OverviewTab({
           Some Snowflake views (e.g. <code>SNOWFLAKE.ACCOUNT_USAGE.*</code>,
           <code> CP_DATA360.EVENT_STORE.*</code>) are not readable with the
           current role. KPIs that depend on them show as zero.
+        </div>
+      )}
+      {/* Partial-failure banner: rendering from cached KPIs but the slower
+          summary call didn't return. User can retry just that call without
+          reloading the whole page. */}
+      {!summary && kpis && !loading && (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          <span>
+            <span className="font-semibold">Showing cached snapshot.</span> Live
+            summary (MFA, AI models, quality) didn't respond yet.
+          </span>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="inline-flex items-center rounded-md border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60"
+            >
+              Retry
+            </button>
+          )}
         </div>
       )}
 

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, Component, type ReactNode } from 'react';
-import { PiWarningCircleBold } from 'react-icons/pi';
+import { useState, Component, type ReactNode } from 'react';
+import { PiWarningCircleBold, PiChartLineUp, PiShieldCheck, PiBuildings } from 'react-icons/pi';
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
 import Breadcrumb from '@/components/ui/Breadcrumb';
@@ -55,32 +55,14 @@ class AccountOverviewErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 }
 
+const RELATED_MODULES = [
+  { href: '/observability', label: 'Observability', sublabel: 'Monitoring', Icon: PiChartLineUp },
+  { href: '/governance', label: 'Governance', sublabel: 'Security', Icon: PiShieldCheck },
+  { href: '/client-accounts', label: 'Client Accounts', sublabel: 'Org', Icon: PiBuildings },
+] as const;
+
 export default function AccountOverviewPage() {
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Allow the component tree to mount, then hide loading
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 100);
-    return () => clearTimeout(timer);
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="space-y-6 p-4">
-        <div className="h-16 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
-          ))}
-        </div>
-        <div className="h-48 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
-        <div className="h-48 bg-gray-200 dark:bg-gray-700 rounded-xl animate-pulse" />
-      </div>
-    );
-  }
 
   if (error) {
     return (
@@ -100,13 +82,29 @@ export default function AccountOverviewPage() {
       </div>
       <CommandCenterDashboard />
       <OnboardingTour />
-      {/* Cross-module links */}
-      <div className="mx-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
-        <span>Related:</span>
-        <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Monitoring)</a>
-        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Security)</a>
-        <a href="/client-accounts" className="text-blue-600 dark:text-blue-400 hover:underline">Client Accounts (Org)</a>
-      </div>
+      {/* Related modules */}
+      <nav
+        aria-label="Related modules"
+        className="mx-4 mt-6 pt-4 border-t border-slate-200 dark:border-slate-700"
+      >
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          Explore related
+        </p>
+        <ul className="flex flex-wrap gap-2">
+          {RELATED_MODULES.map(({ href, label, sublabel, Icon }) => (
+            <li key={href}>
+              <a
+                href={href}
+                className="group inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/40 dark:hover:text-blue-300"
+              >
+                <Icon className="h-4 w-4 text-slate-500 group-hover:text-blue-600 dark:text-slate-400 dark:group-hover:text-blue-400" aria-hidden />
+                <span className="font-medium">{label}</span>
+                <span className="text-xs text-slate-400 dark:text-slate-500">{sublabel}</span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </AccountOverviewErrorBoundary>
   );
 }
