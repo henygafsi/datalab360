@@ -77,6 +77,11 @@ export default function ProjectSelector({
   const [selectedInModal, setSelectedInModal] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  // Modal tab: 'pick' = list of existing projects (default — what users do
+  // 90% of the time), 'create' = the new-project form with team members.
+  // When the modal opens and there are zero projects, jump to 'create'
+  // automatically so the user doesn't land on an empty list.
+  const [modalTab, setModalTab] = useState<'pick' | 'create'>('pick');
 
   // Form is dirty when user has typed anything into name or description fields
   const isDirty = useMemo(
@@ -270,6 +275,13 @@ export default function ProjectSelector({
     }
   }, [loading, safeProjects, autoSelectProjectId, onProjectSelect]);
 
+  // When the modal opens with zero projects available, switch the tab to
+  // 'create' so the user doesn't see an empty "Pick existing" list.
+  useEffect(() => {
+    if (!showModal) return;
+    if (!loading && safeProjects.length === 0) setModalTab('create');
+  }, [showModal, loading, safeProjects.length]);
+
   // Modal auto-open removed. Previously this forced the popup the moment
   // the page loaded without a selected project, which trapped users behind
   // a modal and (per product feedback) felt aggressive. The page now shows
@@ -333,65 +345,282 @@ export default function ProjectSelector({
           }
           attemptCloseModal();
         }}
-        customSize="860px"
+        customSize="640px"
       >
-        <div className="p-6">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg shadow-blue-500/20">
-                <FolderOpen className="h-6 w-6 text-white" />
+        <div className="flex flex-col">
+          {/* ── Header (compact) ────────────────────────────────────── */}
+          <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-700">
+            <div className="flex items-center gap-2.5">
+              <div className="rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 p-1.5 shadow-md shadow-blue-500/20">
+                <FolderOpen className="h-4 w-4 text-white" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white">
-                  Project Management
+                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                  Switch project
                 </h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400">
-                  Create a new project or select an existing one to continue
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Pick an existing project or start a new one.
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <Tooltip content="Refresh projects">
                 <button
-                  className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
                   onClick={() => refetch()}
                   disabled={isStale}
                 >
-                  <RefreshCw
-                    className={cn('h-4.5 w-4.5 text-slate-400', isStale && 'animate-spin')}
-                  />
+                  <RefreshCw className={cn('h-4 w-4', isStale && 'animate-spin')} />
                 </button>
               </Tooltip>
-              {(selectedProjectId || isDirty) && (
-                <button
-                  className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                  onClick={attemptCloseModal}
-                  aria-label="Close project management"
-                >
-                  <X className="h-4.5 w-4.5 text-slate-400" />
-                </button>
-              )}
+              <button
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+                onClick={attemptCloseModal}
+                aria-label="Close project management"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* ── Left: Create New Project ── */}
-            <div className="border dark:border-slate-700 rounded-xl p-5 bg-gradient-to-br from-blue-50/80 to-indigo-50/80 dark:from-blue-900/15 dark:to-indigo-900/15">
-              <div className="flex items-center gap-2 mb-4">
-                <div className="p-1.5 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
-                  <FolderPlus className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                </div>
-                <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                  Create New Project
-                </h3>
+          {/* ── Tabs ────────────────────────────────────────────────── */}
+          <div className="flex border-b border-slate-200 px-4 dark:border-slate-700">
+            {([
+              { id: 'pick', label: 'Pick existing', count: safeProjects.length },
+              { id: 'create', label: 'Create new', count: null as number | null },
+            ] as const).map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setModalTab(t.id)}
+                className={cn(
+                  'relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
+                  modalTab === t.id
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+                )}
+              >
+                {t.label}
+                {t.count !== null && t.count > 0 && (
+                  <span
+                    className={cn(
+                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                      modalTab === t.id
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                    )}
+                  >
+                    {t.count}
+                  </span>
+                )}
+                {modalTab === t.id && (
+                  <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-blue-500" />
+                )}
+              </button>
+            ))}
+            {selectedProjectId && (
+              <div className="ml-auto flex items-center gap-1.5 self-center text-[11px] text-slate-500 dark:text-slate-400">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
+                Working on
+                <span className="font-medium text-slate-800 dark:text-slate-200">
+                  {selectedProject?.name}
+                </span>
               </div>
+            )}
+          </div>
 
+          {/* ── Body ────────────────────────────────────────────────── */}
+          <div className="px-5 py-4">
+
+            {/* ── PICK EXISTING tab ─────────────────────────────────── */}
+            {modalTab === 'pick' && (
+              <>
+                {/* Sticky search header */}
+                <div className="relative mb-3">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    size="sm"
+                    value={projectSearch}
+                    onChange={(e) => setProjectSearch(e.target.value)}
+                    placeholder={`Search ${safeProjects.length} project${safeProjects.length === 1 ? '' : 's'}…`}
+                    className="pl-8"
+                  />
+                </div>
+
+                {loading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  </div>
+                ) : safeProjects.length === 0 ? (
+                  <div className="py-10 text-center">
+                    <FolderOpen className="mx-auto mb-2 h-8 w-8 text-slate-300 dark:text-slate-600" />
+                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                      No projects yet
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Switch to the &ldquo;Create new&rdquo; tab to start one.
+                    </p>
+                    <Button
+                      size="sm"
+                      className="mt-3 gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
+                      onClick={() => setModalTab('create')}
+                    >
+                      <FolderPlus className="h-3.5 w-3.5" />
+                      Create first project
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className="max-h-[420px] divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700"
+                    role="listbox"
+                    aria-label="Existing projects"
+                  >
+                    {filteredProjects.length === 0 ? (
+                      <div className="py-8 text-center text-xs text-slate-400">
+                        No projects match &ldquo;{projectSearch}&rdquo;
+                      </div>
+                    ) : (
+                      filteredProjects.map((project, idx) => {
+                        const isSelected = selectedInModal === project.project_id;
+                        const isCurrent = selectedProjectId === project.project_id;
+                        const isOwner =
+                          project.created_by.toLowerCase() ===
+                          currentUsername.toLowerCase();
+                        return (
+                          <button
+                            key={project.project_id}
+                            role="option"
+                            aria-selected={isSelected}
+                            tabIndex={0}
+                            className={cn(
+                              'group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
+                              'focus:bg-blue-50/60 focus:outline-none dark:focus:bg-blue-900/15',
+                              isSelected
+                                ? 'bg-blue-50 dark:bg-blue-900/20'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50',
+                            )}
+                            onClick={() => setSelectedInModal(project.project_id)}
+                            onDoubleClick={(e) => {
+                              e.preventDefault();
+                              setSelectedInModal(project.project_id);
+                              onProjectSelect(project.project_id, project.name);
+                              setShowModal(false);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setSelectedInModal(project.project_id);
+                                onProjectSelect(project.project_id, project.name);
+                                setShowModal(false);
+                              } else if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                const next = filteredProjects[idx + 1];
+                                if (next) {
+                                  setSelectedInModal(next.project_id);
+                                  const el = e.currentTarget.parentElement
+                                    ?.children[idx + 1] as HTMLElement | undefined;
+                                  el?.focus();
+                                }
+                              } else if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                const prev = filteredProjects[idx - 1];
+                                if (prev) {
+                                  setSelectedInModal(prev.project_id);
+                                  const el = e.currentTarget.parentElement
+                                    ?.children[idx - 1] as HTMLElement | undefined;
+                                  el?.focus();
+                                }
+                              }
+                            }}
+                          >
+                            <FolderOpen
+                              className={cn(
+                                'h-4 w-4 shrink-0',
+                                isSelected
+                                  ? 'text-blue-600 dark:text-blue-400'
+                                  : 'text-slate-400 group-hover:text-slate-600',
+                              )}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={cn(
+                                    'truncate text-sm font-medium',
+                                    isSelected
+                                      ? 'text-blue-700 dark:text-blue-300'
+                                      : 'text-slate-800 dark:text-slate-200',
+                                  )}
+                                >
+                                  {project.name}
+                                </span>
+                                {isCurrent && (
+                                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                                    current
+                                  </span>
+                                )}
+                              </div>
+                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
+                                <span className="flex items-center gap-1">
+                                  <User className="h-2.5 w-2.5" />
+                                  {project.created_by}
+                                </span>
+                                {project.created_at && (
+                                  <span className="flex items-center gap-1">
+                                    <Clock className="h-2.5 w-2.5" />
+                                    {new Date(project.created_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                                <span
+                                  className={cn(
+                                    'rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide',
+                                    isOwner
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/25 dark:text-amber-300'
+                                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                                  )}
+                                >
+                                  {isOwner ? 'owner' : 'contributor'}
+                                </span>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <PiCheckCircleDuotone
+                                className="h-4 w-4 shrink-0 text-blue-600"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+
+                {/* Footer: open selected + hint. Only the chosen project is
+                    "opened"; no extra "continue" if user already double-clicked. */}
+                {safeProjects.length > 0 && (
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-slate-400">
+                      Tip: Double-click or press Enter to open.
+                    </p>
+                    <Button
+                      className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
+                      onClick={handleSelectProject}
+                      disabled={!selectedInModal}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Open project
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ── CREATE NEW tab ────────────────────────────────────── */}
+            {modalTab === 'create' && (
               <div className="space-y-3">
                 {/* Project Name */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    Project Name *
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Project Name <span className="text-red-500">*</span>
                   </label>
                   <Input
                     type="text"
@@ -401,20 +630,21 @@ export default function ProjectSelector({
                     placeholder="e.g., Customer Analytics Pipeline"
                     className="w-full"
                     disabled={isCreating}
+                    autoFocus
                   />
                 </div>
 
                 {/* Description */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    Description
+                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
+                    Description <span className="text-slate-400">(optional)</span>
                   </label>
                   <Input
                     type="text"
                     size="sm"
                     value={newProjectDescription}
                     onChange={(e) => setNewProjectDescription(e.target.value)}
-                    placeholder="Brief description (optional)"
+                    placeholder="Brief summary of what this project models"
                     className="w-full"
                     disabled={isCreating}
                   />
@@ -593,213 +823,8 @@ export default function ProjectSelector({
                   )}
                 </Button>
               </div>
-            </div>
-
-            {/* ── Right: Select Existing Project ── */}
-            <div className="border dark:border-slate-700 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-2">
-                  <div className="p-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                    <FolderOpen className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                  </div>
-                  <h3 className="text-base font-semibold text-slate-900 dark:text-white">
-                    Select Existing Project
-                  </h3>
-                </div>
-                {safeProjects.length > 0 && (
-                  <span className="text-xs text-slate-400">{safeProjects.length} projects</span>
-                )}
-              </div>
-
-              {/* Search */}
-              {safeProjects.length > 3 && (
-                <div className="relative mb-3">
-                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-                  <Input
-                    size="sm"
-                    value={projectSearch}
-                    onChange={(e) => setProjectSearch(e.target.value)}
-                    placeholder="Search projects..."
-                    className="pl-8"
-                  />
-                </div>
-              )}
-
-              {loading ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-8 w-8 animate-spin text-slate-400" />
-                </div>
-              ) : safeProjects.length === 0 ? (
-                <div className="text-center py-12">
-                  <FolderOpen className="h-10 w-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-                  <p className="text-slate-500 font-medium text-sm">No projects yet</p>
-                  <p className="text-xs text-slate-400 mt-1">
-                    Create your first project to get started
-                  </p>
-                </div>
-              ) : (
-                <>
-                  <div
-                    className="max-h-[320px] overflow-auto space-y-1.5 mb-3"
-                    role="listbox"
-                    aria-label="Existing projects"
-                  >
-                    {filteredProjects.map((project, idx) => {
-                      const isSelected = selectedInModal === project.project_id;
-                      return (
-                        <button
-                          key={project.project_id}
-                          role="option"
-                          aria-selected={isSelected}
-                          tabIndex={0}
-                          className={cn(
-                            'w-full flex items-center gap-3 p-3 rounded-lg text-left transition-all select-none',
-                            'border dark:border-slate-700',
-                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2',
-                            isSelected
-                              ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700 ring-2 ring-blue-500 ring-offset-2'
-                              : 'hover:bg-slate-50 dark:hover:bg-slate-800 border-transparent',
-                          )}
-                          onClick={() => setSelectedInModal(project.project_id)}
-                          onDoubleClick={(e) => {
-                            e.preventDefault();
-                            setSelectedInModal(project.project_id);
-                            onProjectSelect(project.project_id, project.name);
-                            setShowModal(false);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              setSelectedInModal(project.project_id);
-                              onProjectSelect(project.project_id, project.name);
-                              setShowModal(false);
-                            } else if (e.key === 'ArrowDown') {
-                              e.preventDefault();
-                              const next = filteredProjects[idx + 1];
-                              if (next) {
-                                setSelectedInModal(next.project_id);
-                                const el = e.currentTarget.parentElement?.children[idx + 1] as HTMLElement | undefined;
-                                el?.focus();
-                              }
-                            } else if (e.key === 'ArrowUp') {
-                              e.preventDefault();
-                              const prev = filteredProjects[idx - 1];
-                              if (prev) {
-                                setSelectedInModal(prev.project_id);
-                                const el = e.currentTarget.parentElement?.children[idx - 1] as HTMLElement | undefined;
-                                el?.focus();
-                              }
-                            }
-                          }}
-                        >
-                          <div
-                            className={cn(
-                              'p-1.5 rounded-lg flex-shrink-0',
-                              isSelected
-                                ? 'bg-blue-100 dark:bg-blue-900/50'
-                                : 'bg-slate-100 dark:bg-slate-800',
-                            )}
-                          >
-                            <FolderOpen
-                              className={cn(
-                                'h-4 w-4',
-                                isSelected ? 'text-blue-600' : 'text-slate-400',
-                              )}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p
-                              className={cn(
-                                'text-sm font-medium truncate',
-                                isSelected && 'text-blue-700 dark:text-blue-400',
-                              )}
-                            >
-                              {project.name}
-                            </p>
-                            <div className="flex items-center gap-2.5 mt-0.5 text-[11px] text-slate-500">
-                              <span className="flex items-center gap-1">
-                                <User className="h-2.5 w-2.5" />
-                                {project.created_by}
-                              </span>
-                              {project.created_at && (
-                                <span className="flex items-center gap-1">
-                                  <Clock className="h-2.5 w-2.5" />
-                                  {new Date(project.created_at).toLocaleDateString()}
-                                </span>
-                              )}
-                              {project.status && (
-                                <span
-                                  className={cn(
-                                    'px-1.5 py-0.5 rounded text-[10px] font-medium',
-                                    project.status === 'ACTIVE'
-                                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                      : 'bg-slate-100 text-slate-600',
-                                  )}
-                                >
-                                  {project.status.toLowerCase()}
-                                </span>
-                              )}
-                              <span
-                                className={cn(
-                                  'px-1.5 py-0.5 rounded text-[10px] font-medium',
-                                  project.created_by.toLowerCase() === currentUsername.toLowerCase()
-                                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-                                )}
-                              >
-                                {project.created_by.toLowerCase() === currentUsername.toLowerCase() ? 'owner' : 'contributor'}
-                              </span>
-                            </div>
-                          </div>
-                          {isSelected && (
-                            <PiCheckCircleDuotone
-                              className="h-5 w-5 text-blue-600 flex-shrink-0"
-                              aria-hidden="true"
-                            />
-                          )}
-                        </button>
-                      );
-                    })}
-                    {filteredProjects.length === 0 && projectSearch && (
-                      <div className="py-6 text-center text-xs text-slate-400">
-                        No projects match "{projectSearch}"
-                      </div>
-                    )}
-                  </div>
-
-                  <Button
-                    className="w-full gap-2"
-                    onClick={handleSelectProject}
-                    disabled={!selectedInModal}
-                  >
-                    <Check className="h-4 w-4" />
-                    Continue with Selected Project
-                  </Button>
-                  <p className="text-[10px] text-slate-400 text-center mt-1.5">
-                    Tip: Double-click a project to open it directly
-                  </p>
-                </>
-              )}
-            </div>
+            )}
           </div>
-
-          {/* Current selection indicator */}
-          {selectedProjectId && (
-            <div className="mt-5 pt-4 border-t dark:border-slate-700">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                  <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-                  Currently working on:{' '}
-                  <span className="font-semibold text-slate-900 dark:text-white">
-                    {selectedProject?.name}
-                  </span>
-                </div>
-                <Button variant="outline" size="sm" onClick={attemptCloseModal}>
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       </Modal>
 
