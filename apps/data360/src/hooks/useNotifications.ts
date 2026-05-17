@@ -38,38 +38,60 @@ function _broadcastBadgeChange(): void {
 // ----- bell badge --------------------------------------------------------
 // Exponential backoff for failures (e.g. Snowflake notifications table not
 // yet created): 30s → 1m → 2m → 4m → 8m → cap 15m. Resets on first success.
+// Hard-stops after 5 consecutive failures so an undeployed
+// /notifications/unread-count endpoint doesn't spam the console every 30s
+// for the entire session (the bug the user reported).
 const UNREAD_MAX_POLL_MS = 900_000; // 15 min cap
+const UNREAD_MAX_FAILURES = 5;
 export function useUnreadBadge() {
   const [count, setCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const failuresRef = useRef<number>(0);
-  const [pollInterval, setPollInterval] = useState<number>(UNREAD_POLL_MS);
+  const deadRef = useRef<boolean>(false);
+  const [tick, setTick] = useState(0);
 
   const refresh = useCallback(async () => {
+    if (deadRef.current) return;
     setLoading(true);
     try {
       const n = await getUnreadCount();
       setCount(n);
       if (failuresRef.current > 0) {
         failuresRef.current = 0;
-        setPollInterval(UNREAD_POLL_MS);
+        setTick((t) => t + 1);
       }
     } catch {
       // Silent: header badge errors must not poison the page.
       failuresRef.current += 1;
-      const next = Math.min(
-        UNREAD_POLL_MS * 2 ** (failuresRef.current - 1),
-        UNREAD_MAX_POLL_MS,
-      );
-      setPollInterval(next);
+      if (failuresRef.current >= UNREAD_MAX_FAILURES) {
+        deadRef.current = true; // stop polling for the session
+      } else {
+        setTick((t) => t + 1);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  const currentInterval =
+    failuresRef.current === 0
+      ? UNREAD_POLL_MS
+      : Math.min(
+          UNREAD_POLL_MS * 2 ** (failuresRef.current - 1),
+          UNREAD_MAX_POLL_MS,
+        );
+
+  // Initial fetch — runs once on mount.
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(refresh, pollInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Timer + listener. Does NOT re-fire refresh() on every interval change;
+  // the timer fires it. That was the spam bug.
+  useEffect(() => {
+    if (deadRef.current) return;
+    const timer = window.setInterval(refresh, currentInterval);
     const listener = () => {
       void refresh();
     };
@@ -78,7 +100,8 @@ export function useUnreadBadge() {
       window.clearInterval(timer);
       _badgeListeners = _badgeListeners.filter((l) => l !== listener);
     };
-  }, [refresh, pollInterval]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
 
   return { count, loading, refresh };
 }

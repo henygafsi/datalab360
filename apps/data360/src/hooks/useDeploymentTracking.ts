@@ -21,6 +21,10 @@ const ACTIVE_POLL_MS = 10_000;
 // Exponential backoff cap for repeated failures (e.g. DEPLOYMENTS table not
 // yet bootstrapped). 10s → 20s → 40s → … → cap 5min. Resets on success.
 const ACTIVE_MAX_POLL_MS = 300_000;
+// Hard stop after this many consecutive failures. The /deployments/track
+// endpoint is one we know returns 404 in some deploys, so a permanent
+// stop keeps the console quiet and reduces XHR noise to zero after ~30s.
+const ACTIVE_MAX_FAILURES = 5;
 const DETAIL_POLL_MS = 2_000;
 const DETAIL_POLL_MS_BG = 5_000; // when tab is hidden
 
@@ -29,10 +33,17 @@ export function useActiveDeployments() {
   const [items, setItems] = useState<DeploymentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  // Refs survive renders without triggering re-fires. setPollInterval is
+  // intentionally NOT in the effect deps because re-creating the interval
+  // every backoff bump used to fire an immediate `void refresh()` which
+  // caused the 404 spam the user was seeing in prod.
   const failuresRef = useRef<number>(0);
-  const [pollInterval, setPollInterval] = useState<number>(ACTIVE_POLL_MS);
+  const deadRef = useRef<boolean>(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [tick, setTick] = useState(0); // bump to re-create the interval after backoff
 
   const refresh = useCallback(async () => {
+    if (deadRef.current) return;
     setLoading(true);
     try {
       const list = await listActiveDeployments();
@@ -40,26 +51,56 @@ export function useActiveDeployments() {
       setError(null);
       if (failuresRef.current > 0) {
         failuresRef.current = 0;
-        setPollInterval(ACTIVE_POLL_MS);
+        setTick((t) => t + 1); // reset interval to base
       }
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
       failuresRef.current += 1;
-      const next = Math.min(
-        ACTIVE_POLL_MS * 2 ** (failuresRef.current - 1),
-        ACTIVE_MAX_POLL_MS,
-      );
-      setPollInterval(next);
+      if (failuresRef.current >= ACTIVE_MAX_FAILURES) {
+        deadRef.current = true;
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      } else {
+        setTick((t) => t + 1); // re-create interval at the new (longer) cadence
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Compute current cadence from failures (no extra state, no extra
+  // re-renders just to bump the interval).
+  const currentInterval =
+    failuresRef.current === 0
+      ? ACTIVE_POLL_MS
+      : Math.min(
+          ACTIVE_POLL_MS * 2 ** (failuresRef.current - 1),
+          ACTIVE_MAX_POLL_MS,
+        );
+
+  // Initial fetch — runs ONCE on mount only.
   useEffect(() => {
     void refresh();
-    const t = window.setInterval(refresh, pollInterval);
-    return () => window.clearInterval(t);
-  }, [refresh, pollInterval]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Timer setup. Does NOT call refresh() in the body — only the interval
+  // tick fires it. That's the bug fix: previously this effect re-fired
+  // every time the interval changed, causing the 404 spam.
+  useEffect(() => {
+    if (deadRef.current) return;
+    const id = setInterval(() => {
+      void refresh();
+    }, currentInterval);
+    intervalRef.current = id;
+    return () => {
+      clearInterval(id);
+      intervalRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tick]);
 
   return { items, loading, error, refresh };
 }

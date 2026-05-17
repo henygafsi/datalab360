@@ -17,12 +17,13 @@ import {
 } from '@/app/services/command-center';
 
 const POLL_MS = 60_000;
-// Exponential backoff: on consecutive failures, multiply the interval up to
-// a 10-minute cap. The backend cache (CP_DATA360.DATA360_CACHE.OVERVIEW_KPIS)
-// can be missing if the account bootstrap didn't run — but it might be
-// materialised any moment by a backend task, so we keep checking, just less
-// often. On the first success, cadence snaps back to POLL_MS.
 const MAX_POLL_MS = 600_000; // 10 min cap
+// Hard stop after 5 consecutive failures. The overview-kpis cache is known
+// to 404 in some deploys (CP_DATA360.DATA360_CACHE schema missing), so a
+// permanent stop after ~5 min of failures keeps the console quiet for the
+// rest of the session. The page falls back to /command-center/summary
+// which is always available. User can still hit Refresh to retry manually.
+const MAX_FAILURES = 5;
 
 export function useOverviewKpis(initialRange: OverviewRange = '30d') {
   const [range, setRange] = useState<OverviewRange>(initialRange);
@@ -32,10 +33,12 @@ export function useOverviewKpis(initialRange: OverviewRange = '30d') {
   const [error, setError] = useState<Error | null>(null);
   const lastFetchRef = useRef<number>(0);
   const failuresRef = useRef<number>(0);
-  const [currentInterval, setCurrentInterval] = useState<number>(POLL_MS);
+  const deadRef = useRef<boolean>(false);
+  const [tick, setTick] = useState(0); // bump to re-create interval after backoff
 
   const fetchData = useCallback(
     async (force = false) => {
+      if (deadRef.current) return;
       // Skip if a request finished < 5s ago (StrictMode double-mount guard)
       if (!force && Date.now() - lastFetchRef.current < 5_000) return;
       setLoading(true);
@@ -43,17 +46,18 @@ export function useOverviewKpis(initialRange: OverviewRange = '30d') {
         const payload = await getOverviewKpis(range);
         setData(payload);
         setError(null);
-        // Recovered — reset backoff to normal cadence.
         if (failuresRef.current > 0) {
           failuresRef.current = 0;
-          setCurrentInterval(POLL_MS);
+          setTick((t) => t + 1); // reset interval to base
         }
       } catch (e) {
         setError(e instanceof Error ? e : new Error(String(e)));
         failuresRef.current += 1;
-        // 60s * 2^n capped at 10min: 60s, 2m, 4m, 8m, 10m, 10m, …
-        const next = Math.min(POLL_MS * 2 ** (failuresRef.current - 1), MAX_POLL_MS);
-        setCurrentInterval(next);
+        if (failuresRef.current >= MAX_FAILURES) {
+          deadRef.current = true; // stop polling for the session
+        } else {
+          setTick((t) => t + 1); // re-create interval at the new cadence
+        }
       } finally {
         setLoading(false);
         lastFetchRef.current = Date.now();
@@ -67,19 +71,28 @@ export function useOverviewKpis(initialRange: OverviewRange = '30d') {
     void fetchData(true);
   }, [fetchData]);
 
-  // Background poll with adaptive interval (resets to POLL_MS on success,
-  // backs off on failure).
+  // Background poll. The interval is re-created when tick or range changes,
+  // but does NOT call fetchData() in the body — only the interval's tick
+  // fires it. That avoids the "fire immediately on every backoff bump"
+  // spam bug.
   useEffect(() => {
+    if (deadRef.current) return;
+    const currentInterval =
+      failuresRef.current === 0
+        ? POLL_MS
+        : Math.min(POLL_MS * 2 ** (failuresRef.current - 1), MAX_POLL_MS);
     const timer = window.setInterval(() => {
       if (!document.hidden) void fetchData(false);
     }, currentInterval);
     return () => window.clearInterval(timer);
-  }, [fetchData, currentInterval]);
+  }, [tick, fetchData]);
 
-  // User-triggered refresh (Refresh button) — always tries immediately,
-  // ignores backoff.
+  // User-triggered refresh — resets dead/backoff state and tries once.
   const refresh = useCallback(async () => {
     setRefreshing(true);
+    failuresRef.current = 0;
+    deadRef.current = false;
+    setTick((t) => t + 1);
     try {
       await refreshOverviewKpis(range);
       await fetchData(true);
