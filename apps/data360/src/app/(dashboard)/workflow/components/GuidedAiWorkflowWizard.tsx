@@ -233,16 +233,25 @@ Workflow: ${summary}`;
 /**
  * Best-effort LLM JSON parser.
  *
- * Handles four common failure modes we've observed in prod:
+ * Handles 5 failure modes we've actually observed in prod with Mistral:
  *  1. Markdown code fences (```json ... ```) — stripped
- *  2. Leading commentary before the first `{` — sliced off
- *  3. Trailing commentary after the last balanced `}` — also sliced
- *  4. **TRUNCATED JSON** (the model hit a token cap mid-response) —
- *     we auto-close missing `]` and `}` based on bracket depth tracking
- *     and a fallback to "trim back to the last syntactically-complete
- *     position" before re-attempting JSON.parse.
+ *  2. Leading commentary before the first `{` / `[` — sliced off
+ *  3. **Truncated JSON** (token cap mid-response) — count braces/brackets
+ *     ignoring those inside strings, then append the missing closers
+ *  4. **Dangling key:value AFTER the closing `}`** — Mistral sometimes
+ *     produces this:
+ *        {
+ *          "business_context": {...},
+ *          "sources_detected": [...]
+ *        }
+ *        "intent_confidence": 85
+ *     We parse what's before the close, then scan the trailing text for
+ *     `"key": value` patterns and merge them as additional top-level keys
+ *  5. **Last-ditch regex extraction** — pull individual fields with regex
+ *     and rebuild the object. Loses arrays/nested objects but at least
+ *     keeps scalars so the wizard can advance.
  *
- * Returns null only if even the repaired version doesn't parse.
+ * Returns null only if even regex extraction fails.
  */
 function parseLlmJson<T>(raw: string): T | null {
   // 1. Strip code fences
@@ -251,7 +260,7 @@ function parseLlmJson<T>(raw: string): T | null {
     .replace(/\s*```\s*$/, '')
     .trim();
 
-  // 2. Slice from first '{' or '[' to the end — drops any "Here is the JSON:"
+  // 2. Slice from first '{' or '[' to the end
   const firstBrace = s.search(/[{[]/);
   if (firstBrace > 0) s = s.slice(firstBrace);
 
@@ -259,16 +268,16 @@ function parseLlmJson<T>(raw: string): T | null {
   try {
     return JSON.parse(s) as T;
   } catch {
-    /* fall through to repair */
+    /* fall through */
   }
 
-  // 4. Repair: count open vs close braces/brackets ignoring those inside
-  // strings, then append the missing closers.
+  // 4. Brace-depth scan: tracks balance + records the index AFTER the last
+  // moment we were back at depth 0 (i.e. last balanced position).
   let depthBrace = 0;
   let depthBracket = 0;
   let inString = false;
   let escape = false;
-  let lastSafe = -1; // index after last syntactically-complete top-level chunk
+  let lastBalanced = -1;
   for (let i = 0; i < s.length; i++) {
     const c = s[i];
     if (escape) {
@@ -288,37 +297,126 @@ function parseLlmJson<T>(raw: string): T | null {
     else if (c === '}') depthBrace--;
     else if (c === '[') depthBracket++;
     else if (c === ']') depthBracket--;
-    if (depthBrace === 0 && depthBracket === 0) lastSafe = i + 1;
-  }
-
-  // If the string ends inside a string literal, close it first
-  if (inString) s += '"';
-  // Append missing closers in the right order — close brackets before
-  // braces matches the typical nesting (arrays inside objects).
-  while (depthBracket > 0) {
-    s += ']';
-    depthBracket--;
-  }
-  while (depthBrace > 0) {
-    s += '}';
-    depthBrace--;
-  }
-
-  try {
-    return JSON.parse(s) as T;
-  } catch {
-    /* fall through */
-  }
-
-  // 5. Last-ditch: trim to the last fully-balanced position and try again
-  if (lastSafe > 0 && lastSafe < s.length) {
-    try {
-      return JSON.parse(s.slice(0, lastSafe)) as T;
-    } catch {
-      /* nothing more we can do */
+    if (depthBrace === 0 && depthBracket === 0 && (c === '}' || c === ']')) {
+      lastBalanced = i + 1;
     }
   }
-  return null;
+
+  // 5. TRUNCATED — string ends mid-content. Append closers.
+  if (depthBrace > 0 || depthBracket > 0 || inString) {
+    let repaired = s;
+    if (inString) repaired += '"';
+    while (depthBracket-- > 0) repaired += ']';
+    while (depthBrace-- > 0) repaired += '}';
+    try {
+      return JSON.parse(repaired) as T;
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // 6. DANGLING KEY:VALUE — the JSON parsed up to lastBalanced but there
+  // are extra `"key": value` pairs after it. Pull them in.
+  if (lastBalanced > 0 && lastBalanced < s.length) {
+    const body = s.slice(0, lastBalanced);
+    const trailing = s.slice(lastBalanced);
+    let base: Record<string, unknown> | null = null;
+    try {
+      const parsed = JSON.parse(body);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        base = parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* base parse failed */
+    }
+    if (base) {
+      // Scan trailing for `"key": <json-value>` pairs. The value can be a
+      // number, string, bool, null, or another JSON-ish chunk — we let
+      // JSON.parse decide for each candidate.
+      // Match: optional whitespace/comma, "key", colon, then capture until
+      // the next comma-followed-by-quote or end-of-string.
+      const re = /"([A-Za-z_][\w-]*)"\s*:\s*([^\n]+?)(?=[,\n]\s*"|$)/g;
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(trailing)) !== null) {
+        const key = match[1];
+        // Trim trailing commas / whitespace / closing braces from the value
+        const rawVal = match[2].replace(/[,\s}]+$/, '').trim();
+        if (!rawVal) continue;
+        try {
+          base[key] = JSON.parse(rawVal);
+        } catch {
+          // Strip surrounding quotes and use as string
+          base[key] = rawVal.replace(/^"|"$/g, '');
+        }
+      }
+      return base as T;
+    }
+  }
+
+  // 7. REGEX EXTRACTION — last-ditch field-by-field rebuild. Only catches
+  // the fields the wizard actually reads. Anything missed gets sensible
+  // defaults so the UI still renders.
+  return regexExtractFallback<T>(s);
+}
+
+/**
+ * If the AI returns something so broken that brace-balance + dangling-pair
+ * merge both fail, fall back to regex-extracting just the keys the wizard
+ * needs and constructing a synthetic object. Used as a last resort so the
+ * user can still advance through the wizard with partial data.
+ */
+function regexExtractFallback<T>(s: string): T | null {
+  const result: Record<string, unknown> = {};
+
+  // Try to grab the top-level object/array fields by name. These three
+  // shapes cover all 3 AI calls the wizard makes (understanding,
+  // blocks, code-config).
+  const objectish = (key: string): unknown => {
+    // Match `"key": { ... }` or `"key": [ ... ]` with balanced brackets
+    const idx = s.indexOf(`"${key}"`);
+    if (idx === -1) return undefined;
+    const after = s.slice(idx + key.length + 2).replace(/^\s*:\s*/, '');
+    if (after[0] !== '{' && after[0] !== '[') return undefined;
+    const open = after[0];
+    const close = open === '{' ? '}' : ']';
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = 0; i < after.length; i++) {
+      const c = after[i];
+      if (esc) { esc = false; continue; }
+      if (c === '\\') { esc = true; continue; }
+      if (c === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (c === open) depth++;
+      else if (c === close) {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(after.slice(0, i + 1)); } catch { return undefined; }
+        }
+      }
+    }
+    return undefined;
+  };
+  const scalar = (key: string): unknown => {
+    const re = new RegExp(`"${key}"\\s*:\\s*("[^"]*"|-?\\d+(?:\\.\\d+)?|true|false|null)`);
+    const m = re.exec(s);
+    if (!m) return undefined;
+    try { return JSON.parse(m[1]); } catch { return undefined; }
+  };
+
+  // Pull whatever exists. The wizard's render code already tolerates
+  // missing fields (uses optional chaining + fallback strings).
+  for (const k of ['business_context', 'sources_detected', 'blocks', 'edges']) {
+    const v = objectish(k);
+    if (v !== undefined) result[k] = v;
+  }
+  for (const k of ['intent_confidence', 'sql', 'python', 'yaml']) {
+    const v = scalar(k);
+    if (v !== undefined) result[k] = v;
+  }
+
+  return Object.keys(result).length > 0 ? (result as T) : null;
 }
 
 /**
