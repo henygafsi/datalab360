@@ -27,6 +27,7 @@ import {
   Download, Copy, FolderOpen, Plus,
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
+import { motion, AnimatePresence } from 'framer-motion';
 
 // Components
 import ETLPalette from './components/ETLPalette';
@@ -395,7 +396,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [showSidebar, setShowSidebar] = useState(false);
   const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'results'>('runs');
   const [showMembers, setShowMembers] = useState(false);
-  const [showRightPanel, setShowRightPanel] = useState(true);
+  // Right panel closed by default — gives the canvas full width on landing.
+  // User opens it via the "Panel" toggle button in the top-right when they
+  // need Results / Runs / SQL / Schedule / AI tabs.
+  const [showRightPanel, setShowRightPanel] = useState(false);
   const [showErrorPanel, setShowErrorPanel] = useState(false);
   // Modals — both opened from the header (PDF page 8 #1 + #2).
   const [showAiGenerate, setShowAiGenerate] = useState(false);
@@ -1708,87 +1712,118 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         </div>
       </div>
 
-      {/* Header — single row */}
-      <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          {/* New workflow button */}
-          <button
-            onClick={handleNewPipeline}
-            className="p-1.5 rounded-lg bg-green-500 hover:bg-green-600 text-white transition-colors"
-            title="Create new workflow"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-          </button>
+      {/* ── Header — grouped clusters with subtle separators ──
+          Cluster 1 (Create):   New / AI / Import
+          Cluster 2 (Project):  selector | name | status badges
+          Cluster 3 (Actions):  Save / Validate / SQL / Run / Approve | utilities
+          Each cluster sits in a pill-shaped surface with consistent height
+          and gap rhythm so the eye groups them automatically. */}
+      <div className="border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-800">
+        <div className="flex items-center gap-3">
 
-          {/* AI Generate — opens GuidedAiWorkflowWizard (9-step flow) */}
-          <button
-            onClick={() => setShowAiGenerate(true)}
-            className="group relative flex items-center gap-1.5 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-purple-500/30 transition-all hover:from-purple-700 hover:to-fuchsia-700 hover:shadow-lg hover:shadow-purple-500/40"
-            title="Generate workflow with AI"
-          >
-            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-            <Sparkles className="h-3.5 w-3.5" />
-            AI
-          </button>
+          {/* ── Cluster 1: Create ── */}
+          <div className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
+            <motion.button
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={handleNewPipeline}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50"
+              title="Create new workflow"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+            </motion.button>
+            <motion.button
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowAiGenerate(true)}
+              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
+              title="Generate workflow with AI"
+            >
+              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+              <Sparkles className="h-3 w-3" />
+              AI
+            </motion.button>
+            <motion.button
+              whileHover={{ y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowImportTasks(true)}
+              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60"
+              title="Import Snowflake task graphs as workflow projects"
+            >
+              <Download className="h-3 w-3" />
+              <span className="hidden md:inline">Import</span>
+            </motion.button>
+          </div>
 
-          {/* Import Snowflake task graphs */}
-          <button
-            onClick={() => setShowImportTasks(true)}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-cyan-500/30 transition-all hover:from-cyan-700 hover:to-blue-700 hover:shadow-lg hover:shadow-cyan-500/40"
-            title="Import Snowflake task graphs as workflow projects"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">Import tasks</span>
-          </button>
+          {/* Divider */}
+          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
 
-          {/* Workflow selector */}
-          <select
-            value={activeWorkflowId || ''}
-            onChange={(e) => {
-              const wf = workflows.find((w) => w.id === e.target.value);
-              if (wf) handleLoadPipeline(wf);
-              else handleNewPipeline();
-            }}
-            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm min-w-[130px]"
-          >
-            <option value="">New Workflow</option>
-            {workflows.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.name}
-              </option>
-            ))}
-          </select>
+          {/* ── Cluster 2: Project context ── */}
+          <div className="flex items-center gap-2">
+            <select
+              value={activeWorkflowId || ''}
+              onChange={(e) => {
+                const wf = workflows.find((w) => w.id === e.target.value);
+                if (wf) handleLoadPipeline(wf);
+                else handleNewPipeline();
+              }}
+              className="h-8 min-w-[140px] rounded-lg border border-slate-200 bg-white px-2.5 text-xs shadow-sm transition-colors hover:border-slate-300 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+            >
+              <option value="">New workflow</option>
+              {workflows.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="text"
+              value={pipelineName}
+              onChange={(e) => { setPipelineName(e.target.value); setIsDirty(true); }}
+              className="h-8 w-[180px] rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold shadow-sm transition-colors hover:border-slate-300 focus:border-purple-500 focus:outline-none focus:ring-2 focus:ring-purple-500/20 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600"
+              placeholder="Workflow name…"
+              readOnly={isReadOnly}
+            />
 
-          {/* Workflow name */}
-          <input
-            type="text"
-            value={pipelineName}
-            onChange={(e) => { setPipelineName(e.target.value); setIsDirty(true); }}
-            className="px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm font-medium w-[180px]"
-            placeholder="Workflow name..."
-            readOnly={isReadOnly}
-          />
-
-          {/* Save status indicator — only show after actual user changes, not on fresh empty workflow */}
-          {isDirty && (nodes.length > 0 || activeWorkflowId) && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-orange-600 dark:text-orange-400 whitespace-nowrap">
-              <span className="w-2 h-2 rounded-full bg-orange-500 animate-pulse" />
-              Unsaved
-            </span>
-          )}
-          {!isDirty && saveStatus === 'saved' && (
-            <span className="flex items-center gap-1 text-[11px] font-medium text-green-600 dark:text-green-400 whitespace-nowrap">
-              <CheckCircle className="h-3 w-3" />
-              Saved
-            </span>
-          )}
-
-          {isReadOnly && (
-            <span className="px-2 py-1 rounded-full text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 flex items-center gap-1 whitespace-nowrap">
-              <Eye className="h-3 w-3" />
-              View Only
-            </span>
-          )}
+            {/* Status badges — animated entrance so they don't pop in jarringly */}
+            <AnimatePresence>
+              {isDirty && (nodes.length > 0 || activeWorkflowId) && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] font-medium text-orange-600 dark:text-orange-400"
+                >
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-orange-400 opacity-75" />
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-orange-500" />
+                  </span>
+                  Unsaved
+                </motion.span>
+              )}
+              {!isDirty && saveStatus === 'saved' && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  className="flex items-center gap-1 whitespace-nowrap text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+                >
+                  <CheckCircle className="h-3 w-3" />
+                  Saved
+                </motion.span>
+              )}
+              {isReadOnly && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                >
+                  <Eye className="h-3 w-3" />
+                  View only
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
 
           {validation && (
             <div className="relative">
@@ -1847,91 +1882,112 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* Action buttons */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
-            <button
+          {/* ── Cluster 3: Actions ──
+              Primary lifecycle buttons grouped in their own pill surface,
+              utility icons sit slightly apart so they read as secondary. */}
+          <div className="flex h-9 shrink-0 items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
+            <motion.button
+              whileHover={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
+              whileTap={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
               onClick={handleSavePipeline}
               disabled={isSaving || isReadOnly || isPendingApproval}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title={isPendingApproval ? "Pending approval — cannot modify" : "Save workflow (Ctrl+S)"}
+              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-500/40 transition-shadow hover:shadow-md hover:shadow-blue-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
             >
-              {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
               Save
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={activeWorkflowId ? { scale: 1.04 } : undefined}
+              whileTap={activeWorkflowId ? { scale: 0.96 } : undefined}
               onClick={handleValidate}
               disabled={!activeWorkflowId}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-amber-500 text-white hover:bg-amber-600 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
+              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/40 transition-shadow hover:shadow-md hover:shadow-amber-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
               title="Check for errors in the workflow DAG before execution"
             >
-              <CheckCircle className="h-3.5 w-3.5" />
+              <CheckCircle className="h-3 w-3" />
               Validate
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={!(isExecuting || !activeWorkflowId) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(true)}
               disabled={isExecuting || !activeWorkflowId}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
+              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
               title="Preview the compiled SQL without executing it"
             >
-              <Eye className="h-3.5 w-3.5" />
+              <Eye className="h-3 w-3" />
               SQL
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(false)}
               disabled={isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-green-600 text-white hover:bg-green-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title={isPendingApproval ? "Pending approval — waiting for admin" : "Run the workflow now (Ctrl+Enter)"}
+              className="group relative flex h-7 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
             >
-              {isExecuting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+              {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
               Run
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
+              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
               onClick={handleSubmitForApproval}
               disabled={!activeWorkflowId || isReadOnly || isPendingApproval}
-              className="px-3 py-1.5 text-xs font-semibold rounded-md bg-violet-600 text-white hover:bg-violet-700 flex items-center gap-1.5 disabled:opacity-50 transition-colors whitespace-nowrap"
-              title={isPendingApproval ? "Already submitted for approval" : "Request approval for production deployment"}
+              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-500/40 transition-shadow hover:shadow-md hover:shadow-violet-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
             >
-              <AlertCircle className="h-3.5 w-3.5" />
+              <AlertCircle className="h-3 w-3" />
               Approve
-            </button>
+            </motion.button>
+          </div>
 
-            {/* Separator */}
-            <div className="h-5 w-px bg-slate-200 dark:bg-slate-700" />
+          {/* Divider */}
+          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
 
-            {/* Utility buttons */}
-            <button
+          {/* ── Cluster 4: Utility icons ── */}
+          <div className="flex shrink-0 items-center gap-0.5">
+            <motion.button
+              whileHover={nodes.length > 0 ? { scale: 1.1 } : undefined}
+              whileTap={nodes.length > 0 ? { scale: 0.92 } : undefined}
               onClick={handleExportJSON}
               disabled={nodes.length === 0}
-              className="p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors disabled:opacity-30"
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-700 dark:hover:text-slate-200"
               title="Export workflow as JSON"
               aria-label="Export workflow"
             >
               <Download className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileHover={nodes.length > 0 ? { scale: 1.1 } : undefined}
+              whileTap={nodes.length > 0 ? { scale: 0.92 } : undefined}
               onClick={handleDuplicate}
               disabled={nodes.length === 0}
-              className="p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-md transition-colors disabled:opacity-30"
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-30 dark:hover:bg-slate-700 dark:hover:text-slate-200"
               title="Duplicate workflow"
               aria-label="Duplicate workflow"
             >
               <Copy className="h-3.5 w-3.5" />
-            </button>
+            </motion.button>
 
             {activeWorkflowId && !isReadOnly && (
-              <button
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.92 }}
                 onClick={handleDeletePipeline}
-                className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors"
+                className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
                 title="Delete workflow"
                 aria-label="Delete workflow"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              </motion.button>
             )}
           </div>
         </div>

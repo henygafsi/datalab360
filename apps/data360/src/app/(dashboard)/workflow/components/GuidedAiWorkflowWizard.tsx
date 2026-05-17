@@ -192,55 +192,37 @@ const DEFAULT_OPTIONS: RecommendationOption[] = [
 // Prompt builders for /cortex/complete
 // ───────────────────────────────────────────────────────────────────────────
 
+// Prompts are deliberately TERSE — the Snowflake Cortex warehouse has a 15s
+// SQL execution limit per call and longer prompts have been timing out in
+// prod (`error_code: QUERY_CANCELLED, snowflake_code: 604`). Shorter input
+// + a small model (mistral-7b) keeps round-trips under the budget. We also
+// trim the user description to 500 chars at the API boundary.
+
 function buildUnderstandingPrompt(description: string): string {
-  return `You are analysing a user request to design a data workflow. Return ONLY this JSON (no markdown, no commentary):
+  const desc = description.slice(0, 500);
+  return `Extract workflow intent. Output ONLY this JSON:
+{"business_context":{"domain":"","primary_goal":"","key_object":"","expected_outcome":"","ai_usage":"Low|Medium|High","automation_level":"Low|Medium|High","users":""},"sources_detected":[{"name":"","status":"existing|requested|missing"}],"intent_confidence":0}
 
-{
-  "business_context": {
-    "domain": "...", "primary_goal": "...", "key_object": "...",
-    "expected_outcome": "...", "ai_usage": "Low|Medium|High",
-    "automation_level": "Low|Medium|High", "users": "..."
-  },
-  "sources_detected": [
-    { "name": "Source DB or API name", "status": "existing|requested|missing", "reason": "short reason" }
-  ],
-  "intent_confidence": 0-100
-}
-
-User description:
-"""${description}"""`;
+Input: ${desc}`;
 }
 
 function buildBlocksPrompt(description: string, option: string): string {
-  return `Generate ETL block specifications for this workflow.
+  const desc = description.slice(0, 300);
+  return `Output ONLY this JSON (4-8 blocks, edges connect block IDs):
+{"blocks":[{"id":"n1","type":"source|filter|join|aggregate|select|sort|ai|destination","label":""}],"edges":[{"from":"n1","to":"n2"}]}
 
-Goal: ${description}
-Approach: ${option}
-
-Return ONLY this JSON:
-{
-  "blocks": [
-    { "id": "n1", "type": "source|filter|join|aggregate|select|sort|ai|destination", "label": "short label" }
-  ],
-  "edges": [ { "from": "n1", "to": "n2" } ]
-}
-
-Rules: 4-10 blocks. IDs unique. Edges must reference real block IDs. Start from sources, end at destination.`;
+Goal: ${desc}
+Approach: ${option}`;
 }
 
 function buildCodePrompt(workflow: { nodes: Node[]; edges: Edge[] } | null): string {
   const summary = workflow
-    ? `${workflow.nodes.length} blocks: ${workflow.nodes.map((n) => `${n.id}(${n.type})`).join(', ')}\nEdges: ${workflow.edges.map((e) => `${e.source}->${e.target}`).join(', ')}`
-    : '(no workflow yet)';
-  return `Given this workflow, produce starter code. Return ONLY this JSON:
-{
-  "sql": "-- SQL DDL/DML for the pipeline",
-  "python": "# Python pseudocode using snowflake-snowpark",
-  "yaml": "# Snowflake objects YAML"
-}
+    ? `${workflow.nodes.length} blocks: ${workflow.nodes.map((n) => `${n.id}(${n.type})`).join(',')}`
+    : '(none)';
+  return `Output ONLY this JSON with short snippets (max 20 lines each):
+{"sql":"","python":"","yaml":""}
 
-Workflow:
-${summary}`;
+Workflow: ${summary}`;
 }
 
 // Best-effort parser: strip code fences, JSON.parse, return null on failure.
@@ -332,11 +314,60 @@ export default function GuidedAiWorkflowWizard({
     generatedYaml: '',
   });
   const [busy, setBusy] = useState(false);
+  // Persistent error banner across steps. Cleared on retry / step change.
+  // Distinguishes "timeout" (warehouse SQL limit) from "parse" (malformed
+  // LLM output) so the UI can suggest different remediations.
+  const [aiError, setAiError] = useState<
+    | { kind: 'timeout'; retry: () => Promise<void> }
+    | { kind: 'parse'; retry: () => Promise<void>; raw?: string }
+    | { kind: 'other'; message: string; retry: () => Promise<void> }
+    | null
+  >(null);
 
-  const setStep = (s: StepId) => setState((p) => ({ ...p, step: s }));
+  const setStep = (s: StepId) => {
+    setState((p) => ({ ...p, step: s }));
+    setAiError(null); // clearing on step change keeps the banner from haunting
+  };
   const update = useCallback(<K extends keyof WizardState>(key: K, value: WizardState[K]) => {
     setState((p) => ({ ...p, [key]: value }));
   }, []);
+
+  /**
+   * Call /cortex/complete with a 20s frontend timeout race. The backend
+   * already has a 15s SQL limit; this race ensures the UI doesn't hang
+   * indefinitely if the network is also slow. Returns classified error
+   * shapes so the caller can surface the right banner.
+   */
+  const callCortex = async (prompt: string): Promise<string> => {
+    const timeoutMs = 20_000;
+    const result = await Promise.race<
+      | { ok: true; text: string }
+      | { ok: false; reason: 'timeout' | 'error'; message?: string }
+    >([
+      generateCompletion({ prompt, model: 'mistral-7b' })
+        .then((r) => ({ ok: true as const, text: r?.response ?? '' }))
+        .catch((e) => ({
+          ok: false as const,
+          reason: 'error' as const,
+          message: e instanceof Error ? e.message : String(e),
+        })),
+      new Promise<{ ok: false; reason: 'timeout' }>((resolve) =>
+        setTimeout(() => resolve({ ok: false, reason: 'timeout' }), timeoutMs),
+      ),
+    ]);
+    if (result.ok) return result.text;
+    if (result.reason === 'timeout') {
+      throw new Error('TIMEOUT');
+    }
+    // Backend may return the snowflake QUERY_CANCELLED payload as the
+    // message — detect it and re-classify so the UI shows a friendlier
+    // "warehouse timed out" banner.
+    const msg = result.message ?? 'Cortex error';
+    if (/QUERY_CANCELLED|timeout|cancel/i.test(msg)) {
+      throw new Error('TIMEOUT');
+    }
+    throw new Error(msg);
+  };
 
   const handleClose = () => {
     if (busy) return;
@@ -353,6 +384,7 @@ export default function GuidedAiWorkflowWizard({
       generatedPython: '',
       generatedYaml: '',
     });
+    setAiError(null);
     onClose();
   };
 
@@ -363,20 +395,23 @@ export default function GuidedAiWorkflowWizard({
       return;
     }
     setBusy(true);
+    setAiError(null);
     try {
-      const res = await generateCompletion({
-        prompt: buildUnderstandingPrompt(state.description.trim()),
-        model: 'mistral-large',
-      });
-      const parsed = parseLlmJson<AiUnderstanding>(res?.response ?? '');
+      const raw = await callCortex(buildUnderstandingPrompt(state.description.trim()));
+      const parsed = parseLlmJson<AiUnderstanding>(raw);
       if (!parsed) {
-        toast.error("AI couldn't parse the request. Try a more specific description.");
+        setAiError({ kind: 'parse', retry: runUnderstanding, raw });
         return;
       }
       update('understanding', parsed);
       setStep(2);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Cortex call failed');
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'TIMEOUT') {
+        setAiError({ kind: 'timeout', retry: runUnderstanding });
+      } else {
+        setAiError({ kind: 'other', message: msg, retry: runUnderstanding });
+      }
     } finally {
       setBusy(false);
     }
@@ -414,25 +449,26 @@ export default function GuidedAiWorkflowWizard({
   // ── Step 6 → 7: generate workflow blocks ──
   const generateWorkflow = async () => {
     setBusy(true);
+    setAiError(null);
     try {
       const optionLabel =
         DEFAULT_OPTIONS.find((o) => o.id === state.selectedOption)?.title ?? 'Best balance';
-      const res = await generateCompletion({
-        prompt: buildBlocksPrompt(state.description, optionLabel),
-        model: 'mistral-large',
-      });
-      const parsed = parseLlmJson<{ blocks: BlockPreview[]; edges: EdgePreview[] }>(
-        res?.response ?? '',
-      );
+      const raw = await callCortex(buildBlocksPrompt(state.description, optionLabel));
+      const parsed = parseLlmJson<{ blocks: BlockPreview[]; edges: EdgePreview[] }>(raw);
       if (!parsed) {
-        toast.error("Couldn't parse the AI workflow output");
+        setAiError({ kind: 'parse', retry: generateWorkflow, raw });
         return;
       }
       const wf = layoutBlocks(parsed.blocks, parsed.edges);
       update('workflow', wf);
       setStep(7);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Generation failed');
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'TIMEOUT') {
+        setAiError({ kind: 'timeout', retry: generateWorkflow });
+      } else {
+        setAiError({ kind: 'other', message: msg, retry: generateWorkflow });
+      }
     } finally {
       setBusy(false);
     }
@@ -441,16 +477,12 @@ export default function GuidedAiWorkflowWizard({
   // ── Step 7 → 8: generate code ──
   const generateCode = async () => {
     setBusy(true);
+    setAiError(null);
     try {
-      const res = await generateCompletion({
-        prompt: buildCodePrompt(state.workflow),
-        model: 'mistral-large',
-      });
-      const parsed = parseLlmJson<{ sql: string; python: string; yaml: string }>(
-        res?.response ?? '',
-      );
+      const raw = await callCortex(buildCodePrompt(state.workflow));
+      const parsed = parseLlmJson<{ sql: string; python: string; yaml: string }>(raw);
       if (!parsed) {
-        toast.error("Couldn't parse the AI code output");
+        setAiError({ kind: 'parse', retry: generateCode, raw });
         return;
       }
       update('generatedSql', parsed.sql ?? '');
@@ -458,7 +490,12 @@ export default function GuidedAiWorkflowWizard({
       update('generatedYaml', parsed.yaml ?? '');
       setStep(8);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Code generation failed');
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === 'TIMEOUT') {
+        setAiError({ kind: 'timeout', retry: generateCode });
+      } else {
+        setAiError({ kind: 'other', message: msg, retry: generateCode });
+      }
     } finally {
       setBusy(false);
     }
@@ -500,6 +537,67 @@ export default function GuidedAiWorkflowWizard({
             creditsAvailable={creditsAvailable}
             onClose={handleClose}
           />
+
+          {/* ── Persistent AI error banner ──
+              Lives above the step body so the user sees it regardless of
+              which step triggered the failure. Shows tailored copy +
+              Retry / Skip controls based on error kind. */}
+          <AnimatePresence>
+            {aiError && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 dark:border-amber-900/40 dark:from-amber-950/40 dark:to-orange-950/30"
+              >
+                <div className="flex items-start gap-3 px-8 py-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-amber-900 dark:text-amber-200">
+                      {aiError.kind === 'timeout'
+                        ? 'Cortex took too long'
+                        : aiError.kind === 'parse'
+                          ? "AI returned something we couldn't parse"
+                          : 'AI call failed'}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-amber-800 dark:text-amber-300">
+                      {aiError.kind === 'timeout'
+                        ? 'The Snowflake Cortex warehouse cancelled the query (15s SQL limit). Try a shorter description, a less complex workflow, or retry — sometimes the second attempt lands faster.'
+                        : aiError.kind === 'parse'
+                          ? "The model's response wasn't valid JSON. Tweak the description or just retry."
+                          : aiError.message}
+                    </p>
+                    {aiError.kind === 'parse' && aiError.raw && (
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-[10px] text-amber-700 underline dark:text-amber-400">
+                          show raw response
+                        </summary>
+                        <pre className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap rounded bg-amber-100 p-2 text-[10px] text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                          {aiError.raw}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <button
+                      onClick={() => void aiError.retry()}
+                      disabled={busy}
+                      className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60"
+                    >
+                      Retry
+                    </button>
+                    <button
+                      onClick={() => setAiError(null)}
+                      className="rounded-md p-1 text-amber-600 hover:bg-amber-100 dark:text-amber-400 dark:hover:bg-amber-900/40"
+                      aria-label="Dismiss"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* ── Step body ── */}
           <div className="relative flex-1 overflow-y-auto">
