@@ -100,8 +100,6 @@ import type {
   PipelinesResponse,
   CostBreakdownResponse,
 } from '@/app/services/command-center/types';
-import { getIntelligentKpis } from '@/app/services/observability';
-import type { IntelligentKpis } from '@/app/services/observability/types';
 import {
   getSecurityOverview,
   getPerformanceOverview,
@@ -131,7 +129,6 @@ import type {
   PerformanceOverviewResponse,
   CortexCostsResponse,
   PlatformActivityResponse,
-  AccountHealthScoreResponse,
   ProjectsOverviewResponse,
   GovernanceGrantsOverviewResponse,
   DataOperationsOverviewResponse,
@@ -1351,7 +1348,8 @@ function CommandCenterDashboardInner() {
   const [activityFeed, setActivityFeed] = useState<ActivityFeedResponse | null>(
     null
   );
-  const [obsKpis, setObsKpis] = useState<IntelligentKpis | null>(null);
+  // obsKpis state removed: data was fetched from /observability/intelligent-kpis
+  // but never read by render. Saved one 25s timeout per overview refresh.
   const [infra, setInfra] = useState<InfrastructureResponse | null>(null);
   const [pipelines, setPipelines] = useState<PipelinesResponse | null>(null);
   const [costData, setCostData] = useState<CostBreakdownResponse | null>(null);
@@ -1368,8 +1366,7 @@ function CommandCenterDashboardInner() {
     useState<PerformanceOverviewResponse | null>(null);
   const [platformData, setPlatformData] =
     useState<PlatformActivityResponse | null>(null);
-  const [healthScore, setHealthScore] =
-    useState<AccountHealthScoreResponse | null>(null);
+  // healthScore state removed: never fetched, never read — pure dead prop.
 
   // Global filters — default to Last 30d (no start_date/end_date so preset button highlights)
   const [filters, setFilters] = useState<CommandCenterFilters>({
@@ -1506,21 +1503,19 @@ function CommandCenterDashboardInner() {
         }
         return af;
       });
-      const kpisP = withTimeout(getIntelligentKpis()).then((kpis) => {
-        if (kpis && !isApiError(kpis)) setObsKpis(kpis);
-        dropSpinner();
-        return kpis;
-      });
+      // getIntelligentKpis() removed: response was stored in `obsKpis` state
+      // but never read by render — the Observability radar that consumed it
+      // was always gated to never render. One less 25s timeout per overview
+      // refresh, and one less network round-trip.
 
       // Wait for ALL to settle so we can flag "backend unreachable" if every
       // call failed. Per-call .catch was already inside withTimeout, so this
       // Promise.all never rejects.
-      const [s, mh, af, kpis] = await Promise.all([summaryP, mhP, afP, kpisP]);
+      const [s, mh, af] = await Promise.all([summaryP, mhP, afP]);
       const gotSummary = !!(s && !isApiError(s));
       const gotModuleHealth = !!(mh && !isApiError(mh));
       const gotActivity = !!(af && !isApiError(af));
-      const gotKpis = !!(kpis && !isApiError(kpis));
-      setBackendUnreachable(!gotSummary && !gotModuleHealth && !gotActivity && !gotKpis);
+      setBackendUnreachable(!gotSummary && !gotModuleHealth && !gotActivity);
       // Safety net: if nothing landed (every call timed out), drop the
       // spinner so the user sees the empty-state banner instead of an
       // infinite skeleton.
@@ -1798,7 +1793,6 @@ function CommandCenterDashboardInner() {
     setSummary(null);
     setModuleHealth(null);
     setActivityFeed(null);
-    setObsKpis(null);
     setInfra(null);
     setPipelines(null);
     setCostData(null);
@@ -1808,7 +1802,6 @@ function CommandCenterDashboardInner() {
     setDataOpsData(null);
     setPerformanceData(null);
     setPlatformData(null);
-    setHealthScore(null);
     setBackendUnreachable(false);
     // Re-fetch current active tab
     switch (activeTab) {
@@ -2037,8 +2030,6 @@ function CommandCenterDashboardInner() {
             summary={summary}
             moduleHealth={moduleHealth}
             activityFeed={activityFeed}
-            obsKpis={obsKpis}
-            healthScore={healthScore}
             loading={tabLoading.overview}
             onRetry={fetchOverview}
           />
@@ -2282,8 +2273,6 @@ const OverviewTab = memo(function OverviewTab({
   summary,
   moduleHealth,
   activityFeed,
-  obsKpis,
-  healthScore,
   loading,
   onRetry,
 }: {
@@ -2291,8 +2280,6 @@ const OverviewTab = memo(function OverviewTab({
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
-  obsKpis: IntelligentKpis | null;
-  healthScore: AccountHealthScoreResponse | null;
   loading: boolean;
 }) {
   /**
@@ -2345,23 +2332,10 @@ const OverviewTab = memo(function OverviewTab({
     );
   }
 
-  const gradeColor: Record<string, string> = {
-    A: 'text-green-500',
-    B: 'text-blue-500',
-    C: 'text-amber-500',
-    D: 'text-orange-500',
-    F: 'text-red-500',
-  };
-
-  const radarData = obsKpis
-    ? [
-        { axis: 'Governance', value: obsKpis.governance?.score ?? 0 },
-        { axis: 'Cost', value: obsKpis.cost?.score ?? 0 },
-        { axis: 'Performance', value: obsKpis.performance?.score ?? 0 },
-        { axis: 'Usage', value: obsKpis.usage?.score ?? 0 },
-        { axis: 'Compliance', value: obsKpis.compliance?.score ?? 0 },
-      ]
-    : [];
+  // gradeColor + obsKpis radarData removed: the Observability Scores card
+  // they fed (`/observability/intelligent-kpis`) was gated to render only
+  // when scores were non-zero, but the endpoint payload never included
+  // populated scores. We removed both the call and the widget.
 
   // Prefer cache row over legacy summary call.
   const creditsUsed =
@@ -2393,7 +2367,7 @@ const OverviewTab = memo(function OverviewTab({
   })();
 
   return (
-    <>
+    <div className="space-y-6">
       {/* Backend served an empty envelope — the Snowflake metadata tables or
           ACCOUNT_USAGE views aren't readable for this account. Show one
           clear notice instead of leaving the user puzzled at all-zero cards. */}
@@ -2431,83 +2405,94 @@ const OverviewTab = memo(function OverviewTab({
           leaving the user staring at "live mode" forever. */}
       <BootstrapRecoveryBanner kpisError={kpisError} />
 
-      {/* Account identity strip — account_name / edition / region / role / subscription */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-        <Database className="h-4 w-4 text-blue-500" />
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-          <span className="font-semibold text-gray-900 dark:text-white">
-            {kpis?.account_name ?? '—'}
-          </span>
-          {kpis?.account_locator && (
-            <span className="text-gray-500">({kpis.account_locator})</span>
-          )}
-          {kpis?.edition && (
-            <span className="rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-              {kpis.edition}
-            </span>
-          )}
-          {kpis?.region && (
-            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-700 dark:bg-slate-800 dark:text-slate-300">
-              {kpis.region}
-            </span>
-          )}
-          {kpis?.current_role && (
-            <span className="text-gray-500">
-              role:{' '}
-              <span className="font-medium text-gray-700 dark:text-gray-300">
-                {kpis.current_role}
-              </span>
-            </span>
-          )}
-          <span className="text-gray-500">
-            subscription:{' '}
-            <span className="font-medium text-gray-700 dark:text-gray-300">
-              {subscriptionEndLabel}
-            </span>
-          </span>
-        </div>
-        <div className="ml-auto flex items-center gap-2">
-          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
-            {kpisError && (
-              <span
-                className="text-amber-500"
-                title={kpisError.message || 'overview-kpis cache unavailable'}
-              >
-                · live mode
-              </span>
-            )}
-          </div>
-          <div className="flex overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
-            {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={cn(
-                  'px-2.5 py-1 text-xs font-medium',
-                  range === r
-                    ? 'bg-primary text-white'
-                    : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-400 dark:hover:bg-gray-700'
+      {/* Hero strip — Snowflake account identity. The visual anchor of the
+          page: gradient background, larger account name, badges grouped on
+          the left, range picker + refresh on the right. */}
+      <div className="overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 via-white to-indigo-50/50 dark:border-blue-900/40 dark:from-blue-950/40 dark:via-gray-900 dark:to-indigo-950/30">
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600/10 dark:bg-blue-400/10">
+              <Database className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-base font-semibold leading-tight text-gray-900 dark:text-white">
+                  {kpis?.account_name ?? '—'}
+                </span>
+                {kpis?.edition && (
+                  <span className="rounded-md bg-blue-600/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:bg-blue-400/15 dark:text-blue-300">
+                    {kpis.edition}
+                  </span>
                 )}
-              >
-                {r}
-              </button>
-            ))}
+                {kpis?.region && (
+                  <span className="rounded-md bg-slate-200/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700/50 dark:text-slate-300">
+                    {kpis.region}
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+                {kpis?.account_locator && (
+                  <span>{kpis.account_locator}</span>
+                )}
+                {kpis?.current_role && (
+                  <span>
+                    role <span className="font-medium text-slate-700 dark:text-slate-300">{kpis.current_role}</span>
+                  </span>
+                )}
+                <span>
+                  subscription <span className="font-medium text-slate-700 dark:text-slate-300">{subscriptionEndLabel}</span>
+                </span>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={() => void refreshKpis()}
-            disabled={refreshing}
-            className="flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700"
-          >
-            <RefreshCw
-              className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')}
-            />
-            Refresh cache
-          </button>
+
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {(cacheAgeLabel || kpisError) && (
+              <div className="flex items-center gap-1 text-[11px] text-slate-500 dark:text-slate-400">
+                {cacheAgeLabel && <span>{cacheAgeLabel}</span>}
+                {kpisError && (
+                  <span
+                    className="font-medium text-amber-600 dark:text-amber-400"
+                    title={kpisError.message || 'overview-kpis cache unavailable'}
+                  >
+                    · live mode
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
+              {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium transition-colors',
+                    range === r
+                      ? 'bg-primary text-white'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
+                  )}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => void refreshKpis()}
+              disabled={refreshing}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+              Refresh cache
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* KPI Cards — 6 main + 3 health (per Screens/Account-overview/01-overview spec) */}
+      {/* ── KPI section: 6 primary metrics ─────────────────────────── */}
+      <section>
+        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Key metrics
+        </h2>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <KpiCard
           label={`Active Users (${range})`}
@@ -2547,8 +2532,13 @@ const OverviewTab = memo(function OverviewTab({
           color={(kpis?.open_alerts ?? 0) > 0 ? 'rose' : 'green'}
         />
       </div>
+      </section>
 
-      {/* Secondary KPI row — health / Cortex / AI / MFA */}
+      {/* ── Health gauges section ──────────────────────────────────── */}
+      <section>
+        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Health & posture
+        </h2>
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
         <KpiCard
           label="Workspace Health"
@@ -2575,6 +2565,7 @@ const OverviewTab = memo(function OverviewTab({
           color="rose"
         />
       </div>
+      </section>
 
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
@@ -2826,13 +2817,7 @@ const OverviewTab = memo(function OverviewTab({
             const mapped = fromSummary.map(toRecoString).filter((s): s is string => !!s);
             if (mapped.length > 0) return mapped.slice(0, 5);
           }
-          const fromObs =
-            (obsKpis as unknown as { recommendations?: unknown[] | null })
-              ?.recommendations ?? null;
-          if (Array.isArray(fromObs) && fromObs.length > 0) {
-            const mapped = fromObs.map(toRecoString).filter((s): s is string => !!s);
-            if (mapped.length > 0) return mapped.slice(0, 5);
-          }
+          // obsKpis fallback removed along with the dead getIntelligentKpis call.
           return [];
         })();
 
@@ -3009,48 +2994,8 @@ const OverviewTab = memo(function OverviewTab({
       {/* Snowflake Tasks Quick View */}
       <TasksQuickWidget />
 
-      {/* Radar + Activity Feed */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Observability Radar */}
-        <SectionCard title="Observability Scores">
-          {radarData.length > 0 && radarData.some((p) => (p.value ?? 0) > 0) ? (
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="#374151" />
-                  <PolarAngleAxis
-                    dataKey="axis"
-                    tick={{ fill: '#9CA3AF', fontSize: 12 }}
-                  />
-                  <PolarRadiusAxis
-                    angle={90}
-                    domain={[0, 100]}
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
-                  />
-                  <Radar
-                    name="Score"
-                    dataKey="value"
-                    stroke="#3B82F6"
-                    fill="#3B82F6"
-                    fillOpacity={0.25}
-                  />
-                </RadarChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-center">
-              <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                Observability scores are still being computed
-              </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Scores for governance, cost, performance, usage, and compliance
-                appear here once Snowflake metrics have been collected.
-              </p>
-            </div>
-          )}
-        </SectionCard>
-
-        {/* Recent Activity */}
+      {/* Recent Activity — radar widget removed (obsKpis was dead state) */}
+      <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Recent Activity">
           <div className="max-h-64 space-y-2 overflow-y-auto">
             {coalesceActivityEvents(
@@ -3097,7 +3042,7 @@ const OverviewTab = memo(function OverviewTab({
           </div>
         </SectionCard>
       </div>
-    </>
+    </div>
   );
 });
 
