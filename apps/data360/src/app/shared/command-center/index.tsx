@@ -2088,6 +2088,7 @@ function CommandCenterDashboardInner() {
                 activityFeed={activityFeed}
                 loading={tabLoading.overview}
                 onRetry={fetchOverview}
+                globalDays={filters.days}
               />
             )}
             {activeTab === 'snowflake-objects' && (
@@ -2333,12 +2334,22 @@ const OverviewTab = memo(function OverviewTab({
   activityFeed,
   loading,
   onRetry,
+  globalDays,
 }: {
   onRetry?: () => void;
   summary: SummaryResponse | null;
   moduleHealth: ModuleHealthResponse | null;
   activityFeed: ActivityFeedResponse | null;
   loading: boolean;
+  /**
+   * The global Time Range value (days) coming from the parent filter bar.
+   * The hero-strip range picker syncs to this so the user only has ONE
+   * source of truth for the time window. Previously the two were
+   * independent and that's what made the date filters "feel broken" —
+   * the global filter would update the summary/module-health calls while
+   * the hero picker kept the KPI cache stuck on a different range.
+   */
+  globalDays?: number;
 }) {
   /**
    * Cache-backed KPI source — single round-trip to
@@ -2346,6 +2357,14 @@ const OverviewTab = memo(function OverviewTab({
    * TASK). Falls back to the legacy `summary` payload when the cache row
    * isn't there yet (e.g. cold-start in a fresh account).
    */
+  // Initial range derived from the parent's global Time Range, so first
+  // render matches what the rest of the page is showing.
+  const daysToRange = (d: number): OverviewRange => {
+    if (d <= 1) return '24h';
+    if (d <= 7) return '7d';
+    if (d <= 30) return '30d';
+    return '90d';
+  };
   const {
     range,
     setRange,
@@ -2354,7 +2373,18 @@ const OverviewTab = memo(function OverviewTab({
     refreshing,
     error: kpisError,
     refresh: refreshKpis,
-  } = useOverviewKpis('30d');
+  } = useOverviewKpis(daysToRange(globalDays ?? 30));
+
+  // Sync hero range picker to the global Time Range whenever the parent
+  // changes it. Without this, the user clicks "7d" in the global filter
+  // bar, summary/module-health refetch with days=7, but the KPI cache
+  // call still uses range=30d → mixed-window data → "filter doesn't work".
+  useEffect(() => {
+    if (globalDays === undefined) return;
+    const next = daysToRange(globalDays);
+    if (next !== range) setRange(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [globalDays]);
 
   // Only skeleton while we're actively loading AND we have nothing to show.
   // If kpis or summary has landed, we can render immediately — partial data
@@ -2518,36 +2548,18 @@ const OverviewTab = memo(function OverviewTab({
                 )}
               </div>
             )}
-            {/* Range picker with sliding active pill (layoutId) — the blue
-                background glides between segments instead of snapping. */}
-            <LayoutGroup id="overview-range-picker">
-              <div className="relative flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
-                {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => {
-                  const active = range === r;
-                  return (
-                    <button
-                      key={r}
-                      onClick={() => setRange(r)}
-                      className={cn(
-                        'relative z-10 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                        active
-                          ? 'text-white'
-                          : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white',
-                      )}
-                    >
-                      {active && (
-                        <motion.span
-                          layoutId="range-pill"
-                          className="absolute inset-0 -z-10 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 shadow-sm shadow-blue-500/30"
-                          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
-                        />
-                      )}
-                      {r}
-                    </button>
-                  );
-                })}
-              </div>
-            </LayoutGroup>
+            {/* Window indicator — read-only badge that mirrors the global
+                Time Range filter above. The redundant per-tab range picker
+                was removed because (a) it duplicated the global filter
+                without syncing, which made the page feel broken, and
+                (b) the only endpoint it controlled was overview-kpis,
+                whose backend cache is sometimes missing. Now there is
+                ONE source of truth: the Time Range bar at the top. */}
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300">
+              <Calendar className="h-3 w-3 text-slate-400" />
+              <span className="tabular-nums">{range}</span>
+              <span className="text-slate-400">window</span>
+            </span>
             <motion.button
               whileHover={!refreshing ? { scale: 1.03 } : undefined}
               whileTap={!refreshing ? { scale: 0.97 } : undefined}
