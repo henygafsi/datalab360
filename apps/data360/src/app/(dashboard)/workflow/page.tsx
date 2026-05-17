@@ -10,7 +10,10 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity, ArrowRight } from 'lucide-react';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity, ArrowRight, Sparkles, Download } from 'lucide-react';
+import { motion } from 'framer-motion';
+import AiGenerateModal from './components/AiGenerateModal';
+import ImportTasksModal from './components/ImportTasksModal';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { Button } from 'rizzui';
 import dynamic from 'next/dynamic';
@@ -70,6 +73,9 @@ const WorkflowHomePage: React.FC = () => {
 
   // Right panel state for Version History, Execution History, Deployment History, and Deploy
   const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
+  // Modals (PDF page 8 #1 + #2)
+  const [showAiGenerate, setShowAiGenerate] = useState(false);
+  const [showImportTasks, setShowImportTasks] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
   const [showNavigationButtons, setShowNavigationButtons] = useState(false);
 
@@ -749,17 +755,52 @@ const WorkflowHomePage: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
           <div className="flex items-center gap-3">
             {/* New Workflow Button */}
-            <button
+            <motion.button
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.92 }}
               onClick={createNewWorkflow}
               className={cn(
                 "w-9 h-9 rounded-lg flex items-center justify-center transition",
-                "bg-green-500 hover:bg-green-600 text-white",
-                "shadow-sm hover:shadow"
+                "bg-gradient-to-br from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white",
+                "shadow-md shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/40"
               )}
               title="Create New Workflow"
             >
-              <span className="text-xl">+</span>
-            </button>
+              <span className="text-xl leading-none">+</span>
+            </motion.button>
+
+            {/* AI Generate — opens AiGenerateModal */}
+            <motion.button
+              whileHover={{ scale: 1.04, y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowAiGenerate(true)}
+              className={cn(
+                "group relative flex items-center gap-1.5 overflow-hidden rounded-lg px-3 h-9 text-xs font-semibold text-white transition-all",
+                "bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700",
+                "shadow-md shadow-purple-500/30 hover:shadow-lg hover:shadow-purple-500/40"
+              )}
+              title="Generate workflow with AI"
+            >
+              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+              <Sparkles className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">AI</span>
+            </motion.button>
+
+            {/* Import Snowflake Tasks — opens ImportTasksModal */}
+            <motion.button
+              whileHover={{ scale: 1.04, y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowImportTasks(true)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 h-9 text-xs font-semibold text-white transition-all",
+                "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700",
+                "shadow-md shadow-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/40"
+              )}
+              title="Import Snowflake task graphs as workflow projects"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Import tasks</span>
+            </motion.button>
 
             {/* Navigation Arrows */}
             <button
@@ -1057,6 +1098,31 @@ const WorkflowHomePage: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* AI Generate Workflow modal */}
+      <AiGenerateModal
+        open={showAiGenerate}
+        onClose={() => setShowAiGenerate(false)}
+        onGenerated={(nodes, edges) => {
+          // The AI modal speaks generic reactflow types; the page uses local
+          // wrapped shapes (ReactFlowNode/Edge) that are structurally
+          // compatible for our purposes (id, position, type, data on nodes;
+          // id, source, target on edges). Cast at the boundary.
+          setActiveNodes(nodes as unknown as ReactFlowNode[]);
+          setActiveEdges(edges as unknown as ReactFlowEdge[]);
+          setIsWorkflowSaved(false);
+          toast.success('AI workflow ready — review and save when done');
+        }}
+      />
+
+      {/* Import Snowflake task graphs modal */}
+      <ImportTasksModal
+        open={showImportTasks}
+        onClose={() => setShowImportTasks(false)}
+        onImported={async () => {
+          await fetchWorkflows();
+        }}
+      />
     </div>
   );
 };

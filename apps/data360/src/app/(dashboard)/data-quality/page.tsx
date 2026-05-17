@@ -24,6 +24,7 @@ import {
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import toast from 'react-hot-toast';
+import { motion, LayoutGroup } from 'framer-motion';
 import apiClient from '@/lib/api-client';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
@@ -1670,37 +1671,58 @@ export default function DataQualityPage() {
           )}
         </div>
 
-        {/* Tab Navigation */}
-        <div className="flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
-          {TAB_IDS.map((tabId) => {
-            const Icon = TAB_ICONS[tabId];
-            const isActive = activeTab === tabId;
-            const rowCount = paginationMeta[tabId]?.total ?? (tabData[tabId] || []).length;
-            return (
-              <button
-                key={tabId}
-                onClick={() => setActiveTab(tabId)}
-                className={cn(
-                  'flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap border-b-2 transition-colors',
-                  isActive
-                    ? 'border-blue-500 text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'
-                )}
-              >
-                <Icon className="h-3.5 w-3.5" />
-                {TAB_LABELS[tabId]}
-                {rowCount > 0 && (
-                  <span className={cn(
-                    'text-[10px] px-1.5 py-0 rounded-full',
-                    isActive ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
-                  )}>
-                    {rowCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {/* Tab Navigation with sliding gradient indicator */}
+        <LayoutGroup id="dq-tabs">
+          <div className="no-scrollbar flex border-b border-gray-200 dark:border-gray-700 overflow-x-auto">
+            {TAB_IDS.map((tabId) => {
+              const Icon = TAB_ICONS[tabId];
+              const isActive = activeTab === tabId;
+              const rowCount = paginationMeta[tabId]?.total ?? (tabData[tabId] || []).length;
+              return (
+                <motion.button
+                  key={tabId}
+                  whileHover={{ y: -1 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setActiveTab(tabId)}
+                  className={cn(
+                    'group relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors',
+                    isActive
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200',
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      'h-3.5 w-3.5 transition-transform',
+                      isActive ? 'scale-110' : 'text-gray-400 group-hover:scale-105',
+                    )}
+                  />
+                  {TAB_LABELS[tabId]}
+                  {rowCount > 0 && (
+                    <motion.span
+                      layout
+                      className={cn(
+                        'text-[10px] px-1.5 py-0 rounded-full tabular-nums transition-colors',
+                        isActive
+                          ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+                          : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400',
+                      )}
+                    >
+                      {rowCount}
+                    </motion.span>
+                  )}
+                  {isActive && (
+                    <motion.span
+                      layoutId="dq-tab-indicator"
+                      className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </motion.button>
+              );
+            })}
+          </div>
+        </LayoutGroup>
 
         {/* PII Detection action bar */}
         {activeTab === 'pii' && (
