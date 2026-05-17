@@ -15,6 +15,7 @@ import React, {
 import { Text, Title, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
 import toast from 'react-hot-toast';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
   RefreshCw,
   LayoutDashboard,
@@ -379,15 +380,31 @@ const KpiCard = memo(function KpiCard({
       : null;
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 transition-all dark:border-gray-700 dark:bg-gray-900">
-      <div className="flex items-center justify-between">
-        <div
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: 'easeOut' }}
+      whileHover={{ y: -2 }}
+      className="group relative overflow-hidden rounded-xl border border-gray-200 bg-white p-4 shadow-sm transition-shadow duration-200 hover:border-gray-300 hover:shadow-md dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600"
+    >
+      {/* Subtle gradient halo on hover — sits behind the icon, fades in only
+          when the card is hovered. Adds depth without competing with data. */}
+      <div
+        className={cn(
+          'pointer-events-none absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100',
+          `from-${color}-300/40 to-${color}-500/30`,
+        )}
+      />
+      <div className="relative flex items-center justify-between">
+        <motion.div
+          whileHover={{ rotate: -4, scale: 1.05 }}
+          transition={{ type: 'spring', stiffness: 380, damping: 20 }}
           className={`rounded-lg bg-${color}-100 dark:bg-${color}-900/30 p-2`}
         >
           <Icon
             className={`h-5 w-5 text-${color}-600 dark:text-${color}-400`}
           />
-        </div>
+        </motion.div>
         <div className="flex items-center gap-1.5">
           {delta !== undefined && delta !== 0 && (
             <span
@@ -464,7 +481,7 @@ const KpiCard = memo(function KpiCard({
           </p>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 });
 
@@ -1876,24 +1893,38 @@ function CommandCenterDashboardInner() {
   return (
     <div className="@container">
       {/* ── Header ────────────────────────────────────────────────── */}
-      <div className="mb-6 flex items-center justify-between">
+      <motion.div
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: 'easeOut' }}
+        className="mb-6 flex items-center justify-between"
+      >
         <div>
-          <Title as="h1" className="text-xl font-bold md:text-2xl">
+          <Title as="h1" className="bg-gradient-to-r from-slate-900 via-slate-700 to-slate-900 bg-clip-text text-xl font-bold tracking-tight text-transparent dark:from-white dark:via-slate-200 dark:to-white md:text-2xl">
             Command Center
           </Title>
           <Text className="mt-1 text-gray-500 dark:text-gray-400">
             Your Data360 platform at a glance
           </Text>
         </div>
-        <button
+        <motion.button
+          whileHover={!isLoading ? { scale: 1.03 } : undefined}
+          whileTap={!isLoading ? { scale: 0.97 } : undefined}
           onClick={handleRefresh}
           disabled={isLoading}
-          className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+          className="group relative flex items-center gap-2 overflow-hidden rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm transition-all hover:border-gray-300 hover:shadow-md disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-600"
         >
-          <RefreshCw className={cn('h-4 w-4', isLoading && 'animate-spin')} />
-          {isLoading ? 'Loading...' : 'Refresh'}
-        </button>
-      </div>
+          {/* Subtle gradient shimmer on hover */}
+          <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-blue-500/10 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+          <RefreshCw
+            className={cn(
+              'h-4 w-4 transition-transform duration-500',
+              isLoading ? 'animate-spin' : 'group-hover:rotate-180',
+            )}
+          />
+          {isLoading ? 'Loading…' : 'Refresh'}
+        </motion.button>
+      </motion.div>
 
       {/* ── Error Banner ──────────────────────────────────────────── */}
       {error && (
@@ -1941,70 +1972,86 @@ function CommandCenterDashboardInner() {
         )}
       >
 
-      {/* ── Tabs ──────────────────────────────────────────────────── */}
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <div
-          className="no-scrollbar -mb-px flex snap-x snap-mandatory space-x-4 overflow-x-auto scroll-smooth"
-          role="tablist"
-          aria-label="Account overview tabs"
-        >
-          {tabs.map((tab, idx) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
-              // WAI-ARIA tabs pattern: Left/Right move focus + select; Home/End jump to edges.
-              let nextIdx: number | null = null;
-              if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
-              else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
-              else if (e.key === 'Home') nextIdx = 0;
-              else if (e.key === 'End') nextIdx = tabs.length - 1;
-              if (nextIdx === null) return;
-              e.preventDefault();
-              const nextTab = tabs[nextIdx];
-              startTabTransition(() => setActiveTab(nextTab.id));
-              // Move focus to the newly selected tab on the next paint and
-              // scroll it into view if it overflowed the horizontal track.
-              window.requestAnimationFrame(() => {
-                const el = document.getElementById(`tab-${nextTab.id}`);
-                el?.focus();
-                el?.scrollIntoView({
-                  behavior: 'smooth',
-                  block: 'nearest',
-                  inline: 'nearest',
-                });
-              });
-            };
-            return (
-              <button
-                key={tab.id}
-                role="tab"
-                aria-selected={isActive}
-                aria-controls={`tabpanel-${tab.id}`}
-                id={`tab-${tab.id}`}
-                tabIndex={isActive ? 0 : -1}
-                onKeyDown={onTabKeyDown}
-                onClick={(e) => {
-                  startTabTransition(() => setActiveTab(tab.id));
-                  e.currentTarget.scrollIntoView({
+      {/* ── Tabs with sliding gradient indicator ─────────────────────
+          `layoutId="cc-tab-indicator"` makes the underline glide smoothly
+          between tabs using framer-motion's shared-layout transitions. */}
+      <LayoutGroup id="command-center-tabs">
+        <div className="border-b border-gray-200 dark:border-gray-700">
+          <div
+            className="no-scrollbar -mb-px flex snap-x snap-mandatory space-x-1 overflow-x-auto scroll-smooth"
+            role="tablist"
+            aria-label="Account overview tabs"
+          >
+            {tabs.map((tab, idx) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+                // WAI-ARIA tabs pattern: Left/Right move focus + select; Home/End jump to edges.
+                let nextIdx: number | null = null;
+                if (e.key === 'ArrowRight') nextIdx = (idx + 1) % tabs.length;
+                else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + tabs.length) % tabs.length;
+                else if (e.key === 'Home') nextIdx = 0;
+                else if (e.key === 'End') nextIdx = tabs.length - 1;
+                if (nextIdx === null) return;
+                e.preventDefault();
+                const nextTab = tabs[nextIdx];
+                startTabTransition(() => setActiveTab(nextTab.id));
+                window.requestAnimationFrame(() => {
+                  const el = document.getElementById(`tab-${nextTab.id}`);
+                  el?.focus();
+                  el?.scrollIntoView({
                     behavior: 'smooth',
                     block: 'nearest',
                     inline: 'nearest',
                   });
-                }}
-                className={cn(
-                  'flex shrink-0 snap-start items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
-                  isActive
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+                });
+              };
+              return (
+                <button
+                  key={tab.id}
+                  role="tab"
+                  aria-selected={isActive}
+                  aria-controls={`tabpanel-${tab.id}`}
+                  id={`tab-${tab.id}`}
+                  tabIndex={isActive ? 0 : -1}
+                  onKeyDown={onTabKeyDown}
+                  onClick={(e) => {
+                    startTabTransition(() => setActiveTab(tab.id));
+                    e.currentTarget.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'nearest',
+                      inline: 'nearest',
+                    });
+                  }}
+                  className={cn(
+                    'group relative flex shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-t-md px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
+                    isActive
+                      ? 'text-primary'
+                      : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200',
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      'h-4 w-4 transition-transform',
+                      isActive
+                        ? 'scale-110'
+                        : 'text-gray-400 group-hover:scale-105 group-hover:text-gray-600 dark:group-hover:text-gray-300',
+                    )}
+                  />
+                  {tab.label}
+                  {isActive && (
+                    <motion.span
+                      layoutId="cc-tab-indicator"
+                      className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-blue-500 via-indigo-500 to-violet-500"
+                      transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      </LayoutGroup>
 
       {/* ── Global Filter Bar ──────────────────────────────────────── */}
       <GlobalFilterBar
@@ -2018,66 +2065,77 @@ function CommandCenterDashboardInner() {
       </div>
       {/* /sticky cluster ───────────────────────────────────────────── */}
 
-      {/* ── Tab Content ───────────────────────────────────────────── */}
+      {/* ── Tab Content with smooth crossfade ─────────────────────── */}
       <div
         className="space-y-6"
         role="tabpanel"
         id={`tabpanel-${activeTab}`}
         aria-labelledby={`tab-${activeTab}`}
       >
-        {activeTab === 'overview' && (
-          <OverviewTab
-            summary={summary}
-            moduleHealth={moduleHealth}
-            activityFeed={activityFeed}
-            loading={tabLoading.overview}
-            onRetry={fetchOverview}
-          />
-        )}
-        {activeTab === 'snowflake-objects' && (
-          <Suspense fallback={<LoadingSection />}>
-            <SnowflakeExplorerTab />
-          </Suspense>
-        )}
-        {activeTab === 'finops' && (
-          <CostTab data={costData} loading={tabLoading.cost} />
-        )}
-        {activeTab === 'modules' && (
-          <Suspense fallback={<LoadingSection />}>
-            <ModulesTab />
-          </Suspense>
-        )}
-        {activeTab === 'org-accounts' && (
-          <Suspense fallback={<LoadingSection />}>
-            <OrgAccountsTab />
-          </Suspense>
-        )}
-        {activeTab === 'platform-activity' && (
-          <PlatformActivityTab
-            platformData={platformData}
-            activityFeed={activityFeed}
-            summary={summary}
-            loading={tabLoading['platform-activity']}
-          />
-        )}
-        {activeTab === 'projects' && (
-          <ProjectsTab
-            data={projectsData}
-            loading={tabLoading.projects}
-            onRefresh={fetchProjects}
-          />
-        )}
-        {activeTab === 'security' && (
-          <SecurityAdvTab
-            data={securityData}
-            loading={tabLoading['security-adv']}
-          />
-        )}
-        {activeTab === 'snowflake-accounts' && (
-          <Suspense fallback={<LoadingSection />}>
-            <SnowflakeAccountsTab />
-          </Suspense>
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="space-y-6"
+          >
+            {activeTab === 'overview' && (
+              <OverviewTab
+                summary={summary}
+                moduleHealth={moduleHealth}
+                activityFeed={activityFeed}
+                loading={tabLoading.overview}
+                onRetry={fetchOverview}
+              />
+            )}
+            {activeTab === 'snowflake-objects' && (
+              <Suspense fallback={<LoadingSection />}>
+                <SnowflakeExplorerTab />
+              </Suspense>
+            )}
+            {activeTab === 'finops' && (
+              <CostTab data={costData} loading={tabLoading.cost} />
+            )}
+            {activeTab === 'modules' && (
+              <Suspense fallback={<LoadingSection />}>
+                <ModulesTab />
+              </Suspense>
+            )}
+            {activeTab === 'org-accounts' && (
+              <Suspense fallback={<LoadingSection />}>
+                <OrgAccountsTab />
+              </Suspense>
+            )}
+            {activeTab === 'platform-activity' && (
+              <PlatformActivityTab
+                platformData={platformData}
+                activityFeed={activityFeed}
+                summary={summary}
+                loading={tabLoading['platform-activity']}
+              />
+            )}
+            {activeTab === 'projects' && (
+              <ProjectsTab
+                data={projectsData}
+                loading={tabLoading.projects}
+                onRefresh={fetchProjects}
+              />
+            )}
+            {activeTab === 'security' && (
+              <SecurityAdvTab
+                data={securityData}
+                loading={tabLoading['security-adv']}
+              />
+            )}
+            {activeTab === 'snowflake-accounts' && (
+              <Suspense fallback={<LoadingSection />}>
+                <SnowflakeAccountsTab />
+              </Suspense>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );
@@ -2460,30 +2518,51 @@ const OverviewTab = memo(function OverviewTab({
                 )}
               </div>
             )}
-            <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm dark:border-slate-700 dark:bg-slate-800">
-              {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRange(r)}
-                  className={cn(
-                    'px-2.5 py-1 text-xs font-medium transition-colors',
-                    range === r
-                      ? 'bg-primary text-white'
-                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700'
-                  )}
-                >
-                  {r}
-                </button>
-              ))}
-            </div>
-            <button
+            {/* Range picker with sliding active pill (layoutId) — the blue
+                background glides between segments instead of snapping. */}
+            <LayoutGroup id="overview-range-picker">
+              <div className="relative flex items-center rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
+                {(['24h', '7d', '30d', '90d'] as OverviewRange[]).map((r) => {
+                  const active = range === r;
+                  return (
+                    <button
+                      key={r}
+                      onClick={() => setRange(r)}
+                      className={cn(
+                        'relative z-10 rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                        active
+                          ? 'text-white'
+                          : 'text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white',
+                      )}
+                    >
+                      {active && (
+                        <motion.span
+                          layoutId="range-pill"
+                          className="absolute inset-0 -z-10 rounded-md bg-gradient-to-r from-blue-600 to-indigo-600 shadow-sm shadow-blue-500/30"
+                          transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                        />
+                      )}
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            </LayoutGroup>
+            <motion.button
+              whileHover={!refreshing ? { scale: 1.03 } : undefined}
+              whileTap={!refreshing ? { scale: 0.97 } : undefined}
               onClick={() => void refreshKpis()}
               disabled={refreshing}
-              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-colors hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+              className="group flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-700 shadow-sm transition-all hover:border-slate-300 hover:bg-slate-50 hover:shadow-md disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:border-slate-600 dark:hover:bg-slate-700"
             >
-              <RefreshCw className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+              <RefreshCw
+                className={cn(
+                  'h-3.5 w-3.5 transition-transform duration-500',
+                  refreshing ? 'animate-spin' : 'group-hover:rotate-180',
+                )}
+              />
               Refresh cache
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
