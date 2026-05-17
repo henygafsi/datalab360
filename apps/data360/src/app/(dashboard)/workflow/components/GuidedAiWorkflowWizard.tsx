@@ -387,7 +387,16 @@ function layoutBlocks(
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: (nodes: Node[], edges: Edge[]) => void;
+  /**
+   * Called once the user accepts the generated workflow at step 9. The
+   * parent receives the layout nodes/edges and the original description
+   * (used to name the auto-saved draft project).
+   */
+  onCreated: (
+    nodes: Node[],
+    edges: Edge[],
+    meta: { description: string },
+  ) => void;
   /** Credits available for display only (top-right counter). */
   creditsAvailable?: number;
 }
@@ -611,8 +620,11 @@ export default function GuidedAiWorkflowWizard({
       toast.error('No workflow to create');
       return;
     }
-    onCreated(state.workflow.nodes, state.workflow.edges);
-    toast.success('Workflow ready in the builder');
+    onCreated(state.workflow.nodes, state.workflow.edges, {
+      description: state.description,
+    });
+    // Parent surfaces its own toast after the auto-save completes — we
+    // skip the success toast here to avoid two stacking messages.
     handleClose();
   };
 

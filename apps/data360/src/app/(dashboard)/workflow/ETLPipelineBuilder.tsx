@@ -404,6 +404,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // Modals — both opened from the header (PDF page 8 #1 + #2).
   const [showAiGenerate, setShowAiGenerate] = useState(false);
   const [showImportTasks, setShowImportTasks] = useState(false);
+  // After an AI-generated workflow auto-saves, show a one-time hint
+  // banner telling the user to configure each block before running. Auto-
+  // dismissed by clicking the X or starting to configure a node.
+  const [aiNextStepHint, setAiNextStepHint] = useState(false);
 
   // Results preview state
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number; table: string } | null>(null);
@@ -608,6 +612,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
     setShowSidebar(true);
+    // User is following the AI hint — dismiss the banner.
+    setAiNextStepHint(false);
   }, []);
 
   const onPaneClick = useCallback(() => {
@@ -1993,6 +1999,43 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         </div>
       </div>
 
+      {/* AI next-step hint — shown once after the wizard auto-saves a draft.
+          Sets expectations: the visual graph is generated but each block
+          still needs its database/columns before Save → Validate → Run
+          produce a real SQL workflow. */}
+      <AnimatePresence>
+        {aiNextStepHint && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden border-b border-purple-200 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-purple-50 dark:border-purple-900/40 dark:from-purple-950/30 dark:via-fuchsia-950/30 dark:to-purple-950/30"
+          >
+            <div className="flex items-start gap-3 px-4 py-2.5">
+              <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-purple-600 dark:text-purple-400" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-purple-900 dark:text-purple-200">
+                  AI generated the structure — now configure each block
+                </p>
+                <p className="mt-0.5 text-[11px] text-purple-800 dark:text-purple-300">
+                  Click a block on the canvas to set its database, table,
+                  columns and conditions. Then <strong>Save</strong> →{' '}
+                  <strong>Validate</strong> → <strong>Run</strong>. Until each
+                  block is configured the workflow won&apos;t execute.
+                </p>
+              </div>
+              <button
+                onClick={() => setAiNextStepHint(false)}
+                className="rounded-md p-1 text-purple-600 transition-colors hover:bg-purple-100 dark:text-purple-400 dark:hover:bg-purple-900/40"
+                aria-label="Dismiss"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Main content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left palette */}
@@ -2406,15 +2449,59 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       )}
 
       {/* AI Guided Workflow — 9-step wizard. Generated nodes/edges are
-          dropped onto the React Flow canvas via setNodes/setEdges. */}
+          dropped onto the React Flow canvas via setNodes/setEdges, AND
+          auto-saved to the backend as a draft project so the user has a
+          real, named workflow to come back to (not just transient state). */}
       <GuidedAiWorkflowWizard
         open={showAiGenerate}
         onClose={() => setShowAiGenerate(false)}
-        onCreated={(genNodes, genEdges) => {
+        onCreated={async (genNodes, genEdges, meta) => {
+          // 1) Drop nodes/edges on the canvas immediately so the user sees
+          //    the result of their wizard work without delay.
           setNodes(genNodes as unknown as typeof nodes);
           setEdges(genEdges as unknown as typeof edges);
           setIsDirty(true);
-          toast.success('AI workflow ready — review, save and run');
+          setAiNextStepHint(true);
+
+          // 2) Auto-save as a NEW workflow project named "[AI Draft] ...".
+          //    Each node becomes a step with the AI-generated label/type
+          //    in the payload. The user still has to open each block to
+          //    fill in real database/schema/table/columns/conditions
+          //    before Save → Validate → Run will produce a working query.
+          const draftName = `[AI Draft] ${(meta.description || 'Untitled').slice(0, 30)}`;
+          try {
+            const steps = genNodes.map((n, i) => ({
+              action_type: 'sql' as const, // generic placeholder action type
+              step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+              description: `AI-generated ${String(n.type)} block. Configure database/columns before running.`,
+              payload: {
+                ai_generated: true,
+                node_type: String(n.type),
+                node_id: n.id,
+                position: n.position,
+                data: n.data,
+                // Edges connecting this node → consumer can rebuild the DAG
+                outgoing: genEdges.filter((e) => e.source === n.id).map((e) => e.target),
+              },
+            }));
+            const created = await workflowApi.createWorkflow({
+              project_name: draftName,
+              description: meta.description,
+              tags: ['ai-draft'],
+              steps,
+            });
+            // Refresh the workflow list so the new draft appears in the
+            // selector, then load it as the active workflow.
+            void loadWorkflows();
+            setActiveWorkflowId(created.project_id);
+            setPipelineName(draftName);
+            toast.success(`Saved as "${draftName}" — configure each block to make it runnable`);
+          } catch (err) {
+            // Save failed but the canvas still has the nodes — user can
+            // hit Save manually. Surface the error so they know.
+            const msg = getApiErrorMessage(err) || 'Auto-save failed — click Save to retry';
+            toast.error(msg);
+          }
         }}
       />
 
