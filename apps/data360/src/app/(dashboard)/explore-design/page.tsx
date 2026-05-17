@@ -15,7 +15,7 @@ import {
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
-  BookTemplate, Activity, AlertCircle
+  BookTemplate, Activity, AlertCircle, MoreVertical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -283,6 +283,93 @@ const BulkActionsBar: React.FC<{
           <X className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  );
+};
+
+// Overflow menu — holds secondary toolbar actions so the page header can
+// fit on one line. Click toggles a small popover; click outside closes it.
+// Each item is a {label, icon, onClick, active?, disabled?} entry rendered
+// as a row with optional active highlight (e.g. when a panel is currently
+// open) so the user still has a visual indicator of toggle state.
+interface OverflowItem {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  /** Optional accent color (`'violet' | 'teal' | 'purple'`) when active. */
+  activeColor?: 'violet' | 'teal' | 'purple' | 'blue';
+}
+const OverflowMenu: React.FC<{ items: OverflowItem[] }> = ({ items }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <Tooltip content="More actions">
+        <button
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            'flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
+            open && 'bg-slate-100 dark:bg-slate-700',
+          )}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </Tooltip>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-40 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {items.map((it) => {
+            const Icon = it.icon;
+            const activeAccent =
+              it.active && it.activeColor
+                ? {
+                    violet: 'text-violet-600 dark:text-violet-400',
+                    teal: 'text-teal-600 dark:text-teal-400',
+                    purple: 'text-purple-600 dark:text-purple-400',
+                    blue: 'text-blue-600 dark:text-blue-400',
+                  }[it.activeColor]
+                : '';
+            return (
+              <button
+                key={it.label}
+                role="menuitem"
+                disabled={it.disabled}
+                onClick={() => {
+                  it.onClick();
+                  setOpen(false);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                  it.active
+                    ? 'bg-slate-50 dark:bg-slate-800'
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                )}
+              >
+                <Icon className={cn('h-3.5 w-3.5 text-slate-500', activeAccent)} />
+                <span className={cn('text-slate-700 dark:text-slate-200', activeAccent)}>{it.label}</span>
+                {it.active && (
+                  <span className="ml-auto text-[10px] uppercase text-slate-400">on</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -949,7 +1036,10 @@ export default function ExploreDesignPage() {
   const [dwhTargetDatabase, setDwhTargetDatabase] = useState<string | null>(null);
   const [dwhTargetSchema, setDwhTargetSchema] = useState<string | null>(null);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
-  const [showEventPanel, setShowEventPanel] = useState(true);
+  // Right panels default to CLOSED: with the redesign they slide in as
+  // overlays instead of fixed sidebars, so leaving them open by default
+  // would block the canvas every time the user lands on the page.
+  const [showEventPanel, setShowEventPanel] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showHistoryRail, setShowHistoryRail] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
@@ -2950,42 +3040,22 @@ export default function ExploreDesignPage() {
         </div>
       )}
 
-      {/* Header - Compact (hidden in fullscreen) */}
+      {/* ── Unified header ─────────────────────────────────────────────
+          Previously 3 stacked rows (breadcrumb + title-toolbar + search-
+          panels). Collapsed into ONE sticky row: Project | Tabs | Search
+          | Deploy + overflow ⋮. The breadcrumb is rebuilt as a tiny strip
+          inside the row, secondary actions live in the overflow menu, and
+          panel-toggle buttons moved to the canvas edge. */}
       {!isFullscreen && (
-      <div className="px-3 lg:px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
-        <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
-          <span
-            className="hover:text-gray-700 dark:hover:text-gray-300 cursor-pointer"
-            onClick={() => { setSelectedProjectId(null); setSelectedProjectName(''); }}
-          >
-            Projects
-          </span>
-          {selectedProjectName && (
-            <>
-              <ChevronRight className="h-3 w-3" />
-              <span className="text-gray-700 dark:text-gray-300 font-medium">{selectedProjectName}</span>
-            </>
-          )}
-          {selectedDatabase && (
-            <>
-              <ChevronRight className="h-3 w-3" />
-              <span>{selectedDatabase}</span>
-            </>
-          )}
-          {viewMode && (
-            <>
-              <ChevronRight className="h-3 w-3" />
-              <span className="capitalize">{viewMode}</span>
-            </>
-          )}
-        </nav>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <div className="min-w-0 flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-              Explore & Design
-              <Badge className="bg-blue-100 text-blue-600 text-[10px] px-1.5 py-0">NEW</Badge>
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 lg:px-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* LEFT: project context + view-mode tabs */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <h1 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+              Explore &amp; Design
+              <Badge className="bg-blue-100 px-1.5 py-0 text-[10px] text-blue-600">NEW</Badge>
             </h1>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+            <span className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 sm:inline-block" />
             <ProjectSelector
               selectedProjectId={selectedProjectId}
               onProjectSelect={handleProjectSelect}
@@ -2993,21 +3063,19 @@ export default function ExploreDesignPage() {
               onCreateRequested={() => setShowProjectWizard(true)}
             />
             {isReadOnly && (
-              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] px-2 py-0.5 flex items-center gap-1">
+              <Badge className="flex items-center gap-1 bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                 <Eye className="h-3 w-3" />
                 View Only
               </Badge>
             )}
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5">
+            {/* View-mode tabs — feel native, not crammed */}
+            <div className="ml-1 flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800">
               <button
                 className={cn(
-                  'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
                   viewMode === 'catalog'
-                    ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
                 onClick={() => setViewMode('catalog')}
               >
@@ -3016,10 +3084,10 @@ export default function ExploreDesignPage() {
               </button>
               <button
                 className={cn(
-                  'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
                   viewMode === 'modeling'
-                    ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
                 onClick={() => {
                   if (!modelingChoice && readOnlyGuard()) return;
@@ -3034,115 +3102,32 @@ export default function ExploreDesignPage() {
                 Modeling
               </button>
             </div>
+          </div>
 
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+          {/* RIGHT: search + deploy + overflow */}
+          <div className="flex items-center gap-2">
+            <GlobalSearch
+              value={searchQuery}
+              onChange={setSearchQuery}
+              results={searchResults}
+              onResultClick={handleSearchResultClick}
+            />
 
-            {/* Undo/Redo */}
-            <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
-              <Button
-                aria-label="Undo"
-                variant="outline"
-                size="sm"
-                onClick={() => undoEvent()}
-                disabled={!canUndo || isReadOnly}
-                className="p-1.5"
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-            <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
-              <Button
-                aria-label="Redo"
-                variant="outline"
-                size="sm"
-                onClick={() => redoEvent()}
-                disabled={!canRedo || isReadOnly}
-                className="p-1.5"
-              >
-                <Redo2 className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            {/* Tools group — compact icon buttons */}
-            <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded p-0.5">
-              <Tooltip content="Event Templates">
-                <button onClick={() => setShowTemplateLibrary(true)} className="p-1.5 rounded hover:bg-white dark:hover:bg-slate-700 transition-colors">
-                  <BookTemplate className="h-3.5 w-3.5 text-slate-500" />
-                </button>
-              </Tooltip>
-              <Tooltip content="DAG Viewer">
-                <button onClick={() => setShowDagViewer(!showDagViewer)} className={cn('p-1.5 rounded transition-colors', showDagViewer ? 'bg-violet-100 dark:bg-violet-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
-                  <Workflow className={cn('h-3.5 w-3.5', showDagViewer ? 'text-violet-600' : 'text-slate-500')} />
-                </button>
-              </Tooltip>
-              <Tooltip content="Ingestion Runs">
-                <button onClick={() => setShowIngestionResults(!showIngestionResults)} className={cn('p-1.5 rounded transition-colors', showIngestionResults ? 'bg-teal-100 dark:bg-teal-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
-                  <BarChart3 className={cn('h-3.5 w-3.5', showIngestionResults ? 'text-teal-600' : 'text-slate-500')} />
-                </button>
-              </Tooltip>
-              <Tooltip content="AI Intelligence">
-                <button onClick={() => setShowAiPanel(!showAiPanel)} className={cn('p-1.5 rounded transition-colors', showAiPanel ? 'bg-purple-100 dark:bg-purple-900/30' : 'hover:bg-white dark:hover:bg-slate-700')}>
-                  <Sparkles className={cn('h-3.5 w-3.5', showAiPanel ? 'text-purple-600' : 'text-slate-500')} />
-                </button>
-              </Tooltip>
-            </div>
-
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-
-            {/* Refresh Data Button */}
-            <Tooltip content="Refresh data">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  if (!selectedDatabase) return;
-                  toast.loading('Refreshing...');
-                  setIsLoadingSchemas(true);
-                  setIsLoadingTables(true);
-                  try {
-                    const schemaList = await getSchemas(selectedDatabase);
-                    setSchemas(schemaList || []);
-                    toast.dismiss();
-                    toast.success('Refreshed');
-                  } catch {
-                    toast.dismiss();
-                    toast.error('Failed');
-                  } finally {
-                    setIsLoadingSchemas(false);
-                  }
-                }}
-                className="p-1.5"
-                disabled={!selectedDatabase || isLoadingSchemas || isLoadingTables}
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', (isLoadingSchemas || isLoadingTables) && 'animate-spin')} />
-              </Button>
-            </Tooltip>
-
-            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1" disabled={isReadOnly}>
-              <Upload className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline text-xs">Import</span>
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1">
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline text-xs">Export</span>
-            </Button>
-
-            {/* Deploy Button - Always accessible when project selected */}
+            {/* Primary action: Deploy — only thing besides search that stays
+                always-visible. Everything else lives in the overflow menu. */}
             <Button
               size="sm"
-              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-2.5 py-1"
+              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:from-blue-700 hover:to-indigo-700"
               onClick={async () => {
                 if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
-                // Check for conflicts before opening the deployment modal
-                const eventIds = pendingEvents.map(e => e.id);
+                const eventIds = pendingEvents.map((e) => e.id);
                 if (eventIds.length > 0) {
                   const hasConflicts = await checkForConflicts(eventIds);
                   if (hasConflicts) {
-                    // Store the blocked action so we can resume after resolution
                     pendingConflictAction.current = { type: 'deploy', eventIds };
                     return;
                   }
@@ -3152,60 +3137,110 @@ export default function ExploreDesignPage() {
               disabled={!selectedProjectId || isReadOnly}
             >
               <Rocket className="h-3.5 w-3.5" />
-              <span className="text-xs">Deploy</span>
+              Deploy
               {displayablePendingEvents.length > 0 && (
-                <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{displayablePendingEvents.length}</Badge>
+                <Badge className="bg-white/20 px-1 py-0 text-[10px] text-white">
+                  {displayablePendingEvents.length}
+                </Badge>
               )}
             </Button>
+
+            {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
+                Refresh + Import + Export + Filters + panel toggles. Replaces
+                ~10 visible buttons with one ⋮. Active toggles still glow so
+                users see at-a-glance which panels are open. */}
+            <OverflowMenu
+              items={[
+                {
+                  label: 'Undo',
+                  icon: Undo2,
+                  onClick: () => undoEvent(),
+                  disabled: !canUndo || isReadOnly,
+                },
+                {
+                  label: 'Redo',
+                  icon: Redo2,
+                  onClick: () => redoEvent(),
+                  disabled: !canRedo || isReadOnly,
+                },
+                {
+                  label: 'Event Templates',
+                  icon: BookTemplate,
+                  onClick: () => setShowTemplateLibrary(true),
+                },
+                {
+                  label: 'DAG Viewer',
+                  icon: Workflow,
+                  onClick: () => setShowDagViewer(!showDagViewer),
+                  active: showDagViewer,
+                  activeColor: 'violet',
+                },
+                {
+                  label: 'Ingestion Runs',
+                  icon: BarChart3,
+                  onClick: () => setShowIngestionResults(!showIngestionResults),
+                  active: showIngestionResults,
+                  activeColor: 'teal',
+                },
+                {
+                  label: 'AI Intelligence',
+                  icon: Sparkles,
+                  onClick: () => setShowAiPanel(!showAiPanel),
+                  active: showAiPanel,
+                  activeColor: 'purple',
+                },
+                {
+                  label: 'Refresh data',
+                  icon: RefreshCw,
+                  disabled: !selectedDatabase || isLoadingSchemas || isLoadingTables,
+                  onClick: async () => {
+                    if (!selectedDatabase) return;
+                    toast.loading('Refreshing...');
+                    setIsLoadingSchemas(true);
+                    setIsLoadingTables(true);
+                    try {
+                      const schemaList = await getSchemas(selectedDatabase);
+                      setSchemas(schemaList || []);
+                      toast.dismiss();
+                      toast.success('Refreshed');
+                    } catch {
+                      toast.dismiss();
+                      toast.error('Failed');
+                    } finally {
+                      setIsLoadingSchemas(false);
+                    }
+                  },
+                },
+                {
+                  label: 'Import',
+                  icon: Upload,
+                  onClick: () => {},
+                  disabled: isReadOnly,
+                },
+                {
+                  label: 'Export',
+                  icon: Download,
+                  onClick: () => {},
+                },
+                {
+                  label: showSidebar ? 'Hide Sources' : 'Show Sources',
+                  icon: PanelLeft,
+                  onClick: () => setShowSidebar(!showSidebar),
+                  active: showSidebar,
+                  activeColor: 'blue',
+                },
+                {
+                  label: showEventPanel ? 'Hide Events' : 'Show Events',
+                  icon: PanelRight,
+                  onClick: () => setShowEventPanel(!showEventPanel),
+                  active: showEventPanel,
+                  activeColor: 'blue',
+                },
+              ]}
+            />
           </div>
         </div>
-
-        {/* Search and Filters - Compact */}
-        <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
-          <GlobalSearch
-            value={searchQuery}
-            onChange={setSearchQuery}
-            results={searchResults}
-            onResultClick={handleSearchResultClick}
-          />
-          <Button variant="outline" size="sm" className="gap-1 hidden sm:flex px-2 py-1">
-            <Filter className="h-3.5 w-3.5" />
-            <span className="hidden md:inline text-xs">Filters</span>
-          </Button>
-
-          {/* Panel visibility toggles */}
-          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded p-0.5">
-            <Tooltip content={showSidebar ? 'Hide Sources' : 'Show Sources'}>
-              <button
-                aria-label={showSidebar ? 'Hide sources panel' : 'Show sources panel'}
-                onClick={() => setShowSidebar(!showSidebar)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showSidebar
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <PanelLeft className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-            <Tooltip content={showEventPanel ? 'Hide Events' : 'Show Events'}>
-              <button
-                aria-label={showEventPanel ? 'Hide events panel' : 'Show events panel'}
-                onClick={() => setShowEventPanel(!showEventPanel)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showEventPanel
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <PanelRight className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+      </header>
       )}
 
       {/* Inline project-creation wizard. Shows when:
@@ -4348,15 +4383,41 @@ export default function ExploreDesignPage() {
           )}
         </div>
 
-        {/* Right Event Panel (collapsible) - hidden in fullscreen */}
+        {/* Right Events drawer — slides over the canvas instead of stealing
+            a fixed column. Same toggle, same data, but the canvas stays full
+            width when it's closed (which is the default). Backdrop click
+            closes it. */}
         {showEventPanel && !isFullscreen && (
-          <div className="w-44 lg:w-52 xl:w-60 border-l dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 overflow-hidden flex flex-col flex-shrink-0">
-            <EventTable
-              compact
-              className="flex-1 m-1.5 overflow-hidden"
-              projectId={selectedProjectId}
+          <>
+            <button
+              aria-label="Close events panel"
+              onClick={() => setShowEventPanel(false)}
+              className="fixed inset-0 z-30 bg-slate-900/10 backdrop-blur-[1px] dark:bg-slate-950/30"
             />
-          </div>
+            <aside
+              role="dialog"
+              aria-label="Project events"
+              className="fixed right-0 top-0 z-40 flex h-full w-72 flex-col border-l border-slate-200 bg-slate-50 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:w-80"
+            >
+              <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                  Project events
+                </h3>
+                <button
+                  aria-label="Close"
+                  onClick={() => setShowEventPanel(false)}
+                  className="rounded p-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <EventTable
+                compact
+                className="flex-1 m-1.5 overflow-hidden"
+                projectId={selectedProjectId}
+              />
+            </aside>
+          </>
         )}
 
         {/* Slide 2 — Right rail "History" reading /projects/{id}/events */}
