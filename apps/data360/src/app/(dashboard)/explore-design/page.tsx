@@ -124,8 +124,10 @@ interface GlobalSearchResult {
   schema?: string;
 }
 
-// View modes
-type ViewMode = 'catalog' | 'modeling' | 'semantic';
+// View modes — only `catalog` and `modeling` are actually rendered as tabs.
+// The legacy `'semantic'` member was kept around for an old experimental
+// view that was removed; dropping it here so the type matches the UI.
+type ViewMode = 'catalog' | 'modeling';
 
 // Type for masking policy display (mapped from MaskingPolicy)
 interface MaskingPolicyDisplay {
@@ -3206,11 +3208,25 @@ export default function ExploreDesignPage() {
       </div>
       )}
 
-      {/* Slide-1: inline project-creation wizard (replaces ProjectSelector modal) */}
-      {showProjectWizard && !isFullscreen && (
-        <div className="px-3 lg:px-4 py-3 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+      {/* Inline project-creation wizard. Shows when:
+            (a) user explicitly clicked "New project" inside the selector
+                modal (`showProjectWizard === true`), OR
+            (b) no project is selected at all — the wizard becomes the
+                page's empty state instead of a forced modal popup.
+          Hidden in fullscreen mode so the canvas stays unobstructed. */}
+      {(showProjectWizard || !selectedProjectId) && !isFullscreen && (
+        <div className="px-3 lg:px-4 py-4 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
+          {!selectedProjectId && !showProjectWizard && (
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
+              <span>
+                <span className="font-semibold">Start a project below</span>{' '}
+                — or pick an existing one from the project selector in the
+                page header.
+              </span>
+            </div>
+          )}
           <InlineProjectWizard
-            open={showProjectWizard}
+            open
             onCancel={() => setShowProjectWizard(false)}
             onCreated={(projectId, projectName) => {
               setShowProjectWizard(false);

@@ -270,15 +270,11 @@ export default function ProjectSelector({
     }
   }, [loading, safeProjects, autoSelectProjectId, onProjectSelect]);
 
-  // Auto-open project management when no project is selected so the user
-  // always has a visible way to switch / create / list projects. The modal
-  // already exposes a "Create New Project" panel; the inline wizard
-  // (`onCreateRequested`) remains reachable from inside the modal.
-  useEffect(() => {
-    if (!loading && !selectedProjectId) {
-      setShowModal(true);
-    }
-  }, [loading, selectedProjectId]);
+  // Modal auto-open removed. Previously this forced the popup the moment
+  // the page loaded without a selected project, which trapped users behind
+  // a modal and (per product feedback) felt aggressive. The page now shows
+  // the inline project wizard in the empty state instead; users click the
+  // selector button when they want to switch between existing projects.
 
   return (
     <>
@@ -326,12 +322,13 @@ export default function ProjectSelector({
       <Modal
         isOpen={showModal}
         onClose={() => {
-          if (!selectedProjectId) {
-            if (isDirty) {
-              setShowDiscardConfirm(true);
-            } else {
-              toast.error('Please select or create a project to continue');
-            }
+          // If the user has unsaved input in the create form, confirm the
+          // discard. Otherwise let the modal close silently — the page's
+          // inline empty-state wizard already prompts them to pick or
+          // create a project, so we don't need a toast that spams 3 times
+          // on rapid backdrop clicks.
+          if (!selectedProjectId && isDirty) {
+            setShowDiscardConfirm(true);
             return;
           }
           attemptCloseModal();
