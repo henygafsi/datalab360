@@ -235,14 +235,25 @@ export function useCacheInvalidation(options: CacheInvalidationOptions = {}) {
       abortControllerRef.current = null;
     }
 
-    // Resolve API URL. In production force HTTPS (mixed-content protection).
-    // In dev keep the explicit scheme — local backend listens on http://...:80.
-    const rawApiUrl = sseUrl || (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
+    // Resolve API URL.
+    // - In the browser, prefer the same-origin `/api-proxy` rewrite so the SSE
+    //   connection inherits the page's HTTPS + cookies. fetch() is happy with a
+    //   relative URL — DO NOT prepend `https://` to it (that produces the
+    //   malformed `https:///api-proxy` and triggers ERR_NAME_NOT_RESOLVED).
+    // - On the server, fall back to the explicit env URL.
+    const rawApiUrl =
+      sseUrl ||
+      (typeof window !== 'undefined'
+        ? '/api-proxy'
+        : process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io');
     let apiUrl = (rawApiUrl || '').trim();
-    if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
-    if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
-    if (process.env.NODE_ENV === 'production' && apiUrl.startsWith('http://')) {
-      apiUrl = `https://${apiUrl.slice(7)}`;
+    const isRelative = apiUrl.startsWith('/');
+    if (!isRelative) {
+      if (apiUrl.startsWith('//')) apiUrl = `https:${apiUrl}`;
+      if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
+      if (process.env.NODE_ENV === 'production' && apiUrl.startsWith('http://')) {
+        apiUrl = `https://${apiUrl.slice(7)}`;
+      }
     }
     // No token in URL — JWT is passed via Authorization header in fetch().
     const streamUrl = `${apiUrl}/cache-stream/stream`;

@@ -60,7 +60,11 @@ export default function StatusPill() {
 
     const check = async () => {
       try {
-        const response = await apiClient.get('/api-proxy/health/summary', {
+        // apiClient.baseURL is already `/api-proxy` in the browser — passing a
+        // path that itself starts with `/api-proxy` doubles the prefix and 404s.
+        // The backend exposes /health (simple liveness) — there's no
+        // /health/summary route, so we treat any 2xx as "operational".
+        const response = await apiClient.get('/health', {
           // Avoid noisy console errors for an optional endpoint
           validateStatus: () => true,
         });
@@ -68,7 +72,9 @@ export default function StatusPill() {
         if (response.status >= 200 && response.status < 300) {
           const data: any = response.data;
           const raw = data?.status ?? data?.health ?? data?.state;
-          setStatus(normalize(raw));
+          // /health may just return `{ "status": "ok" }` or even an empty
+          // object — default to operational on any 2xx.
+          setStatus(raw ? normalize(raw) : 'operational');
         } else {
           setStatus('unknown');
         }

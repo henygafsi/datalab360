@@ -737,9 +737,9 @@ const GlobalFilterBar = memo(function GlobalFilterBar({
   }, [customStart, customEnd, filters, setFilters]);
 
   return (
-    <div className="mb-5 space-y-2.5">
+    <div className="space-y-2 pb-3 pt-2.5">
       {/* Time Intelligence Row */}
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-800/50">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-800/50">
         <div className="mr-1 flex items-center gap-1.5">
           <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
           <span className="text-xs font-medium text-gray-600 dark:text-gray-400">
@@ -1372,6 +1372,17 @@ function CommandCenterDashboardInner() {
   // button in the header.
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
 
+  // Whether the user has scrolled past the page top — used to drop a subtle
+  // shadow under the sticky tab+filter cluster so it visually detaches from
+  // content rather than floating ambiguously.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true,
     projects: false,
@@ -1899,10 +1910,25 @@ function CommandCenterDashboardInner() {
         </div>
       )}
 
+      {/* ── Sticky Tab + Filter Cluster ──────────────────────────────
+          Tabs and filter bar stick to the top of the viewport as the user
+          scrolls long tab content, so navigation + filter state stay one
+          click away. Backdrop blur softens the boundary against the
+          background so cards still feel grounded. A subtle shadow fades in
+          once the user has actually scrolled — visual cue that the bar is
+          floating over content. */}
+      <div
+        className={cn(
+          'sticky top-0 z-30 -mx-4 mb-6 px-4 pt-3 backdrop-blur transition-shadow duration-200',
+          'bg-white/85 supports-[backdrop-filter]:bg-white/70 dark:bg-gray-950/85 dark:supports-[backdrop-filter]:bg-gray-950/70',
+          scrolled && 'shadow-[0_4px_12px_-6px_rgba(0,0,0,0.12)] dark:shadow-[0_4px_16px_-6px_rgba(0,0,0,0.6)]'
+        )}
+      >
+
       {/* ── Tabs ──────────────────────────────────────────────────── */}
-      <div className="mb-6 border-b border-gray-200 dark:border-gray-700">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <div
-          className="-mb-px flex space-x-4 overflow-x-auto"
+          className="no-scrollbar -mb-px flex snap-x snap-mandatory space-x-4 overflow-x-auto scroll-smooth"
           role="tablist"
           aria-label="Account overview tabs"
         >
@@ -1920,10 +1946,16 @@ function CommandCenterDashboardInner() {
               e.preventDefault();
               const nextTab = tabs[nextIdx];
               startTabTransition(() => setActiveTab(nextTab.id));
-              // Move focus to the newly selected tab on the next paint.
+              // Move focus to the newly selected tab on the next paint and
+              // scroll it into view if it overflowed the horizontal track.
               window.requestAnimationFrame(() => {
                 const el = document.getElementById(`tab-${nextTab.id}`);
                 el?.focus();
+                el?.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'nearest',
+                  inline: 'nearest',
+                });
               });
             };
             return (
@@ -1935,9 +1967,16 @@ function CommandCenterDashboardInner() {
                 id={`tab-${tab.id}`}
                 tabIndex={isActive ? 0 : -1}
                 onKeyDown={onTabKeyDown}
-                onClick={() => startTabTransition(() => setActiveTab(tab.id))}
+                onClick={(e) => {
+                  startTabTransition(() => setActiveTab(tab.id));
+                  e.currentTarget.scrollIntoView({
+                    behavior: 'smooth',
+                    block: 'nearest',
+                    inline: 'nearest',
+                  });
+                }}
                 className={cn(
-                  'flex items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
+                  'flex shrink-0 snap-start items-center gap-2 whitespace-nowrap border-b-2 px-4 py-3 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900',
                   isActive
                     ? 'border-primary text-primary'
                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300'
@@ -1959,6 +1998,9 @@ function CommandCenterDashboardInner() {
         lastUpdated={lastUpdated}
         isRefreshing={!!tabLoading[activeTab]}
       />
+
+      </div>
+      {/* /sticky cluster ───────────────────────────────────────────── */}
 
       {/* ── Tab Content ───────────────────────────────────────────── */}
       <div
