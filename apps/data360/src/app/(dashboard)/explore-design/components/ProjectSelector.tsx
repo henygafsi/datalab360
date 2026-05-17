@@ -3,10 +3,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Button, Badge, Input, Tooltip, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
+import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
   FolderOpen, Plus, RefreshCw, ChevronDown, Check, X, Loader2,
   FolderPlus, Clock, User, Search, Users, Crown, Pencil, Eye, Trash2,
-  Sparkles,
+  Sparkles, ArrowRight,
 } from 'lucide-react';
 import { PiCheckCircleDuotone } from 'react-icons/pi';
 import { cn } from '@/lib/utils';
@@ -292,13 +293,16 @@ export default function ProjectSelector({
     <>
       {/* Compact Selector Button */}
       <div className={cn('relative', className)}>
-        <button
+        <motion.button
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
+          transition={{ duration: 0.15 }}
           className={cn(
-            'flex items-center gap-2 px-3 py-1.5 text-sm border rounded-lg',
+            'group flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm shadow-sm transition-all',
             'bg-white dark:bg-slate-800 dark:border-slate-700',
-            'hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors',
+            'hover:border-slate-300 hover:shadow-md dark:hover:border-slate-600',
             'min-w-[180px] max-w-[280px]',
-            !selectedProjectId && 'border-amber-300 bg-amber-50 dark:bg-amber-900/20',
+            !selectedProjectId && 'border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20',
           )}
           onClick={() => setShowModal(true)}
         >
@@ -325,9 +329,9 @@ export default function ProjectSelector({
           {isStale ? (
             <RefreshCw className="h-3.5 w-3.5 animate-spin text-slate-400" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+            <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition-transform group-hover:translate-y-0.5" />
           )}
-        </button>
+        </motion.button>
       </div>
 
       {/* Project Management Modal */}
@@ -347,137 +351,203 @@ export default function ProjectSelector({
         }}
         customSize="640px"
       >
-        <div className="flex flex-col">
-          {/* ── Header (compact) ────────────────────────────────────── */}
-          <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3.5 dark:border-slate-700">
-            <div className="flex items-center gap-2.5">
-              <div className="rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 p-1.5 shadow-md shadow-blue-500/20">
-                <FolderOpen className="h-4 w-4 text-white" />
-              </div>
+        <div className="relative flex flex-col overflow-hidden">
+          {/* Decorative gradient orb behind the header — adds depth without
+              compromising legibility. Lives in the modal background only. */}
+          <div className="pointer-events-none absolute -left-20 -top-20 h-56 w-56 rounded-full bg-gradient-to-br from-blue-400/20 to-indigo-500/20 blur-3xl dark:from-blue-500/15 dark:to-indigo-600/15" />
+          <div className="pointer-events-none absolute -right-16 -top-10 h-40 w-40 rounded-full bg-gradient-to-br from-violet-400/15 to-fuchsia-500/15 blur-3xl dark:from-violet-500/10 dark:to-fuchsia-600/10" />
+
+          {/* ── Header ─────────────────────────────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="relative flex items-start justify-between gap-3 px-6 pb-4 pt-5"
+          >
+            <div className="flex items-center gap-3">
+              <motion.div
+                initial={{ scale: 0.85, rotate: -8 }}
+                animate={{ scale: 1, rotate: 0 }}
+                transition={{ duration: 0.4, ease: [0.34, 1.56, 0.64, 1] }}
+                className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30"
+              >
+                <FolderOpen className="h-5 w-5 text-white" />
+                <span className="absolute inset-0 rounded-xl bg-gradient-to-br from-white/30 to-transparent" />
+              </motion.div>
               <div>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-white">
+                <h2 className="text-base font-semibold tracking-tight text-slate-900 dark:text-white">
                   Switch project
                 </h2>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Pick an existing project or start a new one.
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  Pick an existing project or start a new one
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-1">
               <Tooltip content="Refresh projects">
-                <button
-                  className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+                <motion.button
+                  whileHover={{ scale: 1.08, rotate: 90 }}
+                  whileTap={{ scale: 0.92 }}
+                  transition={{ duration: 0.25 }}
+                  className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                   onClick={() => refetch()}
                   disabled={isStale}
                 >
                   <RefreshCw className={cn('h-4 w-4', isStale && 'animate-spin')} />
-                </button>
+                </motion.button>
               </Tooltip>
-              <button
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800 dark:hover:text-slate-200"
                 onClick={attemptCloseModal}
                 aria-label="Close project management"
               >
                 <X className="h-4 w-4" />
-              </button>
+              </motion.button>
             </div>
-          </div>
+          </motion.div>
 
-          {/* ── Tabs ────────────────────────────────────────────────── */}
-          <div className="flex border-b border-slate-200 px-4 dark:border-slate-700">
-            {([
-              { id: 'pick', label: 'Pick existing', count: safeProjects.length },
-              { id: 'create', label: 'Create new', count: null as number | null },
-            ] as const).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setModalTab(t.id)}
-                className={cn(
-                  'relative flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors',
-                  modalTab === t.id
-                    ? 'text-blue-600 dark:text-blue-400'
-                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
-                )}
-              >
-                {t.label}
-                {t.count !== null && t.count > 0 && (
-                  <span
+          {/* ── Tabs with sliding indicator (the modern signature move) ── */}
+          <LayoutGroup id="project-modal-tabs">
+            <div className="relative flex items-center gap-1 border-b border-slate-200/70 px-5 dark:border-slate-700/70">
+              {([
+                { id: 'pick', label: 'Pick existing', count: safeProjects.length },
+                { id: 'create', label: 'Create new', count: null as number | null },
+              ] as const).map((t) => {
+                const active = modalTab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => setModalTab(t.id)}
                     className={cn(
-                      'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                      modalTab === t.id
-                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                        : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                      'group relative flex items-center gap-2 px-3 py-2.5 text-sm font-medium transition-colors',
+                      active
+                        ? 'text-blue-600 dark:text-blue-400'
+                        : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200',
                     )}
                   >
-                    {t.count}
+                    <span>{t.label}</span>
+                    {t.count !== null && t.count > 0 && (
+                      <motion.span
+                        layout
+                        className={cn(
+                          'rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums transition-colors',
+                          active
+                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+                            : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                        )}
+                      >
+                        {t.count}
+                      </motion.span>
+                    )}
+                    {active && (
+                      <motion.span
+                        layoutId="modal-tab-indicator"
+                        className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500"
+                        transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+              {selectedProjectId && (
+                <motion.div
+                  initial={{ opacity: 0, x: 8 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="ml-auto flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400"
+                >
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                    <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-500" />
                   </span>
-                )}
-                {modalTab === t.id && (
-                  <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-t bg-blue-500" />
-                )}
-              </button>
-            ))}
-            {selectedProjectId && (
-              <div className="ml-auto flex items-center gap-1.5 self-center text-[11px] text-slate-500 dark:text-slate-400">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-500" />
-                Working on
-                <span className="font-medium text-slate-800 dark:text-slate-200">
-                  {selectedProject?.name}
-                </span>
-              </div>
-            )}
-          </div>
+                  <span>Working on</span>
+                  <span className="max-w-[140px] truncate font-medium text-slate-700 dark:text-slate-200">
+                    {selectedProject?.name}
+                  </span>
+                </motion.div>
+              )}
+            </div>
+          </LayoutGroup>
 
           {/* ── Body ────────────────────────────────────────────────── */}
-          <div className="px-5 py-4">
+          <div className="relative px-5 py-5">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={modalTab}
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
 
             {/* ── PICK EXISTING tab ─────────────────────────────────── */}
             {modalTab === 'pick' && (
-              <>
-                {/* Sticky search header */}
-                <div className="relative mb-3">
-                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <div className="flex flex-col">
+                {/* Search field with icon — focus ring uses gradient accent */}
+                <div className="group relative mb-4">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500" />
                   <Input
-                    size="sm"
+                    size="md"
                     value={projectSearch}
                     onChange={(e) => setProjectSearch(e.target.value)}
                     placeholder={`Search ${safeProjects.length} project${safeProjects.length === 1 ? '' : 's'}…`}
-                    className="pl-8"
+                    className="pl-9"
                   />
                 </div>
 
                 {loading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <Loader2 className="h-6 w-6 animate-spin text-slate-400" />
+                  <div className="flex flex-col items-center justify-center gap-3 py-14">
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1.2, repeat: Infinity, ease: 'linear' }}
+                    >
+                      <Loader2 className="h-7 w-7 text-blue-500" />
+                    </motion.div>
+                    <p className="text-xs text-slate-500">Loading your projects…</p>
                   </div>
                 ) : safeProjects.length === 0 ? (
-                  <div className="py-10 text-center">
-                    <FolderOpen className="mx-auto mb-2 h-8 w-8 text-slate-300 dark:text-slate-600" />
-                    <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-gradient-to-b from-slate-50/50 to-white py-12 text-center dark:border-slate-700 dark:from-slate-800/30 dark:to-slate-900"
+                  >
+                    <div className="relative">
+                      <div className="absolute inset-0 rounded-full bg-blue-500/10 blur-xl" />
+                      <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/30">
+                        <FolderOpen className="h-7 w-7 text-white" />
+                      </div>
+                    </div>
+                    <p className="mt-4 text-sm font-semibold text-slate-800 dark:text-slate-200">
                       No projects yet
                     </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Switch to the &ldquo;Create new&rdquo; tab to start one.
+                    <p className="mt-1 max-w-[260px] text-xs text-slate-500">
+                      Get started by creating your first explore-design project.
                     </p>
-                    <Button
-                      size="sm"
-                      className="mt-3 gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
-                      onClick={() => setModalTab('create')}
-                    >
-                      <FolderPlus className="h-3.5 w-3.5" />
-                      Create first project
-                    </Button>
-                  </div>
+                    <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="mt-4">
+                      <Button
+                        className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700"
+                        onClick={() => setModalTab('create')}
+                      >
+                        <FolderPlus className="h-4 w-4" />
+                        Create first project
+                      </Button>
+                    </motion.div>
+                  </motion.div>
                 ) : (
                   <div
-                    className="max-h-[420px] divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700"
+                    className="custom-scrollbar max-h-[420px] space-y-1.5 overflow-y-auto pr-1"
                     role="listbox"
                     aria-label="Existing projects"
                   >
                     {filteredProjects.length === 0 ? (
-                      <div className="py-8 text-center text-xs text-slate-400">
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="py-8 text-center text-xs text-slate-400"
+                      >
                         No projects match &ldquo;{projectSearch}&rdquo;
-                      </div>
+                      </motion.div>
                     ) : (
                       filteredProjects.map((project, idx) => {
                         const isSelected = selectedInModal === project.project_id;
@@ -486,17 +556,26 @@ export default function ProjectSelector({
                           project.created_by.toLowerCase() ===
                           currentUsername.toLowerCase();
                         return (
-                          <button
+                          <motion.button
                             key={project.project_id}
                             role="option"
                             aria-selected={isSelected}
                             tabIndex={0}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{
+                              duration: 0.22,
+                              delay: Math.min(idx * 0.03, 0.18),
+                              ease: 'easeOut',
+                            }}
+                            whileHover={{ y: -1 }}
+                            whileTap={{ scale: 0.985 }}
                             className={cn(
-                              'group flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors',
-                              'focus:bg-blue-50/60 focus:outline-none dark:focus:bg-blue-900/15',
+                              'group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3.5 py-2.5 text-left transition-all',
+                              'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
                               isSelected
-                                ? 'bg-blue-50 dark:bg-blue-900/20'
-                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/50',
+                                ? 'border-blue-200 bg-gradient-to-r from-blue-50/80 to-indigo-50/40 shadow-sm shadow-blue-500/10 dark:border-blue-700/50 dark:from-blue-900/30 dark:to-indigo-900/20'
+                                : 'border-slate-200/70 bg-white hover:border-slate-300 hover:bg-slate-50/80 hover:shadow-sm dark:border-slate-700/60 dark:bg-slate-800/40 dark:hover:border-slate-600 dark:hover:bg-slate-800/70',
                             )}
                             onClick={() => setSelectedInModal(project.project_id)}
                             onDoubleClick={(e) => {
@@ -532,129 +611,186 @@ export default function ProjectSelector({
                               }
                             }}
                           >
-                            <FolderOpen
+                            {/* Left accent bar for selected row */}
+                            {isSelected && (
+                              <motion.span
+                                layoutId="row-accent"
+                                className="absolute inset-y-2 left-0 w-1 rounded-r-full bg-gradient-to-b from-blue-500 to-indigo-500"
+                                transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                              />
+                            )}
+                            <div
                               className={cn(
-                                'h-4 w-4 shrink-0',
+                                'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
                                 isSelected
-                                  ? 'text-blue-600 dark:text-blue-400'
-                                  : 'text-slate-400 group-hover:text-slate-600',
+                                  ? 'bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-sm shadow-blue-500/30'
+                                  : 'bg-slate-100 text-slate-500 group-hover:bg-slate-200 dark:bg-slate-700/60 dark:text-slate-400 dark:group-hover:bg-slate-700',
                               )}
-                            />
+                            >
+                              <FolderOpen className="h-4 w-4" />
+                            </div>
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <span
                                   className={cn(
-                                    'truncate text-sm font-medium',
+                                    'truncate text-sm font-semibold',
                                     isSelected
-                                      ? 'text-blue-700 dark:text-blue-300'
-                                      : 'text-slate-800 dark:text-slate-200',
+                                      ? 'text-blue-700 dark:text-blue-200'
+                                      : 'text-slate-800 dark:text-slate-100',
                                   )}
                                 >
                                   {project.name}
                                 </span>
                                 {isCurrent && (
-                                  <span className="rounded bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700 dark:bg-green-900/30 dark:text-green-300">
-                                    current
-                                  </span>
+                                  <motion.span
+                                    initial={{ scale: 0.7, opacity: 0 }}
+                                    animate={{ scale: 1, opacity: 1 }}
+                                    className="inline-flex items-center gap-1 rounded-full bg-green-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-green-700 dark:bg-green-900/30 dark:text-green-300"
+                                  >
+                                    <span className="relative flex h-1 w-1">
+                                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                                      <span className="relative inline-flex h-1 w-1 rounded-full bg-green-500" />
+                                    </span>
+                                    active
+                                  </motion.span>
                                 )}
                               </div>
-                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500">
-                                <span className="flex items-center gap-1">
+                              <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
+                                <span className="inline-flex items-center gap-1">
                                   <User className="h-2.5 w-2.5" />
                                   {project.created_by}
                                 </span>
                                 {project.created_at && (
-                                  <span className="flex items-center gap-1">
+                                  <span className="inline-flex items-center gap-1">
                                     <Clock className="h-2.5 w-2.5" />
                                     {new Date(project.created_at).toLocaleDateString()}
                                   </span>
                                 )}
                                 <span
                                   className={cn(
-                                    'rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide',
+                                    'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
                                     isOwner
-                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/25 dark:text-amber-300'
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
                                       : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
                                   )}
                                 >
-                                  {isOwner ? 'owner' : 'contributor'}
+                                  {isOwner ? (
+                                    <>
+                                      <Crown className="h-2.5 w-2.5" />
+                                      owner
+                                    </>
+                                  ) : (
+                                    'contributor'
+                                  )}
                                 </span>
                               </div>
                             </div>
-                            {isSelected && (
+                            <motion.div
+                              animate={{
+                                opacity: isSelected ? 1 : 0,
+                                x: isSelected ? 0 : -4,
+                              }}
+                              transition={{ duration: 0.18 }}
+                              className="shrink-0"
+                            >
                               <PiCheckCircleDuotone
-                                className="h-4 w-4 shrink-0 text-blue-600"
+                                className="h-5 w-5 text-blue-600"
                                 aria-hidden="true"
                               />
-                            )}
-                          </button>
+                            </motion.div>
+                          </motion.button>
                         );
                       })
                     )}
                   </div>
                 )}
 
-                {/* Footer: open selected + hint. Only the chosen project is
-                    "opened"; no extra "continue" if user already double-clicked. */}
+                {/* Footer */}
                 {safeProjects.length > 0 && (
-                  <div className="mt-3 flex items-center justify-between gap-2">
-                    <p className="text-[10px] text-slate-400">
-                      Tip: Double-click or press Enter to open.
+                  <motion.div
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200/60 pt-3 dark:border-slate-700/60"
+                  >
+                    <p className="flex items-center gap-1.5 text-[11px] text-slate-400">
+                      <kbd className="rounded border border-slate-300 bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        Enter
+                      </kbd>
+                      <span>or double-click to open</span>
                     </p>
-                    <Button
-                      className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white"
-                      onClick={handleSelectProject}
-                      disabled={!selectedInModal}
+                    <motion.div
+                      whileHover={selectedInModal ? { scale: 1.02 } : undefined}
+                      whileTap={selectedInModal ? { scale: 0.98 } : undefined}
                     >
-                      <Check className="h-3.5 w-3.5" />
-                      Open project
-                    </Button>
-                  </div>
+                      <Button
+                        className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 disabled:from-slate-400 disabled:to-slate-500 disabled:shadow-none"
+                        onClick={handleSelectProject}
+                        disabled={!selectedInModal}
+                      >
+                        Open project
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Button>
+                    </motion.div>
+                  </motion.div>
                 )}
-              </>
+              </div>
             )}
 
             {/* ── CREATE NEW tab ────────────────────────────────────── */}
             {modalTab === 'create' && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {/* Project Name */}
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                    Project Name <span className="text-red-500">*</span>
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Project name <span className="text-red-500">*</span>
                   </label>
                   <Input
                     type="text"
-                    size="sm"
+                    size="md"
                     value={newProjectName}
                     onChange={(e) => setNewProjectName(e.target.value)}
-                    placeholder="e.g., Customer Analytics Pipeline"
+                    placeholder="e.g. Customer Analytics Pipeline"
                     className="w-full"
                     disabled={isCreating}
                     autoFocus
                   />
-                </div>
+                </motion.div>
 
                 {/* Description */}
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400">
-                    Description <span className="text-slate-400">(optional)</span>
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: 0.04 }}
+                >
+                  <label className="mb-1.5 block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Description <span className="font-normal text-slate-400">(optional)</span>
                   </label>
                   <Input
                     type="text"
-                    size="sm"
+                    size="md"
                     value={newProjectDescription}
                     onChange={(e) => setNewProjectDescription(e.target.value)}
                     placeholder="Brief summary of what this project models"
                     className="w-full"
                     disabled={isCreating}
                   />
-                </div>
+                </motion.div>
 
                 {/* Team Members */}
-                <div>
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">
-                    <Users className="h-3 w-3" />
-                    Team Members
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: 0.08 }}
+                >
+                  <label className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    <Users className="h-3.5 w-3.5" />
+                    Team members
+                    <span className="font-normal text-slate-400">(optional)</span>
                   </label>
 
                   {/* Added members */}
@@ -797,33 +933,73 @@ export default function ProjectSelector({
                       </div>
                     )}
                   </div>
-                </div>
+                </motion.div>
 
-                {/* Create Button */}
-                <Button
-                  className="w-full gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md shadow-blue-500/20 mt-1"
-                  onClick={handleCreateProject}
-                  disabled={isCreating || !newProjectName.trim()}
+                {/* Create Button — gradient with motion hover/tap micro-interaction
+                    and an animated state swap between "Create" and "Creating…" */}
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, delay: 0.12 }}
+                  whileHover={
+                    !isCreating && newProjectName.trim()
+                      ? { scale: 1.01 }
+                      : undefined
+                  }
+                  whileTap={
+                    !isCreating && newProjectName.trim()
+                      ? { scale: 0.99 }
+                      : undefined
+                  }
+                  className="pt-1"
                 >
-                  {isCreating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-4 w-4" />
-                      Create Project
-                      {teamMembers.length > 0 && (
-                        <Badge size="sm" className="ml-1 bg-white/20 text-white text-[10px] px-1.5">
-                          +{teamMembers.length}
-                        </Badge>
+                  <Button
+                    className={cn(
+                      'group relative w-full gap-2 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 transition-shadow',
+                      'hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/40',
+                      'disabled:from-slate-400 disabled:to-slate-500 disabled:shadow-none',
+                    )}
+                    onClick={handleCreateProject}
+                    disabled={isCreating || !newProjectName.trim()}
+                  >
+                    {/* Subtle shimmer on hover */}
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+                    <AnimatePresence mode="wait">
+                      {isCreating ? (
+                        <motion.span
+                          key="loading"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          className="flex items-center gap-2"
+                        >
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Creating…
+                        </motion.span>
+                      ) : (
+                        <motion.span
+                          key="idle"
+                          initial={{ opacity: 0, y: 4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          className="flex items-center gap-2"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          Create project
+                          {teamMembers.length > 0 && (
+                            <Badge size="sm" className="ml-1 bg-white/25 text-[10px] px-1.5 text-white">
+                              +{teamMembers.length}
+                            </Badge>
+                          )}
+                        </motion.span>
                       )}
-                    </>
-                  )}
-                </Button>
+                    </AnimatePresence>
+                  </Button>
+                </motion.div>
               </div>
             )}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
       </Modal>
