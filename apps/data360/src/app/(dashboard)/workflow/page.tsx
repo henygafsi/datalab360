@@ -12,7 +12,7 @@ import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
 import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity, ArrowRight, Sparkles, Download } from 'lucide-react';
 import { motion } from 'framer-motion';
-import AiGenerateModal from './components/AiGenerateModal';
+import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
 import ImportTasksModal from './components/ImportTasksModal';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import { Button } from 'rizzui';
@@ -1099,15 +1099,14 @@ const WorkflowHomePage: React.FC = () => {
         </div>
       )}
 
-      {/* AI Generate Workflow modal */}
-      <AiGenerateModal
+      {/* AI Guided Workflow — 9-step wizard. Replaces the old quick-prompt
+          AiGenerateModal. Reuses the same hand-off contract: when the user
+          finishes the wizard, we receive the nodes+edges and drop them on
+          the canvas. */}
+      <GuidedAiWorkflowWizard
         open={showAiGenerate}
         onClose={() => setShowAiGenerate(false)}
-        onGenerated={(nodes, edges) => {
-          // The AI modal speaks generic reactflow types; the page uses local
-          // wrapped shapes (ReactFlowNode/Edge) that are structurally
-          // compatible for our purposes (id, position, type, data on nodes;
-          // id, source, target on edges). Cast at the boundary.
+        onCreated={(nodes, edges) => {
           setActiveNodes(nodes as unknown as ReactFlowNode[]);
           setActiveEdges(edges as unknown as ReactFlowEdge[]);
           setIsWorkflowSaved(false);
