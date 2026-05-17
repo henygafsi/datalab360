@@ -39,6 +39,8 @@ import ETLExecutionHistory from './components/ETLExecutionHistory';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
+import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
+import ImportTasksModal from './components/ImportTasksModal';
 
 // Workflow API services
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -395,6 +397,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [showMembers, setShowMembers] = useState(false);
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [showErrorPanel, setShowErrorPanel] = useState(false);
+  // Modals — both opened from the header (PDF page 8 #1 + #2).
+  const [showAiGenerate, setShowAiGenerate] = useState(false);
+  const [showImportTasks, setShowImportTasks] = useState(false);
 
   // Results preview state
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number; table: string } | null>(null);
@@ -1715,6 +1720,27 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           </button>
 
+          {/* AI Generate — opens GuidedAiWorkflowWizard (9-step flow) */}
+          <button
+            onClick={() => setShowAiGenerate(true)}
+            className="group relative flex items-center gap-1.5 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-purple-500/30 transition-all hover:from-purple-700 hover:to-fuchsia-700 hover:shadow-lg hover:shadow-purple-500/40"
+            title="Generate workflow with AI"
+          >
+            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+            <Sparkles className="h-3.5 w-3.5" />
+            AI
+          </button>
+
+          {/* Import Snowflake task graphs */}
+          <button
+            onClick={() => setShowImportTasks(true)}
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-md shadow-cyan-500/30 transition-all hover:from-cyan-700 hover:to-blue-700 hover:shadow-lg hover:shadow-cyan-500/40"
+            title="Import Snowflake task graphs as workflow projects"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Import tasks</span>
+          </button>
+
           {/* Workflow selector */}
           <select
             value={activeWorkflowId || ''}
@@ -2322,6 +2348,31 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <Loader size="lg" />
         </div>
       )}
+
+      {/* AI Guided Workflow — 9-step wizard. Generated nodes/edges are
+          dropped onto the React Flow canvas via setNodes/setEdges. */}
+      <GuidedAiWorkflowWizard
+        open={showAiGenerate}
+        onClose={() => setShowAiGenerate(false)}
+        onCreated={(genNodes, genEdges) => {
+          setNodes(genNodes as unknown as typeof nodes);
+          setEdges(genEdges as unknown as typeof edges);
+          setIsDirty(true);
+          toast.success('AI workflow ready — review, save and run');
+        }}
+      />
+
+      {/* Import Snowflake task graphs as workflow projects */}
+      <ImportTasksModal
+        open={showImportTasks}
+        onClose={() => setShowImportTasks(false)}
+        onImported={(projectName) => {
+          // Refresh the workflow list via the cache-aware query's refetch
+          // so the imported project shows up in the header selector.
+          void loadWorkflows();
+          toast.success(`"${projectName}" imported — pick it from the workflow selector`);
+        }}
+      />
     </div>
   );
 };
