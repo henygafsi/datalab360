@@ -15,7 +15,7 @@ import {
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
   WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
-  BookTemplate, Activity, AlertCircle, MoreVertical,
+  BookTemplate, Activity, AlertCircle, MoreVertical, FolderOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -3243,36 +3243,34 @@ export default function ExploreDesignPage() {
       </header>
       )}
 
-      {/* Inline project-creation wizard. Shows when:
-            (a) user explicitly clicked "New project" inside the selector
-                modal (`showProjectWizard === true`), OR
-            (b) no project is selected at all — the wizard becomes the
-                page's empty state instead of a forced modal popup.
-          Hidden in fullscreen mode so the canvas stays unobstructed. */}
-      {(showProjectWizard || !selectedProjectId) && !isFullscreen && (
-        <div className="px-3 lg:px-4 py-4 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900/60">
-          {!selectedProjectId && !showProjectWizard && (
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-800 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-200">
-              <span>
-                <span className="font-semibold">Start a project below</span>{' '}
-                — or pick an existing one from the project selector in the
-                page header.
-              </span>
-            </div>
-          )}
-          <InlineProjectWizard
-            open
-            onCancel={() => setShowProjectWizard(false)}
-            onCreated={(projectId, projectName) => {
-              setShowProjectWizard(false);
-              handleProjectSelect(projectId, projectName);
-            }}
+      {/* Wizard overlay — appears centred over the workspace ONLY when the
+          user explicitly clicks "New project". Backdrop click cancels. The
+          workspace stays mounted underneath so it's not destroyed each time
+          the wizard opens. */}
+      {showProjectWizard && !isFullscreen && (
+        <>
+          <button
+            aria-label="Close project wizard"
+            onClick={() => setShowProjectWizard(false)}
+            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-sm"
           />
-        </div>
+          <div className="fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2">
+            <InlineProjectWizard
+              open
+              onCancel={() => setShowProjectWizard(false)}
+              onCreated={(projectId, projectName) => {
+                setShowProjectWizard(false);
+                handleProjectSelect(projectId, projectName);
+              }}
+            />
+          </div>
+        </>
       )}
 
-      {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
-      {!isFullscreen && (
+      {/* Unified Project Context (Deployment / History / Grants / Errors / Recos).
+          Hidden entirely when no project is selected so the workspace empty
+          state below gets the full vertical space. */}
+      {!isFullscreen && selectedProjectId && (
         <ProjectContextPanel
           projectId={selectedProjectId}
           projectName={selectedProjectName}
@@ -3332,8 +3330,54 @@ export default function ExploreDesignPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* LEFT Panel - Tables List (collapsible) */}
-        {showSidebar && viewMode === 'catalog' && (() => {
+        {/* Empty state: NO project selected. Renders centred inside the
+            workspace area instead of pushing the workspace down. Two clear
+            actions — pick an existing project, or open the wizard to create
+            a new one. */}
+        {!selectedProjectId && !isFullscreen && (
+          <div className="flex flex-1 items-center justify-center px-6 py-10">
+            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
+                <Workflow className="h-6 w-6 text-white" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
+                No project selected
+              </h2>
+              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                Pick an existing project to keep working, or create a new one to
+                start modelling.
+              </p>
+              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={() => {
+                    // Open the project selector modal by clicking it
+                    // programmatically — simplest cross-component handshake.
+                    const btn = document.querySelector<HTMLButtonElement>(
+                      'header button[aria-haspopup], header [data-project-selector] button',
+                    );
+                    btn?.click();
+                  }}
+                >
+                  <FolderOpen className="h-4 w-4" />
+                  Pick existing project
+                </Button>
+                <Button
+                  className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
+                  onClick={() => setShowProjectWizard(true)}
+                >
+                  <Plus className="h-4 w-4" />
+                  Create new project
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* LEFT Panel - Tables List (collapsible) — workspace hidden until a
+            project is selected so the empty state above can take full space. */}
+        {selectedProjectId && showSidebar && viewMode === 'catalog' && (() => {
           const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
           const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
           return (
@@ -3463,7 +3507,10 @@ export default function ExploreDesignPage() {
           );
         })()}
 
-        {/* CENTER Panel - Catalog or Modeling View */}
+        {/* CENTER Panel - Catalog or Modeling View. Only rendered when a
+            project is selected — otherwise the empty-state card above takes
+            the full workspace area. */}
+        {selectedProjectId && (
         <div className={cn(
           "flex-1 flex flex-col overflow-hidden min-w-0",
           viewMode === 'catalog' && "bg-slate-50 dark:bg-slate-900/50"
@@ -4382,6 +4429,7 @@ export default function ExploreDesignPage() {
             </div>
           )}
         </div>
+        )}
 
         {/* Right Events drawer — slides over the canvas instead of stealing
             a fixed column. Same toggle, same data, but the canvas stays full
