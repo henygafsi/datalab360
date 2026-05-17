@@ -36,17 +36,32 @@ function _broadcastBadgeChange(): void {
 }
 
 // ----- bell badge --------------------------------------------------------
+// Exponential backoff for failures (e.g. Snowflake notifications table not
+// yet created): 30s → 1m → 2m → 4m → 8m → cap 15m. Resets on first success.
+const UNREAD_MAX_POLL_MS = 900_000; // 15 min cap
 export function useUnreadBadge() {
   const [count, setCount] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
+  const failuresRef = useRef<number>(0);
+  const [pollInterval, setPollInterval] = useState<number>(UNREAD_POLL_MS);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const n = await getUnreadCount();
       setCount(n);
+      if (failuresRef.current > 0) {
+        failuresRef.current = 0;
+        setPollInterval(UNREAD_POLL_MS);
+      }
     } catch {
       // Silent: header badge errors must not poison the page.
+      failuresRef.current += 1;
+      const next = Math.min(
+        UNREAD_POLL_MS * 2 ** (failuresRef.current - 1),
+        UNREAD_MAX_POLL_MS,
+      );
+      setPollInterval(next);
     } finally {
       setLoading(false);
     }
@@ -54,7 +69,7 @@ export function useUnreadBadge() {
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(refresh, UNREAD_POLL_MS);
+    const timer = window.setInterval(refresh, pollInterval);
     const listener = () => {
       void refresh();
     };
@@ -63,7 +78,7 @@ export function useUnreadBadge() {
       window.clearInterval(timer);
       _badgeListeners = _badgeListeners.filter((l) => l !== listener);
     };
-  }, [refresh]);
+  }, [refresh, pollInterval]);
 
   return { count, loading, refresh };
 }

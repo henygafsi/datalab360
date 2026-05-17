@@ -18,6 +18,9 @@ import {
 import { pingNotifications } from '@/hooks/useNotifications';
 
 const ACTIVE_POLL_MS = 10_000;
+// Exponential backoff cap for repeated failures (e.g. DEPLOYMENTS table not
+// yet bootstrapped). 10s → 20s → 40s → … → cap 5min. Resets on success.
+const ACTIVE_MAX_POLL_MS = 300_000;
 const DETAIL_POLL_MS = 2_000;
 const DETAIL_POLL_MS_BG = 5_000; // when tab is hidden
 
@@ -26,6 +29,8 @@ export function useActiveDeployments() {
   const [items, setItems] = useState<DeploymentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
+  const failuresRef = useRef<number>(0);
+  const [pollInterval, setPollInterval] = useState<number>(ACTIVE_POLL_MS);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -33,8 +38,18 @@ export function useActiveDeployments() {
       const list = await listActiveDeployments();
       setItems(list);
       setError(null);
+      if (failuresRef.current > 0) {
+        failuresRef.current = 0;
+        setPollInterval(ACTIVE_POLL_MS);
+      }
     } catch (e) {
       setError(e instanceof Error ? e : new Error(String(e)));
+      failuresRef.current += 1;
+      const next = Math.min(
+        ACTIVE_POLL_MS * 2 ** (failuresRef.current - 1),
+        ACTIVE_MAX_POLL_MS,
+      );
+      setPollInterval(next);
     } finally {
       setLoading(false);
     }
@@ -42,9 +57,9 @@ export function useActiveDeployments() {
 
   useEffect(() => {
     void refresh();
-    const t = window.setInterval(refresh, ACTIVE_POLL_MS);
+    const t = window.setInterval(refresh, pollInterval);
     return () => window.clearInterval(t);
-  }, [refresh]);
+  }, [refresh, pollInterval]);
 
   return { items, loading, error, refresh };
 }

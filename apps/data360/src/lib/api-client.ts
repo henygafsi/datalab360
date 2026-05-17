@@ -175,7 +175,11 @@ apiClient.interceptors.response.use(
       return Promise.reject(new AuthorizationError(message));
     }
 
-    // Handle 404 Not Found - pass through so components can show "not found" message
+    // Handle 404 Not Found - pass through so components can show "not found"
+    // message. Note: in this API, 404 often means "Snowflake schema/table
+    // missing or unauthorized" (per Data360 error contract), NOT "route
+    // doesn't exist." So we do NOT short-circuit future calls — the missing
+    // resource may be created at any time and we want polling to recover.
     if (status === 404) {
       return Promise.reject(error);
     }

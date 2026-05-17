@@ -1310,11 +1310,22 @@ function CommandCenterDashboardInner() {
     return () => clearTimeout(t);
   }, [isLoading]);
 
-  // Client-side tab data cache — prevents re-fetching on every tab switch
-  const tabDataCache = useRef<Record<string, { data: any; timestamp: number }>>(
-    {}
-  );
+  // Client-side tab data cache — prevents re-fetching on every tab switch,
+  // but DOES refetch when filters change (key includes filtersKey).
+  const tabDataCache = useRef<
+    Record<string, { data: any; timestamp: number; filtersKey: string }>
+  >({});
   const CACHE_TTL_MS = 120_000; // 2 minutes client-side cache
+
+  // Stable serializer for the filters object so every fetch closure produces
+  // an identical key from identical filter values. Order matters here —
+  // changing it would invalidate every existing cached entry but otherwise
+  // wouldn't break behaviour.
+  const buildFiltersKey = useCallback(
+    (f: CommandCenterFilters): string =>
+      `${f.days}|${f.start_date ?? ''}|${f.end_date ?? ''}|${f.project_type ?? ''}|${f.username ?? ''}|${f.role_name ?? ''}|${f.environment ?? ''}|${f.status ?? ''}|${f.module_name ?? ''}`,
+    [],
+  );
 
   // Shared activity-feed cache (limit=100). Overview slices to 10 in render,
   // Platform Activity renders the full list — one fetch serves both tabs.
@@ -1465,7 +1476,7 @@ function CommandCenterDashboardInner() {
         setTabLoading((p) => ({ ...p, overview: false }));
         setIsLoading(false);
         setLastUpdated(new Date());
-        tabDataCache.current['overview'] = { data: true, timestamp: Date.now() };
+        tabDataCache.current['overview'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
       };
 
       const summaryP = withTimeout(getSummary(filterParams)).then((s) => {
@@ -1533,7 +1544,7 @@ function CommandCenterDashboardInner() {
       }
       setProjectsData(data);
       setLastUpdated(new Date());
-      tabDataCache.current['projects'] = { data: true, timestamp: Date.now() };
+      tabDataCache.current['projects'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load projects data');
     } finally {
@@ -1554,6 +1565,7 @@ function CommandCenterDashboardInner() {
       tabDataCache.current['security-adv'] = {
         data: true,
         timestamp: Date.now(),
+        filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
       toast.error('Failed to load security data');
@@ -1575,6 +1587,7 @@ function CommandCenterDashboardInner() {
       tabDataCache.current['governance-grants'] = {
         data: true,
         timestamp: Date.now(),
+        filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
       toast.error('Failed to load governance & grants data');
@@ -1593,7 +1606,7 @@ function CommandCenterDashboardInner() {
       }
       setDataOpsData(data);
       setLastUpdated(new Date());
-      tabDataCache.current['data-ops'] = { data: true, timestamp: Date.now() };
+      tabDataCache.current['data-ops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load data operations overview');
     } finally {
@@ -1615,6 +1628,7 @@ function CommandCenterDashboardInner() {
       tabDataCache.current['performance'] = {
         data: true,
         timestamp: Date.now(),
+        filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
       toast.error('Failed to load performance data');
@@ -1647,7 +1661,7 @@ function CommandCenterDashboardInner() {
         cortex_total: cortexCredits,
       } as CostBreakdownResponse);
       setLastUpdated(new Date());
-      tabDataCache.current['cost'] = { data: true, timestamp: Date.now() };
+      tabDataCache.current['cost'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
@@ -1665,7 +1679,7 @@ function CommandCenterDashboardInner() {
       }
       setInfra(data);
       setLastUpdated(new Date());
-      tabDataCache.current['compute'] = { data: true, timestamp: Date.now() };
+      tabDataCache.current['compute'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load compute data');
     } finally {
@@ -1709,6 +1723,7 @@ function CommandCenterDashboardInner() {
       tabDataCache.current['platform-activity'] = {
         data: true,
         timestamp: Date.now(),
+        filtersKey: buildFiltersKey(filters),
       };
     } catch (err) {
       toast.error('Failed to load platform activity');
@@ -1735,11 +1750,19 @@ function CommandCenterDashboardInner() {
     }
   }, []);
 
-  // Re-fetch active tab when filters or activeTab change (skip if cached within TTL)
+  // Re-fetch active tab when filters or activeTab change (skip if cached for
+  // THIS filter combination within TTL). The cache key must include filter
+  // values — otherwise changing a filter wouldn't trigger a refetch and the
+  // user would see stale data (the bug that broke filters until the fix).
+  const filtersCacheKey = buildFiltersKey(filters);
   useEffect(() => {
     const cached = tabDataCache.current[activeTab];
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
-      // Data still fresh — skip re-fetch, no loading spinner
+    if (
+      cached &&
+      cached.filtersKey === filtersCacheKey &&
+      Date.now() - cached.timestamp < CACHE_TTL_MS
+    ) {
+      // Same tab + same filters + still fresh → skip re-fetch.
       return;
     }
     switch (activeTab) {
@@ -2175,6 +2198,82 @@ function TasksQuickWidget() {
   );
 }
 
+// ─── Bootstrap recovery banner ─────────────────────────────────────────────
+// Surfaces when the overview-kpis cache schema is missing (most common
+// failure mode after account creation) and lets the user re-run the bootstrap
+// without having to file a ticket. Detects the OBJECT_NOT_FOUND error code
+// or any 404 / "does not exist" message from the kpis hook.
+function BootstrapRecoveryBanner({ kpisError }: { kpisError: Error | null }) {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<'idle' | 'success' | 'error'>('idle');
+  const [resultMsg, setResultMsg] = useState<string>('');
+
+  if (!kpisError) return null;
+
+  // Best-effort match — the error message may be a plain string or a wrapped
+  // axios error. We only show the banner for the "missing object" class of
+  // failure, not for generic transport errors.
+  const msg = String(kpisError.message ?? '');
+  const isMissingObject =
+    /does not exist|OBJECT_NOT_FOUND|DATA360_CACHE|object_not_found/i.test(msg);
+  if (!isMissingObject && result !== 'success') return null;
+
+  const runBootstrap = async () => {
+    setRunning(true);
+    setResult('idle');
+    try {
+      await apiClient.post('/user/bootstrap-account/');
+      setResult('success');
+      setResultMsg(
+        'Bootstrap completed. The Overview KPIs cache will populate within ~5 minutes (next backend task tick).',
+      );
+    } catch (e) {
+      setResult('error');
+      const detail = (e as any)?.response?.data?.detail?.message
+        ?? (e as Error)?.message
+        ?? 'Unknown error';
+      setResultMsg(String(detail));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs dark:border-blue-900/40 dark:bg-blue-900/20">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-blue-900 dark:text-blue-200">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold">Overview cache not initialised</p>
+          <p className="mt-0.5 text-blue-700 dark:text-blue-300">
+            The Snowflake schema <code>CP_DATA360.DATA360_CACHE</code> is
+            missing or unauthorised for this account. The Overview tab falls
+            back to live queries (8-25s) until it's created.
+          </p>
+        </div>
+        <button
+          onClick={runBootstrap}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 rounded-md border border-blue-300 bg-white px-3 py-1.5 text-[11px] font-medium text-blue-800 transition-colors hover:bg-blue-100 disabled:cursor-wait disabled:opacity-60 dark:border-blue-700 dark:bg-blue-900/40 dark:text-blue-100 dark:hover:bg-blue-900/60"
+        >
+          {running && (
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-blue-300 border-t-transparent" />
+          )}
+          {running ? 'Bootstrapping…' : 'Re-run bootstrap'}
+        </button>
+      </div>
+      {result === 'success' && (
+        <p className="mt-2 rounded bg-green-50 px-2 py-1 text-[11px] text-green-800 dark:bg-green-900/30 dark:text-green-200">
+          {resultMsg}
+        </p>
+      )}
+      {result === 'error' && (
+        <p className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-800 dark:bg-red-900/30 dark:text-red-200">
+          Bootstrap failed: {resultMsg}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // TAB 1: OVERVIEW
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2325,6 +2424,12 @@ const OverviewTab = memo(function OverviewTab({
           )}
         </div>
       )}
+      {/* Bootstrap recovery banner: the overview-kpis cache lives in a
+          Snowflake schema (CP_DATA360.DATA360_CACHE) that must be created
+          during account bootstrap. If it's missing, kpisError will be set —
+          surface a one-click action to re-run the bootstrap rather than
+          leaving the user staring at "live mode" forever. */}
+      <BootstrapRecoveryBanner kpisError={kpisError} />
 
       {/* Account identity strip — account_name / edition / region / role / subscription */}
       <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
