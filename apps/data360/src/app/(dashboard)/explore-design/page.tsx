@@ -43,7 +43,10 @@ import {
 } from '@/app/services/explore-design';
 import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeRename, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
-import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors } from '@/app/services/api/projectsApi';
+import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { getApiErrorMessage } from '@/lib/api-client';
+import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useSession } from 'next-auth/react';
 import type { ContributorRole, SchemaHealthResult, ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
@@ -54,9 +57,16 @@ const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ss
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
+import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
+import AiGuidedModelWizard from './components/ai-guided/AiGuidedModelWizard';
 import SelfServeIngestionModal from './components/SelfServeIngestionModal';
 import ProjectSelector from './components/ProjectSelector';
-import InlineProjectWizard from './components/InlineProjectWizard';
+import UnifiedProjectWizard, {
+  type UnifiedProjectWizardResult,
+} from '@/components/project-onboarding/UnifiedProjectWizard';
+import ManualAiTemplateFork, {
+  type BuildMode,
+} from '@/components/project-onboarding/ManualAiTemplateFork';
 import HistoryRail from './components/HistoryRail';
 import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
 import {
@@ -912,6 +922,34 @@ export default function ExploreDesignPage() {
   // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
   const [showProjectWizard, setShowProjectWizard] = useState(false);
 
+  // Inline project gate: fetch the explore-design project list so the
+  // empty-state can show a real picker (no modal hand-off). Shares the
+  // CACHE_KEYS.PROJECTS invalidation key with the header ProjectSelector so
+  // an SSE invalidation refreshes both in sync.
+  const {
+    data: gateProjectsData,
+    loading: gateProjectsLoading,
+    error: gateProjectsErrorObj,
+    refetch: refetchGateProjects,
+  } = useCacheAwareQuery(
+    () => listProjects({ project_type: 'explore_design', mine_only: false }),
+    { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: null },
+  );
+  const gateProjects = useMemo(
+    () =>
+      (gateProjectsData?.projects ?? []).map((p) => ({
+        id: p.project_id,
+        name: p.project_name,
+        created_by: p.created_by,
+        created_at: p.created_at,
+        tags: p.tags ?? null,
+      })),
+    [gateProjectsData],
+  );
+  const gateProjectsError = gateProjectsErrorObj
+    ? getApiErrorMessage(gateProjectsErrorObj) || 'Failed to load projects'
+    : null;
+
   // Only auto-select from URL query param (deep-linking), NOT from localStorage
   const autoProjectId = urlProjectId || null;
 
@@ -961,6 +999,12 @@ export default function ExploreDesignPage() {
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [showAiGuidedWizard, setShowAiGuidedWizard] = useState(false);
+  // Plain-English description seeded into the AI model wizard when the user
+  // picked the AI fork in the UnifiedProjectWizard / "Change approach".
+  const [aiModelSeed, setAiModelSeed] = useState<string>('');
+  // "Change approach" affordance — re-opens the fork for an existing project.
+  const [showApproachFork, setShowApproachFork] = useState(false);
   const [showIngestionModal, setShowIngestionModal] = useState(false);
   const [showScaleTest, setShowScaleTest] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
@@ -2112,6 +2156,16 @@ export default function ExploreDesignPage() {
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
 
+      // Kick off the events fetch in parallel with the contributors fetch —
+      // they're independent, so awaiting them sequentially wasted ~500ms per
+      // project switch. We fire listProjectEvents now and await its result
+      // later, where the events are actually consumed.
+      const projectEventsPromise = listProjectEvents(projectId, {});
+      // Swallow the rejection here so it isn't flagged as unhandled during the
+      // listContributors await window — the real error handling happens in the
+      // try/catch below where the promise is actually awaited.
+      projectEventsPromise.catch(() => {});
+
       // Determine user's role for this project
       try {
         const contributors = await listContributors(projectId);
@@ -2134,8 +2188,9 @@ export default function ExploreDesignPage() {
 
       // Load events for the new project from backend
       try {
-        // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write
-        const eventsResponse = await listProjectEvents(projectId, {});
+        // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write.
+        // The request was started above, in parallel with listContributors.
+        const eventsResponse = await projectEventsPromise;
 
         // Extract unique database and schemas from ALL events
         // Track schemas per database: Map<database, Set<schema>>
@@ -2539,6 +2594,37 @@ export default function ExploreDesignPage() {
       toast.error('Failed to switch projects');
     }
   }, [selectedProjectId, pendingEvents, saveProjectEvents, loadProjectEvents]);
+
+  // UnifiedProjectWizard handoff — branches on the explicit build mode.
+  //   manual   → select the project, blank modeling canvas (Start from Scratch).
+  //   ai       → select the project, open the AI model wizard seeded.
+  //   template → select the project, apply the DWH template.
+  const handleProjectCreated = useCallback(
+    async (result: UnifiedProjectWizardResult) => {
+      // Pre-seed the per-project modeling cache from the recorded build mode
+      // so ModelingTemplateModal won't re-prompt a project created with a
+      // deliberate choice.
+      const choice: ModelingChoice =
+        result.buildMode === 'template' ? 'dwh_template' : 'scratch';
+      modelingChoicesByProject.current.set(result.projectId, { choice });
+
+      await handleProjectSelect(result.projectId, result.projectName);
+
+      if (result.buildMode === 'ai') {
+        setAiModelSeed(result.aiDescription ?? '');
+        setShowAiGuidedWizard(true);
+      } else if (result.buildMode === 'template') {
+        // Apply the DWH template path — same as ModelingTemplateModal's
+        // "dwh_template" branch: pick a location, then enter modeling.
+        setShowLocationPicker(true);
+      } else {
+        // manual → blank modeling canvas.
+        setModelingChoice('scratch');
+        setViewMode('modeling');
+      }
+    },
+    [handleProjectSelect],
+  );
 
   const handleConfigChange = useCallback((configUpdate: Partial<TableConfig>) => {
     if (!selectedTable) return;
@@ -3063,6 +3149,16 @@ export default function ExploreDesignPage() {
               autoSelectProjectId={autoProjectId}
               onCreateRequested={() => setShowProjectWizard(true)}
             />
+            {selectedProjectId && (
+              <button
+                type="button"
+                onClick={() => setShowApproachFork(true)}
+                className="text-[10px] font-medium text-indigo-500 hover:text-indigo-700 hover:underline dark:text-indigo-400"
+                title="Switch how this project is built"
+              >
+                Change approach
+              </button>
+            )}
             {isReadOnly && (
               <Badge className="flex items-center gap-1 bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                 <Eye className="h-3 w-3" />
@@ -3112,6 +3208,20 @@ export default function ExploreDesignPage() {
               onChange={setSearchQuery}
               results={searchResults}
               onResultClick={handleSearchResultClick}
+            />
+
+            {/* AI-guided modeling — magic CTA that orchestrates connect →
+                detect → sample → validate → approve → deploy. */}
+            <AiGuidedModelButton
+              onClick={() => {
+                if (readOnlyGuard()) return;
+                if (!selectedProjectId) {
+                  toast.error('Please select a project first');
+                  return;
+                }
+                setShowAiGuidedWizard(true);
+              }}
+              disabled={!selectedProjectId || isReadOnly}
             />
 
             {/* Primary action: Deploy — only thing besides search that stays
@@ -3248,24 +3358,65 @@ export default function ExploreDesignPage() {
           user explicitly clicks "New project". Backdrop click cancels. The
           workspace stays mounted underneath so it's not destroyed each time
           the wizard opens. */}
-      {showProjectWizard && !isFullscreen && (
-        <>
+      {!isFullscreen && (
+        <UnifiedProjectWizard
+          open={showProjectWizard}
+          onOpenChange={setShowProjectWizard}
+          module="explore-design"
+          onCreated={(result) => {
+            void handleProjectCreated(result);
+          }}
+        />
+      )}
+
+      {/* "Change approach" — re-opens the manual/AI/template fork for an
+          existing project so the build choice is reversible. */}
+      {showApproachFork && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Change approach"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        >
           <button
-            aria-label="Close project wizard"
-            onClick={() => setShowProjectWizard(false)}
-            className="fixed inset-0 z-40 bg-slate-900/30 backdrop-blur-sm"
+            type="button"
+            aria-label="Close"
+            onClick={() => setShowApproachFork(false)}
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
           />
-          <div className="fixed left-1/2 top-1/2 z-50 w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2">
-            <InlineProjectWizard
-              open
-              onCancel={() => setShowProjectWizard(false)}
-              onCreated={(projectId, projectName) => {
-                setShowProjectWizard(false);
-                handleProjectSelect(projectId, projectName);
-              }}
-            />
+          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+              Change how you build this data model
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Switch to AI to scaffold from a description, apply the DWH
+              template, or keep modeling manually.
+            </p>
+            <div className="mt-4">
+              <ManualAiTemplateFork
+                value={null}
+                ariaLabel="Change how you build this data model"
+                descriptions={{
+                  manual: 'Continue modeling on the canvas. Full control.',
+                  ai: 'Describe your data model, AI scaffolds the schema.',
+                  template: 'Apply the proven DWH starter scaffold.',
+                }}
+                onChange={(mode: BuildMode) => {
+                  setShowApproachFork(false);
+                  if (mode === 'ai') {
+                    setAiModelSeed('');
+                    setShowAiGuidedWizard(true);
+                  } else if (mode === 'template') {
+                    setShowLocationPicker(true);
+                  } else {
+                    setModelingChoice('scratch');
+                    setViewMode('modeling');
+                  }
+                }}
+              />
+            </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* Unified Project Context (Deployment / History / Grants / Errors / Recos).
@@ -3331,49 +3482,22 @@ export default function ExploreDesignPage() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden min-h-0">
-        {/* Empty state: NO project selected. Renders centred inside the
-            workspace area instead of pushing the workspace down. Two clear
-            actions — pick an existing project, or open the wizard to create
-            a new one. */}
+        {/* Empty state: NO project selected. Renders the shared inline
+            ProjectGatePanel — a real in-page picker, no modal hand-off — so
+            this matches the Workflow module's gate exactly. The header
+            ProjectSelector dropdown stays for mid-session switching. */}
         {!selectedProjectId && !isFullscreen && (
-          <div className="flex flex-1 items-center justify-center px-6 py-10">
-            <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm dark:border-slate-700 dark:bg-slate-900">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg shadow-blue-500/20">
-                <Workflow className="h-6 w-6 text-white" />
-              </div>
-              <h2 className="text-lg font-semibold text-slate-900 dark:text-white">
-                No project selected
-              </h2>
-              <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-                Pick an existing project to keep working, or create a new one to
-                start modelling.
-              </p>
-              <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-center">
-                <Button
-                  variant="outline"
-                  className="gap-1.5"
-                  onClick={() => {
-                    // Open the project selector modal by clicking it
-                    // programmatically — simplest cross-component handshake.
-                    const btn = document.querySelector<HTMLButtonElement>(
-                      'header button[aria-haspopup], header [data-project-selector] button',
-                    );
-                    btn?.click();
-                  }}
-                >
-                  <FolderOpen className="h-4 w-4" />
-                  Pick existing project
-                </Button>
-                <Button
-                  className="gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700"
-                  onClick={() => setShowProjectWizard(true)}
-                >
-                  <Plus className="h-4 w-4" />
-                  Create new project
-                </Button>
-              </div>
-            </div>
-          </div>
+          <ProjectGatePanel
+            module="explore-design"
+            projects={gateProjects}
+            loading={gateProjectsLoading}
+            error={gateProjectsError}
+            onRetry={() => { void refetchGateProjects(); }}
+            onSelect={(projectId, projectName) => {
+              void handleProjectSelect(projectId, projectName);
+            }}
+            onCreateNew={() => setShowProjectWizard(true)}
+          />
         )}
 
         {/* LEFT Panel - Tables List (collapsible) — workspace hidden until a
@@ -4715,6 +4839,26 @@ export default function ExploreDesignPage() {
           />
         </ErrorBoundary>
       </Modal>
+
+      {/* AI-Guided Modeling Wizard — on approval it emits model events into the
+          event store, then hands off to the existing DeploymentValidation
+          wizard (which opens at its default Review step, seeded by the store). */}
+      {showAiGuidedWizard && selectedProjectId && (
+        <AiGuidedModelWizard
+          projectId={selectedProjectId}
+          persona={userRole === 'owner' ? 'superadmin' : 'admin'}
+          initialDescription={aiModelSeed}
+          onClose={() => {
+            setShowAiGuidedWizard(false);
+            setAiModelSeed('');
+          }}
+          onApproved={() => {
+            setShowAiGuidedWizard(false);
+            setAiModelSeed('');
+            setShowDeploymentModal(true);
+          }}
+        />
+      )}
 
       {/* Self-Serve Ingestion Modal */}
       <SelfServeIngestionModal

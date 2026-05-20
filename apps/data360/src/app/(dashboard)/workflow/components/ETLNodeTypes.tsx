@@ -6,6 +6,17 @@ import { ChevronUp, ChevronDown, AlertTriangle, CheckCircle2, XCircle, Loader2 }
 import { cn } from '@/lib/utils';
 import { getBlockByType, ETLBlockDefinition } from './etl-blocks';
 import type { ComponentType, PipelineComponent } from '@/app/services/etl/types';
+import NodeRuntimeChip, { type RuntimeChipStatus } from './NodeRuntimeChip';
+import NodeBigPicturePopover, { type BigPictureUpstream } from './NodeBigPicturePopover';
+
+// Shape of the per-node enrichment injected by ETLPipelineBuilder.enrichedNodes.
+// Optional — when absent, the chip falls back to "Never run" and the popover
+// gracefully degrades to upstream=[] / downstream=[] / template snippet.
+interface NodeRuntimeMeta {
+  status?: RuntimeChipStatus;
+  duration_ms?: number;
+  rows?: number;
+}
 
 // Utility: safely coerce a value to an array (handles null, undefined, non-array types)
 const toArray = (val: unknown): any[] => Array.isArray(val) ? val : [];
@@ -65,6 +76,11 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
   // Connection counts from data (injected by ReactFlow parent or pipeline state)
   const inputCount = data?._inputCount ?? 0;
   const outputCount = data?._outputCount ?? 0;
+
+  // Per-run runtime metadata + resolved upstream/downstream (set by enrichedNodes)
+  const lastRun = (data?._lastRun ?? null) as NodeRuntimeMeta | null;
+  const upstream = (Array.isArray(data?._upstream) ? data._upstream : []) as BigPictureUpstream[];
+  const downstream = (Array.isArray(data?._downstream) ? data._downstream : []) as BigPictureUpstream[];
 
   if (!blockDef) {
     return (
@@ -172,15 +188,26 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
   // Unconfigured nodes: dashed border + slight opacity
   const isUnconfigured = status === 'empty' && !execStatus;
 
+  // Drop-target hint set by the parent while another node is dragging out.
+  // 'valid'   → green pulsing halo, "drop here" affordance.
+  // 'invalid' → red dim + dashed border (saturated input or self-loop).
+  const dropHint = (data?._dropHint ?? null) as 'valid' | 'invalid' | null;
+
   return (
     <div
       className={cn(
         'relative min-w-[240px] max-w-[300px] rounded-xl border-2 shadow-lg transition-all hover:shadow-2xl hover:-translate-y-0.5 bg-white dark:bg-slate-800',
         borderClass,
         isUnconfigured && 'border-dashed opacity-75',
-        selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900'
+        selected && 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900',
+        dropHint === 'valid' && 'ring-2 ring-emerald-500 ring-offset-2 dark:ring-offset-slate-900 shadow-[0_0_24px_rgba(16,185,129,0.45)] animate-pulse',
+        dropHint === 'invalid' && 'opacity-40 grayscale',
       )}
-      title={isUnconfigured ? 'Click to configure this block' : undefined}
+      title={
+        dropHint === 'valid' ? 'Drop here to connect'
+          : dropHint === 'invalid' ? 'Cannot connect to this block (saturated input or self-loop)'
+          : isUnconfigured ? 'Click to configure this block' : undefined
+      }
     >
       {/* Step number badge — color reflects execution state */}
       {(data.config?.step_order || data.step_order || data.stepIndex) && (
@@ -207,10 +234,18 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
       )} />
 
       {/* Header */}
-      <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2', error ? 'bg-red-50 dark:bg-red-900/20' : blockDef.bgColor)}>
+      <div className={cn('px-3 py-2 rounded-t-lg flex items-center gap-2 relative', error ? 'bg-red-50 dark:bg-red-900/20' : blockDef.bgColor)}>
         <div className={cn('p-1.5 rounded-lg bg-white/80 dark:bg-slate-700/80', error ? 'text-red-500' : blockDef.color)}>
           <Icon className="h-4 w-4" />
         </div>
+        {/* Runtime chip — hidden when never run AND the node is a fresh AI-generated draft */}
+        {!(lastRun == null && data?.aiGenerated) && (
+          <NodeRuntimeChip
+            status={lastRun?.status}
+            duration_ms={lastRun?.duration_ms}
+            rows={lastRun?.rows}
+          />
+        )}
         <div className="flex-1 min-w-0">
           <span className={cn('font-semibold text-sm truncate block', error ? 'text-red-700 dark:text-red-300' : 'text-slate-800 dark:text-slate-100')} title={displayName}>
             {displayName}
@@ -221,9 +256,21 @@ const ETLNodeWrapper: React.FC<ETLNodeWrapperProps> = ({ data, selected, type, c
             </span>
           )}
         </div>
+        {/* Big-picture popover trigger */}
+        <NodeBigPicturePopover
+          nodeId={data?.id ?? data?.nodeId ?? ''}
+          type={type}
+          label={displayName}
+          config={(data?.config as Record<string, unknown>) ?? {}}
+          upstream={upstream}
+          downstream={downstream}
+          compiledSnippet={data?._compiledSnippet}
+          onOpenConfig={typeof data?._onOpenConfig === 'function' ? data._onOpenConfig : undefined}
+        />
         <button
           onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); }}
-          className="ml-auto p-0.5 rounded hover:bg-white/20 transition-colors"
+          className="p-0.5 rounded hover:bg-white/20 transition-colors"
+          aria-label={expanded ? 'Collapse block details' : 'Expand block details'}
         >
           {expanded ? <ChevronUp className="h-3 w-3 text-slate-500 dark:text-slate-400" /> : <ChevronDown className="h-3 w-3 text-slate-500 dark:text-slate-400" />}
         </button>

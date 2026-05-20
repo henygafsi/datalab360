@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "currency": "credits",
+  "free_discovery": {
+    "row_cap": 1000,
+    "description": "Sample data discovery up to 1000 rows is free."
+  },
+  "dimensions": {
+    "per_source": {
+      "unit": "source",
+      "reference_price": 0,
+      "description": "Charged per connected data source."
+    },
+    "per_project": {
+      "unit": "project",
+      "reference_price": 0,
+      "description": "Charged per active project."
+    },
+    "per_module": {
+      "unit": "module-activation",
+      "reference_price": 0,
+      "description": "Charged when a module is enabled."
+    },
+    "module_cost": {
+      "workflow": 0,
+      "explore_design": 0,
+      "bi_dashboard": 0,
+      "connect": 0,
+      "intelligent": 0,
+      "governance": 0,
+      "data_quality": 0,
+      "observability": 0
+    },
+    "account_base": {
+      "unit": "account",
+      "reference_price": 0,
+      "description": "Base account cost."
+    }
+  },
+  "_note": "reference_price values are placeholders (0) until GET /billing/pricing is available."
+}

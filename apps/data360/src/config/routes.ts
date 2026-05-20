@@ -14,6 +14,9 @@ export const routes = {
   workflow:{
     ViewWorkflow: '/workflow'
   },
+  deployApp: {
+    home: '/deploy-app',
+  },
   governance: {
     users: '/governance/users',
     roles: '/governance/roles',

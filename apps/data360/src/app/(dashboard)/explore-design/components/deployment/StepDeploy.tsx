@@ -84,7 +84,11 @@ export default function StepDeploy() {
           },
         };
         const v1Result = await exploreDesignApi.requestDeployment(projectId, v1Body);
-        setResults(prev => ({ ...prev, deploymentId: v1Result.deployment_id || null }));
+        setResults(prev => ({
+          ...prev,
+          deploymentId: v1Result.deployment_id || null,
+          deploymentOutcome: 'pending_approval',
+        }));
         addProgress(`Submitted! Deployment ID: ${v1Result.deployment_id}`);
         toast.success(`Deployment submitted for approval. Approvers: ${config.selectedApprovers.join(', ')}`);
         setPhase('complete');
@@ -138,6 +142,11 @@ export default function StepDeploy() {
           addProgress('ERROR: Failed to register any DDL actions');
           toast.error('Failed to register any DDL actions');
           schemaEventsToExecute.forEach(e => updateEventStatus({ eventId: e.id, status: 'failed', error: 'Registration failed' }));
+          setResults(prev => ({
+            ...prev,
+            deploymentOutcome: 'failed',
+            backendError: 'Failed to register any DDL actions',
+          }));
           setPhase('failed');
           setIsDeploying(false);
           return;
@@ -154,6 +163,11 @@ export default function StepDeploy() {
           addProgress(`ERROR: All DDL actions failed: ${errors.join('; ')}`);
           toast.error(`All DDL actions failed`);
           schemaEventsToExecute.forEach(e => updateEventStatus({ eventId: e.id, status: 'failed', error: errors[0] }));
+          setResults(prev => ({
+            ...prev,
+            deploymentOutcome: 'failed',
+            backendError: errors[0] || 'All DDL actions failed',
+          }));
           setPhase('failed');
           setIsDeploying(false);
           return;
@@ -168,14 +182,26 @@ export default function StepDeploy() {
         addProgress('No SQL statements — skipping DDL phase');
       }
 
-      // Refresh versions
+      // Refresh versions. The versions endpoint is known-broken on the backend
+      // (returns 400) — if it fails we record `versionsUnavailable` so the
+      // Verify step can say "version may have been created but unconfirmed"
+      // instead of silently showing nothing.
+      let deployedVersion: typeof schemaVersions[number] | null = null;
       try {
         const versionsResponse = await exploreDesignApi.listExploreVersions(projectId, { limit: 20 });
         setSchemaVersions(versionsResponse.versions);
         setCurrentSchemaVersion(versionsResponse.current_version || null);
         const latestVersion = versionsResponse.current_version || versionsResponse.versions[0];
-        if (latestVersion) schemaVersionId = latestVersion.version_id;
-      } catch { /* non-critical */ }
+        if (latestVersion) {
+          schemaVersionId = latestVersion.version_id;
+          deployedVersion = latestVersion;
+        }
+        setResults(prev => ({ ...prev, deployedVersion, versionsUnavailable: false }));
+      } catch {
+        // Versions read-back failed — surface honestly, don't swallow.
+        setResults(prev => ({ ...prev, versionsUnavailable: true }));
+        addProgress('Note: version read-back endpoint unavailable — version creation cannot be confirmed.');
+      }
 
       // Phase 2: Ingestion
       setPhase('ingestion');
@@ -237,7 +263,11 @@ export default function StepDeploy() {
         },
       };
       const v1Record = await exploreDesignApi.requestDeployment(projectId, v1Body);
-      setResults(prev => ({ ...prev, deploymentId: v1Record.deployment_id || null }));
+      setResults(prev => ({
+        ...prev,
+        deploymentId: v1Record.deployment_id || null,
+        deploymentOutcome: 'deployed',
+      }));
       addProgress(`Deployment recorded: ${v1Record.deployment_id}`);
 
       // Mark remaining events
@@ -258,7 +288,11 @@ export default function StepDeploy() {
       const msg = getApiErrorMessage(error) || error?.message || 'Deployment failed';
       addProgress(`ERROR: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
       toast.error(`Deployment failed: ${typeof msg === 'string' ? msg : JSON.stringify(msg)}`);
-      setResults(prev => ({ ...prev, backendError: typeof msg === 'string' ? msg : JSON.stringify(msg) }));
+      setResults(prev => ({
+        ...prev,
+        backendError: typeof msg === 'string' ? msg : JSON.stringify(msg),
+        deploymentOutcome: 'failed',
+      }));
       eventsToDeploy.forEach(e => updateEventStatus({ eventId: e.id, status: 'failed', error: typeof msg === 'string' ? msg : JSON.stringify(msg) }));
       setPhase('failed');
     } finally {

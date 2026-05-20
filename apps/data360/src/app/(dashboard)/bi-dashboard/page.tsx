@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, Component, type ReactNode } from 'react';
 
 import DashboardSelector from './components/DashboardSelector';
 import DashboardEditor from './components/DashboardEditor';
-import { LayoutDashboard, Plus } from 'lucide-react';
+import AiDashboardWizard from './components/AiDashboardWizard';
+import { LayoutDashboard, Plus, Sparkles } from 'lucide-react';
 import { PiWarningCircleBold } from 'react-icons/pi';
 
 interface ErrorBoundaryProps {
@@ -70,6 +71,7 @@ function BiDashboardContent() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [aiWizardOpen, setAiWizardOpen] = useState(false);
 
   useEffect(() => {
     setLoading(false);
@@ -128,6 +130,14 @@ function BiDashboardContent() {
             />
           </div>
           <button
+            onClick={() => setAiWizardOpen(true)}
+            aria-label="Build a dashboard with AI"
+            className="group relative flex items-center gap-1.5 overflow-hidden px-3 py-2 bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white rounded-lg hover:from-purple-700 hover:to-fuchsia-700 text-sm font-medium whitespace-nowrap shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
+          >
+            <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+            <Sparkles className="h-4 w-4" /> AI
+          </button>
+          <button
             onClick={() => {
               selectorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
               const btn = selectorRef.current?.querySelector('button');
@@ -139,6 +149,15 @@ function BiDashboardContent() {
           </button>
         </div>
       </div>
+
+      <AiDashboardWizard
+        isOpen={aiWizardOpen}
+        onClose={() => setAiWizardOpen(false)}
+        onCreated={(id, name) => {
+          setSelectedProjectId(id);
+          setSelectedProjectName(name);
+        }}
+      />
 
       {/* Dashboard Editor or Empty State */}
       {selectedProjectId ? (

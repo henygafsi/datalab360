@@ -3,10 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Badge, Button, Input, Loader, Textarea } from 'rizzui';
 import toast from 'react-hot-toast';
+import { useRouter } from 'next/navigation';
 import {
   PiCpu, PiCloudArrowUp, PiPlay, PiPause, PiPlus,
   PiArrowsClockwise, PiWarningCircle, PiTerminalWindow,
-  PiArrowSquareOut, PiPackage, PiCopy,
+  PiArrowSquareOut, PiPackage, PiCopy, PiSparkle,
 } from 'react-icons/pi';
 import {
   listComputePools,
@@ -317,6 +318,7 @@ function ContainerServicesPanel() {
 // ── Streamlit Apps Sub-Tab ─────────────────────────────────────────────────
 
 function StreamlitAppsPanel() {
+  const router = useRouter();
   const [apps, setApps] = useState<StreamlitApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -352,6 +354,17 @@ function StreamlitAppsPanel() {
         </div>
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={load} />
+          {/* AI-guided app builder. Lives HERE (Snowpark Services → Streamlit
+              Apps), not as a top-level "Deploy App" menu module — app hosting
+              + versioning belong with container services. */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="gap-1 border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300"
+            onClick={() => router.push('/deploy-app')}
+          >
+            <PiSparkle className="w-4 h-4" /> Build with AI
+          </Button>
           <Button size="sm" className="gap-1" onClick={() => setShowCreate(!showCreate)}><PiPlus className="w-4 h-4" /> Create App</Button>
         </div>
       </div>

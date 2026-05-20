@@ -192,6 +192,16 @@ export interface DeploymentResults {
   deploymentId: string | null;
   deploymentPhase: 'schema' | 'ingestion' | 'complete';
   backendError: string | null;
+  /** Final outcome shown by the Verify step. */
+  deploymentOutcome: 'deployed' | 'failed' | 'pending_approval' | null;
+  /** The schema version created by this deployment, if the read-back succeeded. */
+  deployedVersion: ProjectVersion | null;
+  /**
+   * True when the versions read-back endpoint (GET /explore-design/{id}/versions)
+   * failed after deploy — so the Verify step can say "version may have been
+   * created but cannot be confirmed" instead of silently showing nothing.
+   */
+  versionsUnavailable: boolean;
 }
 
 // ── Context shape ──
@@ -406,6 +416,9 @@ export function DeploymentProvider({
     deploymentId: null,
     deploymentPhase: 'schema',
     backendError: null,
+    deploymentOutcome: null,
+    deployedVersion: null,
+    versionsUnavailable: false,
   });
 
   // 3. Finalize tracking when the schema deploy returns a terminal result.

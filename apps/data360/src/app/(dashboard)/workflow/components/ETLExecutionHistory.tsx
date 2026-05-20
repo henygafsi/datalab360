@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
@@ -19,10 +19,21 @@ import {
   Copy,
   Check,
   Sparkles,
+  Coins,
+  Beaker,
+  Lock,
+  Info,
+  ShieldCheck,
 } from 'lucide-react';
+import toast from 'react-hot-toast';
+
 import { cn } from '@/lib/utils';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import type { WorkflowRun } from '@/app/services/api/types';
+import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
+
+import RunActionsMenu from './RunActionsMenu';
+import RunCompareDrawer from './RunCompareDrawer';
 
 // Format duration in seconds to human-readable string
 function formatDuration(seconds: number): string {
@@ -31,6 +42,101 @@ function formatDuration(seconds: number): string {
   const hours = Math.floor(seconds / 3600);
   const minutes = Math.floor((seconds % 3600) / 60);
   return `${hours}h ${minutes}m`;
+}
+
+// ============================================
+// Cost estimation
+// ============================================
+//
+// Per-run cost API does NOT exist yet. We approximate credits burned by
+// summing `rows_affected * COST_PER_ROW` across step results. The factor is
+// a placeholder agreed with platform; replace this helper with the real
+// `/workflow/{id}/cost-summary` endpoint once it lands.
+//
+const COST_PER_ROW = 0.0001;
+
+interface StepLike {
+  step_id?: string;
+  step_name?: string;
+  action_type?: string;
+  status?: string;
+  rows_affected?: number;
+  error?: unknown;
+  attempt?: number;
+}
+
+function getStepsResults(run: WorkflowRun): StepLike[] {
+  const details = run.execution_details as Record<string, unknown> | null | undefined;
+  const raw = details?.['steps_results'];
+  return Array.isArray(raw) ? (raw as StepLike[]) : [];
+}
+
+function estimateRunCost(run: WorkflowRun): number | null {
+  const steps = getStepsResults(run);
+  if (steps.length === 0) return null;
+  const hasAny = steps.some((s) => typeof s.rows_affected === 'number');
+  if (!hasAny) return null;
+  const total = steps.reduce(
+    (sum, s) => sum + (typeof s.rows_affected === 'number' ? s.rows_affected : 0),
+    0,
+  );
+  return total * COST_PER_ROW;
+}
+
+function formatCredits(cost: number | null): string {
+  if (cost === null) return '—';
+  if (cost < 0.01) return '<0.01';
+  if (cost < 10) return cost.toFixed(2);
+  return Math.round(cost).toString();
+}
+
+// ============================================
+// localStorage helpers (expected-failure flag)
+// ============================================
+
+const EXPECTED_FAILURE_KEY = 'data360.workflow.expectedFailures';
+const HIDE_EXPECTED_KEY = 'data360.workflow.hideExpectedFailures';
+
+function readExpectedFailures(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = window.localStorage.getItem(EXPECTED_FAILURE_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? new Set(arr.filter((x) => typeof x === 'string')) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function writeExpectedFailures(set: Set<string>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      EXPECTED_FAILURE_KEY,
+      JSON.stringify(Array.from(set)),
+    );
+  } catch {
+    /* quota / privacy mode — silently drop */
+  }
+}
+
+function readHideExpected(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(HIDE_EXPECTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeHideExpected(v: boolean): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(HIDE_EXPECTED_KEY, v ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
 }
 
 // ============================================
@@ -53,7 +159,7 @@ type RunStatus = 'running' | 'completed' | 'failed';
 
 const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   pipelineId,
-  pipelineName,
+  pipelineName: _pipelineName,
   onRefresh,
   className,
   compact = false,
@@ -65,6 +171,24 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const [aiAnalysis, setAiAnalysis] = useState<Record<string, string>>({});
   const [analyzingRun, setAnalyzingRun] = useState<string | null>(null);
 
+  // New state for enhanced UX
+  const [expectedFailures, setExpectedFailures] = useState<Set<string>>(() => readExpectedFailures());
+  const [hideExpected, setHideExpected] = useState<boolean>(() => readHideExpected());
+  const [compareSourceId, setCompareSourceId] = useState<string | null>(null);
+  const [compareDrawer, setCompareDrawer] = useState<{
+    open: boolean;
+    runA: WorkflowRun | null;
+    runB: WorkflowRun | null;
+  }>({ open: false, runA: null, runB: null });
+  const [rerunningId, setRerunningId] = useState<string | null>(null);
+  const [killTarget, setKillTarget] = useState<WorkflowRun | null>(null);
+
+  // Polling is paused once it runs continuously past MAX_POLL_AGE_MS for the
+  // same set of running runs — guards against runs stuck in `running` forever.
+  const [pollingPaused, setPollingPaused] = useState(false);
+  const pollStartedAtRef = useRef<number | null>(null);
+  const runningSetKeyRef = useRef<string>('');
+
   const fetchRunsFn = useCallback(
     () => workflowApi.listRuns(pipelineId!, { limit: 50, status: statusFilter || undefined }),
     [pipelineId, statusFilter]
@@ -75,28 +199,116 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!pipelineId, initialData: null }
   );
 
-  const runs = runsData?.runs ?? [];
+  const allRuns = useMemo<WorkflowRun[]>(() => runsData?.runs ?? [], [runsData]);
   const error = fetchError?.message ?? null;
 
-  // Auto-refresh for running pipelines
-  useEffect(() => {
-    const hasRunning = runs.some((r) => r.status === 'running');
-    if (!hasRunning) return;
+  // Apply hide-expected filter for display
+  const runs = useMemo(
+    () => (hideExpected ? allRuns.filter((r) => !expectedFailures.has(r.run_id)) : allRuns),
+    [allRuns, hideExpected, expectedFailures],
+  );
 
-    const interval = setInterval(refetch, 5000);
-    return () => clearInterval(interval);
-  }, [runs, refetch]);
+  const expectedHiddenCount = useMemo(
+    () => allRuns.filter((r) => expectedFailures.has(r.run_id)).length,
+    [allRuns, expectedFailures],
+  );
 
-  // Auto-trigger AI analysis on latest failed run
+  // Auto-refresh for running pipelines.
+  //
+  // Two guards beyond a plain interval:
+  //  1. Max-poll-age — if a run is stuck in `running` forever, stop polling
+  //     after MAX_POLL_AGE_MS so we don't drain the network indefinitely.
+  //  2. Tab visibility — skip the network tick while the tab is hidden, and
+  //     resume automatically once it becomes visible again.
   useEffect(() => {
-    if (runs.length > 0) {
-      const latestRun = runs[0];
-      if (latestRun.status === 'failed' && !aiAnalysis[latestRun.run_id]) {
-        analyzeRun(latestRun.run_id);
+    const MAX_POLL_AGE_MS = 600_000; // 10 minutes
+    const runningRuns = allRuns.filter((r) => r.status === 'running');
+    if (runningRuns.length === 0) {
+      // Nothing running — reset poll tracking so a future run starts fresh.
+      pollStartedAtRef.current = null;
+      runningSetKeyRef.current = '';
+      if (pollingPaused) setPollingPaused(false);
+      return;
+    }
+
+    // Reset the age clock when the set of running runs changes.
+    const runningKey = runningRuns.map((r) => r.run_id).sort().join(',');
+    if (runningSetKeyRef.current !== runningKey) {
+      runningSetKeyRef.current = runningKey;
+      pollStartedAtRef.current = Date.now();
+      if (pollingPaused) setPollingPaused(false);
+    }
+    if (pollStartedAtRef.current === null) {
+      pollStartedAtRef.current = Date.now();
+    }
+
+    if (pollingPaused) return;
+
+    const interval = setInterval(() => {
+      if (
+        pollStartedAtRef.current !== null &&
+        Date.now() - pollStartedAtRef.current > MAX_POLL_AGE_MS
+      ) {
+        clearInterval(interval);
+        setPollingPaused(true);
+        return;
       }
+      // Skip the network call when the tab is hidden — resume when visible.
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      void refetch();
+    }, 5000);
+
+    const handleVisibility = () => {
+      // Refresh immediately when the tab becomes visible again so the user
+      // sees fresh data without waiting for the next 5s tick.
+      if (
+        document.visibilityState === 'visible' &&
+        pollStartedAtRef.current !== null &&
+        Date.now() - pollStartedAtRef.current <= MAX_POLL_AGE_MS
+      ) {
+        void refetch();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [allRuns, refetch, pollingPaused]);
+
+  // Auto-trigger AI analysis on latest failed run (skip expected failures)
+  useEffect(() => {
+    if (allRuns.length === 0) return;
+    const latestRun = allRuns[0];
+    if (
+      latestRun.status === 'failed' &&
+      !aiAnalysis[latestRun.run_id] &&
+      !expectedFailures.has(latestRun.run_id)
+    ) {
+      analyzeRun(latestRun.run_id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [runs]);
+  }, [allRuns]);
+
+  // ============================================
+  // Cumulative weekly cost
+  // ============================================
+  const weeklyCost = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let total = 0;
+    let runCount = 0;
+    for (const r of allRuns) {
+      const startedTs = r.started_at ? new Date(r.started_at).getTime() : NaN;
+      if (Number.isNaN(startedTs) || startedTs < cutoff) continue;
+      const cost = estimateRunCost(r);
+      if (cost !== null) total += cost;
+      runCount += 1;
+    }
+    return { total, runCount };
+  }, [allRuns]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -132,13 +344,131 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     setAnalyzingRun(runId);
     try {
       const response = await workflowApi.analyzeRun(pipelineId, runId);
-      setAiAnalysis(prev => ({ ...prev, [runId]: response.ai_analysis }));
-    } catch (err: any) {
-      setAiAnalysis(prev => ({ ...prev, [runId]: `Analysis failed: ${err.message || 'Unknown error'}` }));
+      setAiAnalysis((prev) => ({ ...prev, [runId]: response.ai_analysis }));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      setAiAnalysis((prev) => ({ ...prev, [runId]: `Analysis failed: ${msg}` }));
     } finally {
       setAnalyzingRun(null);
     }
   };
+
+  // ============================================
+  // Re-run handlers
+  // ============================================
+
+  const handleRerunSame = useCallback(
+    async (run: WorkflowRun) => {
+      if (!pipelineId) return;
+      setRerunningId(run.run_id);
+      const t = toast.loading('Re-running workflow…');
+      try {
+        await workflowApi.executeWorkflow(pipelineId);
+        toast.success('Re-run started', { id: t });
+        // Give backend a beat then refresh
+        window.setTimeout(() => {
+          void refetch();
+        }, 600);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        toast.error(`Re-run failed: ${msg}`, { id: t });
+      } finally {
+        setRerunningId(null);
+      }
+    },
+    [pipelineId, refetch],
+  );
+
+  const handleRerunOverrides = useCallback(
+    (_run: WorkflowRun) => {
+      // Override editor is out of scope for this pass — surface a clear placeholder.
+      toast(
+        'Override editor coming soon — opens a parameter picker before re-execution.',
+        { icon: 'ℹ️' },
+      );
+    },
+    [],
+  );
+
+  // ============================================
+  // Compare handlers
+  // ============================================
+
+  const handleCompare = useCallback(
+    (run: WorkflowRun) => {
+      if (compareSourceId === run.run_id) {
+        // Cancel selection
+        setCompareSourceId(null);
+        toast('Compare selection cleared', { icon: 'ℹ️' });
+        return;
+      }
+      if (!compareSourceId) {
+        setCompareSourceId(run.run_id);
+        toast('Pick another run row to compare', { icon: 'ℹ️', duration: 4000 });
+        return;
+      }
+      const source = allRuns.find((r) => r.run_id === compareSourceId) ?? null;
+      setCompareDrawer({ open: true, runA: source, runB: run });
+      setCompareSourceId(null);
+    },
+    [compareSourceId, allRuns],
+  );
+
+  // ============================================
+  // Expected-failure handlers
+  // ============================================
+
+  const toggleExpectedFailure = useCallback((runId: string) => {
+    setExpectedFailures((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) {
+        next.delete(runId);
+        toast('Removed expected-failure flag', { icon: 'ℹ️' });
+      } else {
+        next.add(runId);
+        toast('Marked as expected failure', { icon: 'ℹ️' });
+      }
+      writeExpectedFailures(next);
+      return next;
+    });
+  }, []);
+
+  const handleToggleHideExpected = useCallback(() => {
+    setHideExpected((v) => {
+      const next = !v;
+      writeHideExpected(next);
+      return next;
+    });
+  }, []);
+
+  // ============================================
+  // Kill handlers
+  // ============================================
+
+  const handleKillConfirm = useCallback(
+    async ({ reason: _reason }: { reason?: string }) => {
+      // Backend endpoint does not exist yet — toast and close.
+      toast(
+        'Kill endpoint not yet available — see the Backend Gap card on the row.',
+        { icon: 'ℹ️', duration: 5000 },
+      );
+      setKillTarget(null);
+    },
+    [],
+  );
+
+  const handleCopyRunId = useCallback(async (runId: string) => {
+    try {
+      await navigator.clipboard.writeText(runId);
+      toast.success('Run ID copied');
+    } catch {
+      toast.error('Could not copy to clipboard');
+    }
+  }, []);
+
+  // ============================================
+  // Helpers (display)
+  // ============================================
 
   const getStatusIcon = (status: RunStatus) => {
     switch (status) {
@@ -178,10 +508,10 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   };
 
   const getRunStats = () => {
-    const completed = runs.filter((r) => r.status === 'completed' || r.status === 'success').length;
-    const failed = runs.filter((r) => r.status === 'failed').length;
-    const running = runs.filter((r) => r.status === 'running').length;
-    const validDurations = runs.filter((r) => r.duration_seconds);
+    const completed = allRuns.filter((r) => r.status === 'completed' || r.status === 'success').length;
+    const failed = allRuns.filter((r) => r.status === 'failed').length;
+    const running = allRuns.filter((r) => r.status === 'running').length;
+    const validDurations = allRuns.filter((r) => r.duration_seconds);
     const avgDuration = validDurations.length > 0
       ? validDurations.reduce((sum, r) => sum + (r.duration_seconds || 0), 0) / validDurations.length
       : 0;
@@ -203,7 +533,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   }
 
   // Loading
-  if (isLoading && runs.length === 0) {
+  if (isLoading && allRuns.length === 0) {
     return (
       <div className={cn('flex items-center justify-center p-8', className)}>
         <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
@@ -221,9 +551,9 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           <span className="font-medium text-sm text-slate-700 dark:text-slate-200">
             Execution History
           </span>
-          {runs.length > 0 && (
+          {allRuns.length > 0 && (
             <span className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-700 rounded text-xs">
-              {runs.length}
+              {allRuns.length}
             </span>
           )}
         </div>
@@ -238,8 +568,31 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         </button>
       </div>
 
+      {/* Weekly cumulative cost banner */}
+      {allRuns.length > 0 && (
+        <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-amber-50/60 px-3 py-2 text-xs dark:border-slate-700 dark:bg-amber-900/10">
+          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+            <Coins className="h-3.5 w-3.5" />
+            <span>
+              This workflow used{' '}
+              <span className="font-semibold">
+                ~{formatCredits(weeklyCost.total)} credits
+              </span>{' '}
+              this week ({weeklyCost.runCount} runs)
+            </span>
+          </div>
+          <span
+            title="Estimated from steps_results[].rows_affected. Real /workflow/{id}/cost-summary endpoint pending."
+            className="inline-flex items-center gap-1 text-amber-700/80 dark:text-amber-300/80"
+          >
+            <Info className="h-3 w-3" />
+            estimate
+          </span>
+        </div>
+      )}
+
       {/* Stats Summary (non-compact mode) */}
-      {!compact && runs.length > 0 && (
+      {!compact && allRuns.length > 0 && (
         <div className="grid grid-cols-4 gap-2 p-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
           <div className="text-center">
             <div className="text-lg font-bold text-green-600">{stats.completed}</div>
@@ -262,23 +615,60 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-1 p-2 border-b border-slate-200 dark:border-slate-700">
-        {(['', 'running', 'completed', 'failed'] as const).map((status) => (
-          <button
-            key={status || 'all'}
-            onClick={() => setStatusFilter(status)}
-            className={cn(
-              'px-2 py-1 text-xs rounded transition',
-              statusFilter === status
-                ? 'bg-blue-500 text-white'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
-            )}
-          >
-            {status || 'All'}
-          </button>
-        ))}
+      {/* Filters + hide-expected toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-2 dark:border-slate-700">
+        <div className="flex items-center gap-1">
+          {(['', 'running', 'completed', 'failed'] as const).map((status) => (
+            <button
+              key={status || 'all'}
+              onClick={() => setStatusFilter(status)}
+              className={cn(
+                'px-2 py-1 text-xs rounded transition',
+                statusFilter === status
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
+              )}
+            >
+              {status || 'All'}
+            </button>
+          ))}
+        </div>
+
+        <label className="inline-flex cursor-pointer items-center gap-1.5 rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            className="h-3 w-3 accent-blue-500"
+            checked={hideExpected}
+            onChange={handleToggleHideExpected}
+            aria-label="Hide expected failures"
+          />
+          <ShieldCheck className="h-3 w-3" />
+          Hide expected failures ({expectedHiddenCount})
+        </label>
       </div>
+
+      {/* Compare-mode banner */}
+      {compareSourceId && (
+        <div className="border-b border-blue-200 bg-blue-50 px-3 py-1.5 text-xs text-blue-700 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300">
+          Compare mode: pick another run to compare against{' '}
+          <code className="font-mono">#{compareSourceId.slice(-8)}</code>.{' '}
+          <button
+            type="button"
+            onClick={() => setCompareSourceId(null)}
+            className="underline underline-offset-2"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Polling-paused note (run stuck in `running` past the max poll age) */}
+      {pollingPaused && (
+        <div className="flex items-center gap-2 border-b border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/10 dark:text-amber-200">
+          <Info className="h-3.5 w-3.5 shrink-0" />
+          <span>Run status polling paused — refresh manually.</span>
+        </div>
+      )}
 
       {/* Error Display */}
       {error && (
@@ -295,28 +685,44 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         {runs.length === 0 ? (
           <div className="p-8 text-center text-slate-500 dark:text-slate-400">
             <PlayCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
-            <p>No execution history</p>
-            <p className="text-xs mt-1">Execute the pipeline to see runs here</p>
+            <p>
+              {allRuns.length === 0 ? 'No execution history' : 'All runs are hidden'}
+            </p>
+            <p className="text-xs mt-1">
+              {allRuns.length === 0
+                ? 'Execute the pipeline to see runs here'
+                : 'Toggle off "Hide expected failures" to see them.'}
+            </p>
           </div>
         ) : (
-          runs.map((run: any) => {
+          runs.map((run: WorkflowRun) => {
             const isExpanded = expandedRuns.has(run.run_id);
+            const isExpected = expectedFailures.has(run.run_id);
+            const isCompareSource = compareSourceId === run.run_id;
+            const cost = estimateRunCost(run);
+            const details = run.execution_details as Record<string, unknown> | null | undefined;
+            const inputs = details?.['inputs'];
+            const hasInputs = Array.isArray(inputs) && inputs.length > 0;
 
             return (
               <div
                 key={run.run_id}
                 className={cn(
                   'p-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition',
-                  run.status === 'running' && 'bg-blue-50/30 dark:bg-blue-900/10'
+                  run.status === 'running' && 'bg-blue-50/30 dark:bg-blue-900/10',
+                  isExpected && 'opacity-70',
+                  isCompareSource && 'ring-2 ring-blue-300 dark:ring-blue-700',
                 )}
               >
                 {/* Run Header */}
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center flex-wrap gap-2">
                       <button
                         onClick={() => toggleRunExpanded(run.run_id)}
                         className="p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition"
+                        aria-label={isExpanded ? 'Collapse run details' : 'Expand run details'}
+                        aria-expanded={isExpanded}
                       >
                         {isExpanded ? (
                           <ChevronUp className="h-4 w-4 text-slate-400" />
@@ -325,7 +731,16 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         )}
                       </button>
                       {getStatusBadge(run.status as RunStatus)}
-                      {run.status === 'failed' && (
+                      {isExpected && (
+                        <span
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-600 dark:bg-slate-700 dark:text-slate-300"
+                          title="Marked as expected failure (alerts suppressed)"
+                        >
+                          <ShieldCheck className="h-3 w-3" />
+                          Expected
+                        </span>
+                      )}
+                      {run.status === 'failed' && !isExpected && (
                         <button
                           onClick={(e) => { e.stopPropagation(); analyzeRun(run.run_id); }}
                           className="ml-1 px-2 py-0.5 text-[10px] font-medium bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full hover:bg-purple-200 dark:hover:bg-purple-800/40 flex items-center gap-1"
@@ -363,6 +778,44 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         )}
                       </span>
                     </div>
+                  </div>
+
+                  {/* Right-aligned: cost chip + actions menu */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span
+                      title={
+                        cost === null
+                          ? 'Per-run cost API coming soon'
+                          : 'Estimated credits — replace once /workflow/{id}/cost-summary lands'
+                      }
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                        cost === null
+                          ? 'border-slate-200 text-slate-400 dark:border-slate-700 dark:text-slate-500'
+                          : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300',
+                      )}
+                    >
+                      <Coins className="h-3 w-3" />
+                      ~{formatCredits(cost)} cr
+                    </span>
+
+                    {rerunningId === run.run_id && (
+                      <Loader2 className="h-3 w-3 animate-spin text-blue-500" aria-label="Re-running" />
+                    )}
+
+                    <RunActionsMenu
+                      runId={run.run_id}
+                      runStatus={run.status}
+                      isExpectedFailure={isExpected}
+                      hasInputs={hasInputs}
+                      isCompareSourcePicked={isCompareSource}
+                      onRerunSame={() => void handleRerunSame(run)}
+                      onRerunOverrides={() => handleRerunOverrides(run)}
+                      onCompare={() => handleCompare(run)}
+                      onToggleExpected={() => toggleExpectedFailure(run.run_id)}
+                      onKill={() => setKillTarget(run)}
+                      onCopyId={() => void handleCopyRunId(run.run_id)}
+                    />
                   </div>
                 </div>
 
@@ -434,6 +887,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                             )}
                             className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
                             title="Copy error to clipboard"
+                            aria-label="Copy error to clipboard"
                           >
                             <Copy className="h-3 w-3" />
                           </button>
@@ -464,16 +918,16 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     )}
 
                     {/* Step-by-Step Execution Results */}
-                    {run.execution_details?.steps_results && (
+                    {details?.['steps_results'] !== undefined && (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-1 text-xs text-slate-500 dark:text-slate-400">
                             <Layers className="h-3 w-3" />
-                            Step Results ({String(run.execution_details?.mode || 'legacy')} mode)
+                            Step Results ({String(details?.['mode'] ?? 'legacy')} mode)
                           </div>
                         </div>
                         <div className="space-y-1">
-                          {(run.execution_details?.steps_results as any[] || []).map((step: any, idx: number) => (
+                          {getStepsResults(run).map((step, idx) => (
                             <React.Fragment key={step.step_id || idx}>
                               <div className={cn(
                                 'flex items-center gap-2 px-2 py-1.5 rounded-md text-xs',
@@ -501,7 +955,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                                   <span className="text-amber-500 text-[10px]">retry x{step.attempt}</span>
                                 )}
                               </div>
-                              {step.error && (
+                              {step.error !== undefined && step.error !== null && (
                                 <div className="mt-1 ml-7">
                                   <p className="text-xs text-red-600 dark:text-red-400 break-words">
                                     {String(step.error)}
@@ -512,22 +966,23 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                           ))}
                         </div>
                         {/* Compiled SQL (CTE mode) */}
-                        {run.execution_details?.compiled_sql && (
+                        {typeof details?.['compiled_sql'] === 'string' && (
                           <div className="mt-2">
                             <div className="flex items-center justify-between mb-1">
                               <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
                                 <Code className="h-3 w-3" /> Compiled SQL
                               </span>
                               <button
-                                onClick={() => copyToClipboard(String(run.execution_details?.compiled_sql || ''), run.run_id)}
+                                onClick={() => copyToClipboard(String(details?.['compiled_sql'] ?? ''), run.run_id)}
                                 className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded transition"
                                 title="Copy SQL"
+                                aria-label="Copy compiled SQL"
                               >
                                 {copiedSql === run.run_id ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3 text-slate-400" />}
                               </button>
                             </div>
                             <pre className="p-2 bg-slate-900 rounded-lg text-[10px] text-green-400 font-mono whitespace-pre-wrap overflow-x-auto max-h-[200px]">
-                              {String(run.execution_details?.compiled_sql || '')}
+                              {String(details?.['compiled_sql'] ?? '')}
                             </pre>
                           </div>
                         )}
@@ -535,10 +990,10 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                     )}
 
                     {/* Raw Details Fallback (when no steps_results) */}
-                    {run.execution_details && !run.execution_details?.steps_results && (
+                    {details && details['steps_results'] === undefined && (
                       <div className="p-3 bg-slate-900 rounded-lg">
                         <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono overflow-x-auto">
-                          {JSON.stringify(run.execution_details, null, 2)}
+                          {JSON.stringify(details, null, 2)}
                         </pre>
                       </div>
                     )}
@@ -549,6 +1004,81 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           })
         )}
       </div>
+
+      {/* Kill confirm dialog + Backend Gap card */}
+      {killTarget && (
+        <ConfirmDestructiveDialog
+          open={!!killTarget}
+          onOpenChange={(o) => {
+            if (!o) setKillTarget(null);
+          }}
+          title="Kill running execution?"
+          tier="hard"
+          resourceLabel="run"
+          resourceName={killTarget.run_id}
+          requireReason={false}
+          irreversibleNote="Partial step results will be preserved when the backend endpoint lands."
+          confirmLabel="Kill run"
+          body={
+            <div className="space-y-3">
+              <p>
+                You are about to abort run{' '}
+                <code className="font-mono text-[11px]">#{killTarget.run_id.slice(-8)}</code>.
+                In-flight steps will be marked as cancelled.
+              </p>
+
+              {/* Inline backend gap card */}
+              <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-900/40 dark:bg-violet-900/20">
+                <div className="flex items-center gap-2">
+                  <Lock className="h-3 w-3 text-violet-500" />
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+                    Backend gap — UX target
+                  </p>
+                </div>
+                <dl className="mt-2 space-y-1.5 text-[11px]">
+                  <div className="grid grid-cols-[80px_1fr] gap-2">
+                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Endpoint</dt>
+                    <dd className="font-mono text-slate-800 dark:text-slate-200">
+                      POST /workflow/{'{id}'}/runs/{'{runId}'}/kill
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2">
+                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Body</dt>
+                    <dd className="font-mono text-slate-800 dark:text-slate-200">{`{ reason?: string }`}</dd>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2">
+                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Returns</dt>
+                    <dd className="font-mono text-slate-800 dark:text-slate-200">
+                      {'{ killed_at, partial_results? }'}
+                    </dd>
+                  </div>
+                  <div className="grid grid-cols-[80px_1fr] gap-2">
+                    <dt className="font-semibold text-violet-700 dark:text-violet-300">Why</dt>
+                    <dd className="text-slate-700 dark:text-slate-300">
+                      Superadmins need to stop runaway runs without restarting the worker.
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-2 flex items-center gap-2 rounded bg-violet-100 px-2 py-1 dark:bg-violet-900/40">
+                  <Beaker className="h-3 w-3 text-violet-600 dark:text-violet-300" />
+                  <span className="text-[10px] text-violet-800 dark:text-violet-200">
+                    Until this lands, confirming will toast a notice and refresh the runs list.
+                  </span>
+                </div>
+              </div>
+            </div>
+          }
+          onConfirm={handleKillConfirm}
+        />
+      )}
+
+      {/* Compare drawer */}
+      <RunCompareDrawer
+        open={compareDrawer.open}
+        runA={compareDrawer.runA}
+        runB={compareDrawer.runB}
+        onClose={() => setCompareDrawer({ open: false, runA: null, runB: null })}
+      />
     </div>
   );
 };

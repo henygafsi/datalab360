@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "generated_from": "apps/data360/src/app/(dashboard)/data-source-connection/page.tsx + connectionServices.tsx",
+  "purpose": "Machine-readable catalog of every data-source connector available in the Connect module. Use this to let an LLM pre-fill connector forms from a pasted connection string / config blob, or propose a brand-new connector definition without reading the UI source.",
+  "field_contract": {
+    "param": {
+      "name": "string — the form field key, matches the connector's React form state",
+      "type": "string | number | boolean | secret | enum — `secret` fields MUST be masked in the UI and never logged",
+      "required": "boolean — whether validateConnectorConfig() rejects a config that omits it",
+      "validation": "optional — hostname | port | uri | non_empty | account_locator — extra per-type check",
+      "default": "optional — value pre-filled in the form",
+      "enum": "optional — allowed values when type=enum",
+      "description": "optional — short human hint"
+    },
+    "rules": [
+      "A connector's `params` are the exact fields its existing form renders — no invented fields.",
+      "`supports_test` is true only when a real /connect/<id>/test endpoint exists (audit: databricks, iceberg, oracle).",
+      "Connectors with `supports_test: false` go straight to ingest/provision — there is no dry-run.",
+      "`wizard_steps` lists the form's logical phases; storage connectors use multi-step Snowflake integration flows."
+    ]
+  },
+  "categories": {
+    "cloud_storage": "Cloud object storage — staged into Snowflake via a storage integration",
+    "warehouse": "Cloud data warehouses / platforms",
+    "database": "Relational databases ingested table-by-table",
+    "lakehouse": "Open lakehouse / table-format catalogs"
+  },
+  "connectors": [
+    {
+      "id": "snowflake",
+      "label": "Snowflake",
+      "category": "warehouse",
+      "description": "Cloud data platform for data warehousing and analytics. Connects a Snowflake datalake account.",
+      "icon": "Snowflake",
+      "params": [
+        { "name": "datalake_account", "type": "string", "required": true, "validation": "account_locator", "description": "Snowflake account locator, e.g. xy12345.eu-west-1" },
+        { "name": "datalake_username", "type": "string", "required": true, "description": "Login username" },
+        { "name": "datalake_password", "type": "secret", "required": true, "description": "Login password" },
+        { "name": "datalake_role", "type": "string", "required": true, "description": "Role to assume, e.g. ACCOUNTADMIN" }
+      ],
+      "endpoints": { "connect": "/connect/snowflake_lake/datalake/connect" },
+      "supports_test": false,
+      "wizard_steps": ["credentials", "connect"]
+    },
+    {
+      "id": "azure",
+      "label": "Azure Blob Storage",
+      "category": "cloud_storage",
+      "description": "Microsoft cloud object storage staged into Snowflake via a storage integration and optional event-grid notification integration.",
+      "icon": "Cloud",
+      "params": [
+        { "name": "storage_integration_name", "type": "string", "required": true, "description": "Name for the Snowflake storage integration" },
+        { "name": "tenant_id", "type": "string", "required": true, "description": "Azure AD tenant ID" },
+        { "name": "storage_url", "type": "string", "required": true, "validation": "uri", "description": "azure://<account>.blob.core.windows.net/<container>" },
+        { "name": "stage_name", "type": "string", "required": true, "description": "Snowflake external stage name" },
+        { "name": "notification_integration_name", "type": "string", "required": false, "description": "Name for the notification integration (auto-update)" },
+        { "name": "queue_url", "type": "string", "required": false, "validation": "uri", "description": "Azure Storage queue URL for event notifications" },
+        { "name": "auto_update", "type": "boolean", "required": false, "default": false, "description": "Enable auto-refresh via notification integration" }
+      ],
+      "endpoints": {
+        "storage_integration": "/connect/azure/storage_integration",
+        "notification_integration": "/connect/azure/notification_integration",
+        "snowpipe": "/connect/azure/snowpipe",
+        "stage": "/connect/azure/stage"
+      },
+      "supports_test": false,
+      "wizard_steps": ["storage-integration", "consent", "notification", "stage"]
+    },
+    {
+      "id": "aws",
+      "label": "Amazon S3",
+      "category": "cloud_storage",
+      "description": "Amazon Simple Storage Service staged into Snowflake via an IAM-role-based storage integration.",
+      "icon": "Cloud",
+      "params": [
+        { "name": "integration_name", "type": "string", "required": true, "description": "Name for the Snowflake storage integration" },
+        { "name": "bucket_name", "type": "string", "required": true, "description": "S3 bucket name" },
+        { "name": "aws_role_arn", "type": "string", "required": true, "validation": "non_empty", "description": "ARN of the IAM role Snowflake assumes, e.g. arn:aws:iam::123456789012:role/snowflake" },
+        { "name": "stage_name", "type": "string", "required": true, "description": "Snowflake external stage name" },
+        { "name": "auto_update", "type": "boolean", "required": false, "default": false, "description": "Enable Snowpipe auto-ingest" }
+      ],
+      "endpoints": {
+        "storage_integration": "/connect/aws/storage_integration",
+        "stage": "/connect/aws/stage"
+      },
+      "supports_test": false,
+      "wizard_steps": ["storage-integration", "iam-trust", "stage"]
+    },
+    {
+      "id": "gcs",
+      "label": "Google Cloud Storage",
+      "category": "cloud_storage",
+      "description": "Google Cloud Storage staged into Snowflake via a storage integration and optional Pub/Sub notification integration.",
+      "icon": "Cloud",
+      "params": [
+        { "name": "integration_name", "type": "string", "required": true, "description": "Name for the Snowflake storage integration" },
+        { "name": "bucket_name", "type": "string", "required": true, "description": "GCS bucket name" },
+        { "name": "stage_name", "type": "string", "required": true, "description": "Snowflake external stage name" },
+        { "name": "prefix", "type": "string", "required": false, "description": "Optional path prefix inside the bucket" },
+        { "name": "notification_integration_name", "type": "string", "required": false, "description": "Name for the notification integration (auto-update)" },
+        { "name": "gcp_pubsub_subscription_name", "type": "string", "required": false, "description": "GCP Pub/Sub subscription for event notifications" },
+        { "name": "auto_update", "type": "boolean", "required": false, "default": false, "description": "Enable auto-refresh via notification integration" }
+      ],
+      "endpoints": {
+        "storage_integration": "/connect/gcs/storage_integration",
+        "notification_integration": "/connect/gcs/notification_integration",
+        "stage": "/connect/gcs/stage"
+      },
+      "supports_test": false,
+      "wizard_steps": ["storage-integration", "iam-grant", "stage"]
+    },
+    {
+      "id": "databricks",
+      "label": "Databricks",
+      "category": "warehouse",
+      "description": "Unified analytics and lakehouse platform. Ingests Unity Catalog tables into Snowflake schema CP_DATA360.DATABRICKS.",
+      "icon": "Database",
+      "params": [
+        { "name": "host", "type": "string", "required": true, "validation": "hostname", "description": "Workspace host, e.g. adb-xxx.azuredatabricks.net" },
+        { "name": "http_path", "type": "string", "required": true, "validation": "non_empty", "description": "SQL warehouse HTTP path, e.g. /sql/1.0/warehouses/abc" },
+        { "name": "access_token", "type": "secret", "required": true, "description": "Databricks personal access token" },
+        { "name": "catalog", "type": "string", "required": true, "description": "Unity Catalog catalog name" },
+        { "name": "schema_name", "type": "string", "required": true, "description": "Schema within the catalog" },
+        { "name": "tables", "type": "string", "required": false, "description": "Comma-separated table names; empty = all tables in the schema" }
+      ],
+      "endpoints": {
+        "test": "/connect/databricks/test",
+        "catalogs": "/connect/databricks/catalogs",
+        "schemas": "/connect/databricks/schemas",
+        "tables": "/connect/databricks/tables",
+        "ingest": "/connect/databricks/ingest"
+      },
+      "supports_test": true,
+      "wizard_steps": ["credentials", "select-catalog", "select-schema", "select-tables", "ingest"]
+    },
+    {
+      "id": "iceberg",
+      "label": "Apache Iceberg",
+      "category": "lakehouse",
+      "description": "Open table format for large analytic datasets. Connects a REST catalog and ingests tables into Snowflake schema CP_DATA360.ICEBERG.",
+      "icon": "Database",
+      "params": [
+        { "name": "uri", "type": "string", "required": true, "validation": "uri", "description": "REST catalog URI, e.g. http://host:8181" },
+        { "name": "warehouse", "type": "string", "required": false, "description": "Catalog warehouse name" },
+        { "name": "credential", "type": "secret", "required": false, "description": "REST catalog credential / OAuth secret" },
+        { "name": "namespace", "type": "string", "required": true, "description": "Iceberg namespace" },
+        { "name": "tables", "type": "string", "required": false, "description": "Comma-separated table names; empty = all tables in the namespace" }
+      ],
+      "endpoints": {
+        "test": "/connect/iceberg/test",
+        "namespaces": "/connect/iceberg/namespaces",
+        "tables": "/connect/iceberg/tables",
+        "ingest": "/connect/iceberg/ingest"
+      },
+      "supports_test": true,
+      "wizard_steps": ["credentials", "select-namespace", "select-tables", "ingest"]
+    },
+    {
+      "id": "postgres",
+      "label": "PostgreSQL",
+      "category": "database",
+      "description": "Open-source relational database. Public tables are copied into Snowflake schema CP_DATA360.POSTGRES.",
+      "icon": "Database",
+      "params": [
+        { "name": "host", "type": "string", "required": true, "validation": "hostname", "description": "Database server hostname or IP" },
+        { "name": "port", "type": "number", "required": false, "default": 5432, "validation": "port", "description": "Server port" },
+        { "name": "database", "type": "string", "required": true, "description": "Database name" },
+        { "name": "user", "type": "string", "required": true, "description": "Login user" },
+        { "name": "password", "type": "secret", "required": true, "description": "Login password" }
+      ],
+      "endpoints": { "ingest": "/connect/postgres/ingest" },
+      "supports_test": false,
+      "wizard_steps": ["credentials", "ingest"]
+    },
+    {
+      "id": "mysql",
+      "label": "MySQL",
+      "category": "database",
+      "description": "Popular open-source relational database. Tables are copied into Snowflake schema CP_DATA360.MYSQL.",
+      "icon": "Database",
+      "params": [
+        { "name": "host", "type": "string", "required": true, "validation": "hostname", "description": "Database server hostname or IP" },
+        { "name": "port", "type": "number", "required": false, "default": 3306, "validation": "port", "description": "Server port" },
+        { "name": "database", "type": "string", "required": true, "description": "Database name" },
+        { "name": "user", "type": "string", "required": true, "description": "Login user" },
+        { "name": "password", "type": "secret", "required": true, "description": "Login password" }
+      ],
+      "endpoints": { "ingest": "/connect/mysql/ingest" },
+      "supports_test": false,
+      "wizard_steps": ["credentials", "ingest"]
+    },
+    {
+      "id": "oracle",
+      "label": "Oracle ATP",
+      "category": "database",
+      "description": "Oracle Autonomous Database (Always Free cloud tier). Tables are copied into Snowflake schema CP_DATA360.ORACLE.",
+      "icon": "Database",
+      "params": [
+        { "name": "host", "type": "string", "required": true, "validation": "hostname", "description": "ATP host, e.g. adb.eu-paris-1.oraclecloud.com" },
+        { "name": "port", "type": "number", "required": false, "default": 1522, "validation": "port", "description": "Listener port" },
+        { "name": "service_name", "type": "string", "required": true, "description": "Database service name" },
+        { "name": "username", "type": "string", "required": true, "description": "Login username, e.g. ADMIN" },
+        { "name": "password", "type": "secret", "required": true, "description": "Login password" },
+        { "name": "connection_mode", "type": "enum", "required": false, "default": "tls", "enum": ["standard", "tls", "wallet"], "description": "tls = Autonomous DB, wallet = mTLS, standard = on-prem" },
+        { "name": "wallet_path", "type": "string", "required": false, "description": "Path to the wallet directory (mode=wallet only)" },
+        { "name": "wallet_password", "type": "secret", "required": false, "description": "Wallet password (mode=wallet only)" }
+      ],
+      "endpoints": {
+        "test": "/connect/oracle/test",
+        "ingest": "/connect/oracle/ingest",
+        "sample_stage": "/connect/oracle/sample-stage"
+      },
+      "supports_test": true,
+      "wizard_steps": ["credentials", "test", "ingest"]
+    }
+  ],
+  "samples": [
+    {
+      "title": "Sample 1 — PostgreSQL analytics replica",
+      "summary": "Ingest a read replica of an app database into Snowflake.",
+      "connector": "postgres",
+      "config": {
+        "host": "analytics-replica.db.internal",
+        "port": 5432,
+        "database": "appdb",
+        "user": "readonly",
+        "password": "<secret>"
+      }
+    },
+    {
+      "title": "Sample 2 — Databricks Unity Catalog tables",
+      "summary": "Pull the gold-layer tables of a Databricks lakehouse into Snowflake.",
+      "connector": "databricks",
+      "config": {
+        "host": "adb-1234567890.7.azuredatabricks.net",
+        "http_path": "/sql/1.0/warehouses/0a1b2c3d4e5f6g7h",
+        "access_token": "<secret>",
+        "catalog": "main",
+        "schema_name": "gold",
+        "tables": "fct_orders,dim_customers"
+      }
+    },
+    {
+      "title": "Sample 3 — Amazon S3 external stage",
+      "summary": "Stage a curated S3 bucket into Snowflake with Snowpipe auto-ingest.",
+      "connector": "aws",
+      "config": {
+        "integration_name": "s3_curated_int",
+        "bucket_name": "acme-curated-data",
+        "aws_role_arn": "arn:aws:iam::123456789012:role/snowflake-loader",
+        "stage_name": "S3_CURATED_STAGE",
+        "auto_update": true
+      }
+    }
+  ]
+}

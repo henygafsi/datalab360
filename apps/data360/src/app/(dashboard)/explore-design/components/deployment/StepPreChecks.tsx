@@ -116,10 +116,23 @@ export default function StepPreChecks() {
 
   return (
       <div className="p-6 space-y-6">
-      {/* PreCheckGate — structural validation */}
+      {/* Intro — explains the two distinct check passes so the two panels
+          below don't read like a duplicated glitch. */}
+      <div className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+        <Shield className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+        <span>
+          Two passes run here: a fast{' '}
+          <span className="font-medium text-slate-700 dark:text-slate-300">structural preview</span>{' '}
+          checks the model graph locally, then the authoritative{' '}
+          <span className="font-medium text-slate-700 dark:text-slate-300">pre-deployment checks</span>{' '}
+          validate against the live warehouse. Both must pass before you deploy.
+        </span>
+      </div>
+
+      {/* Pass 1 — structural validation (client-side graph & DDL checks) */}
       <PreCheckGate />
 
-      {/* Server Pre-Deploy Checks (B3) */}
+      {/* Pass 2 — server-side pre-deployment checks (B3, authoritative) */}
       <PreDeployChecksPanel
         projectId={projectId}
         warehouse={config.scheduleWarehouse || 'COMPUTE_WH'}

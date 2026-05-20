@@ -33,6 +33,9 @@ import {
 } from '@/app/services/chat';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import AiCostBadge from './components/AiCostBadge';
+import { useTrackAiCharge } from './store/ai-store';
+import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
 
 // ── Types ──────────────────────────────────────────────────────────────
 
@@ -117,6 +120,12 @@ export default function CortexChatContent() {
   const [inputValue, setInputValue] = useState('');
   const [isQuerying, setIsQuerying] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // AI cost surfacing
+  const trackCharge = useTrackAiCharge();
+  const sendCostEstimate = useAiCostEstimate('cortex_complete', {
+    prompt_chars: inputValue.length,
+  });
 
   // Semantic model selection
   const [selectedModel, setSelectedModel] = useState(modelFromUrl);
@@ -308,6 +317,9 @@ export default function CortexChatContent() {
       if (convId) {
         persistMessage('assistant', resultContent);
       }
+
+      // Record the credit charge for the session counter & monthly rollup.
+      trackCharge('cortex_complete', sendCostEstimate.credits);
     } catch (error: any) {
       console.error('Cortex query error:', error);
       setMessages((prev) =>
@@ -736,10 +748,18 @@ export default function CortexChatContent() {
               )}
             </Button>
           </div>
-          <div className="flex items-center justify-between mt-2">
-            <p className="text-[10px] text-slate-400 dark:text-slate-500">
-              Powered by Snowflake Cortex Analyst. Press Enter to send.
-            </p>
+          <div className="flex items-center justify-between mt-2 gap-2">
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                Powered by Snowflake Cortex Analyst. Press Enter to send.
+              </p>
+              <AiCostBadge
+                featureKey="cortex_complete"
+                params={{ prompt_chars: inputValue.length }}
+                size="sm"
+                showSource
+              />
+            </div>
             {messages.length > 0 && (
               <p className="text-[10px] text-slate-400 dark:text-slate-500">
                 {messages.filter((m) => m.role === 'user').length} messages in this conversation

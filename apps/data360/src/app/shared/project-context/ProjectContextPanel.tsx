@@ -72,6 +72,21 @@ export function ProjectContextPanel({
   const [recosText, setRecosText] = useState<string | null>(null);
   const [recentErrors, setRecentErrors] = useState<ExploreDesignService.RecentDeploymentError[]>([]);
 
+  // After a deployment, the Verify step emits this event so we can switch the
+  // user to the relevant tab (and expand the panel) — making the freshly
+  // created version / history immediately visible without a manual click.
+  useEffect(() => {
+    function onOpenTab(e: Event) {
+      const detail = (e as CustomEvent).detail as { tab?: ProjectContextTabId } | undefined;
+      if (detail?.tab) {
+        setActiveTab(detail.tab);
+        setExpanded(true);
+      }
+    }
+    window.addEventListener('explore-design:open-context-tab', onOpenTab);
+    return () => window.removeEventListener('explore-design:open-context-tab', onOpenTab);
+  }, []);
+
   // Fetch recent deployment errors for Recos (when Recos tab is active and no custom slot)
   useEffect(() => {
     if (activeTab !== 'recos' || recosSlot != null) return;

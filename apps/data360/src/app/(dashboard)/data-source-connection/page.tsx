@@ -12,7 +12,7 @@ import {
   HiOutlineCheckCircle,
   HiOutlineExclamationCircle
 } from 'react-icons/hi2';
-import { Database, ArrowLeft } from 'lucide-react';
+import { Database, ArrowLeft, Sparkles } from 'lucide-react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { ROLE_PERMISSIONS } from '@/config/constants';
 import { routes } from '@/config/routes';
@@ -57,6 +57,8 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 // Import Label from the correct local path
 import { Label } from '@/components/ui/label';
 import DatalakeBrowser from './DatalakeBrowser';
+import ConnectorAiHelper from './ConnectorAiHelper';
+import { validateConnectorConfig } from './connector-catalog-grounding';
 
 // Modern breadcrumb component – Home links to dashboard
 function Breadcrumb({ onHomeClick }: { onHomeClick?: () => void }) {
@@ -148,6 +150,31 @@ function DataSourceCard({
             <HiOutlineCheckCircle className="h-5 w-5 text-white" />
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Inline pre-commit validation errors raised by validateConnectorConfig().
+function ValidationErrorBanner({ errors }: { errors: string[] }) {
+  if (errors.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      className="mx-auto mb-4 w-full max-w-2xl rounded-lg border border-rose-300 bg-rose-50 p-4 dark:border-rose-800 dark:bg-rose-950/30"
+    >
+      <div className="flex items-start gap-2">
+        <HiOutlineExclamationCircle className="mt-0.5 h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" />
+        <div>
+          <h4 className="text-sm font-semibold text-rose-800 dark:text-rose-300">
+            Connection blocked — fix these fields
+          </h4>
+          <ul className="mt-1 space-y-0.5">
+            {errors.map((e, i) => (
+              <li key={i} className="text-sm text-rose-700 dark:text-rose-400">• {e}</li>
+            ))}
+          </ul>
+        </div>
       </div>
     </div>
   );
@@ -256,6 +283,9 @@ export default function DataSourceConnectionPage() {
   const [connectionsLoading, setConnectionsLoading] = useState<boolean>(false);
   const [errorMessages, setErrorMessages] = useState<string[]>([]); // État persistant pour les erreurs
   const [showAddConnection, setShowAddConnection] = useState<boolean>(false); // Contrôle affichage section Add Connection
+  const [showAiHelper, setShowAiHelper] = useState<boolean>(false); // AI connector-helper modal
+  // Per-connector inline validation errors raised by the pre-commit gate.
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   const [azureFormData, setAzureFormData] = useState<AzureFormData>({
       storage_integration_name: '',
@@ -444,8 +474,126 @@ export default function DataSourceConnectionPage() {
     }, 150);
   };
 
+  // Bridge from the AI connector-helper: pre-fill the matched connector's
+  // form state from a catalog-shaped config, then route into its form.
+  const handleAiUseConnector = (connectorId: string, config: Record<string, unknown>) => {
+    const str = (k: string, fallback = ''): string => {
+      const v = config[k];
+      return v === undefined || v === null ? fallback : String(v);
+    };
+    const num = (k: string, fallback: number): number => {
+      const v = config[k];
+      const n = typeof v === 'number' ? v : Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    switch (connectorId) {
+      case 'postgres':
+        setPostgresFormData({
+          host: str('host'), port: num('port', 5432), database: str('database'),
+          user: str('user'), password: str('password'),
+        });
+        break;
+      case 'mysql':
+        setMySQLFormData({
+          host: str('host'), port: num('port', 3306), database: str('database'),
+          user: str('user'), password: str('password'),
+        });
+        break;
+      case 'oracle':
+        setOracleFormData((prev) => ({
+          ...prev,
+          host: str('host', prev.host), port: num('port', prev.port),
+          service_name: str('service_name', prev.service_name),
+          username: str('username', prev.username), password: str('password', prev.password),
+          connection_mode: (['standard', 'tls', 'wallet'].includes(str('connection_mode'))
+            ? str('connection_mode') : prev.connection_mode) as 'standard' | 'tls' | 'wallet',
+          wallet_path: str('wallet_path', prev.wallet_path),
+          wallet_password: str('wallet_password', prev.wallet_password),
+        }));
+        break;
+      case 'databricks':
+        setDatabricksFormData((prev) => ({
+          ...prev,
+          host: str('host'), http_path: str('http_path'), access_token: str('access_token'),
+          catalog: str('catalog'), schema_name: str('schema_name'),
+        }));
+        setDatabricksStep('connect');
+        break;
+      case 'iceberg':
+        setIcebergFormData((prev) => ({
+          ...prev,
+          uri: str('uri'), warehouse: str('warehouse'), credential: str('credential'),
+        }));
+        setIcebergStep('connect');
+        break;
+      case 'azure':
+        setAzureFormData((prev) => ({
+          ...prev,
+          storage_integration_name: str('storage_integration_name', prev.storage_integration_name),
+          notification_integration_name: str('notification_integration_name', prev.notification_integration_name),
+          tenant_id: str('tenant_id', prev.tenant_id),
+          storage_url: str('storage_url', prev.storage_url),
+          queue_url: str('queue_url', prev.queue_url),
+          stage_name: str('stage_name', prev.stage_name),
+        }));
+        break;
+      case 'aws':
+        setAwsFormData((prev) => ({
+          ...prev,
+          integration_name: str('integration_name', prev.integration_name),
+          bucket_name: str('bucket_name', prev.bucket_name),
+          aws_role_arn: str('aws_role_arn', prev.aws_role_arn),
+          stage_name: str('stage_name', prev.stage_name),
+        }));
+        break;
+      case 'gcs':
+        setGcsFormData((prev) => ({
+          ...prev,
+          integration_name: str('integration_name', prev.integration_name),
+          bucket_name: str('bucket_name', prev.bucket_name),
+          stage_name: str('stage_name', prev.stage_name),
+          prefix: str('prefix', prev.prefix),
+          notification_integration_name: str('notification_integration_name', prev.notification_integration_name),
+          gcp_pubsub_subscription_name: str('gcp_pubsub_subscription_name', prev.gcp_pubsub_subscription_name),
+        }));
+        break;
+      case 'snowflake':
+        setSnowflakeFormData((prev) => ({
+          ...prev,
+          datalake_account: str('datalake_account', prev.datalake_account),
+          datalake_username: str('datalake_username', prev.datalake_username),
+          datalake_password: str('datalake_password', prev.datalake_password),
+          datalake_role: str('datalake_role', prev.datalake_role),
+        }));
+        break;
+      default:
+        break;
+    }
+    setValidationErrors([]);
+    handleSourceSelect(connectorId);
+    toast.success('Connector pre-filled — review the fields and submit.');
+  };
+
+  // Pre-commit validation gate: returns true (and shows inline errors) when
+  // the config fails the catalog's required-field / per-type checks.
+  const failsValidationGate = (connectorId: string, config: Record<string, unknown>): boolean => {
+    const result = validateConnectorConfig(connectorId, config);
+    if (result.ok) {
+      setValidationErrors([]);
+      return false;
+    }
+    const errs = [
+      ...result.missing.map((f) => `${f} is required`),
+      ...result.invalid.map((i) => `${i.field}: ${i.reason}`),
+    ];
+    setValidationErrors(errs);
+    toast.error('Fix the highlighted fields before connecting.');
+    return true;
+  };
+
   const handleBackToProviderSelection = () => {
       setErrorMessages([]); // Clear errors when going back to provider selection
+      setValidationErrors([]);
       setSelectedSource('');
       setCurrentStep(0);
       setShowDatalakeBrowser(false);
@@ -558,6 +706,12 @@ export default function DataSourceConnectionPage() {
 
   const handleAzureSubmit = async (e: FormEvent) => {
       e.preventDefault();
+      // Step 1 collects the integration credentials; stage_name comes later.
+      if (azureCurrentSubStep === 1 && failsValidationGate('azure', {
+          ...azureFormData, stage_name: azureFormData.stage_name || 'pending',
+      })) {
+          return;
+      }
       setLoading(true);
       setErrorMessages([]); // Clear previous errors
       try {
@@ -718,6 +872,9 @@ export default function DataSourceConnectionPage() {
 
   const handleAwsSubmit = async (e: FormEvent) => {
       e.preventDefault();
+      if (awsCurrentSubStep === 1 && failsValidationGate('aws', { ...awsFormData })) {
+          return;
+      }
       setLoading(true);
       try {
           if (awsCurrentSubStep === 1) {
@@ -766,6 +923,9 @@ export default function DataSourceConnectionPage() {
 
   const handleGcsSubmit = async (e: FormEvent) => {
       e.preventDefault();
+      if (gcsCurrentSubStep === 1 && failsValidationGate('gcs', { ...gcsFormData })) {
+          return;
+      }
       setLoading(true);
       try {
           if (gcsCurrentSubStep === 1) {
@@ -808,6 +968,7 @@ export default function DataSourceConnectionPage() {
 
   const handleSnowflakeSubmit = async (e: FormEvent) => {
       e.preventDefault();
+      if (failsValidationGate('snowflake', { ...snowflakeFormData })) return;
       setLoading(true);
       try {
           await connectSnowflakeDatalake(
@@ -2003,6 +2164,13 @@ export default function DataSourceConnectionPage() {
   const renderDatabricksForm = () => {
       const handleDbxTest = async (e: FormEvent) => {
           e.preventDefault();
+          // Gate the credential triplet (catalog/schema come from later steps).
+          if (failsValidationGate('databricks', {
+              host: databricksFormData.host,
+              http_path: databricksFormData.http_path,
+              access_token: databricksFormData.access_token,
+              catalog: 'pending', schema_name: 'pending',
+          })) return;
           setLoading(true);
           try {
               await databricksTest({ host: databricksFormData.host, http_path: databricksFormData.http_path, access_token: databricksFormData.access_token });
@@ -2134,6 +2302,13 @@ export default function DataSourceConnectionPage() {
   const renderIcebergForm = () => {
       const handleIceTest = async (e: FormEvent) => {
           e.preventDefault();
+          // Gate the catalog URI (namespace comes from the next step).
+          if (failsValidationGate('iceberg', {
+              uri: icebergFormData.uri,
+              warehouse: icebergFormData.warehouse,
+              credential: icebergFormData.credential,
+              namespace: 'pending',
+          })) return;
           setLoading(true);
           try {
               await icebergTest({ uri: icebergFormData.uri, warehouse: icebergFormData.warehouse || undefined, credential: icebergFormData.credential || undefined });
@@ -2233,6 +2408,7 @@ export default function DataSourceConnectionPage() {
   const renderPostgresForm = () => {
       const handleSubmit = async (e: FormEvent) => {
           e.preventDefault();
+          if (failsValidationGate('postgres', postgresFormData)) return;
           setLoading(true);
           try {
               await postgresIngest(postgresFormData);
@@ -2268,6 +2444,7 @@ export default function DataSourceConnectionPage() {
   const renderMySQLForm = () => {
       const handleSubmit = async (e: FormEvent) => {
           e.preventDefault();
+          if (failsValidationGate('mysql', mysqlFormData)) return;
           setLoading(true);
           try {
               await mysqlIngest(mysqlFormData);
@@ -2302,6 +2479,7 @@ export default function DataSourceConnectionPage() {
 
   const renderOracleForm = () => {
       const handleTest = async () => {
+          if (failsValidationGate('oracle', oracleFormData)) return;
           setLoading(true);
           setOracleTestResult(null);
           try {
@@ -2743,6 +2921,7 @@ export default function DataSourceConnectionPage() {
                     </div>
                 );
             }
+            const connectorForm = (() => {
             switch (selectedSource) {
                 case 'azure':
                     return (
@@ -2813,6 +2992,14 @@ export default function DataSourceConnectionPage() {
                 default:
                     return null;
             }
+            })();
+            if (!connectorForm) return null;
+            return (
+                <div>
+                    <ValidationErrorBanner errors={validationErrors} />
+                    {connectorForm}
+                </div>
+            );
         }
         return null;
     };
@@ -2897,16 +3084,32 @@ export default function DataSourceConnectionPage() {
                     </div>
                 </div>
 
-                {selectedSource && !showHeaderBack && (
-                    <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3">
+                    {selectedSource && !showHeaderBack && (
                         <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
                             {selectedSourceInfo?.name}
                         </Badge>
-                    </div>
-                )}
+                    )}
+                    <button
+                        type="button"
+                        onClick={() => setShowAiHelper(true)}
+                        title="Identify a connector from a connection string with AI"
+                        className="group relative inline-flex items-center gap-1.5 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
+                    >
+                        <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+                        <Sparkles className="h-4 w-4" />
+                        AI
+                    </button>
+                </div>
             </div>
 
             <div className="animate-fade-in-up">{renderForm()}</div>
+
+            <ConnectorAiHelper
+                open={showAiHelper}
+                onClose={() => setShowAiHelper(false)}
+                onUseConnector={handleAiUseConnector}
+            />
 
             {/* Related Modules */}
             <div className="mt-6 flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400">

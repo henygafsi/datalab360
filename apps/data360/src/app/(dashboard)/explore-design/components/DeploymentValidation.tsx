@@ -63,6 +63,18 @@ function formatElapsed(ms: number): string {
   return `${m}m ${rem.toString().padStart(2, '0')}s`;
 }
 
+/** Human-readable "time ago" for the resume banner / saved indicator. */
+function formatRelative(ts: number): string {
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return 'just now';
+  const m = Math.floor(diff / 60_000);
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'} ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h} hour${h === 1 ? '' : 's'} ago`;
+  const d = Math.floor(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
+
 /**
  * Wraps every step body and:
  *  - shows a persistent backend-error banner at the top (carries across steps)
@@ -97,8 +109,13 @@ function StepFrame({ children }: { children: React.ReactNode }) {
   // Auto-close countdown on verify-success — gives the user 4s to read the
   // confirmation, then closes the modal. They can cancel by clicking the
   // modal body (focus event), or "Stay open" button.
+  // Only auto-close when the deployment actually succeeded. A failed deploy
+  // (deploymentOutcome === 'failed') must keep the popup open so the user
+  // sees the failure outcome + backend error — never close silently.
   const verifyOk =
     currentStep === 'verify' &&
+    results.deploymentOutcome !== 'failed' &&
+    !results.backendError &&
     results.postVerifyResult &&
     (results.postVerifyResult as { status?: string }).status !== 'FAILED';
   const [autoCloseRemaining, setAutoCloseRemaining] = useState<number | null>(null);
@@ -235,19 +252,41 @@ function DeploymentContent() {
   // Draft persistence — save the current step + config to localStorage every
   // time they change. On open, the wizard restores the last step (see
   // DeploymentValidation effect below) so the user can close & resume.
+  //
+  // IMPORTANT: we do NOT persist while still on the 'review' step. Otherwise
+  // the very first render (which always starts at 'review' before the user
+  // resumes) would overwrite a real saved draft with step:'review' — and the
+  // resume-side filter hides 'review' drafts, so the user would think draft
+  // persistence is broken. Once past review, every change is saved.
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   useEffect(() => {
     if (!projectId || projectId === 'default') return;
+    if (currentStep === 'review') return;
+    // Don't keep a draft alive once the deploy reached a terminal outcome.
+    if (results.deploymentOutcome === 'deployed') return;
     try {
-      const payload = JSON.stringify({
-        step: currentStep,
-        config,
-        savedAt: Date.now(),
-      });
+      const savedAt = Date.now();
+      const payload = JSON.stringify({ step: currentStep, config, savedAt });
       window.localStorage.setItem(DRAFT_KEY(projectId), payload);
+      setDraftSavedAt(savedAt);
     } catch {
       // localStorage may be full or blocked — silently skip.
     }
-  }, [projectId, currentStep, config]);
+  }, [projectId, currentStep, config, results.deploymentOutcome]);
+
+  // Clear the draft once the deployment has succeeded — even if the user
+  // leaves the modal open. A completed deploy should never resurface as a
+  // resume offer next session.
+  useEffect(() => {
+    if (results.deploymentOutcome !== 'deployed') return;
+    if (!projectId || projectId === 'default') return;
+    try {
+      window.localStorage.removeItem(DRAFT_KEY(projectId));
+    } catch {
+      // ignore
+    }
+    setDraftSavedAt(null);
+  }, [results.deploymentOutcome, projectId]);
 
   return (
     <div className="flex h-full flex-col">
@@ -282,8 +321,26 @@ function DeploymentContent() {
                     whileTap={isClickable ? { scale: 0.96 } : undefined}
                     onClick={() => isClickable && setCurrentStep(step.key)}
                     disabled={!isClickable}
+                    aria-current={isActive ? 'step' : undefined}
+                    aria-disabled={!isClickable}
+                    title={
+                      isActive
+                        ? `Current step: ${step.label}`
+                        : isCompleted
+                          ? `Click to revisit ${step.label}`
+                          : `${step.label} — not reached yet`
+                    }
+                    aria-label={
+                      isActive
+                        ? `Current step: ${step.label}`
+                        : isCompleted
+                          ? `Revisit completed step: ${step.label}`
+                          : `Upcoming step: ${step.label}`
+                    }
                     className={cn(
                       'relative flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                      isClickable && !isActive && 'cursor-pointer hover:bg-slate-100/70 dark:hover:bg-slate-800/60',
+                      !isClickable && 'cursor-not-allowed',
                       isActive
                         ? 'text-blue-700 dark:text-blue-300'
                         : isCompleted
@@ -354,16 +411,29 @@ function DeploymentContent() {
         {/* Sticky bottom nav */}
         {showGlobalNav && (
           <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-slate-200 bg-white px-6 py-3 dark:border-slate-700 dark:bg-slate-900">
-            {stepIndex > 0 ? (
-              <motion.div whileHover={{ x: -2 }} whileTap={{ scale: 0.97 }}>
-                <Button variant="outline" size="sm" onClick={goPrev} className="gap-1.5">
-                  <ArrowLeft className="h-3.5 w-3.5" />
-                  {prevLabel}
-                </Button>
-              </motion.div>
-            ) : (
-              <div />
-            )}
+            <div className="flex items-center gap-3">
+              {stepIndex > 0 ? (
+                <motion.div whileHover={{ x: -2 }} whileTap={{ scale: 0.97 }}>
+                  <Button variant="outline" size="sm" onClick={goPrev} className="gap-1.5">
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    {prevLabel}
+                  </Button>
+                </motion.div>
+              ) : (
+                <div />
+              )}
+              {/* Draft-saved indicator — tells the user their progress is
+                  persisted and survives closing the window. */}
+              {draftSavedAt !== null && (
+                <span
+                  className="inline-flex items-center gap-1 text-[11px] text-slate-400 dark:text-slate-500"
+                  title={`Your progress is saved locally — close and resume any time within 24h. Last saved ${formatRelative(draftSavedAt)}.`}
+                >
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                  Progress saved · step {stepIndex + 1} of {DEPLOYMENT_STEPS.length}
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               {/* Inline hint when blocked, so the user understands WHY Next is greyed */}
               {preChecksBlocked && (
@@ -488,45 +558,53 @@ export default function DeploymentValidation({
         className,
       )}
     >
-      {/* Resume-draft banner (only shows if a draft was found) */}
+      {/* Resume-draft banner — prominent card shown when an in-progress
+          deployment draft was found for this project. */}
       <AnimatePresence>
         {resumeOffer && !resumeAccepted && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
-            className="flex items-center justify-between gap-3 border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-2.5 text-xs dark:border-amber-900/40 dark:from-amber-950/40 dark:to-orange-950/30"
+            className="border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-6 py-3.5 dark:border-amber-900/40 dark:from-amber-950/40 dark:to-orange-950/30"
           >
-            <span className="inline-flex items-center gap-1.5 text-amber-800 dark:text-amber-200">
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>
-                You have a saved draft from{' '}
-                <span className="font-semibold">
-                  {new Date(resumeOffer.savedAt).toLocaleString()}
-                </span>{' '}
-                at the{' '}
-                <span className="font-semibold">
-                  {DEPLOYMENT_STEPS.find((s) => s.key === resumeOffer.step)?.label ?? resumeOffer.step}
-                </span>{' '}
-                step.
-              </span>
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => {
-                  clearDraft();
-                  setResumeOffer(null);
-                }}
-                className="rounded-md px-2 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100/60 dark:text-amber-300 dark:hover:bg-amber-900/40"
-              >
-                Discard
-              </button>
-              <button
-                onClick={() => setResumeAccepted(true)}
-                className="rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm hover:from-amber-600 hover:to-orange-600"
-              >
-                Resume
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50">
+                  <RotateCcw className="h-3.5 w-3.5 text-amber-600 dark:text-amber-300" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    Resume your in-progress deployment?
+                  </p>
+                  <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                    Saved {formatRelative(resumeOffer.savedAt)} at the{' '}
+                    <span className="font-semibold">
+                      {DEPLOYMENT_STEPS.find((s) => s.key === resumeOffer.step)?.label ?? resumeOffer.step}
+                    </span>{' '}
+                    step. Pick up where you left off, or start fresh.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    // Start over — wipe the draft, begin a clean wizard.
+                    clearDraft();
+                    setResumeOffer(null);
+                  }}
+                  className="rounded-md border border-amber-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-white dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100 dark:hover:bg-amber-900/60"
+                >
+                  Start over
+                </button>
+                <button
+                  onClick={() => setResumeAccepted(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-r from-amber-500 to-orange-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:from-amber-600 hover:to-orange-600"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Resume
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -542,9 +620,11 @@ export default function DeploymentValidation({
         updateEventStatus={updateEventStatus}
         cleanupAppliedEvents={cleanupAppliedEvents}
         onClose={() => {
-          // On clean close, clear the draft so it doesn't haunt the next
-          // session. (Drafts only survive abandonment, not completion.)
-          clearDraft();
+          // Closing the modal (X button) is abandonment — the exact case
+          // draft persistence exists for. We deliberately KEEP the draft so
+          // the user can reopen and resume. Drafts are cleared only on:
+          //  - successful deploy (effect on deploymentOutcome === 'deployed')
+          //  - "Start over" / "Discard" in the resume banner
           onClose?.();
         }}
         initialStep={resumeAccepted && resumeOffer ? resumeOffer.step : undefined}

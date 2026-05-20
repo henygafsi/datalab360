@@ -5,6 +5,7 @@ import { PiWarningCircleBold, PiChartLineUp, PiShieldCheck, PiBuildings } from '
 import CommandCenterDashboard from '@/app/shared/command-center';
 import OnboardingTour from '@/app/shared/onboarding-tour';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import MeteringPanel from '@/components/metering/MeteringPanel';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -81,6 +82,10 @@ export default function AccountOverviewPage() {
         <Breadcrumb items={[{ label: 'Account Overview', href: '/account-overview' }]} />
       </div>
       <CommandCenterDashboard />
+      {/* Cost & Metering — pricing surface across sources / projects / modules. */}
+      <div className="mx-4 mt-6">
+        <MeteringPanel />
+      </div>
       <OnboardingTour />
       {/* Related modules */}
       <nav

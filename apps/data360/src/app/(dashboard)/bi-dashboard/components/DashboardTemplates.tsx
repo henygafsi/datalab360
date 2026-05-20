@@ -11,6 +11,11 @@ import {
 import { cn } from '@/lib/utils';
 import type { DashboardChartType, WidgetType, DashboardTemplateAPI } from '@/app/services/api/types';
 import { listTemplates } from '@/app/services/api/biDashboardApi';
+import {
+  DASHBOARD_TEMPLATES,
+  type DashboardTemplateDef,
+  type TemplateWidgetDef,
+} from './reporting-catalog-grounding';
 
 // ── Color Palette ──────────────────────────────────────────────────
 const PALETTE = [
@@ -51,324 +56,55 @@ export interface DashboardTemplate {
   widgets: TemplateWidget[];
 }
 
-// ── Template Definitions ───────────────────────────────────────────
+// ── Template Definitions (sourced from reporting-catalog.json) ──────
+//
+// The curated templates are no longer hand-coded here — reporting-catalog.json
+// is the single source of truth. We adapt the catalog's `dashboard_templates`
+// into the rich local `DashboardTemplate` shape this component renders.
 
-const TEMPLATES: DashboardTemplate[] = [
-  // ── 1. Retail Sales Dashboard (CP_DATA360.RETAIL_DW) ──
-  {
-    id: 'retail-sales',
-    name: 'Retail Sales Dashboard',
-    description: 'Revenue trends, city/store performance, and product analysis using CP_DATA360.RETAIL_DW sample data.',
-    icon: ShoppingCart,
-    category: 'Retail',
-    color: 'from-blue-500 to-cyan-500',
-    widgets: [
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Revenue by City',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['TOTAL_REVENUE'],
-          suggestedDimension: 'CITY',
-          description: 'Total revenue per city from ETL pipeline',
-          colors: [PALETTE[0], PALETTE[4]],
-          database: 'CP_DATA360',
-          schema: 'RETAIL_DW',
-          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
-          aggregator: 'SUM',
-          rowLimit: 15,
-        },
-      },
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Top 10 Stores by Revenue',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['TOTAL_REVENUE'],
-          suggestedDimension: 'STORE_NAME',
-          description: 'Store performance ranked by total revenue',
-          colors: [PALETTE[1], PALETTE[2]],
-          database: 'CP_DATA360',
-          schema: 'RETAIL_DW',
-          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
-          aggregator: 'SUM',
-          rowLimit: 10,
-        },
-      },
-      {
-        type: 'pie',
-        widgetType: 'chart',
-        title: 'Revenue Distribution by City',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'pie',
-          suggestedMeasures: ['TOTAL_REVENUE'],
-          suggestedDimension: 'CITY',
-          description: 'Revenue share per city as pie chart',
-          colors: PALETTE,
-          database: 'CP_DATA360',
-          schema: 'RETAIL_DW',
-          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
-          aggregator: 'SUM',
-          rowLimit: 10,
-        },
-      },
-      {
-        type: 'table',
-        widgetType: 'table',
-        title: 'Store Revenue Details',
-        width: 24,
-        height: 4,
-        config: {
-          suggestedMeasures: ['TOTAL_REVENUE', 'STORE_COUNT', 'CITY'],
-          suggestedDimension: 'STORE_NAME',
-          description: 'Detailed revenue table with all store metrics',
-          database: 'CP_DATA360',
-          schema: 'RETAIL_DW',
-          table: 'ETL_RETAIL_CITY_STORE_REVENUE',
-          rowLimit: 50,
-        },
-      },
-    ],
-  },
+// String icon name (catalog) → lucide component.
+const TEMPLATE_ICON_BY_NAME: Record<string, React.ComponentType<{ className?: string }>> = {
+  ShoppingCart,
+  Package,
+  Users,
+  Target,
+  LayoutTemplate,
+};
 
-  // ── 2. Inventory Dashboard ──
-  {
-    id: 'inventory',
-    name: 'Inventory Dashboard',
-    description: 'Monitor stock levels, reorder alerts, category breakdown, and supplier lead times for inventory management.',
-    icon: Package,
-    category: 'Retail',
-    color: 'from-emerald-500 to-green-600',
-    widgets: [
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Stock Levels',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['CURRENT_STOCK', 'REORDER_POINT'],
-          suggestedDimension: 'PRODUCT_NAME',
-          description: 'Current stock vs reorder point by product',
-          colors: [PALETTE[1], PALETTE[3]],
-        },
+// Adapt one catalog template into the rich local DashboardTemplate shape.
+function adaptCatalogTemplate(def: DashboardTemplateDef): DashboardTemplate {
+  return {
+    id: def.id,
+    name: def.label,
+    description: def.description,
+    icon: TEMPLATE_ICON_BY_NAME[def.icon] || LayoutTemplate,
+    category: def.category,
+    color: def.color,
+    widgets: def.widgets.map((w: TemplateWidgetDef, i: number) => ({
+      type: w.widget_type === 'table'
+        ? 'table'
+        : ((w.chart_type as DashboardChartType) || 'bar'),
+      widgetType: w.widget_type as WidgetType,
+      title: w.title,
+      width: w.position.w,
+      height: w.position.h,
+      config: {
+        chartType: w.chart_type ? (w.chart_type as DashboardChartType) : undefined,
+        suggestedMeasures: w.measures,
+        suggestedDimension: w.dimension || undefined,
+        description: w.description,
+        colors: [PALETTE[i % PALETTE.length]],
+        database: def.data_source?.database,
+        schema: def.data_source?.schema,
+        table: def.data_source?.table,
+        aggregator: w.aggregator,
+        rowLimit: w.row_limit,
       },
-      {
-        type: 'table',
-        widgetType: 'table',
-        title: 'Reorder Alerts',
-        width: 12,
-        height: 4,
-        config: {
-          suggestedMeasures: ['CURRENT_STOCK', 'REORDER_POINT', 'DAYS_UNTIL_STOCKOUT'],
-          suggestedDimension: 'PRODUCT_NAME',
-          description: 'Products below reorder threshold requiring immediate action',
-        },
-      },
-      {
-        type: 'pie',
-        widgetType: 'chart',
-        title: 'Category Breakdown',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'pie',
-          suggestedMeasures: ['TOTAL_VALUE'],
-          suggestedDimension: 'CATEGORY',
-          description: 'Inventory value distribution by product category',
-          colors: PALETTE,
-        },
-      },
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Supplier Lead Times',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['AVG_LEAD_TIME_DAYS', 'ORDER_COUNT'],
-          suggestedDimension: 'SUPPLIER_NAME',
-          description: 'Average lead time by supplier for supply chain planning',
-          colors: [PALETTE[6], PALETTE[7]],
-        },
-      },
-    ],
-  },
+    })),
+  };
+}
 
-  // ── 3. Customer Analytics ──
-  {
-    id: 'customer-analytics',
-    name: 'Customer Analytics',
-    description: 'Analyze customer segments, loyalty tiers, repeat purchase behavior, and geographic distribution.',
-    icon: Users,
-    category: 'Retail',
-    color: 'from-violet-500 to-purple-600',
-    widgets: [
-      {
-        type: 'pie',
-        widgetType: 'chart',
-        title: 'Customer Segments',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'pie',
-          suggestedMeasures: ['CUSTOMER_COUNT'],
-          suggestedDimension: 'SEGMENT',
-          description: 'Customer distribution across behavioral segments',
-          colors: [PALETTE[0], PALETTE[1], PALETTE[4], PALETTE[5]],
-        },
-      },
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Loyalty Tier Distribution',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['CUSTOMER_COUNT', 'AVG_SPEND'],
-          suggestedDimension: 'LOYALTY_TIER',
-          description: 'Customer counts and average spend per loyalty tier',
-          colors: [PALETTE[2], PALETTE[4]],
-        },
-      },
-      {
-        type: 'line',
-        widgetType: 'chart',
-        title: 'Repeat Purchase Rate',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'line',
-          suggestedMeasures: ['REPEAT_RATE', 'NEW_CUSTOMER_RATE'],
-          suggestedDimension: 'MONTH',
-          description: 'Monthly trend of repeat vs new customer purchase rates',
-          colors: [PALETTE[1], PALETTE[3]],
-        },
-      },
-      {
-        type: 'heatmap',
-        widgetType: 'chart',
-        title: 'Geographic Distribution',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'heatmap',
-          suggestedMeasures: ['CUSTOMER_COUNT'],
-          suggestedDimension: 'REGION',
-          description: 'Customer concentration by geographic region (heatmap)',
-          colors: PALETTE,
-        },
-      },
-    ],
-  },
-  // ── 4. CRM Coverage & Client Focus ──
-  {
-    id: 'crm-coverage',
-    name: 'CRM Coverage & Client Focus',
-    description: 'Analyze CRM pipeline coverage, client engagement scores, segment penetration, and account health without exposing PII.',
-    icon: Target,
-    category: 'CRM',
-    color: 'from-indigo-500 to-violet-600',
-    widgets: [
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Pipeline Coverage by Segment',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['PIPELINE_VALUE', 'TARGET_VALUE', 'COVERAGE_RATIO'],
-          suggestedDimension: 'SEGMENT',
-          description: 'Pipeline value vs target by client segment (Enterprise, Mid-Market, SMB)',
-          colors: [PALETTE[0], PALETTE[4]],
-        },
-      },
-      {
-        type: 'area',
-        widgetType: 'chart',
-        title: 'Engagement Score Trend',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'area',
-          suggestedMeasures: ['AVG_ENGAGEMENT_SCORE', 'TOUCHPOINT_COUNT'],
-          suggestedDimension: 'MONTH',
-          description: 'Monthly engagement score evolution across all accounts',
-          colors: [PALETTE[1], PALETTE[6]],
-        },
-      },
-      {
-        type: 'pie',
-        widgetType: 'chart',
-        title: 'Account Health Distribution',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'pie',
-          suggestedMeasures: ['ACCOUNT_COUNT'],
-          suggestedDimension: 'HEALTH_STATUS',
-          description: 'Accounts by health status (Healthy, At Risk, Churning, New)',
-          colors: [PALETTE[1], PALETTE[2], PALETTE[3], PALETTE[0]],
-        },
-      },
-      {
-        type: 'bar',
-        widgetType: 'chart',
-        title: 'Win Rate by Industry',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'bar',
-          suggestedMeasures: ['WIN_RATE', 'DEAL_COUNT'],
-          suggestedDimension: 'INDUSTRY',
-          description: 'Conversion rate and deal volume per industry vertical',
-          colors: [PALETTE[4], PALETTE[5]],
-        },
-      },
-      {
-        type: 'line',
-        widgetType: 'chart',
-        title: 'Retention & Expansion Revenue',
-        width: 12,
-        height: 4,
-        config: {
-          chartType: 'line',
-          suggestedMeasures: ['RETENTION_REVENUE', 'EXPANSION_REVENUE', 'CHURN_REVENUE'],
-          suggestedDimension: 'QUARTER',
-          description: 'Quarterly retention, expansion, and churn revenue trends',
-          colors: [PALETTE[1], PALETTE[0], PALETTE[3]],
-        },
-      },
-      {
-        type: 'table',
-        widgetType: 'table',
-        title: 'Segment Penetration Summary',
-        width: 24,
-        height: 5,
-        config: {
-          suggestedMeasures: [
-            'TOTAL_ACCOUNTS', 'ACTIVE_ACCOUNTS', 'PENETRATION_RATE',
-            'AVG_DEAL_SIZE', 'AVG_CYCLE_DAYS', 'NPS_SCORE',
-          ],
-          suggestedDimension: 'SEGMENT',
-          description: 'Aggregated CRM metrics per segment — no PII, only ratios and averages',
-        },
-      },
-    ],
-  },
-];
+const TEMPLATES: DashboardTemplate[] = DASHBOARD_TEMPLATES.map(adaptCatalogTemplate);
 
 // ── Widget Type Icon Map ───────────────────────────────────────────
 

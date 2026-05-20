@@ -366,34 +366,52 @@ export const executeDeploymentAtom = atom(null, async (get, set, deployment_id: 
   let succeeded = 0;
   let failed = 0;
   const startTime = Date.now();
+  const startedAt = new Date().toISOString();
 
+  // The `/deployments/{id}/execute` endpoint runs the WHOLE deployment
+  // server-side in a single atomic call — it does not take an event_id and
+  // executes all queued events at once. The previous implementation looped
+  // over `deployment.event_ids` and POSTed to this same URL once per event,
+  // producing N identical round-trips (50 events = 50 calls) for no benefit.
+  // We now make exactly one call and fan the result across the per-event
+  // execution log so the UI still shows a per-event status breakdown.
+  let perEventStatus: 'completed' | 'failed' = 'completed';
+  let perEventError: string | undefined;
+  let totalDurationMs = 0;
+
+  try {
+    const response = await apiClient.post(
+      `/explore-design/${deployment.project_id}/deployments/${deployment_id}/execute`
+    );
+    const result = response.data;
+    perEventStatus = result.status === 'completed' ? 'completed' : 'failed';
+    totalDurationMs = result.execution_time_ms || 0;
+    if (perEventStatus !== 'completed') {
+      perEventError = result.error || result.detail || 'Deployment execution failed';
+    }
+  } catch (err: any) {
+    perEventStatus = 'failed';
+    perEventError = err?.response?.data?.detail || err.message || 'Deployment execution failed';
+    totalDurationMs = Date.now() - startTime;
+  }
+
+  // Distribute the single execution outcome across each event. The server
+  // executes events atomically, so they all share the deployment's result.
+  const eventCount = deployment.event_ids.length || 1;
   for (const eventId of deployment.event_ids) {
     const log: ExecutionLog = {
-      timestamp: new Date().toISOString(),
+      timestamp: startedAt,
       event_id: eventId,
-      status: 'running',
+      status: perEventStatus,
+      duration_ms: Math.round(totalDurationMs / eventCount),
     };
-    executionLog.push(log);
-
-    try {
-      const response = await apiClient.post(
-        `/explore-design/${deployment.project_id}/deployments/${deployment_id}/execute`
-      );
-      const result = response.data;
-      log.status = result.status === 'completed' ? 'completed' : 'failed';
-      log.duration_ms = result.execution_time_ms || 0;
-      if (result.status !== 'completed') {
-        log.error = result.error || result.detail || 'Deployment execution failed';
-        failed++;
-      } else {
-        succeeded++;
-      }
-    } catch (err: any) {
-      log.status = 'failed';
-      log.error = err?.response?.data?.detail || err.message || 'Deployment execution failed';
-      log.duration_ms = Date.now() - new Date(log.timestamp).getTime();
+    if (perEventStatus !== 'completed') {
+      log.error = perEventError;
       failed++;
+    } else {
+      succeeded++;
     }
+    executionLog.push(log);
   }
 
   const endTime = Date.now();

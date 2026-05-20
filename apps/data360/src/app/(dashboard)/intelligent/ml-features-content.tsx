@@ -29,6 +29,9 @@ import {
   getSentimentColor,
   getSentimentEmoji,
 } from '@/app/services/cortex/ml-features';
+import AiCostBadge from './components/AiCostBadge';
+import { useTrackAiCharge } from './store/ai-store';
+import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
 
 type TabId = 'ai-assistant' | 'sentiment' | 'translate' | 'summarize';
 
@@ -102,6 +105,8 @@ function AIAssistantTab() {
   const [model, setModel] = useState<LLMModel>('mistral-7b');
   const [loading, setLoading] = useState(false);
   const [guardrails, setGuardrails] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_complete', { prompt_chars: prompt.length, model });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -111,6 +116,7 @@ function AIAssistantTab() {
     try {
       const result = await generateCompletion({ prompt, model, guardrails });
       setResponse(result.response);
+      trackCharge('cortex_complete', estimate.credits, model);
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate response');
     } finally {
@@ -228,23 +234,31 @@ function AIAssistantTab() {
           />
         </div>
 
-        <Button
-          type="submit"
-          disabled={loading || !prompt.trim()}
-          className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white"
-        >
-          {loading ? (
-            <>
-              <Loader className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <PiSparkle className="mr-2 h-4 w-4" />
-              Generate Response
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            type="submit"
+            disabled={loading || !prompt.trim()}
+            className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white"
+          >
+            {loading ? (
+              <>
+                <Loader className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <PiSparkle className="mr-2 h-4 w-4" />
+                Generate Response
+              </>
+            )}
+          </Button>
+          <AiCostBadge
+            featureKey="cortex_complete"
+            params={{ prompt_chars: prompt.length, model }}
+            size="md"
+            showSource
+          />
+        </div>
       </form>
 
       {/* Response */}
@@ -276,6 +290,9 @@ function SentimentTab() {
   const [input, setInput] = useState('');
   const [results, setResults] = useState<SentimentResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const rowCount = input.split('\n').filter((t) => t.trim()).length;
+  const estimate = useAiCostEstimate('cortex_sentiment', { rows: rowCount });
 
   async function handleAnalyze() {
     if (!input.trim()) return;
@@ -287,6 +304,7 @@ function SentimentTab() {
     try {
       const sentiments = await analyzeSentiment(texts);
       setResults(sentiments);
+      trackCharge('cortex_sentiment', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to analyze sentiment');
     } finally {
@@ -335,23 +353,31 @@ function SentimentTab() {
         />
       </div>
 
-      <Button
-        onClick={handleAnalyze}
-        disabled={loading || !input.trim()}
-        className="bg-gradient-to-r from-green-500 to-emerald-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Analyzing...
-          </>
-        ) : (
-          <>
-            <PiSmileyDuotone className="mr-2 h-4 w-4" />
-            Analyze Sentiment
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleAnalyze}
+          disabled={loading || !input.trim()}
+          className="bg-gradient-to-r from-green-500 to-emerald-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <PiSmileyDuotone className="mr-2 h-4 w-4" />
+              Analyze Sentiment
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_sentiment"
+          params={{ rows: rowCount }}
+          size="md"
+          showSource
+        />
+      </div>
 
       {/* Results */}
       {results.length > 0 && (
@@ -416,6 +442,8 @@ function TranslatorTab() {
   const [fromLang, setFromLang] = useState<LanguageCode>('en');
   const [toLang, setToLang] = useState<LanguageCode>('fr');
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_translate', { prompt_chars: sourceText.length });
 
   async function handleTranslate() {
     if (!sourceText.trim()) return;
@@ -428,6 +456,7 @@ function TranslatorTab() {
         to_language: toLang,
       });
       setTranslatedText(result.translated);
+      trackCharge('cortex_translate', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to translate');
     } finally {
@@ -554,23 +583,31 @@ function TranslatorTab() {
         </div>
       </div>
 
-      <Button
-        onClick={handleTranslate}
-        disabled={loading || !sourceText.trim()}
-        className="bg-gradient-to-r from-blue-500 to-cyan-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Translating...
-          </>
-        ) : (
-          <>
-            <PiTranslateDuotone className="mr-2 h-4 w-4" />
-            Translate
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleTranslate}
+          disabled={loading || !sourceText.trim()}
+          className="bg-gradient-to-r from-blue-500 to-cyan-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Translating...
+            </>
+          ) : (
+            <>
+              <PiTranslateDuotone className="mr-2 h-4 w-4" />
+              Translate
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_translate"
+          params={{ prompt_chars: sourceText.length }}
+          size="md"
+          showSource
+        />
+      </div>
     </div>
   );
 }
@@ -584,6 +621,8 @@ function SummarizerTab() {
   const [maxLength, setMaxLength] = useState(150);
   const [summary, setSummary] = useState<{ text: string; compression: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_summarize', { prompt_chars: inputText.length });
 
   async function handleSummarize() {
     if (!inputText.trim() || inputText.length < 100) {
@@ -595,6 +634,7 @@ function SummarizerTab() {
     try {
       const result = await summarizeText({ text: inputText, max_length: maxLength });
       setSummary({ text: result.summary, compression: result.compression_ratio || '0' });
+      trackCharge('cortex_summarize', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to summarize');
     } finally {
@@ -668,23 +708,31 @@ function SummarizerTab() {
         </div>
       </div>
 
-      <Button
-        onClick={handleSummarize}
-        disabled={loading || inputText.length < 100}
-        className="bg-gradient-to-r from-orange-500 to-amber-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Summarizing...
-          </>
-        ) : (
-          <>
-            <PiTextAlignLeftDuotone className="mr-2 h-4 w-4" />
-            Generate Summary
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleSummarize}
+          disabled={loading || inputText.length < 100}
+          className="bg-gradient-to-r from-orange-500 to-amber-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Summarizing...
+            </>
+          ) : (
+            <>
+              <PiTextAlignLeftDuotone className="mr-2 h-4 w-4" />
+              Generate Summary
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_summarize"
+          params={{ prompt_chars: inputText.length }}
+          size="md"
+          showSource
+        />
+      </div>
 
       {/* Summary Result */}
       {summary && (

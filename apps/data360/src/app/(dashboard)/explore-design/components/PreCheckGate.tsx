@@ -276,7 +276,8 @@ const PreCheckGate: React.FC<PreCheckGateProps> = ({
           onClick={() => setIsExpanded(!isExpanded)}
         >
           <Shield className={cn('h-4 w-4', hasFailed ? 'text-red-500' : allPassed ? 'text-green-500' : 'text-slate-400')} />
-          Pre-Deployment Checks
+          Structural checks
+          <span className="text-[10px] font-normal text-slate-400">Graph &amp; DDL · client-side</span>
           {checks && (
             <Badge
               size="sm"
@@ -292,7 +293,7 @@ const PreCheckGate: React.FC<PreCheckGateProps> = ({
                 ? `${checks.filter((c) => c.status === 'failed').length} failed`
                 : allPassed
                   ? 'All passed'
-                  : 'Running...'}
+                  : `${checks.filter((c) => c.status === 'warning').length} warnings`}
             </Badge>
           )}
           {isExpanded ? (
@@ -409,9 +410,9 @@ const PreCheckGate: React.FC<PreCheckGateProps> = ({
           ) : (
             <div className="p-8 text-center text-slate-500">
               <Shield className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-              <p className="text-sm">Run pre-checks before deployment</p>
+              <p className="text-sm">Run the structural preview before deployment</p>
               <p className="text-xs mt-1">
-                Validates FK types, circular deps, naming conventions, and schema drift
+                Fast client-side check of FK types, circular deps, naming conventions, and schema drift
               </p>
             </div>
           )}

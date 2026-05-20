@@ -5,9 +5,9 @@ import { Button, Badge, Input, Tooltip, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { motion, AnimatePresence, LayoutGroup } from 'framer-motion';
 import {
-  FolderOpen, Plus, RefreshCw, ChevronDown, Check, X, Loader2,
-  FolderPlus, Clock, User, Search, Users, Crown, Pencil, Eye, Trash2,
-  Sparkles, ArrowRight,
+  FolderOpen, Plus, RefreshCw, ChevronDown, X, Loader2,
+  FolderPlus, Clock, User, Search, Users, Crown, Pencil, Eye,
+  Sparkles, ArrowRight, GitBranch, Rocket, Wrench, LayoutTemplate, Lock,
 } from 'lucide-react';
 import { PiCheckCircleDuotone } from 'react-icons/pi';
 import { cn } from '@/lib/utils';
@@ -18,6 +18,17 @@ import { getUsers } from '@/app/services/governance/fetch_users';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useAuth } from '@/hooks/useAuth';
+import {
+  PROJECT_PAGE_SIZE,
+  getLastUsedMap,
+  recordProjectUsed,
+  getMineOnlyPref,
+  setMineOnlyPref,
+  sortByLastUsedThenCreated,
+  formatProjectTimestamp,
+  getBuildModeChip,
+  getDisplayTags,
+} from '@/components/project-onboarding/project-listing-utils';
 
 interface Project {
   project_id: string;
@@ -25,6 +36,27 @@ interface Project {
   created_by: string;
   status: string;
   created_at: string | null;
+  updated_at: string | null;
+  current_version_num: number | null;
+  deployment_version: number | null;
+  tags: string[] | null;
+}
+
+/** Module key used for the per-module `mine_only` localStorage preference. */
+const MODULE_KEY = 'explore_design';
+
+function toProject(p: ApiProject): Project {
+  return {
+    project_id: p.project_id,
+    name: p.project_name,
+    created_by: p.created_by,
+    status: p.status,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    current_version_num: p.current_version_num,
+    deployment_version: p.deployment_version,
+    tags: p.tags,
+  };
 }
 
 interface TeamMember {
@@ -61,6 +93,74 @@ const ROLE_OPTIONS = [
   { value: 'viewer' as const, label: 'Viewer', icon: Eye, color: 'text-slate-600' },
   { value: 'editor' as const, label: 'Editor', icon: Pencil, color: 'text-blue-600' },
 ];
+
+/**
+ * Backend Gap note — replicates the violet `BackendGapNote` style from
+ * `WizardPreflightPanel.tsx`. Surfaced once below the pick list to tell the
+ * backend team which fields would make this listing genuinely useful.
+ *
+ * Intentionally duplicated (not imported from WorkflowProjectGate) so the
+ * explore-design module does not depend on workflow internals — both copies
+ * share the same shared `project-listing-utils` for the actual logic.
+ */
+function ProjectListingBackendGap() {
+  return (
+    <div className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-900/40 dark:bg-violet-900/20">
+      <div className="flex items-center gap-2">
+        <Lock className="h-3 w-3 text-violet-500" />
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
+          Backend gap — UX target
+        </p>
+      </div>
+      <dl className="mt-2 space-y-1.5 text-[11px]">
+        <div className="grid grid-cols-[88px_1fr] gap-2">
+          <dt className="font-semibold text-violet-700 dark:text-violet-300">Response</dt>
+          <dd className="font-mono text-slate-800 dark:text-slate-200">
+            GET /projects → add last_used_at, table_count, version_count, last_deployed_at
+          </dd>
+        </div>
+        <div className="grid grid-cols-[88px_1fr] gap-2">
+          <dt className="font-semibold text-violet-700 dark:text-violet-300">Request</dt>
+          <dd className="font-mono text-slate-800 dark:text-slate-200">
+            ?sort_by=last_used &amp; ?search=&lt;text&gt;
+          </dd>
+        </div>
+        <div className="grid grid-cols-[88px_1fr] gap-2">
+          <dt className="font-semibold text-violet-700 dark:text-violet-300">Why</dt>
+          <dd className="text-slate-700 dark:text-slate-300">
+            Last-used ordering and search currently run client-side over the loaded
+            pages only — a frequently-used project on an unloaded page won&apos;t
+            surface. Server-side <code className="font-mono">sort_by=last_used</code> and{' '}
+            <code className="font-mono">search</code> would make ordering and discovery
+            correct across the full project set. Row metadata (table / version /
+            deploy counts) is rendered only where the field exists today.
+          </dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/** Small build-mode chip — AI-built / Manual / Template, derived from tags[]. */
+function BuildModeBadge({ tags }: { tags: string[] | null }) {
+  const chip = getBuildModeChip(tags);
+  if (!chip) return null;
+  const Icon =
+    chip.kind === 'ai' ? Sparkles : chip.kind === 'template' ? LayoutTemplate : Wrench;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide',
+        chip.kind === 'ai' && 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300',
+        chip.kind === 'template' && 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
+        chip.kind === 'manual' && 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+      )}
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {chip.label}
+    </span>
+  );
+}
 
 export default function ProjectSelector({
   selectedProjectId,
@@ -100,38 +200,98 @@ export default function ProjectSelector({
 
   const memberInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch explore projects (declared early so safeProjects below can reference it)
-  const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
-    // mine_only=false: account admins should see all explore-design projects, not
-    // just ones they personally created. Backend's "mine" predicate is contributor-
-    // based and returns 0 for accountadmins on projects they made.
-    const response = await listProjects({ project_type: 'explore_design', mine_only: false });
-    if (!response.projects || response.projects.length === 0) return [];
-    return response.projects.map((p: ApiProject) => ({
-      project_id: p.project_id,
-      name: p.project_name,
-      created_by: p.created_by,
-      status: p.status,
-      created_at: p.created_at,
-    }));
+  // Mine-only filter — persisted per module so it survives reloads.
+  const [mineOnly, setMineOnly] = useState(false);
+  useEffect(() => {
+    setMineOnly(getMineOnlyPref(MODULE_KEY));
   }, []);
+
+  // Last-used map drives the "used 2h ago" labels + sort order.
+  const [lastUsed, setLastUsed] = useState(() => getLastUsedMap());
+
+  // Pagination — useCacheAwareQuery fetches page 1; "Load more" pages are
+  // fetched directly and accumulated here.
+  const [extraPages, setExtraPages] = useState<Project[]>([]);
+  const [total, setTotal] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+
+  // Fetch page 1 of explore projects. Re-fires via refetch() when `mineOnly`
+  // changes — the hook's fetchFnRef always reflects the latest closure.
+  const fetchProjectsFn = useCallback(async (): Promise<Project[]> => {
+    // mine_only is now user-controlled via the segmented toggle. Backend's
+    // "mine" predicate is contributor-based; account admins may still want
+    // "All" to see projects they created but don't contribute to.
+    const response = await listProjects({
+      project_type: 'explore_design',
+      mine_only: mineOnly,
+      limit: PROJECT_PAGE_SIZE,
+      offset: 0,
+    });
+    const items = Array.isArray(response?.projects) ? response.projects : [];
+    setTotal(typeof response?.total === 'number' ? response.total : null);
+    setHasMore(items.length === PROJECT_PAGE_SIZE);
+    setExtraPages([]);
+    return items.map(toProject);
+  }, [mineOnly]);
 
   const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<Project[]>(
     fetchProjectsFn,
     { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: [] }
   );
 
-  // Filtered projects for search
-  const safeProjects = projects ?? [];
+  // Re-fetch page 1 whenever the mine-only filter flips.
+  useEffect(() => {
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mineOnly]);
+
+  // All loaded projects (page 1 + accumulated "Load more" pages).
+  const safeProjects = useMemo(
+    () => [...(projects ?? []), ...extraPages],
+    [projects, extraPages],
+  );
+
+  const handleLoadMore = useCallback(async () => {
+    setLoadingMore(true);
+    try {
+      const response = await listProjects({
+        project_type: 'explore_design',
+        mine_only: mineOnly,
+        limit: PROJECT_PAGE_SIZE,
+        offset: safeProjects.length,
+      });
+      const items = Array.isArray(response?.projects) ? response.projects : [];
+      setExtraPages((prev) => [...prev, ...items.map(toProject)]);
+      if (typeof response?.total === 'number') setTotal(response.total);
+      setHasMore(items.length === PROJECT_PAGE_SIZE);
+    } catch (err) {
+      console.error('[ProjectSelector] Load more failed:', err);
+      toast.error('Could not load more projects');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [mineOnly, safeProjects.length]);
+
+  const handleMineOnlyChange = useCallback((value: boolean) => {
+    setMineOnly(value);
+    setMineOnlyPref(MODULE_KEY, value);
+  }, []);
+
+  // Sort by last-used then created_at, then apply client-side search.
+  const sortedProjects = useMemo(
+    () => sortByLastUsedThenCreated(safeProjects, lastUsed),
+    [safeProjects, lastUsed],
+  );
   const filteredProjects = useMemo(() => {
-    if (!projectSearch.trim()) return safeProjects;
+    if (!projectSearch.trim()) return sortedProjects;
     const q = projectSearch.toLowerCase();
-    return safeProjects.filter(
+    return sortedProjects.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.created_by.toLowerCase().includes(q),
     );
-  }, [safeProjects, projectSearch]);
+  }, [sortedProjects, projectSearch]);
 
   // Filtered users for team member dropdown
   const addedUsernames = useMemo(
@@ -241,7 +401,7 @@ export default function ProjectSelector({
     }
     const project = safeProjects.find((p) => p.project_id === selectedInModal);
     if (project) {
-      onProjectSelect(project.project_id, project.name);
+      selectProject(project.project_id, project.name);
       setShowModal(false);
       setSelectedInModal(null);
     }
@@ -282,6 +442,22 @@ export default function ProjectSelector({
     if (!showModal) return;
     if (!loading && safeProjects.length === 0) setModalTab('create');
   }, [showModal, loading, safeProjects.length]);
+
+  // Refresh the last-used map each time the modal opens so a project picked
+  // in another tab reflects in this list's ordering / "used Xh ago" labels.
+  useEffect(() => {
+    if (showModal) setLastUsed(getLastUsedMap());
+  }, [showModal]);
+
+  // Single wrapper for every selection path (button / double-click / Enter)
+  // so the last-used timestamp is always stamped exactly once.
+  const selectProject = useCallback(
+    (projectId: string, projectName: string) => {
+      recordProjectUsed(projectId);
+      onProjectSelect(projectId, projectName);
+    },
+    [onProjectSelect],
+  );
 
   // Modal auto-open removed. Previously this forced the popup the moment
   // the page loaded without a selected project, which trapped users behind
@@ -484,17 +660,52 @@ export default function ProjectSelector({
             {/* ── PICK EXISTING tab ─────────────────────────────────── */}
             {modalTab === 'pick' && (
               <div className="flex flex-col">
-                {/* Search field with icon — focus ring uses gradient accent */}
-                <div className="group relative mb-4">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500" />
-                  <Input
-                    size="md"
-                    value={projectSearch}
-                    onChange={(e) => setProjectSearch(e.target.value)}
-                    placeholder={`Search ${safeProjects.length} project${safeProjects.length === 1 ? '' : 's'}…`}
-                    className="pl-9"
-                  />
+                {/* Filter row — mine-only segmented control + search */}
+                <div className="mb-1.5 flex items-center gap-2">
+                  <div
+                    role="radiogroup"
+                    aria-label="Project ownership filter"
+                    className="flex shrink-0 items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5 dark:border-slate-700 dark:bg-slate-800"
+                  >
+                    {([
+                      { value: false, label: 'All projects' },
+                      { value: true, label: 'My projects' },
+                    ] as const).map((opt) => (
+                      <button
+                        key={String(opt.value)}
+                        type="button"
+                        role="radio"
+                        aria-checked={mineOnly === opt.value}
+                        onClick={() => handleMineOnlyChange(opt.value)}
+                        className={cn(
+                          'rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors',
+                          'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
+                          mineOnly === opt.value
+                            ? 'bg-white text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200',
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Search field with icon — focus ring uses gradient accent */}
+                  <div className="group relative flex-1">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-blue-500" />
+                    <Input
+                      size="md"
+                      value={projectSearch}
+                      onChange={(e) => setProjectSearch(e.target.value)}
+                      placeholder={`Search ${safeProjects.length} loaded project${safeProjects.length === 1 ? '' : 's'}…`}
+                      className="pl-9"
+                    />
+                  </div>
                 </div>
+                <p className="mb-3 text-[11px] italic text-slate-400 dark:text-slate-500">
+                  {projectSearch.trim()
+                    ? `Search runs over the ${safeProjects.length} loaded project${safeProjects.length === 1 ? '' : 's'} only — load more to widen it.`
+                    : 'Recently opened projects float to the top.'}
+                </p>
 
                 {loading ? (
                   <div className="flex flex-col items-center justify-center gap-3 py-14">
@@ -581,14 +792,14 @@ export default function ProjectSelector({
                             onDoubleClick={(e) => {
                               e.preventDefault();
                               setSelectedInModal(project.project_id);
-                              onProjectSelect(project.project_id, project.name);
+                              selectProject(project.project_id, project.name);
                               setShowModal(false);
                             }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
                                 e.preventDefault();
                                 setSelectedInModal(project.project_id);
-                                onProjectSelect(project.project_id, project.name);
+                                selectProject(project.project_id, project.name);
                                 setShowModal(false);
                               } else if (e.key === 'ArrowDown') {
                                 e.preventDefault();
@@ -654,16 +865,18 @@ export default function ProjectSelector({
                                     active
                                   </motion.span>
                                 )}
+                                <BuildModeBadge tags={project.tags} />
                               </div>
+                              {/* Line 1 — owner + last-used / created timestamp */}
                               <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-slate-500 dark:text-slate-400">
                                 <span className="inline-flex items-center gap-1">
                                   <User className="h-2.5 w-2.5" />
                                   {project.created_by}
                                 </span>
-                                {project.created_at && (
+                                {formatProjectTimestamp(project, lastUsed) && (
                                   <span className="inline-flex items-center gap-1">
                                     <Clock className="h-2.5 w-2.5" />
-                                    {new Date(project.created_at).toLocaleDateString()}
+                                    {formatProjectTimestamp(project, lastUsed)}
                                   </span>
                                 )}
                                 <span
@@ -683,6 +896,32 @@ export default function ProjectSelector({
                                     'contributor'
                                   )}
                                 </span>
+                              </div>
+                              {/* Line 2 — metadata: status, version, deployed, tags */}
+                              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400 dark:text-slate-500">
+                                <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-medium uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                  {project.status}
+                                </span>
+                                {project.current_version_num != null && (
+                                  <span className="inline-flex items-center gap-0.5">
+                                    <GitBranch className="h-2.5 w-2.5" />
+                                    v{project.current_version_num}
+                                  </span>
+                                )}
+                                {project.deployment_version != null && (
+                                  <span className="inline-flex items-center gap-0.5 text-emerald-600 dark:text-emerald-400">
+                                    <Rocket className="h-2.5 w-2.5" />
+                                    deployed v{project.deployment_version}
+                                  </span>
+                                )}
+                                {getDisplayTags(project.tags).map((t) => (
+                                  <span
+                                    key={t}
+                                    className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
                               </div>
                             </div>
                             <motion.div
@@ -704,6 +943,44 @@ export default function ProjectSelector({
                     )}
                   </div>
                 )}
+
+                {/* Load more — only when not searching (search is loaded-set only) */}
+                {!loading && !projectSearch.trim() && hasMore && (
+                  <div className="mt-2">
+                    <button
+                      type="button"
+                      onClick={handleLoadMore}
+                      disabled={loadingMore}
+                      className={cn(
+                        'inline-flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors',
+                        'border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-60',
+                        'dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800',
+                        'focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50',
+                      )}
+                    >
+                      {loadingMore ? (
+                        <>
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          Loading…
+                        </>
+                      ) : (
+                        <>Load more projects</>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                {/* Loaded-count line */}
+                {!loading && safeProjects.length > 0 && (
+                  <p className="mt-2 text-center text-[11px] text-slate-400 dark:text-slate-500">
+                    {total != null
+                      ? `${safeProjects.length} of ${total} project${total === 1 ? '' : 's'}`
+                      : `${safeProjects.length} project${safeProjects.length === 1 ? '' : 's'} loaded`}
+                  </p>
+                )}
+
+                {/* Backend Gap note — shown once below the list */}
+                {!loading && safeProjects.length > 0 && <ProjectListingBackendGap />}
 
                 {/* Footer */}
                 {safeProjects.length > 0 && (

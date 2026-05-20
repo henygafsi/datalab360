@@ -1,0 +1,17 @@
+{
+  "version": "1.0.0",
+  "features": {
+    "cortex_complete":     { "base_credits": 0.001,  "per_1k_tokens": 0.012, "model_multiplier": { "claude-opus-4-6": 5, "mistral-7b": 0.5, "mistral-large2": 2, "llama3.1-405b": 4, "deepseek-r1": 3, "default": 1 } },
+    "cortex_embeddings":   { "base_credits": 0.0001, "per_1k_tokens": 0.001, "model_multiplier": { "default": 1 } },
+    "cortex_sentiment":    { "base_credits": 0.002,  "per_row": 0.0008,      "model_multiplier": { "default": 1 } },
+    "cortex_translate":    { "base_credits": 0.002,  "per_1k_tokens": 0.005, "model_multiplier": { "default": 1 } },
+    "cortex_summarize":    { "base_credits": 0.002,  "per_1k_tokens": 0.005, "model_multiplier": { "default": 1 } },
+    "ai_classify_columns": { "base_credits": 0.01,   "per_column": 0.003 },
+    "ai_schema_health":    { "base_credits": 0.005 },
+    "ai_suggest_columns":  { "base_credits": 0.003,  "per_column": 0.001 },
+    "workflow_validate":   { "base_credits": 0.001 },
+    "workflow_compile":    { "base_credits": 0.002 },
+    "workflow_analyze_run":{ "base_credits": 0.01 },
+    "sandbox_execute":     { "base_credits": 0.005,  "per_row": 0.0001 }
+  }
+}

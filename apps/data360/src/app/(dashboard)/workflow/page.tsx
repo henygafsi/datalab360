@@ -686,7 +686,7 @@ const WorkflowHomePage: React.FC = () => {
           </p>
         </div>
         <div className="flex-1 overflow-hidden">
-          <ETLPalette />
+          <ETLPalette projectId={activeWorkflowId ?? undefined} />
         </div>
 
         {/* Workflow Controls */}

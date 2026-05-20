@@ -16,7 +16,8 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { PiCoinsDuotone, PiChartBarDuotone } from 'react-icons/pi';
+import { PiCoinsDuotone, PiChartBarDuotone, PiSparkleDuotone, PiInfoDuotone } from 'react-icons/pi';
+import { useAiMonthly } from '@/app/(dashboard)/intelligent/store/ai-store';
 import {
   getCredits,
   getTopConsumers,
@@ -266,7 +267,7 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
         </div>
 
         {/* Metering by Service Table */}
-        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800" id="metering-by-service">
           <div className="p-4 border-b border-gray-200 dark:border-gray-700">
             <Text className="font-semibold text-gray-900 dark:text-white">Metering by Service</Text>
           </div>
@@ -297,6 +298,163 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      </div>
+
+      {/* ─────────────────────────────────────────────────────────────────
+          AI consumption (Cortex / wizard / classification charges)
+          Client-side aggregation only — backend rollup endpoint missing.
+          ───────────────────────────────────────────────────────────── */}
+      <AiConsumptionCard />
+    </div>
+  );
+}
+
+/**
+ * AiConsumptionCard — Surfaces client-side AI charge aggregation while the
+ * `GET /account/{accountId}/ai-credits` backend rollup endpoint is missing.
+ * Shows monthly total, top 5 features, a 30-day sparkline and a clear
+ * Backend Gap card explaining what's not yet wired.
+ */
+function AiConsumptionCard() {
+  const { total, byFeature, byDay } = useAiMonthly();
+
+  const top5 = Object.entries(byFeature)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([feature, credits]) => ({ feature, credits }));
+
+  // Real per-day rollup only — never synthesise placeholder values.
+  const hasActivity = byDay.some((d) => d.credits > 0);
+  const maxCredits = Math.max(...top5.map((t) => t.credits), 0.0001);
+
+  return (
+    <div className="rounded-xl border border-purple-200 bg-gradient-to-br from-purple-50/40 to-white p-6 dark:border-purple-900/40 dark:from-purple-900/10 dark:to-gray-800">
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <PiSparkleDuotone className="h-5 w-5 text-purple-600" />
+          <Text className="font-semibold text-gray-900 dark:text-white">
+            AI consumption
+          </Text>
+        </div>
+        <Text className="text-sm text-gray-500 dark:text-gray-400">
+          Last 30 days · client-side rollup
+        </Text>
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
+        {/* KPI */}
+        <div className="rounded-lg bg-white/70 p-4 dark:bg-gray-800/40">
+          <Text className="text-xs uppercase tracking-wider text-gray-500">
+            Monthly total
+          </Text>
+          <div className="mt-1 text-3xl font-bold text-purple-600">
+            {total > 0 ? total.toFixed(3) : '—'}
+            <span className="ml-1 text-base font-medium text-gray-500">cr</span>
+          </div>
+          <Text className="mt-1 text-xs text-gray-500">
+            Sum of all tracked AI charges
+          </Text>
+        </div>
+
+        {/* Top 5 features */}
+        <div className="rounded-lg bg-white/70 p-4 dark:bg-gray-800/40 md:col-span-2">
+          <Text className="mb-3 text-xs uppercase tracking-wider text-gray-500">
+            Top features by credits
+          </Text>
+          {top5.length === 0 ? (
+            <Text className="text-sm text-gray-500">— no AI activity yet —</Text>
+          ) : (
+            <ul className="space-y-2">
+              {top5.map((row) => (
+                <li key={row.feature} className="flex items-center gap-3">
+                  <span className="w-44 truncate text-xs font-medium text-gray-700 dark:text-gray-200">
+                    {row.feature}
+                  </span>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500"
+                      style={{ width: `${Math.max(4, (row.credits / maxCredits) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="w-16 text-right text-xs font-semibold tabular-nums text-gray-900 dark:text-white">
+                    {row.credits.toFixed(3)} cr
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* 30-day sparkline — only when there is real tracked activity */}
+      <div className="mt-6 rounded-lg bg-white/70 p-4 dark:bg-gray-800/40">
+        <Text className="mb-2 text-xs uppercase tracking-wider text-gray-500">
+          30-day trend
+        </Text>
+        {hasActivity ? (
+          <div className="h-24">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={byDay} margin={{ top: 4, right: 8, left: 0, bottom: 4 }}>
+                <Line
+                  type="monotone"
+                  dataKey="credits"
+                  stroke="#a855f7"
+                  strokeWidth={2}
+                  dot={false}
+                  isAnimationActive={false}
+                />
+                <XAxis dataKey="date" hide />
+                <YAxis hide domain={[0, 'auto']} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0].payload as { date: string; credits: number };
+                    return (
+                      <div className="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs shadow-md dark:border-gray-700 dark:bg-gray-800">
+                        <div className="font-medium">{p.date}</div>
+                        <div className="text-purple-600">{p.credits.toFixed(4)} cr</div>
+                      </div>
+                    );
+                  }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="flex h-24 items-center justify-center text-xs text-gray-500 dark:text-gray-400">
+            No AI activity tracked yet
+          </div>
+        )}
+      </div>
+
+      {/* Backend Gap card */}
+      <div className="mt-6 rounded-lg border-l-4 border-amber-400 bg-amber-50/70 p-4 dark:bg-amber-900/20">
+        <div className="flex gap-3">
+          <PiInfoDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+          <div className="space-y-1">
+            <Text className="text-sm font-semibold text-amber-800 dark:text-amber-300">
+              Backend Gap — AI credit rollup endpoint missing
+            </Text>
+            <Text className="text-xs text-amber-700 dark:text-amber-200/80">
+              This card aggregates AI charges in the browser (localStorage,
+              rolling 30 days). Server-side rollup is not yet exposed. Expected
+              shape:
+            </Text>
+            <pre className="mt-1 overflow-x-auto rounded bg-amber-100/70 p-2 text-[11px] text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+{`GET /account/{accountId}/ai-credits?period=30d
+→ {
+    "total": 12.345,
+    "by_feature": [{ "feature": "cortex_complete", "credits": 8.21 }, ...],
+    "by_day":     [{ "date": "2026-04-19", "credits": 0.41 }, ...]
+  }`}
+            </pre>
+            <Text className="text-xs text-amber-700 dark:text-amber-200/80">
+              Pair with <code className="rounded bg-amber-100/70 px-1 dark:bg-amber-950/40">POST /ai/estimate</code> so
+              the per-call cost chips switch from local heuristic to live
+              estimate. Until then, the chips render with "(estimate)" tag.
+            </Text>
           </div>
         </div>
       </div>

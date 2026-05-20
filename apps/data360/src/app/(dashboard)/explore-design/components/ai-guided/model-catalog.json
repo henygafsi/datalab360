@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": "1.0.0",
+  "generated_from": "apps/data360/src/app/(dashboard)/explore-design/components/ai-guided/ai-guided-strategy.ts + exploreDesignApi.ts",
+  "purpose": "Machine-readable catalog for the Explore & Design (data-modeling) AI wizard. Lets an LLM ground its model proposals on real entity scaffolds, on the detection endpoints that are actually available, and on the two sample-data strategies (real clone vs synthetic) — without reading the UI source. Mirrors the workflow ETL catalog shape.",
+  "field_contract": {
+    "entity_template": {
+      "id": "string — stable identifier",
+      "label": "string — human title",
+      "description": "string — what the entity is for",
+      "category": "string — key into `categories`",
+      "typical_columns": "array of { name, role, type } — the columns this entity scaffold usually carries; `role` is one of surrogate_key | natural_key | foreign_key | measure | attribute | flag | audit | scd_meta",
+      "usage": "string — when a modeler should reach for this entity"
+    },
+    "detection_strategy": {
+      "id": "string — stable identifier",
+      "endpoint": "string — the explore-design API path that backs it",
+      "inputs": "array of string — request fields the endpoint consumes",
+      "outputs": "array of string — response fields the endpoint returns",
+      "description": "string — what the detection does and when to run it"
+    },
+    "sample_generation": {
+      "id": "string — stable identifier",
+      "label": "string — human title",
+      "data_class": "real | synthetic — real = from a connected source, synthetic = AI-fabricated",
+      "row_cap": "number — hard maximum rows this strategy may emit (free-discovery cap)",
+      "endpoint": "string — the API the strategy calls (null for none)",
+      "free_discovery": "boolean — true when usage stays inside the free-discovery allowance",
+      "description": "string — how the strategy produces rows",
+      "cap_rule": "string — the human-readable free-discovery / metering rule"
+    },
+    "rules": [
+      "`typical_columns` are conventional scaffolds — the modeler/AI may add, drop or rename; they are NOT a fixed schema.",
+      "A detection_strategy `endpoint` must match a real function in exploreDesignApi.ts — no invented endpoints.",
+      "Every sample_generation strategy is capped at FREE_DISCOVERY_ROW_CAP (1000) rows; the cap is enforced client-side regardless of what the endpoint returns.",
+      "`data_class: synthetic` rows must ALWAYS be labelled synthetic in the UI and never presented as real data.",
+      "Beyond the free-discovery cap, full-volume access is a paid-plan / metered concern handled elsewhere — this catalog only documents the cap."
+    ]
+  },
+  "categories": {
+    "dimensional": "Star/snowflake schema entities — dimensions, facts, junctions",
+    "history": "Slowly-changing-dimension entities that retain history",
+    "modeling_aid": "Helper entities — bridges and pre-aggregated rollups"
+  },
+  "entity_templates": [
+    {
+      "id": "dimension",
+      "label": "Dimension table",
+      "description": "Descriptive context for facts — the 'who / what / where' of a star schema. One row per business entity, low-to-mid cardinality.",
+      "category": "dimensional",
+      "typical_columns": [
+        { "name": "<entity>_key", "role": "surrogate_key", "type": "NUMBER" },
+        { "name": "<entity>_id", "role": "natural_key", "type": "VARCHAR" },
+        { "name": "name", "role": "attribute", "type": "VARCHAR" },
+        { "name": "category", "role": "attribute", "type": "VARCHAR" },
+        { "name": "is_active", "role": "flag", "type": "BOOLEAN" },
+        { "name": "created_at", "role": "audit", "type": "TIMESTAMP_NTZ" }
+      ],
+      "usage": "Reach for this when columns describe an entity (customer, product, store) rather than measure an event."
+    },
+    {
+      "id": "fact",
+      "label": "Fact table",
+      "description": "Measurable business events — high row count, narrow on attributes, wide on measures and foreign keys to dimensions.",
+      "category": "dimensional",
+      "typical_columns": [
+        { "name": "<event>_id", "role": "natural_key", "type": "VARCHAR" },
+        { "name": "<dimension>_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "event_ts", "role": "audit", "type": "TIMESTAMP_NTZ" },
+        { "name": "amount", "role": "measure", "type": "NUMBER(18,2)" },
+        { "name": "quantity", "role": "measure", "type": "NUMBER" }
+      ],
+      "usage": "Reach for this when the table has >= 2 numeric measures and foreign keys pointing at dimensions."
+    },
+    {
+      "id": "junction",
+      "label": "Junction (associative) table",
+      "description": "Resolves a many-to-many relationship between two entities. Composite key of the two foreign keys, optionally with relationship attributes.",
+      "category": "dimensional",
+      "typical_columns": [
+        { "name": "<left>_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "<right>_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "relationship_type", "role": "attribute", "type": "VARCHAR" },
+        { "name": "valid_from", "role": "audit", "type": "DATE" }
+      ],
+      "usage": "Reach for this when two tables relate many-to-many (e.g. orders <-> promotions)."
+    },
+    {
+      "id": "scd_type_1",
+      "label": "SCD Type 1 dimension",
+      "description": "Slowly-changing dimension that OVERWRITES on change — no history retained. Simplest history strategy.",
+      "category": "history",
+      "typical_columns": [
+        { "name": "<entity>_key", "role": "surrogate_key", "type": "NUMBER" },
+        { "name": "<entity>_id", "role": "natural_key", "type": "VARCHAR" },
+        { "name": "name", "role": "attribute", "type": "VARCHAR" },
+        { "name": "updated_at", "role": "audit", "type": "TIMESTAMP_NTZ" }
+      ],
+      "usage": "Use when historical attribute values are not needed and the latest value is sufficient."
+    },
+    {
+      "id": "scd_type_2",
+      "label": "SCD Type 2 dimension",
+      "description": "Slowly-changing dimension that retains full history — a new row per attribute change, with effective-dating and a current-row flag.",
+      "category": "history",
+      "typical_columns": [
+        { "name": "<entity>_key", "role": "surrogate_key", "type": "NUMBER" },
+        { "name": "<entity>_id", "role": "natural_key", "type": "VARCHAR" },
+        { "name": "name", "role": "attribute", "type": "VARCHAR" },
+        { "name": "valid_from", "role": "scd_meta", "type": "TIMESTAMP_NTZ" },
+        { "name": "valid_to", "role": "scd_meta", "type": "TIMESTAMP_NTZ" },
+        { "name": "is_current", "role": "scd_meta", "type": "BOOLEAN" }
+      ],
+      "usage": "Use when point-in-time reporting requires the attribute values as they were on a past date."
+    },
+    {
+      "id": "bridge",
+      "label": "Bridge table",
+      "description": "Resolves a hierarchical or multi-valued dimension relationship (e.g. an account belonging to several segments), often with an allocation weight.",
+      "category": "modeling_aid",
+      "typical_columns": [
+        { "name": "group_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "member_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "allocation_weight", "role": "measure", "type": "NUMBER(9,4)" },
+        { "name": "depth", "role": "attribute", "type": "NUMBER" }
+      ],
+      "usage": "Use for variable-depth hierarchies or multi-valued dimension memberships where a junction is not enough."
+    },
+    {
+      "id": "aggregate_table",
+      "label": "Aggregate (rollup) table",
+      "description": "Pre-summarized fact data at a coarser grain — trades storage for query speed on common rollups.",
+      "category": "modeling_aid",
+      "typical_columns": [
+        { "name": "period", "role": "attribute", "type": "DATE" },
+        { "name": "<dimension>_key", "role": "foreign_key", "type": "NUMBER" },
+        { "name": "total_amount", "role": "measure", "type": "NUMBER(18,2)" },
+        { "name": "row_count", "role": "measure", "type": "NUMBER" }
+      ],
+      "usage": "Use when a heavy fact is repeatedly queried at a fixed coarse grain (daily-by-store, monthly-by-region)."
+    }
+  ],
+  "detection_strategies": [
+    {
+      "id": "profile",
+      "endpoint": "/explore-design/{projectId}/tables/{database}/{schema}/{table}/profile",
+      "inputs": ["database", "schema", "table", "sample_size"],
+      "outputs": ["row_count", "column_count", "columns[].data_type", "columns[].nullable", "columns[].null_count", "columns[].distinct_count", "aggregate_quality_score"],
+      "description": "Reads true column data types, row count and per-column statistics from a connected source. The basis for distinguishing a connected source (row_count > 0) from a no-source path."
+    },
+    {
+      "id": "classify_columns",
+      "endpoint": "/explore-design/{projectId}/ai/classify-columns",
+      "inputs": ["database", "schema", "table"],
+      "outputs": ["classifications[].column", "classifications[].category", "classifications[].sub_category", "classifications[].confidence"],
+      "description": "AI semantic classification of each column (KEY / METRIC / DIMENSION / AUDIT / PII). Falls back to a name-based heuristic when Cortex is unreachable."
+    },
+    {
+      "id": "detect_relations",
+      "endpoint": "/explore-design/{projectId}/detect/relations",
+      "inputs": ["tables[]"],
+      "outputs": ["relations[].left_table", "relations[].left_column", "relations[].right_table", "relations[].right_column", "relations[].relation_type", "relations[].confidence"],
+      "description": "Detects foreign-key relationships across the selected table set. Falls back to a name-match heuristic when Cortex is unreachable."
+    },
+    {
+      "id": "detect_primary_keys",
+      "endpoint": "/explore-design/{projectId}/ai/classify-columns",
+      "inputs": ["database", "schema", "table"],
+      "outputs": ["columns flagged isPrimaryKey from KEY-category columns whose name looks like a key"],
+      "description": "Primary-key candidates are derived from the classify-columns KEY category combined with a name heuristic (id / *_id / *_key / *_pk). No standalone endpoint — it is a projection over classification + profile."
+    }
+  ],
+  "sample_generation": [
+    {
+      "id": "clone_from_source",
+      "label": "Clone from connected source",
+      "data_class": "real",
+      "row_cap": 1000,
+      "endpoint": "/explore-design/{projectId}/tables/{database}/{schema}/{table}/preview",
+      "free_discovery": true,
+      "description": "Pulls real rows from a connected source via tablePreview with limit=1000. The genuine free-discovery sample — lets a user explore the actual data shape before committing to a paid plan.",
+      "cap_rule": "Capped at 1000 rows. The preview endpoint is called with limit=1000 and the response is additionally sliced to 1000 client-side. Beyond 1000 rows, full-volume access requires a paid plan."
+    },
+    {
+      "id": "llm_synthetic",
+      "label": "LLM synthetic sample",
+      "data_class": "synthetic",
+      "row_cap": 1000,
+      "endpoint": "/cortex/complete",
+      "free_discovery": true,
+      "description": "Fabricates rows with the LLM when NO source is connected. Rows are generated to match the declared/expected schema. Always labelled synthetic — never presented as real data.",
+      "cap_rule": "Hard-capped at 1000 rows client-side. The LLM is prompted for a smaller batch (the 15s Cortex budget cannot emit 1000 rows); whatever it returns is parsed, repaired and sliced to <= 1000. Synthetic rows never count against real-data metering."
+    }
+  ],
+  "samples": [
+    {
+      "title": "Sample 1 — Retail star schema",
+      "summary": "A classic sales star: one fact surrounded by three dimensions.",
+      "entities": [
+        { "template": "fact", "name": "fct_sales", "grain": "one row per sales line item" },
+        { "template": "dimension", "name": "dim_customer", "grain": "one row per customer" },
+        { "template": "dimension", "name": "dim_product", "grain": "one row per product" },
+        { "template": "scd_type_2", "name": "dim_store", "grain": "one row per store version" }
+      ],
+      "relationships": [
+        { "from": "fct_sales.customer_key", "to": "dim_customer.customer_key", "type": "many_to_one" },
+        { "from": "fct_sales.product_key", "to": "dim_product.product_key", "type": "many_to_one" },
+        { "from": "fct_sales.store_key", "to": "dim_store.store_key", "type": "many_to_one" }
+      ],
+      "sample_generation": "clone_from_source when the retail source is connected; otherwise llm_synthetic seeded from the declared columns."
+    },
+    {
+      "title": "Sample 2 — Customer sentiment model",
+      "summary": "A fact of review events plus a junction resolving reviews-to-topics many-to-many.",
+      "entities": [
+        { "template": "fact", "name": "fct_review", "grain": "one row per product review" },
+        { "template": "dimension", "name": "dim_customer", "grain": "one row per reviewer" },
+        { "template": "junction", "name": "br_review_topic", "grain": "one row per review/topic pair" }
+      ],
+      "relationships": [
+        { "from": "fct_review.customer_key", "to": "dim_customer.customer_key", "type": "many_to_one" },
+        { "from": "br_review_topic.review_key", "to": "fct_review.review_key", "type": "many_to_one" }
+      ],
+      "sample_generation": "llm_synthetic — sentiment text is fabricated by the LLM and clearly badged synthetic so QA never mistakes it for production reviews."
+    },
+    {
+      "title": "Sample 3 — Aggregate rollup over a fact",
+      "summary": "A daily-by-store aggregate table derived from the retail fact for fast dashboards.",
+      "entities": [
+        { "template": "aggregate_table", "name": "agg_sales_daily_store", "grain": "one row per day per store" },
+        { "template": "scd_type_2", "name": "dim_store", "grain": "one row per store version" }
+      ],
+      "relationships": [
+        { "from": "agg_sales_daily_store.store_key", "to": "dim_store.store_key", "type": "many_to_one" }
+      ],
+      "sample_generation": "clone_from_source — the rollup is small enough that the real 1000-row free-discovery sample shows the full table."
+    }
+  ]
+}

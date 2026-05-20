@@ -559,6 +559,7 @@ const DagViewer = React.memo(function DagViewer({ className, projectId }: DagVie
               minZoom={0.15}
               maxZoom={3}
               nodesDraggable
+              onlyRenderVisibleElements
             >
               <Background color="#e2e8f0" gap={24} />
               <Controls position="top-right" />

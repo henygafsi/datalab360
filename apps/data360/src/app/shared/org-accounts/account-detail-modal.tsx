@@ -29,12 +29,16 @@ import {
   Cell,
 } from 'recharts';
 import { getAccountDetail } from '@/app/services/org-accounts/hooks';
+import { useAuth } from '@/hooks/useAuth';
 import type { ClientAccount, AccountDetailResponse } from '@/app/services/org-accounts/types';
+import AccountLifecycleMenu, { normalizeRole } from './AccountLifecycleMenu';
 
 interface AccountDetailModalProps {
   account: ClientAccount | null;
   isOpen: boolean;
   onClose: () => void;
+  /** Refetch parent after lifecycle mutations close this modal. */
+  onAccountChanged?: () => void;
 }
 
 function getHealthColor(score: number): string {
@@ -61,9 +65,13 @@ export default function AccountDetailModal({
   account,
   isOpen,
   onClose,
+  onAccountChanged,
 }: AccountDetailModalProps) {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<AccountDetailResponse | null>(null);
+
+  const { role: rawRole, username: currentUsername } = useAuth();
+  const userRole = normalizeRole(rawRole, currentUsername);
 
   useEffect(() => {
     if (isOpen && account) {
@@ -135,9 +143,26 @@ export default function AccountDetailModal({
               </div>
             </div>
           </div>
-          <Button variant="text" onClick={onClose}>
-            <PiXBold className="h-5 w-5" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <AccountLifecycleMenu
+              account={account}
+              currentUserRole={userRole}
+              currentUsername={currentUsername}
+              hideView
+              variant="inline"
+              onChanged={() => {
+                onAccountChanged?.();
+                void fetchAccountDetail();
+              }}
+              onDropped={() => {
+                onAccountChanged?.();
+                onClose();
+              }}
+            />
+            <Button variant="text" onClick={onClose}>
+              <PiXBold className="h-5 w-5" />
+            </Button>
+          </div>
         </div>
 
         {/* Content */}

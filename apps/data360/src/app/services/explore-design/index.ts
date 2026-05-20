@@ -726,7 +726,15 @@ export async function getDeployment(deploymentId: string): Promise<Deployment & 
 }
 
 /**
- * Execute a deployment
+ * Execute a deployment.
+ *
+ * @deprecated DIVERGENT URL SHAPE — do not use in the explore-design deployment
+ * UI. This hits `POST /explore-design/deployments/{deploymentId}/execute`
+ * (no projectId). The canonical, project-scoped path used by the deployment
+ * wizard (`StepDeploy`) is `exploreDesignApi.executeDeployment` →
+ * `POST /explore-design/{projectId}/deployments/{deploymentId}/execute`
+ * (mirrored here as `executeDeploymentV1`). Kept only for non-explore-design
+ * callers; the explore-design UI must converge on `exploreDesignApi`.
  */
 export async function executeDeployment(
   deploymentId: string,
@@ -765,7 +773,13 @@ export async function rollbackDeployment(
 }
 
 /**
- * List deployments for a project
+ * List deployments for a project.
+ *
+ * @deprecated DIVERGENT URL SHAPE — do not use in the explore-design deployment
+ * UI. This hits `GET /explore-design/deployments/project/{projectId}`. The
+ * canonical, project-scoped path is `exploreDesignApi.listDeployments` /
+ * `listProjectDeploymentsV1` → `GET /explore-design/{projectId}/deployments`.
+ * Kept only for non-explore-design callers.
  */
 export async function listDeployments(
   projectId: string,
@@ -1292,6 +1306,17 @@ export interface SchemaVersionsResponse {
   current_version?: SchemaVersion;
   versions: SchemaVersion[];
   total_versions: number;
+  /**
+   * Honest fetch outcome so the UI can distinguish three states:
+   *  - 'ok'          → endpoint responded with one or more versions
+   *  - 'empty'       → endpoint responded successfully with zero versions
+   *  - 'unavailable' → endpoint returned an error (400/404/500) — versions
+   *                    may still exist; do NOT render this as "no versions".
+   * Optional for backward-compatibility with older callers.
+   */
+  availability?: 'ok' | 'empty' | 'unavailable';
+  /** Populated when availability === 'unavailable' — the upstream error message. */
+  error?: string;
 }
 
 export interface RollbackOptions {
@@ -1590,25 +1615,35 @@ export async function deploySchema(
 }
 
 /**
- * Get schema version history for a project
+ * Get schema version history for a project.
  *
- * Backend: GET /explore-design/schema_versions/{project_id}
+ * Primary:  GET /explore-design/{project_id}/versions          — currently 400
+ * Fallback: GET /explore-design/schema_versions/{project_id}   — currently 404
+ *
+ * Both endpoints are known-broken on the backend (see Backend Gap note in
+ * `SchemaVersionDisplaySwitch` / `DeploymentUnavailableNote`). The path/param
+ * shape here matches the working v1 endpoints in this file (and the canonical
+ * `exploreDesignApi.listExploreVersions`), so the 400 is a genuine backend
+ * rejection — NOT a client path bug. We therefore surface the failure honestly
+ * via `availability: 'unavailable'` instead of returning a silent empty list.
  *
  * @param projectId - Project ID
- * @param options - Query options
- * @returns List of schema versions
+ * @param options - Query options. Pass `signal` to abort on unmount.
+ * @returns List of schema versions with an `availability` outcome flag.
  */
 export async function getSchemaVersions(
   projectId: string,
   options?: {
     limit?: number;
     include_rolled_back?: boolean;
+    signal?: AbortSignal;
   }
 ): Promise<SchemaVersionsResponse> {
   // Try v1 versions endpoint first
   try {
     const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/versions`, {
       params: options?.limit ? { limit: options.limit } : undefined,
+      signal: options?.signal,
     });
     // Map v1 response to legacy shape
     const versions = (data.versions || []).map((v: any) => ({
@@ -1628,8 +1663,9 @@ export async function getSchemaVersions(
       current_version: versions.find((v: any) => v.status === 'active') || versions[0],
       versions,
       total_versions: versions.length,
+      availability: versions.length > 0 ? 'ok' : 'empty',
     };
-  } catch {
+  } catch (primaryError: any) {
     // Fallback to legacy endpoint
     try {
       const params: Record<string, string> = {};
@@ -1638,16 +1674,28 @@ export async function getSchemaVersions(
 
       const response = await apiClient.get<SchemaVersionsResponse>(
         `${ED}/schema_versions/${projectId}`,
-        { params },
+        { params, signal: options?.signal },
       );
 
-      return response.data;
+      const data = response.data;
+      return {
+        ...data,
+        availability: (data.versions?.length ?? 0) > 0 ? 'ok' : 'empty',
+      };
     } catch (error: any) {
-      console.error('[getSchemaVersions] Error:', error);
+      console.error('[getSchemaVersions] Both version endpoints failed:', error);
+      const detail =
+        error?.response?.data?.detail ||
+        primaryError?.response?.data?.detail ||
+        error?.message ||
+        'Version endpoints are unavailable';
+      // Honest failure: endpoint errored. Do NOT pretend "no versions".
       return {
         project_id: projectId,
         versions: [],
         total_versions: 0,
+        availability: 'unavailable',
+        error: typeof detail === 'string' ? detail : JSON.stringify(detail),
       };
     }
   }

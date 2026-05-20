@@ -103,8 +103,25 @@ export default function HistoryRail({
   useEffect(() => {
     void refresh();
     if (!open || !projectId) return;
-    const t = window.setInterval(refresh, POLL_MS);
-    return () => window.clearInterval(t);
+
+    // Poll on an interval, but skip the network call while the tab is
+    // hidden — there is nobody looking at the rail. When the tab becomes
+    // visible again we do an immediate catch-up refresh.
+    const tick = () => {
+      if (document.visibilityState === 'hidden') return;
+      void refresh();
+    };
+    const t = window.setInterval(tick, POLL_MS);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [open, projectId, refresh]);
 
   const grouped = useMemo(() => {

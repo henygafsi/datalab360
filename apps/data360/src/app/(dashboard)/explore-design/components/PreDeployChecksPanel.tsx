@@ -75,7 +75,8 @@ const PreDeployChecksPanel: React.FC<PreDeployChecksPanelProps> = ({
       <div className="px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
         <span className="font-medium text-sm flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-blue-500" />
-          Pre-Deployment Checks
+          Pre-deployment checks
+          <span className="text-[10px] font-normal text-slate-400">Warehouse · authoritative</span>
           {result && (
             <Badge
               size="sm"

@@ -155,6 +155,166 @@ export async function getAccountDetail(accountName: string): Promise<AccountDeta
 }
 
 // =============================================================================
+// ACCOUNT LIFECYCLE MUTATIONS
+// =============================================================================
+//
+// G8 — orgadmin-only hard destructive endpoint. The backend route is
+// `DELETE /org-accounts/accounts/{name}` (Snowflake `DROP ACCOUNT`, irreversible).
+// All other lifecycle actions below are currently NOT wired on the backend.
+// They are exposed as typed client functions so the UX can probe their
+// existence and gracefully degrade to a "Backend Gap" surface when they
+// 404 / 405. When the backend lands, no UI changes are needed — the menu
+// items will simply stop being disabled.
+//
+
+export interface DropAccountResponse {
+  success: boolean;
+  account_name: string;
+  message?: string;
+  scheduled_deletion_time?: string | null;
+}
+
+/**
+ * Hard-destructive drop of a client account.
+ *
+ * **orgadmin only** — gated server-side. UI must double-gate via the
+ * `<ConfirmDestructiveDialog tier="nuclear">` flow (type-to-confirm,
+ * mandatory reason, irreversible checkbox, 2s countdown).
+ *
+ * Snowflake `DROP ACCOUNT` is irreversible after the grace period;
+ * the server is expected to enforce the grace window. We pass `reason`
+ * to populate the org audit log.
+ */
+export async function dropAccount(
+  accountName: string,
+  reason?: string,
+): Promise<DropAccountResponse> {
+  const { data } = await apiClient.delete<DropAccountResponse>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}`,
+    { data: reason ? { reason } : undefined },
+  );
+  return data;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Lifecycle actions — Backend Gap (UX target endpoints)              */
+/* ------------------------------------------------------------------ */
+//
+// These functions exist so the lifecycle menu can call them, but
+// most resolve to a 404 today. The menu marks the corresponding items
+// with a "(beta)" chip + disabled tooltip. The function bodies stay
+// here so when the backend ships, only the disabled flag flips.
+//
+
+export interface CreateAccountRequest {
+  account_name: string;
+  cloud: 'AWS' | 'AZURE' | 'GCP';
+  region: string;
+  edition: 'STANDARD' | 'ENTERPRISE' | 'BUSINESS_CRITICAL';
+  admin_name: string;
+  admin_email: string;
+  admin_username: string;
+  admin_password?: string;
+  generate_password?: boolean;
+  comment?: string;
+}
+
+export interface CreateAccountResponse {
+  success: boolean;
+  account_name: string;
+  account_url?: string;
+  account_locator?: string;
+  message?: string;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts`. */
+export async function createAccount(
+  payload: CreateAccountRequest,
+): Promise<CreateAccountResponse> {
+  const { data } = await apiClient.post<CreateAccountResponse>(
+    `${BASE_URL}/accounts`,
+    payload,
+  );
+  return data;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts/{name}/suspend`. */
+export async function suspendAccount(
+  accountName: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data } = await apiClient.post<{ success: boolean; message?: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/suspend`,
+  );
+  return data;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts/{name}/activate`. */
+export async function activateAccount(
+  accountName: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data } = await apiClient.post<{ success: boolean; message?: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/activate`,
+  );
+  return data;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts/{name}/reset-password`. */
+export async function resetAccountPassword(
+  accountName: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data } = await apiClient.post<{ success: boolean; message?: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/reset-password`,
+  );
+  return data;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts/{name}/rotate-keys`. */
+export async function rotateAccountKeys(
+  accountName: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data } = await apiClient.post<{ success: boolean; message?: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/rotate-keys`,
+  );
+  return data;
+}
+
+/** Backend-gap target: `PATCH /org-accounts/accounts/{name}/mfa`. */
+export async function setAccountMfaEnforcement(
+  accountName: string,
+  enforce: boolean,
+): Promise<{ success: boolean; mfa_enforced: boolean }> {
+  const { data } = await apiClient.patch<{ success: boolean; mfa_enforced: boolean }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/mfa`,
+    { enforce },
+  );
+  return data;
+}
+
+/** Backend-gap target: `POST /org-accounts/accounts/{name}/transfer-ownership`. */
+export async function transferAccountOwnership(
+  accountName: string,
+  newOwnerUsername: string,
+): Promise<{ success: boolean; message?: string }> {
+  const { data } = await apiClient.post<{ success: boolean; message?: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}/transfer-ownership`,
+    { new_owner: newOwnerUsername },
+  );
+  return data;
+}
+
+/** Backend-gap target: `PATCH /org-accounts/accounts/{name}`. */
+export async function updateAccount(
+  accountName: string,
+  patch: { new_name?: string; comment?: string },
+): Promise<{ success: boolean; account_name: string }> {
+  const { data } = await apiClient.patch<{ success: boolean; account_name: string }>(
+    `${BASE_URL}/accounts/${encodeURIComponent(accountName)}`,
+    patch,
+  );
+  return data;
+}
+
+// =============================================================================
 // CREDITS
 // =============================================================================
 

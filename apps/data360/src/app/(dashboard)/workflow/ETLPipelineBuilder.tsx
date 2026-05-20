@@ -7,6 +7,7 @@ import ReactFlow, {
   Edge,
   Controls,
   Background,
+  MiniMap,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -24,7 +25,7 @@ import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
   Eye, Code, Calendar, Sparkles, Users, X, Clock,
-  Download, Copy, FolderOpen, Plus,
+  Download, Copy, FolderOpen, Plus, Pause, Tag, Bug,
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -40,8 +41,31 @@ import ETLExecutionHistory from './components/ETLExecutionHistory';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
+import { auditCatalogCoherence } from './components/catalog-coherence';
 import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
 import ImportTasksModal from './components/ImportTasksModal';
+import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
+import UnifiedProjectWizard, {
+  type UnifiedProjectWizardResult,
+} from '@/components/project-onboarding/UnifiedProjectWizard';
+import ManualAiTemplateFork, {
+  type BuildMode,
+} from '@/components/project-onboarding/ManualAiTemplateFork';
+import {
+  WORKFLOW_TEMPLATES,
+  templateToReactFlow,
+} from '@/components/project-onboarding/workflow-templates';
+import RunApprovalStatusHero from './components/RunApprovalStatusHero';
+import RollbackVersionDialog from './components/RollbackVersionDialog';
+import { validateGraph } from './components/etl-catalog-grounding';
+import CustomConnectionLine from './components/CustomConnectionLine';
+import {
+  Dialog as UiDialog,
+  DialogContent as UiDialogContent,
+  DialogHeader as UiDialogHeader,
+  DialogTitle as UiDialogTitle,
+} from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 // Workflow API services
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -85,6 +109,81 @@ function extractErrorString(err: unknown): string {
     return JSON.stringify(err);
   }
   return String(err);
+}
+
+/**
+ * Translate a raw Snowflake / backend error into a headline + actionable hint.
+ * The runs panel pasted the full ODBC-style payload before; now the user sees:
+ *   "Couldn't record this run in the audit log" / "Try Run again" / [Show raw]
+ * The original string is still available behind a disclosure.
+ */
+function friendlyError(raw: string): { headline: string; hint?: string; isPlatform: boolean } {
+  const text = raw || '';
+  // Non-null violation on PROJECT_RUNS.STARTED_BY (screenshot #6 case).
+  if (/100072|NULL result in a non-nullable column/i.test(text)
+      && /PROJECT_RUNS|EVENT_STORE/i.test(text)) {
+    return {
+      headline: 'Couldn’t record this run in the audit log',
+      hint: 'The backend tried to insert a NULL into PROJECT_RUNS.STARTED_BY. Re-run after the session refreshes, or report to admin if it persists.',
+      isPlatform: true,
+    };
+  }
+  // Generic non-null violation.
+  if (/100072|NULL result in a non-nullable column/i.test(text)) {
+    const col = text.match(/non-nullable column ([A-Z_]+)/i)?.[1];
+    return {
+      headline: 'A required column was empty',
+      hint: col ? `Column ${col} cannot be NULL. Check the block before this step and fill it in.` : 'A required column was empty — check the upstream block.',
+      isPlatform: false,
+    };
+  }
+  // Constraint / referential integrity.
+  if (/\b(23000|23001|23502|23503|23505)\b/.test(text)) {
+    return {
+      headline: 'Constraint violation in the destination table',
+      hint: 'A primary key, unique, or foreign key constraint was broken. Check duplicates, missing parents, or column nullability.',
+      isPlatform: false,
+    };
+  }
+  // Backend's deployment/approval SQL bug: references CHANGES_SUMMARY column
+  // that the EVENT_STORE doesn't have (screenshot #12 case). Platform-side.
+  if (/invalid identifier ['"]?CHANGES_SUMMARY['"]?/i.test(text)) {
+    return {
+      headline: 'Couldn’t submit for approval — platform-side',
+      hint: 'The deployment endpoint references a missing column (CHANGES_SUMMARY) in the audit table. Report to admin; pipeline-side changes won’t fix this.',
+      isPlatform: true,
+    };
+  }
+  // Generic Snowflake compile / SQL error.
+  if (/SQL compilation error|invalid identifier|syntax error/i.test(text)) {
+    const col = text.match(/invalid identifier ['"]?([A-Z_]+)['"]?/i)?.[1];
+    return {
+      headline: 'Snowflake refused the compiled SQL',
+      hint: col
+        ? `Column "${col}" doesn’t exist in the referenced table. Open the SQL tab to see the failing statement.`
+        : 'The generated SQL references a table or column that doesn’t exist. Open the SQL tab to see the failing statement.',
+      isPlatform: false,
+    };
+  }
+  // Cortex / warehouse timeout.
+  if (/QUERY_CANCELLED|604|warehouse.*suspend|timeout/i.test(text)) {
+    return {
+      headline: 'Snowflake cancelled the query',
+      hint: 'Warehouse limit hit or query took too long. Try a smaller sample, or wait for the warehouse to resume.',
+      isPlatform: false,
+    };
+  }
+  // Auth / permission.
+  if (/insufficient privileges|access denied|401|403/i.test(text)) {
+    return {
+      headline: 'You don’t have permission for this action',
+      hint: 'Ask an account admin to grant the required role to your user.',
+      isPlatform: false,
+    };
+  }
+  // Fallback: keep the original short headline if it fits.
+  const short = text.length > 120 ? text.slice(0, 117) + '…' : text;
+  return { headline: short, isPlatform: false };
 }
 
 function generateId(): string {
@@ -363,6 +462,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const isApproved = approvalStatus === 'approved';
   const [executionRefreshKey, setExecutionRefreshKey] = useState(0);
 
+  // Dev-only catalog coherence audit — surfaces drift between
+  // etl-blocks-catalog.json, ETL_BLOCKS, and etlNodeTypes.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'development') return;
+    const issues = auditCatalogCoherence();
+    if (issues.length === 0) return;
+    // Group as a single console.warn so it's collapsible in DevTools.
+    /* eslint-disable no-console */
+    console.warn(`[catalog-coherence] ${issues.length} discrepancies found:`, issues);
+    /* eslint-enable no-console */
+  }, []);
+
   // SSE: listen for deployment approval changes and refresh approval status
   const lastInvalidation = useAtomValue(lastInvalidationAtom);
   useEffect(() => {
@@ -404,10 +515,38 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // Modals — both opened from the header (PDF page 8 #1 + #2).
   const [showAiGenerate, setShowAiGenerate] = useState(false);
   const [showImportTasks, setShowImportTasks] = useState(false);
+  // UnifiedProjectWizard (manual / AI / template fork) for project creation.
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
+  // Description seeded into the AI workflow wizard when the user picked the
+  // AI fork in the UnifiedProjectWizard / "Change approach" affordance.
+  const [aiSeedDescription, setAiSeedDescription] = useState<string>('');
+  // "Change approach" affordance — re-opens the fork for an existing project.
+  const [showApproachFork, setShowApproachFork] = useState(false);
   // After an AI-generated workflow auto-saves, show a one-time hint
   // banner telling the user to configure each block before running. Auto-
   // dismissed by clicking the X or starting to configure a node.
   const [aiNextStepHint, setAiNextStepHint] = useState(false);
+
+  // Workflow tags (chip strip in header). Loaded from getWorkflow when a
+  // workflow is opened; saving back to the backend isn't wired (no
+  // updateWorkflow endpoint yet) so the tagsGap flag drives a Backend-Gap
+  // tooltip on the "+ tag" affordance.
+  const [workflowTags, setWorkflowTags] = useState<string[]>([]);
+  const [showTagInput, setShowTagInput] = useState(false);
+  const [tagDraft, setTagDraft] = useState('');
+  // Auto-save / draft restore state.
+  const [draftRestorePrompt, setDraftRestorePrompt] = useState<null | {
+    key: string;
+    payload: { nodes: Node[]; edges: Edge[]; pipelineName: string; savedAt: number };
+  }>(null);
+  const lastLoadedUpdatedAtRef = useRef<number>(0);
+
+  // Header action modals — schedule popover + rollback dialog.
+  // Kept here so the four new CTAs (Suspend/Resume/Schedule/Rollback) are
+  // wired without touching the right panel or other modules.
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  const [showRollbackDialog, setShowRollbackDialog] = useState(false);
+  const [isSuspendingTask, setIsSuspendingTask] = useState(false);
 
   // Results preview state
   const [previewData, setPreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number; table: string } | null>(null);
@@ -436,6 +575,26 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // Persistent error display (shown in Runs panel instead of disappearing toast)
   const [pipelineError, setPipelineError] = useState<string | null>(null);
 
+  // ─── Live client-side validation ───────────────────────────────────────
+  // Runs on every graph change (debounced) so a stale "Validation: …" banner
+  // clears automatically as soon as the user fixes the issue, instead of
+  // forcing them to re-click Validate. The deep server-side validate (which
+  // costs credits) stays gated behind the explicit button.
+  useEffect(() => {
+    if (!pipelineError || !pipelineError.startsWith('Validation:')) return;
+    const t = window.setTimeout(() => {
+      const v = validateGraph(
+        nodes.map((n) => ({ id: n.id, type: String(n.type), data: n.data as Record<string, unknown> })),
+        edges.map((e) => ({ source: e.source, target: e.target })),
+      );
+      if (v.ok) {
+        setPipelineError(null);
+        setValidation((prev) => (prev && !prev.valid ? { ...prev, valid: true, error: undefined } : prev));
+      }
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [nodes, edges, pipelineError]);
+
   // ============================================
   // LOAD DATA
   // ============================================
@@ -454,20 +613,143 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   );
 
   const workflows = useMemo(
-    () => (workflowsData?.projects || []).map((p: any) => ({ id: p.project_id, name: p.project_name })),
+    () =>
+      (workflowsData?.projects || []).map((p: any) => ({
+        id: p.project_id,
+        name: p.project_name,
+        created_by: p.created_by,
+        created_at: p.created_at,
+        tags: p.tags ?? null,
+      })),
     [workflowsData]
   );
   const loadError = loadErrorObj ? (getApiErrorMessage(loadErrorObj) || 'Failed to load workflows') : null;
 
+  // ============================================
+  // HEADER CTA STATE — Schedule + Versions
+  // ============================================
+  // Drives the four new header buttons (Suspend / Resume / Schedule / Rollback).
+  // Both queries re-run automatically when activeWorkflowId changes via the
+  // `enabled` flag + memoised fetcher.
+
+  const loadHeaderSchedulesFn = useCallback(
+    () =>
+      activeWorkflowId
+        ? workflowApi.getWorkflowSchedules(activeWorkflowId)
+        : Promise.resolve({ workflow_id: '', schedules: [], count: 0 }),
+    [activeWorkflowId],
+  );
+  const {
+    data: headerSchedulesData,
+    refetch: refetchHeaderSchedules,
+  } = useCacheAwareQuery(loadHeaderSchedulesFn, {
+    cacheKeys: [CACHE_KEYS.WORKFLOWS],
+    enabled: !!activeWorkflowId,
+    initialData: null,
+  });
+
+  const loadHeaderVersionsFn = useCallback(
+    () =>
+      activeWorkflowId
+        ? workflowApi.listVersions(activeWorkflowId, { limit: 10 })
+        : Promise.resolve({ versions: [], count: 0 }),
+    [activeWorkflowId],
+  );
+  const { data: headerVersionsData } = useCacheAwareQuery(
+    loadHeaderVersionsFn,
+    {
+      cacheKeys: [CACHE_KEYS.WORKFLOWS],
+      enabled: !!activeWorkflowId,
+      initialData: null,
+    },
+  );
+
+  // useScheduleState — derive header CTA visibility from the schedules payload.
+  // hasSchedule:  at least one schedule exists.
+  // isSuspended:  primary schedule is not in the 'started' state (matches
+  //               ScheduleManager which uses `state === 'started'` for active).
+  // cronSummary:  human-friendly string for the "Scheduled · edit" pill.
+  const scheduleState = useMemo(() => {
+    const schedules = headerSchedulesData?.schedules ?? [];
+    if (schedules.length === 0) {
+      return {
+        hasSchedule: false,
+        isSuspended: false,
+        isStarted: false,
+        cronSummary: '',
+        scheduleId: null as string | null,
+      };
+    }
+    const primary = schedules[0];
+    const isStarted = primary.state === 'started';
+    return {
+      hasSchedule: true,
+      isStarted,
+      isSuspended: !isStarted,
+      cronSummary: primary.schedule || primary.cron_expression || '',
+      scheduleId: primary.schedule_id ?? null,
+    };
+  }, [headerSchedulesData]);
+
+  const hasVersions = (headerVersionsData?.versions?.length ?? 0) > 0;
+
+  // ---- Suspend / Resume handlers --------------------------------------
+  const handleSuspendTask = useCallback(async () => {
+    if (!activeWorkflowId || isSuspendingTask) return;
+    if (readOnlyGuard()) return;
+    setIsSuspendingTask(true);
+    try {
+      await workflowApi.suspendTask(activeWorkflowId);
+      toast.success('Scheduled task suspended');
+      refetchHeaderSchedules();
+    } catch (err) {
+      console.error('Suspend failed:', err);
+      toast.error(getApiErrorMessage(err) || 'Failed to suspend task');
+    } finally {
+      setIsSuspendingTask(false);
+    }
+  }, [activeWorkflowId, isSuspendingTask, readOnlyGuard, refetchHeaderSchedules]);
+
+  const handleResumeTask = useCallback(async () => {
+    if (!activeWorkflowId || isSuspendingTask) return;
+    if (readOnlyGuard()) return;
+    setIsSuspendingTask(true);
+    try {
+      await workflowApi.resumeTask(activeWorkflowId);
+      toast.success('Scheduled task resumed');
+      refetchHeaderSchedules();
+    } catch (err) {
+      console.error('Resume failed:', err);
+      toast.error(getApiErrorMessage(err) || 'Failed to resume task');
+    } finally {
+      setIsSuspendingTask(false);
+    }
+  }, [activeWorkflowId, isSuspendingTask, readOnlyGuard, refetchHeaderSchedules]);
+
   // Keyboard shortcuts
   const handleSaveRef = useRef<(() => void) | null>(null);
   const handleExecuteRef = useRef<((dryRun: boolean) => void) | null>(null);
+  // Global aria-live announcement for keyboard shortcuts (⌘S, ⌘Enter)
+  // so screen-reader users get the same "Saved" feedback as the toast.
+  const [shortcutAnnounce, setShortcutAnnounce] = useState<string>('');
+  // Stable ref so the keydown listener (mounted once) reads the latest read-only flag.
+  const isReadOnlyRef = useRef(isReadOnly);
+  useEffect(() => { isReadOnlyRef.current = isReadOnly; }, [isReadOnly]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
+        if (isReadOnlyRef.current) {
+          const msg = 'View-only — save disabled';
+          toast.error(msg);
+          setShortcutAnnounce(msg);
+          return;
+        }
         handleSaveRef.current?.();
+        const msg = 'Saved · ⌘S';
+        toast.success(msg, { id: 'cmd-s-saved' });
+        setShortcutAnnounce(msg);
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
@@ -489,6 +771,64 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isDirty, nodes.length]);
+
+  // ── Local-storage auto-save (debounced 30s) ──
+  // Writes a draft snapshot under data360.workflow.autosave.<id|draft>
+  // so users don't lose 30 min of canvas work to a tab crash. Independent
+  // from the backend save (which still requires the Save button).
+  const autosaveKey = useMemo(
+    () => `data360.workflow.autosave.${activeWorkflowId ?? 'draft'}`,
+    [activeWorkflowId],
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isReadOnly) return;
+    if (nodes.length === 0) return; // don't write empty drafts
+    const handle = window.setTimeout(() => {
+      try {
+        const payload = {
+          nodes,
+          edges,
+          pipelineName,
+          savedAt: Date.now(),
+        };
+        window.localStorage.setItem(autosaveKey, JSON.stringify(payload));
+      } catch {
+        // Quota exceeded or private-mode — silently skip.
+      }
+    }, 30_000);
+    return () => window.clearTimeout(handle);
+  }, [nodes, edges, pipelineName, autosaveKey, isReadOnly]);
+
+  // ── Draft restore prompt ──
+  // After loading a workflow, check whether a local draft exists newer than
+  // the workflow's last-known timestamp. If so, surface a soft ConfirmDialog
+  // asking the user whether to restore.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!activeWorkflowId) return;
+    try {
+      const raw = window.localStorage.getItem(autosaveKey);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as { nodes: Node[]; edges: Edge[]; pipelineName: string; savedAt: number };
+      if (!parsed?.savedAt) return;
+      // Draft must be newer than the loaded workflow's timestamp.
+      if (parsed.savedAt <= lastLoadedUpdatedAtRef.current) return;
+      // Draft must differ from what we just loaded — skip if same node count and same names.
+      if (parsed.nodes?.length === nodes.length) {
+        const sameNames = (parsed.nodes ?? []).every((n: Node, i: number) => {
+          const cur = nodes[i];
+          return cur && cur.id === n.id;
+        });
+        if (sameNames) return;
+      }
+      setDraftRestorePrompt({ key: autosaveKey, payload: parsed });
+    } catch {
+      // Malformed payload — drop it.
+      try { window.localStorage.removeItem(autosaveKey); } catch { /* noop */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkflowId]);
 
   // Auto-fit canvas after loading a workflow
   useEffect(() => {
@@ -571,24 +911,70 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // CONNECTIONS
   // ============================================
 
-  const onConnect = useCallback(
+  // Reject illegal connections WHILE the user is dragging — ReactFlow uses
+  // this to colour the target handle red and prevent the drop instead of
+  // letting the user release into nothing and then yelling with a toast.
+  // (Old UX from screenshot #7: "Filter can only have 1 input(s)" toast.)
+  const isValidConnection = useCallback(
     (params: Connection) => {
-      if (isReadOnly) return;
-      if (!params.source || !params.target) return;
+      if (isReadOnly) return false;
+      if (!params.source || !params.target) return false;
+      if (params.source === params.target) return false; // no self-loops
 
       const targetNode = nodes.find((n) => n.id === params.target);
-      if (!targetNode) return;
-
+      if (!targetNode) return false;
       const blockDef = getBlockByType(targetNode.type || '');
-      if (!blockDef) return;
+      if (!blockDef) return false;
 
-      // Check max inputs
+      // Already-connected source → target combo is not a new edge.
+      const exists = edges.some(
+        (e) => e.source === params.source && e.target === params.target,
+      );
+      if (exists) return false;
+
+      // Saturated input port: maxInputs reached.
       const existingInputs = edges.filter((e) => e.target === params.target).length;
-      if (existingInputs >= blockDef.maxInputs) {
-        toast.error(`${blockDef.label} can only have ${blockDef.maxInputs} input(s)`);
-        return;
-      }
+      if (existingInputs >= blockDef.maxInputs) return false;
 
+      return true;
+    },
+    [isReadOnly, nodes, edges],
+  );
+
+  // Tracks the source node id while the user is dragging a connection out.
+  // Read by `enrichedNodes` to add a glow class on every node that could
+  // legally receive this edge — pro-UX hint that you can drop here.
+  const [connectingFromId, setConnectingFromId] = useState<string | null>(null);
+
+  const onConnectStart = useCallback((_: unknown, params: { nodeId: string | null }) => {
+    setConnectingFromId(params.nodeId);
+  }, []);
+  const onConnectEnd = useCallback(() => {
+    setConnectingFromId(null);
+  }, []);
+
+  // Predicate variant taking only the two ids — used by the custom
+  // connection line during the drag (no Connection object available yet).
+  const isValidPair = useCallback(
+    (sourceId: string, targetId: string) => {
+      if (sourceId === targetId) return false;
+      const targetNode = nodes.find((n) => n.id === targetId);
+      if (!targetNode) return false;
+      const blockDef = getBlockByType(targetNode.type || '');
+      if (!blockDef) return false;
+      const dup = edges.some((e) => e.source === sourceId && e.target === targetId);
+      if (dup) return false;
+      const existingInputs = edges.filter((e) => e.target === targetId).length;
+      return existingInputs < blockDef.maxInputs;
+    },
+    [nodes, edges],
+  );
+
+  const onConnect = useCallback(
+    (params: Connection) => {
+      // isValidConnection already gates illegal drops, but ReactFlow still
+      // calls onConnect for the legal path — keep this lean.
+      if (!params.source || !params.target) return;
       setEdges((eds) =>
         addEdge(
           {
@@ -597,12 +983,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             style: { strokeWidth: 2, stroke: '#10B981' },
             animated: false,
           },
-          eds
-        )
+          eds,
+        ),
       );
       setIsDirty(true);
     },
-    [nodes, edges, setEdges]
+    [setEdges],
   );
 
   // ============================================
@@ -619,7 +1005,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const onPaneClick = useCallback(() => {
     setSelectedNode(null);
     setShowSidebar(false);
-  }, []);
+    // Dynamically adapt the right-panel tab when the user deselects a node.
+    // Without this, a stale Schedule / SQL / Results tab from the previous
+    // selection lingers even though the canvas no longer has anything
+    // selected. Pick the most-useful tab for the current workflow state:
+    //   - empty canvas → AI (where the user starts)
+    //   - has a last run → Results
+    //   - otherwise → Runs (where errors surface)
+    setActiveTab((current) => {
+      // Don't override if user is actively on AI / Runs (sticky-friendly).
+      if (current === 'ai' || current === 'runs') return current;
+      if (nodes.length === 0) return 'ai';
+      if (lastExecution) return 'results';
+      return 'runs';
+    });
+  }, [nodes.length, lastExecution]);
 
   const handleNodeSave = useCallback(
     (nodeId: string, data: any) => {
@@ -960,19 +1360,31 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setIsDirty(false);
     dirtyNodeIdsRef.current.clear();
     setSaveStatus('idle');
+    setWorkflowTags([]);
+    lastLoadedUpdatedAtRef.current = 0;
   }, [setNodes, setEdges]);
 
   const handleLoadPipeline = useCallback(
     async (wf: { id: string; name: string }) => {
       try {
         setIsPipelineLoading(true);
-        const stepsResponse = await workflowApi.listSteps(wf.id);
+        // Fetch full workflow metadata (tags, created_at) alongside steps.
+        // getWorkflow was previously dead in app code — now used to feed
+        // the header tags chip strip and the draft-restore comparison.
+        const [stepsResponse, workflowMeta] = await Promise.all([
+          workflowApi.listSteps(wf.id),
+          workflowApi.getWorkflow(wf.id).catch(() => null),
+        ]);
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
         setEdges(newEdges);
         setActiveWorkflowId(wf.id);
         setActiveWorkflowName(wf.name);
         setPipelineName(wf.name);
+        setWorkflowTags(workflowMeta?.tags ?? []);
+        lastLoadedUpdatedAtRef.current = workflowMeta?.created_at
+          ? new Date(workflowMeta.created_at).getTime()
+          : 0;
         setIsDirty(false);
         setApprovalStatus('none');
         dirtyNodeIdsRef.current.clear();
@@ -1091,6 +1503,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       dirtyNodeIdsRef.current.clear();
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
+      // Drop the local autosave: the canonical version now lives in the backend.
+      try {
+        if (typeof window !== 'undefined') {
+          window.localStorage.removeItem(autosaveKey);
+        }
+      } catch {
+        /* noop */
+      }
 
       // Refresh workflow list
       await loadWorkflows();
@@ -1102,7 +1522,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, pipelineName, activeWorkflowId]);
+  }, [nodes, edges, pipelineName, activeWorkflowId, autosaveKey]);
   handleSaveRef.current = handleSavePipeline;
 
   const handleDeletePipeline = useCallback(async () => {
@@ -1300,7 +1720,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       setApprovalStatus('pending');
     } catch (error: any) {
       console.error('Submit for approval failed:', error);
-      toast.error(getApiErrorMessage(error) || 'Failed to submit for approval');
+      // Snowflake compile errors come back as a wall of text. Pipe through
+      // friendlyError() so the toast reads "Couldn't request approval —
+      // backend column missing" instead of "000904 (42000): … invalid
+      // identifier 'CHANGES_SUMMARY'". Also surface the platform-side
+      // pipelineError banner so the user can drill into the raw payload.
+      const raw = getApiErrorMessage(error) || 'Failed to submit for approval';
+      const { headline, hint } = friendlyError(raw);
+      toast.error(headline);
+      setPipelineError(`Approval: ${raw}${hint ? `  —  ${hint}` : ''}`);
     }
   }, [activeWorkflowId, readOnlyGuard]);
 
@@ -1452,18 +1880,98 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     return state;
   }, [isExecuting, nodes]);
 
+  // Build a map: cte_alias (slugified label) -> { duration_ms, status, rows }
+  // pulled from lastExecution.execution_details.steps_results[].
+  const stepResultByCte = useMemo(() => {
+    const map: Record<string, { status: 'success' | 'failed' | 'running' | 'pending'; duration_ms?: number; rows?: number }> = {};
+    if (!lastExecution) return map;
+    const steps = (lastExecution as { execution_details?: { steps_results?: unknown[] } })?.execution_details?.steps_results
+      || (lastExecution as { steps_results?: unknown[] })?.steps_results
+      || [];
+    if (!Array.isArray(steps)) return map;
+    for (const s of steps as Record<string, unknown>[]) {
+      const cte = (s?.cte_alias as string | undefined) || (s?.step_id as string | undefined);
+      if (!cte) continue;
+      const rawStatus = (s?.status as string | undefined) ?? '';
+      const status: 'success' | 'failed' | 'running' | 'pending' =
+        rawStatus === 'completed' || rawStatus === 'success' ? 'success'
+        : rawStatus === 'failed' || rawStatus === 'error' ? 'failed'
+        : rawStatus === 'running' ? 'running'
+        : 'pending';
+      map[cte] = {
+        status,
+        duration_ms: (s?.duration_ms as number | undefined) ?? (s?.duration as number | undefined),
+        rows: (s?.rows_affected as number | undefined) ?? (s?.row_count as number | undefined),
+      };
+    }
+    return map;
+  }, [lastExecution]);
+
+  // Extract per-CTE snippets from the merged compiled SQL. Best-effort regex —
+  // fails open (returns {}) if the SQL is nested or non-standard.
+  const compiledSnippetByCte = useMemo(() => {
+    const map: Record<string, string> = {};
+    const sql = compiledSql?.compiled_sql || (lastExecution as { compiled_sql?: string } | null)?.compiled_sql;
+    if (typeof sql !== 'string' || sql.length === 0) return map;
+    // Match `alias AS (...)` blocks at depth 0. Simple paren-balanced slice.
+    const re = /([A-Za-z_][A-Za-z0-9_]*)\s+AS\s*\(/gi;
+    let match: RegExpExecArray | null;
+    while ((match = re.exec(sql)) !== null) {
+      const alias = match[1];
+      const start = re.lastIndex; // just past the '('
+      let depth = 1;
+      let i = start;
+      while (i < sql.length && depth > 0) {
+        const ch = sql[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+        i++;
+      }
+      if (depth === 0) {
+        const body = sql.slice(start, i - 1).trim();
+        map[alias.toLowerCase()] = body;
+      }
+    }
+    return map;
+  }, [compiledSql, lastExecution]);
+
+  // Build upstream/downstream summaries from edges, keyed by node id.
+  const adjacency = useMemo(() => {
+    const labelById = new Map<string, { id: string; label: string; type?: string }>();
+    for (const n of nodes) {
+      const lbl = (n.data as { name?: string; label?: string } | undefined)?.name
+        || (n.data as { name?: string; label?: string } | undefined)?.label
+        || n.id;
+      labelById.set(n.id, { id: n.id, label: lbl, type: n.type });
+    }
+    const up: Record<string, { id: string; label: string; type?: string }[]> = {};
+    const down: Record<string, { id: string; label: string; type?: string }[]> = {};
+    for (const e of edges) {
+      const src = labelById.get(e.source);
+      const tgt = labelById.get(e.target);
+      if (src && tgt) {
+        (down[e.source] ||= []).push(tgt);
+        (up[e.target] ||= []).push(src);
+      }
+    }
+    return { up, down };
+  }, [nodes, edges]);
+
   // Enrich nodes with error data + execution state for visual states on canvas
   const enrichedNodes = useMemo(() => {
     const execState = isExecuting ? runningNodeState : executionNodeState;
-    const hasErrors = Object.keys(nodeErrors).length > 0;
-    const hasExec = Object.keys(execState).length > 0;
-
-    if (!hasErrors && !hasExec) return nodes;
 
     return nodes.map((node) => {
       const error = nodeErrors[node.id];
       const exec = execState[node.id];
-      if (!error && !exec) return node;
+      const nodeLabel = (node.data as { name?: string; label?: string } | undefined)?.name
+        || (node.data as { name?: string; label?: string } | undefined)?.label
+        || node.id;
+      const cteKey = String(nodeLabel).toLowerCase().replace(/\s+/g, '_');
+      const lastRun = stepResultByCte[cteKey] ?? stepResultByCte[node.id] ?? null;
+      const compiledSnippet = compiledSnippetByCte[cteKey];
+      const upstream = adjacency.up[node.id] ?? [];
+      const downstream = adjacency.down[node.id] ?? [];
       return {
         ...node,
         data: {
@@ -1476,10 +1984,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             executionError: exec.error,
             stepIndex: exec.stepIndex,
           } : {}),
+          _lastRun: lastRun,
+          _compiledSnippet: compiledSnippet,
+          _upstream: upstream,
+          _downstream: downstream,
+          // Drop-target hint: while the user is dragging FROM another
+          // node, mark this node as a valid receiver or not. ETLNodeWrapper
+          // reads this to add a green glow / red dim during the drag.
+          _dropHint:
+            connectingFromId && connectingFromId !== node.id
+              ? (isValidPair(connectingFromId, node.id) ? 'valid' : 'invalid')
+              : null,
+          _onOpenConfig: () => {
+            setSelectedNode(node);
+            setShowSidebar(true);
+          },
         },
       };
     });
-  }, [nodes, nodeErrors, executionNodeState, runningNodeState, isExecuting]);
+  }, [nodes, nodeErrors, executionNodeState, runningNodeState, isExecuting, stepResultByCte, compiledSnippetByCte, adjacency, connectingFromId, isValidPair]);
 
   // Enrich edges with execution state — red dashed for failed paths, green for completed
   const enrichedEdges = useMemo(() => {
@@ -1539,6 +2062,40 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     [workflows, handleLoadPipeline, setNodes, setEdges, loadWorkflows],
   );
 
+  // UnifiedProjectWizard handoff — branches on the explicit build mode.
+  //   manual   → land on the empty canvas (default).
+  //   ai       → open GuidedAiWorkflowWizard pre-seeded with the description.
+  //   template → load the template's nodes/edges onto the canvas.
+  const handleProjectCreated = useCallback(
+    (result: UnifiedProjectWizardResult) => {
+      projectGateDismissedRef.current = true;
+      // The project shell already exists — adopt it as the active workflow.
+      setActiveWorkflowId(result.projectId);
+      setActiveWorkflowName(result.projectName);
+      setPipelineName(result.projectName);
+      setUserRole('owner');
+      setNodes([]);
+      setEdges([]);
+      setIsDirty(false);
+      void loadWorkflows();
+
+      if (result.buildMode === 'ai') {
+        setAiSeedDescription(result.aiDescription ?? '');
+        setShowAiGenerate(true);
+      } else if (result.buildMode === 'template' && result.templateId) {
+        const tpl = WORKFLOW_TEMPLATES.find((t) => t.id === result.templateId);
+        if (tpl) {
+          const { nodes: tplNodes, edges: tplEdges } = templateToReactFlow(tpl);
+          setNodes(tplNodes as unknown as typeof nodes);
+          setEdges(tplEdges as unknown as typeof edges);
+          setIsDirty(true);
+          toast.success(`Template "${tpl.title}" loaded — review and save`);
+        }
+      }
+    },
+    [setNodes, setEdges, loadWorkflows],
+  );
+
   // Page-level loading state
   if (isLoading && workflows.length === 0) {
     return (
@@ -1581,101 +2138,93 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             <span className="text-gray-900 dark:text-white font-medium">Workflow</span>
           </nav>
         </div>
-        <div className="flex-1 overflow-auto flex items-start justify-center p-6">
-          <div className="w-full max-w-2xl mt-8">
-            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-sm p-6">
-              <div className="flex items-center gap-3 mb-1">
-                <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/30">
-                  <FolderOpen className="h-5 w-5 text-indigo-500" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">
-                    Choose a workflow project
-                  </h2>
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    Pick an existing workflow to continue, or create a new one.
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center justify-between gap-2">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  {workflows.length} workflow{workflows.length === 1 ? '' : 's'} available
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    projectGateDismissedRef.current = true;
-                    handleNewPipeline();
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  New workflow
-                </button>
-              </div>
-
-              <div className="mt-3 border border-slate-200 dark:border-slate-700 rounded-lg max-h-[420px] overflow-y-auto">
-                {workflows.length === 0 ? (
-                  <div className="px-4 py-12 text-center">
-                    <FolderOpen className="h-8 w-8 mx-auto mb-2 text-slate-300 dark:text-slate-600" />
-                    <p className="text-sm text-slate-600 dark:text-slate-300">No workflows yet</p>
-                    <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-                      Create your first workflow to get started.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        projectGateDismissedRef.current = true;
-                        handleNewPipeline();
-                      }}
-                      className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium shadow-sm transition-colors"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      Create workflow
-                    </button>
-                  </div>
-                ) : (
-                  <ul className="divide-y divide-slate-100 dark:divide-slate-700">
-                    {workflows.map((w) => (
-                      <li key={w.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            projectGateDismissedRef.current = true;
-                            handleLoadPipeline(w);
-                          }}
-                          className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors focus:outline-none focus:bg-indigo-50 dark:focus:bg-indigo-900/20"
-                        >
-                          <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 flex-shrink-0">
-                            <FolderOpen className="h-4 w-4 text-indigo-600 dark:text-indigo-400" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
-                              {w.name}
-                            </div>
-                          </div>
-                          <ChevronRight className="h-4 w-4 text-slate-300 dark:text-slate-600 flex-shrink-0" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+        <ProjectGatePanel
+          module="workflow"
+          projects={workflows}
+          loading={isLoading}
+          error={loadError}
+          onRetry={loadWorkflows}
+          onSelect={(projectId) => {
+            const w = workflows.find((wf) => wf.id === projectId);
+            if (!w) return;
+            projectGateDismissedRef.current = true;
+            handleLoadPipeline(w);
+          }}
+          onCreateNew={() => setShowCreateWizard(true)}
+        />
+        {/* Unified creation flow — reachable from the inline pre-state. */}
+        <UnifiedProjectWizard
+          open={showCreateWizard}
+          onOpenChange={setShowCreateWizard}
+          module="workflow"
+          onCreated={handleProjectCreated}
+        />
       </div>
     );
   }
 
   return (
     <div className={cn('h-full flex flex-col bg-slate-100 dark:bg-slate-900', className)}>
+      {/* Global keyboard-shortcut announcer (⌘S / view-only). Persists across
+          right-panel toggles so screen-reader users always hear the feedback. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only" role="status">
+        {shortcutAnnounce}
+      </div>
       {/* Project Gate: blocks the canvas until a workflow project is selected */}
       <WorkflowProjectGate
         isOpen={showProjectGate}
         onSelect={handleGateSelect}
+        onCreated={handleProjectCreated}
       />
+      {/* Unified creation flow — also reachable from the main canvas. */}
+      <UnifiedProjectWizard
+        open={showCreateWizard}
+        onOpenChange={setShowCreateWizard}
+        module="workflow"
+        onCreated={handleProjectCreated}
+      />
+
+      {/* "Change approach" — re-opens the manual/AI/template fork for an
+          existing workflow so the build choice is reversible. */}
+      {showApproachFork && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Change approach"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        >
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setShowApproachFork(false)}
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+          />
+          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+              Change how you build this workflow
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Switch to AI to scaffold from a description, or keep building
+              manually. Your current canvas is preserved.
+            </p>
+            <div className="mt-4">
+              <ManualAiTemplateFork
+                value={null}
+                onChange={(mode: BuildMode) => {
+                  setShowApproachFork(false);
+                  if (mode === 'ai') {
+                    setAiSeedDescription('');
+                    setShowAiGenerate(true);
+                  } else if (mode === 'template') {
+                    setShowCreateWizard(true);
+                  }
+                  // manual → just dismiss; the canvas stays as-is.
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Breadcrumb Header */}
       <div className="px-3 lg:px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex items-center justify-between gap-3">
@@ -1698,6 +2247,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               title="Change workflow project"
             >
               Change
+            </button>
+          )}
+          {activeWorkflowId && (
+            <button
+              type="button"
+              onClick={() => setShowApproachFork(true)}
+              className="ml-1 px-1.5 py-0.5 text-[10px] font-medium rounded text-indigo-500 hover:text-indigo-700 hover:underline dark:text-indigo-400 transition-colors"
+              title="Switch how this workflow is built"
+            >
+              Change approach
             </button>
           )}
         </nav>
@@ -1831,6 +2390,76 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             </AnimatePresence>
           </div>
 
+          {/* ── Tags chip strip ──
+              Reads tags from getWorkflow (loaded on handleLoadPipeline).
+              No backend updateWorkflow endpoint exists today — clicks
+              mutate local state and surface a Backend-Gap tooltip on
+              the "+ tag" affordance so the limitation is visible. */}
+          {activeWorkflowId && (
+            <div className="flex items-center gap-1 flex-wrap max-w-[320px]" aria-label="Workflow tags">
+              {workflowTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                >
+                  <Tag className="h-2.5 w-2.5 opacity-60" />
+                  {tag}
+                  {!isReadOnly && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setWorkflowTags((prev) => prev.filter((t) => t !== tag));
+                        toast('Backend Gap: PATCH /workflow/{id} not implemented — tag removed locally only', { icon: 'ℹ️' });
+                      }}
+                      className="ml-0.5 rounded-full p-0.5 text-slate-400 hover:bg-slate-200 hover:text-slate-700 dark:hover:bg-slate-600 dark:hover:text-slate-100"
+                      aria-label={`Remove tag ${tag}`}
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  )}
+                </span>
+              ))}
+              {!isReadOnly && (
+                showTagInput ? (
+                  <input
+                    type="text"
+                    autoFocus
+                    value={tagDraft}
+                    onChange={(e) => setTagDraft(e.target.value)}
+                    onBlur={() => { setShowTagInput(false); setTagDraft(''); }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const next = tagDraft.trim();
+                        if (next && !workflowTags.includes(next)) {
+                          setWorkflowTags((prev) => [...prev, next]);
+                          toast('Backend Gap: PATCH /workflow/{id} not implemented — tag added locally only', { icon: 'ℹ️' });
+                        }
+                        setShowTagInput(false);
+                        setTagDraft('');
+                      } else if (e.key === 'Escape') {
+                        setShowTagInput(false);
+                        setTagDraft('');
+                      }
+                    }}
+                    placeholder="tag…"
+                    className="h-5 w-20 rounded-full border border-slate-300 bg-white px-2 text-[10px] outline-none focus:border-purple-500 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100"
+                    aria-label="New tag"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowTagInput(true)}
+                    className="inline-flex items-center gap-0.5 rounded-full border border-dashed border-slate-300 px-2 py-0.5 text-[10px] font-medium text-slate-500 transition-colors hover:border-purple-400 hover:text-purple-600 dark:border-slate-600 dark:text-slate-400"
+                    title="Add tag (Backend Gap: PATCH /workflow/{id} for metadata isn't wired — tag stays local)"
+                  >
+                    <Plus className="h-2.5 w-2.5" />
+                    tag
+                  </button>
+                )
+              )}
+            </div>
+          )}
+
           {validation && (
             <div className="relative">
               <span
@@ -1941,6 +2570,88 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               Run
             </motion.button>
 
+            {/* ── Suspend / Resume — mutually exclusive single slot ──
+                Suspend is visible only when a schedule exists AND is started.
+                Resume is visible only when a schedule exists AND is suspended.
+                When no schedule exists we render Suspend disabled with a
+                tooltip explaining why — keeps the slot stable for muscle
+                memory and gives admins a hint that they need to schedule. */}
+            {scheduleState.hasSchedule && scheduleState.isStarted ? (
+              <motion.button
+                whileHover={!(isReadOnly || isSuspendingTask) ? { scale: 1.04 } : undefined}
+                whileTap={!(isReadOnly || isSuspendingTask) ? { scale: 0.96 } : undefined}
+                onClick={handleSuspendTask}
+                disabled={isReadOnly || isSuspendingTask}
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-orange-500/40 transition-shadow hover:shadow-md hover:shadow-orange-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                title={isReadOnly ? 'View-only access' : 'Pause the scheduled task'}
+                aria-label="Suspend scheduled task"
+              >
+                {isSuspendingTask ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3" />}
+                Suspend
+              </motion.button>
+            ) : scheduleState.hasSchedule && scheduleState.isSuspended ? (
+              <motion.button
+                whileHover={!(isReadOnly || isSuspendingTask) ? { scale: 1.04 } : undefined}
+                whileTap={!(isReadOnly || isSuspendingTask) ? { scale: 0.96 } : undefined}
+                onClick={handleResumeTask}
+                disabled={isReadOnly || isSuspendingTask}
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-emerald-500/40 transition-shadow hover:shadow-md hover:shadow-emerald-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                title={isReadOnly ? 'View-only access' : 'Resume the suspended scheduled task'}
+                aria-label="Resume scheduled task"
+              >
+                {isSuspendingTask ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
+                Resume
+              </motion.button>
+            ) : (
+              <motion.button
+                disabled
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-200 px-2.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
+                title={!activeWorkflowId ? 'Save the workflow first' : 'No schedule yet — create one with the Schedule button'}
+                aria-label="Suspend (no schedule)"
+              >
+                <Pause className="h-3 w-3" />
+                Suspend
+              </motion.button>
+            )}
+
+            {/* ── Schedule — opens ScheduleManager in a popover ──
+                Two visual states driven by useScheduleState:
+                  • no schedule → "Schedule" with calendar icon
+                  • has schedule → pill showing the cron summary */}
+            {scheduleState.hasSchedule ? (
+              <motion.button
+                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
+                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
+                onClick={() => setShowScheduleDialog(true)}
+                disabled={isReadOnly || !activeWorkflowId}
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
+                title={isReadOnly ? 'View-only access' : `Edit schedule — ${scheduleState.cronSummary || 'open editor'}`}
+                aria-label="Edit schedule"
+              >
+                <Calendar className="h-3 w-3" />
+                <span>Scheduled</span>
+                {scheduleState.cronSummary && (
+                  <span className="text-[10px] font-normal text-blue-600/80 dark:text-blue-400/80">
+                    · {scheduleState.cronSummary}
+                  </span>
+                )}
+                <span className="text-[10px] font-normal opacity-70">· edit</span>
+              </motion.button>
+            ) : (
+              <motion.button
+                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
+                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
+                onClick={() => setShowScheduleDialog(true)}
+                disabled={isReadOnly || !activeWorkflowId}
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-indigo-500/40 transition-shadow hover:shadow-md hover:shadow-indigo-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                title={!activeWorkflowId ? 'Save the workflow first' : isReadOnly ? 'View-only access' : 'Create a schedule for this workflow'}
+                aria-label="Schedule workflow"
+              >
+                <Calendar className="h-3 w-3" />
+                Schedule
+              </motion.button>
+            )}
+
             <motion.button
               whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
               whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
@@ -1952,6 +2663,23 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               <AlertCircle className="h-3 w-3" />
               Approve
             </motion.button>
+
+            {/* ── Rollback — opens RollbackVersionDialog with diff preview ──
+                Hidden when no versions exist, disabled in view-only. */}
+            {hasVersions && (
+              <motion.button
+                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
+                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
+                onClick={() => setShowRollbackDialog(true)}
+                disabled={isReadOnly || !activeWorkflowId}
+                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                title={isReadOnly ? 'View-only access' : 'Roll back to a previous version (diff preview shown before commit)'}
+                aria-label="Roll back to a previous version"
+              >
+                <History className="h-3 w-3" />
+                Rollback
+              </motion.button>
+            )}
           </div>
 
           {/* Divider */}
@@ -2045,7 +2773,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             showPalette ? 'w-72' : 'w-0'
           )}
         >
-          {showPalette && <ETLPalette className="h-full" />}
+          {showPalette && (
+            <ETLPalette
+              className="h-full"
+              projectId={activeWorkflowId ?? undefined}
+            />
+          )}
         </div>
 
         {/* Toggle palette button */}
@@ -2070,6 +2803,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             onNodesChange={isReadOnly ? undefined : onNodesChange}
             onEdgesChange={isReadOnly ? undefined : onEdgesChange}
             onConnect={isReadOnly ? undefined : onConnect}
+            onConnectStart={isReadOnly ? undefined : onConnectStart}
+            onConnectEnd={isReadOnly ? undefined : onConnectEnd}
+            isValidConnection={isValidConnection}
+            connectionRadius={30}
+            connectionMode={'strict' as 'strict' | 'loose'}
+            connectionLineComponent={(p) => (
+              <CustomConnectionLine {...p} isValid={isValidPair} />
+            )}
             onInit={setReactFlowInstance}
             onDrop={isReadOnly ? undefined : onDrop}
             onDragOver={isReadOnly ? undefined : onDragOver}
@@ -2085,6 +2826,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
             <Controls />
+            <MiniMap
+              position="bottom-right"
+              zoomable
+              pannable
+              nodeColor={() => '#0ea5e9'}
+              className="!bg-white/90 dark:!bg-slate-900/90 !border !border-slate-200 dark:!border-slate-700 rounded-md shadow-sm"
+            />
           </ReactFlow>
 
           {/* Empty state overlay — pointer-events-none so drops pass through to ReactFlow */}
@@ -2170,19 +2918,105 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             })}
           </div>
 
-          {/* Persistent error banner (replaces disappearing toasts) */}
+          {/* ── Status hero: surfaces last run + approval + deployment at a
+              glance so the user doesn't need to click into each tab to know
+              where their workflow stands. Only shown once a workflow is
+              loaded; hidden for the empty/new-pipeline state. ── */}
+          {activeWorkflowId && (
+            <RunApprovalStatusHero
+              runStatus={
+                isExecuting
+                  ? 'running'
+                  : !lastExecution
+                  ? 'never'
+                  : lastExecution.status === 'completed' || lastExecution.status === 'success'
+                  ? 'success'
+                  : lastExecution.status === 'partial_failure'
+                  ? 'partial'
+                  : lastExecution.status === 'failed'
+                  ? 'failed'
+                  : 'running'
+              }
+              rowsAffected={lastExecution?.rows_affected ?? null}
+              durationMs={
+                (lastExecution as { duration_ms?: number; execution_time_ms?: number } | null)?.duration_ms
+                ?? (lastExecution as { duration_ms?: number; execution_time_ms?: number } | null)?.execution_time_ms
+                ?? null
+              }
+              ranAt={
+                (lastExecution as { completed_at?: string; started_at?: string } | null)?.completed_at
+                ?? (lastExecution as { completed_at?: string; started_at?: string } | null)?.started_at
+                ?? null
+              }
+              approvalStatus={approvalStatus === 'none' ? 'none' : approvalStatus}
+              approver={null}
+              approvedAt={null}
+              activeDeploymentId={null}
+            />
+          )}
+
+          {/* Persistent error banner (replaces disappearing toasts).
+              Snowflake DML errors come back as a wall of text — friendlyError()
+              parses common codes (100072 = non-null violation, 22000 = data
+              exception, 23000 = constraint) and adds a human action line. */}
           <div aria-live="polite" aria-atomic="true">
-            {pipelineError && (
-              <div className="mx-4 mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2" role="alert">
-                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-red-700 dark:text-red-300">{pipelineError}</p>
+            {pipelineError && (() => {
+              const { headline, hint, isPlatform } = friendlyError(pipelineError);
+              return (
+                <div className="mx-4 mt-2 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2" role="alert">
+                  <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-xs font-semibold text-red-800 dark:text-red-200">{headline}</p>
+                    {hint && (
+                      <p className="text-[11px] text-red-700 dark:text-red-300">{hint}</p>
+                    )}
+                    {isPlatform && (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-[10px] italic text-red-600 dark:text-red-400">
+                          Platform-side issue — not caused by your block configuration.
+                        </p>
+                        <a
+                          href={`mailto:support@datalab360.io?subject=${encodeURIComponent(
+                            'Platform error — workflow builder',
+                          )}&body=${encodeURIComponent(
+                            [
+                              'Hi support team,',
+                              '',
+                              '<one-paragraph description of what you were doing>',
+                              '',
+                              `Workflow ID: ${activeWorkflowId ?? '(unsaved)'}`,
+                              `Workflow name: ${activeWorkflowName || pipelineName}`,
+                              `User: ${currentUsername || '(unknown)'}`,
+                              `Timestamp: ${new Date().toISOString()}`,
+                              '',
+                              '--- Raw error ---',
+                              pipelineError ?? '',
+                            ].join('\n'),
+                          )}`}
+                          className="inline-flex items-center gap-1 rounded border border-red-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-red-700 transition-colors hover:bg-red-50 dark:border-red-700 dark:bg-red-950/40 dark:text-red-300 dark:hover:bg-red-900/40"
+                          aria-label="Report this platform bug to support"
+                          title="Opens your mail client with error details prefilled"
+                        >
+                          <Bug className="h-2.5 w-2.5" />
+                          Report this bug
+                        </a>
+                      </div>
+                    )}
+                    <details className="group">
+                      <summary className="cursor-pointer text-[10px] uppercase tracking-wider text-red-500/80 hover:text-red-600">
+                        Show raw error
+                      </summary>
+                      <pre className="mt-1 max-h-[80px] overflow-auto rounded bg-red-100/60 dark:bg-red-950/30 p-1.5 font-mono text-[10px] text-red-800 dark:text-red-300 whitespace-pre-wrap">
+                        {pipelineError}
+                      </pre>
+                    </details>
+                  </div>
+                  <button onClick={() => setPipelineError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0" aria-label="Dismiss error">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
-                <button onClick={() => setPipelineError(null)} className="text-red-400 hover:text-red-600 flex-shrink-0" aria-label="Dismiss error">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* Execution status for screen readers */}
@@ -2343,31 +3177,48 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </>
             )}
 
-            {activeTab === 'sql' && (
-              <div className="space-y-3">
-                {compiledSql?.compiled_sql ? (
-                  <div className="p-3 bg-slate-900 rounded-lg">
-                    <div className="text-xs text-slate-400 mb-1">
-                      Mode: {compiledSql.mode} | Steps: {compiledSql.steps_count}
+            {activeTab === 'sql' && (() => {
+              const sqlText = compiledSql?.compiled_sql || lastExecution?.compiled_sql || '';
+              const handleCopySql = async () => {
+                if (!sqlText) return;
+                try {
+                  await navigator.clipboard.writeText(sqlText);
+                  toast.success('SQL copied to clipboard');
+                } catch {
+                  toast.error('Copy failed — select & copy manually');
+                }
+              };
+              return (
+                <div className="space-y-3">
+                  {sqlText ? (
+                    <div className="relative p-3 bg-slate-900 rounded-lg">
+                      <button
+                        type="button"
+                        onClick={handleCopySql}
+                        className="absolute top-2 right-2 inline-flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/80 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                        title="Copy SQL to clipboard"
+                        aria-label="Copy compiled SQL"
+                      >
+                        <Copy className="h-3 w-3" />
+                        Copy
+                      </button>
+                      <div className="text-xs text-slate-400 mb-1 pr-16">
+                        {compiledSql?.compiled_sql
+                          ? `Mode: ${compiledSql.mode} | Steps: ${compiledSql.steps_count}`
+                          : 'Compiled SQL'}
+                      </div>
+                      <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
+                        {sqlText}
+                      </pre>
                     </div>
-                    <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
-                      {compiledSql.compiled_sql}
-                    </pre>
-                  </div>
-                ) : lastExecution?.compiled_sql ? (
-                  <div className="p-3 bg-slate-900 rounded-lg">
-                    <div className="text-xs text-slate-400 mb-1">Compiled SQL</div>
-                    <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
-                      {lastExecution.compiled_sql}
-                    </pre>
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-500 text-center py-4">
-                    Run &quot;Preview SQL&quot; to see generated queries
-                  </p>
-                )}
-              </div>
-            )}
+                  ) : (
+                    <p className="text-sm text-slate-500 text-center py-4">
+                      Run &quot;Preview SQL&quot; to see generated queries
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
             {activeTab === 'ai' && (
               <div className="space-y-3">
@@ -2454,7 +3305,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           real, named workflow to come back to (not just transient state). */}
       <GuidedAiWorkflowWizard
         open={showAiGenerate}
-        onClose={() => setShowAiGenerate(false)}
+        initialDescription={aiSeedDescription}
+        onClose={() => {
+          setShowAiGenerate(false);
+          setAiSeedDescription('');
+        }}
         onCreated={async (genNodes, genEdges, meta) => {
           // 1) Drop nodes/edges on the canvas immediately so the user sees
           //    the result of their wizard work without delay.
@@ -2463,42 +3318,98 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setIsDirty(true);
           setAiNextStepHint(true);
 
-          // 2) Auto-save as a NEW workflow project named "[AI Draft] ...".
-          //    Each node becomes a step with the AI-generated label/type
-          //    in the payload. The user still has to open each block to
-          //    fill in real database/schema/table/columns/conditions
-          //    before Save → Validate → Run will produce a working query.
+          // 2) Persist the AI-generated steps. Two paths:
+          //    - activeWorkflowId set (came from UnifiedProjectWizard's AI
+          //      fork): the project shell already exists with the user's
+          //      chosen name + `build:ai` tag — ADD steps to it. Creating a
+          //      second project here would orphan the named shell.
+          //    - activeWorkflowId null (legacy header "AI" button on a blank
+          //      canvas): auto-save as a NEW "[AI Draft] …" project.
           const draftName = `[AI Draft] ${(meta.description || 'Untitled').slice(0, 30)}`;
           try {
-            const steps = genNodes.map((n, i) => ({
-              action_type: 'sql' as const, // generic placeholder action type
-              step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
-              description: `AI-generated ${String(n.type)} block. Configure database/columns before running.`,
-              payload: {
-                ai_generated: true,
-                node_type: String(n.type),
-                node_id: n.id,
-                position: n.position,
-                data: n.data,
-                // Edges connecting this node → consumer can rebuild the DAG
-                outgoing: genEdges.filter((e) => e.source === n.id).map((e) => e.target),
-              },
-            }));
-            const created = await workflowApi.createWorkflow({
-              project_name: draftName,
-              description: meta.description,
-              tags: ['ai-draft'],
-              steps,
+            // Build steps with real action_type (from node.type, falling back
+            // to "sql" only for legacy generic placeholders). Carry `inputs`
+            // (incoming edges) in the payload so stepsToReactFlow can rebuild
+            // the DAG on reload — `outgoing` was the wrong direction.
+            const steps = genNodes.map((n, i) => {
+              const incoming = genEdges
+                .filter((e) => e.target === n.id)
+                .map((e) => e.source);
+              return {
+                action_type: String(n.type || 'sql'),
+                step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+                description: `AI-generated ${String(n.type)} block.`,
+                payload: {
+                  ai_generated: true,
+                  node_type: String(n.type),
+                  nodeId: n.id,
+                  position: n.position,
+                  inputs: incoming,
+                  // Spread data so the registered node components find all
+                  // fields on the dual-key path (data.X || data.config.X).
+                  ...((n.data as Record<string, unknown>) ?? {}),
+                },
+              };
             });
-            // Refresh the workflow list so the new draft appears in the
-            // selector, then load it as the active workflow.
-            void loadWorkflows();
-            setActiveWorkflowId(created.project_id);
-            setPipelineName(draftName);
-            toast.success(`Saved as "${draftName}" — configure each block to make it runnable`);
+
+            let targetProjectId: string;
+
+            if (activeWorkflowId) {
+              // Project already exists (UnifiedProjectWizard AI fork). Replace
+              // its steps with the AI-generated ones — keep the project's
+              // name + `build:ai` tag intact.
+              targetProjectId = activeWorkflowId;
+              try {
+                const existing = await workflowApi.listSteps(activeWorkflowId);
+                for (const s of existing.steps || []) {
+                  await workflowApi.deleteStep(activeWorkflowId, s.step_id).catch(() => {});
+                }
+              } catch { /* no steps yet — fine */ }
+              for (const s of steps) {
+                await workflowApi.addStep(activeWorkflowId, s);
+              }
+              void loadWorkflows();
+              toast.success(`AI workflow added to "${activeWorkflowName}" — running validation…`);
+            } else {
+              // Legacy path: no project yet — auto-save as a new draft.
+              // Carry the wizard's self-review checklist into the tags so
+              // downstream audit/governance can read which compliance cards
+              // the author acknowledged. This is a recorded self-attestation,
+              // per the wizard's honest-step-3 copy.
+              const complianceMeta = (meta as { compliance_review?: Record<string, 'reviewed' | 'unchecked'> }).compliance_review;
+              const created = await workflowApi.createWorkflow({
+                project_name: draftName,
+                description: meta.description,
+                tags: complianceMeta
+                  ? ['ai-draft', 'build:ai', ...Object.entries(complianceMeta).filter(([, v]) => v === 'reviewed').map(([k]) => `compliance:${k}`)]
+                  : ['ai-draft', 'build:ai'],
+                steps,
+              });
+              targetProjectId = created.project_id;
+              void loadWorkflows();
+              setActiveWorkflowId(created.project_id);
+              setPipelineName(draftName);
+              toast.success(`Saved as "${draftName}" — running validation…`);
+            }
+
+            // Run the backend validation + dry-run sequence so the user sees
+            // immediately whether the workflow is runnable end-to-end before
+            // they request deployment. Failures surface as toasts; the draft
+            // itself stays in place so the user can refine.
+            try {
+              const validation = await workflowApi.validateWorkflow(targetProjectId);
+              const issues = (validation as { errors?: unknown[] })?.errors ?? [];
+              if (Array.isArray(issues) && issues.length > 0) {
+                toast.error(`Validation found ${issues.length} issue${issues.length === 1 ? '' : 's'} — see Runs panel`);
+              } else {
+                toast.success('Validation passed — ready to run');
+              }
+            } catch (validateErr) {
+              toast.error(
+                `Validation failed: ${getApiErrorMessage(validateErr) || 'backend error'}`,
+              );
+            }
           } catch (err) {
-            // Save failed but the canvas still has the nodes — user can
-            // hit Save manually. Surface the error so they know.
             const msg = getApiErrorMessage(err) || 'Auto-save failed — click Save to retry';
             toast.error(msg);
           }
@@ -2514,6 +3425,95 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           // so the imported project shows up in the header selector.
           void loadWorkflows();
           toast.success(`"${projectName}" imported — pick it from the workflow selector`);
+        }}
+      />
+
+      {/* Schedule popover — reuses the existing ScheduleManager so the
+          create/edit/suspend flow stays in one place. Triggered from the
+          Schedule / "Scheduled · edit" button in the header. */}
+      <UiDialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+        <UiDialogContent className="max-w-lg bg-white p-0 dark:bg-slate-900">
+          <UiDialogHeader className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
+            <UiDialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+              <Calendar className="h-4 w-4 text-blue-500" />
+              Schedule — {activeWorkflowName || pipelineName}
+            </UiDialogTitle>
+          </UiDialogHeader>
+          {activeWorkflowId ? (
+            <ScheduleManager
+              pipelineId={activeWorkflowId}
+              pipelineName={activeWorkflowName}
+              isReadOnly={isReadOnly}
+              compact
+              onScheduleChange={() => {
+                refetchHeaderSchedules();
+              }}
+            />
+          ) : (
+            <div className="p-6 text-center text-sm text-slate-500">
+              Save the workflow first to manage schedules.
+            </div>
+          )}
+        </UiDialogContent>
+      </UiDialog>
+
+      {/* Local-draft restore prompt — soft confirm. Shown only when a draft
+          newer than the loaded workflow exists in localStorage. */}
+      <ConfirmDialog
+        open={!!draftRestorePrompt}
+        onOpenChange={(open) => { if (!open) setDraftRestorePrompt(null); }}
+        title="Restore local draft?"
+        body={
+          draftRestorePrompt ? (
+            <div>
+              <p>
+                We saved a local draft{' '}
+                {(() => {
+                  const ageMs = Date.now() - draftRestorePrompt.payload.savedAt;
+                  const mins = Math.max(1, Math.round(ageMs / 60_000));
+                  return mins < 60 ? `${mins} minute${mins === 1 ? '' : 's'} ago` : `${Math.round(mins / 60)} hour${Math.round(mins / 60) === 1 ? '' : 's'} ago`;
+                })()}{' '}
+                with {draftRestorePrompt.payload.nodes?.length ?? 0} block
+                {(draftRestorePrompt.payload.nodes?.length ?? 0) === 1 ? '' : 's'}.
+                Restore it? Your current loaded workflow will be replaced on the canvas.
+              </p>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Local-only — the backend version is not modified until you click Save.
+              </p>
+            </div>
+          ) : null
+        }
+        confirmLabel="Restore draft"
+        cancelLabel="Discard draft"
+        onCancel={() => {
+          if (draftRestorePrompt) {
+            try { window.localStorage.removeItem(draftRestorePrompt.key); } catch { /* noop */ }
+          }
+        }}
+        onConfirm={() => {
+          if (draftRestorePrompt) {
+            const { nodes: dn, edges: de, pipelineName: dn2 } = draftRestorePrompt.payload;
+            setNodes(dn);
+            setEdges(de);
+            setPipelineName(dn2);
+            setIsDirty(true);
+            toast.success('Draft restored');
+          }
+          setDraftRestorePrompt(null);
+        }}
+      />
+
+      {/* Rollback dialog — diff preview + hard-tier confirm gate. */}
+      <RollbackVersionDialog
+        open={showRollbackDialog}
+        onOpenChange={setShowRollbackDialog}
+        workflowId={activeWorkflowId}
+        workflowName={activeWorkflowName || pipelineName}
+        onRolledBack={() => {
+          if (activeWorkflowId) {
+            // Re-load steps so the canvas reflects the rolled-back definition.
+            handleLoadPipeline({ id: activeWorkflowId, name: activeWorkflowName });
+          }
         }}
       />
     </div>

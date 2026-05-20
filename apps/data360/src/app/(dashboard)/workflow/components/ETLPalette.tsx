@@ -2,7 +2,17 @@
 
 import React, { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { Search, ChevronDown, ChevronRight, GripVertical, Star } from 'lucide-react';
+import {
+  Search,
+  ChevronDown,
+  ChevronRight,
+  GripVertical,
+  Star,
+  Sparkles,
+  Wand2,
+  type LucideIcon,
+} from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
 import {
   ETL_BLOCKS,
   ETLBlockDefinition,
@@ -12,10 +22,90 @@ import {
   getBlocksByCategory,
   getCommonBlocks,
 } from './etl-blocks';
+import CustomBlockFactoryModal from './CustomBlockFactoryModal';
+import { useCustomBlocks, type CustomBlock } from './custom-blocks-store';
 
 interface ETLPaletteProps {
   className?: string;
+  /**
+   * Project ID for project-scoped custom blocks. When omitted, the
+   * "Custom (this project)" section + "Create custom block" CTA are hidden.
+   */
+  projectId?: string | null;
 }
+
+// Resolve lucide icon name string → component, with a safe fallback.
+function resolveIcon(name: string): LucideIcon {
+  const exports = LucideIcons as unknown as Record<string, LucideIcon | undefined>;
+  return exports[name] || Sparkles;
+}
+
+// Draggable custom-block palette item. Mirrors PaletteItem but for the
+// project-scoped block list. Drag payload encodes the underlying script type
+// (sql_script / python_script) so the canvas can hydrate a normal node, with
+// the custom block definition piggybacked for later validation/config seed.
+const CustomPaletteItem: React.FC<{ block: CustomBlock }> = ({ block }) => {
+  const Icon = resolveIcon(block.icon_name);
+  const dragType = block.language === 'python' ? 'python_script' : 'sql_script';
+
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('application/reactflow', dragType);
+    e.dataTransfer.setData(
+      'application/x-custom-block',
+      JSON.stringify({
+        name: block.name,
+        label: block.label,
+        language: block.language,
+        body: block.body,
+        params: block.params,
+        ports: block.ports,
+      }),
+    );
+    e.dataTransfer.effectAllowed = 'move';
+
+    const preview = document.createElement('div');
+    preview.style.cssText =
+      'display:flex;align-items:center;gap:8px;padding:8px 14px;background:white;border-radius:10px;border:2px solid #a855f7;box-shadow:0 4px 16px rgba(0,0,0,0.15);font-size:13px;font-weight:600;color:#1e293b;position:absolute;top:-9999px;left:-9999px;';
+    preview.textContent = block.label;
+    document.body.appendChild(preview);
+    e.dataTransfer.setDragImage(preview, 50, 20);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (document.body.contains(preview)) document.body.removeChild(preview);
+      }, 0);
+    });
+  };
+
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      className={cn(
+        'group flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-grab active:cursor-grabbing',
+        'border border-fuchsia-200/80 dark:border-fuchsia-700/40',
+        'bg-white dark:bg-slate-800',
+        'hover:border-fuchsia-300 dark:hover:border-fuchsia-500',
+        'hover:shadow-md hover:-translate-y-px transition-all duration-200',
+        'select-none',
+      )}
+      title={`${block.description || block.label} · by ${block.created_by}`}
+    >
+      <div className="w-1.5 h-8 rounded-full flex-shrink-0 bg-fuchsia-500 opacity-60" />
+      <div className="p-1.5 rounded-md bg-fuchsia-50 dark:bg-fuchsia-900/30">
+        <Icon className="h-4 w-4 text-fuchsia-600 dark:text-fuchsia-300" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-[13px] text-slate-800 dark:text-slate-100 leading-tight truncate">
+          {block.label}
+        </div>
+        <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate leading-tight mt-0.5">
+          {block.description || `${block.language.toUpperCase()} · ${block.params.length} param${block.params.length === 1 ? '' : 's'}`}
+        </div>
+      </div>
+      <GripVertical className="h-3.5 w-3.5 text-fuchsia-300 dark:text-fuchsia-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+    </div>
+  );
+};
 
 // Category color mapping for visual distinction
 const CATEGORY_COLORS: Record<string, { bg: string; text: string; border: string; dot: string }> = {
@@ -134,8 +224,10 @@ const CategorySection: React.FC<{
   );
 };
 
-const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
+const ETLPalette: React.FC<ETLPaletteProps> = ({ className, projectId }) => {
   const [searchQuery, setSearchQuery] = useState('');
+  const [factoryOpen, setFactoryOpen] = useState(false);
+  const { blocks: customBlocks, refresh: refreshCustomBlocks } = useCustomBlocks(projectId ?? null);
 
   // Filter blocks based on search
   const filteredBlocks = useMemo(() => {
@@ -163,6 +255,7 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
   const aiBlocks = useMemo(() => getBlocksByCategory('ai_functions'), []);
 
   return (
+    <>
     <div className={cn('flex flex-col h-full', className)}>
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-gradient-to-r from-indigo-50 to-blue-50 dark:from-indigo-900/20 dark:to-blue-900/20">
@@ -178,6 +271,26 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
           Drag to canvas to build your workflow
         </p>
       </div>
+
+      {/* Create custom block CTA — sticky above search */}
+      {projectId && (
+        <div className="px-3 pt-2.5 pb-1">
+          <button
+            type="button"
+            onClick={() => setFactoryOpen(true)}
+            aria-label="Create custom block"
+            className={cn(
+              'w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold',
+              'bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white',
+              'hover:from-purple-700 hover:to-fuchsia-700',
+              'shadow-sm hover:shadow-md transition-all',
+            )}
+          >
+            <Sparkles className="h-4 w-4" />
+            Create custom block
+          </button>
+        </div>
+      )}
 
       {/* Search */}
       <div className="px-3 py-2.5">
@@ -225,8 +338,29 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
             )}
           </div>
         ) : (
-          // Categorized view — Common first, rest collapsed
+          // Categorized view — Custom first (project-scoped), then Common, then rest collapsed
           <>
+            {/* Custom blocks — only when the project has ≥ 1 saved custom block */}
+            {customBlocks.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-fuchsia-50 dark:bg-fuchsia-900/20">
+                  <Wand2 className="h-3.5 w-3.5 text-fuchsia-600 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-fuchsia-700 dark:text-fuchsia-300">
+                    Custom (this project)
+                  </span>
+                  <span className="ml-auto text-[10px] text-slate-400 font-normal bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded-full">
+                    {customBlocks.length}
+                  </span>
+                </div>
+                <div className="mt-1.5 space-y-1.5 pl-1">
+                  {customBlocks.map((b) => (
+                    <CustomPaletteItem key={`custom-${b.name}-${b.event_id}`} block={b} />
+                  ))}
+                </div>
+                <div className="h-px bg-slate-200 dark:bg-slate-700 my-3" />
+              </div>
+            )}
+
             {/* Common blocks — always expanded with star icon */}
             <div className="mb-3">
               <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-900/20">
@@ -256,6 +390,17 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className }) => {
         )}
       </div>
     </div>
+
+      {/* Custom block factory wizard — mounted once, controlled by the CTA */}
+      <CustomBlockFactoryModal
+        open={factoryOpen}
+        onOpenChange={setFactoryOpen}
+        projectId={projectId ?? null}
+        onCreated={() => {
+          void refreshCustomBlocks();
+        }}
+      />
+    </>
   );
 };
 

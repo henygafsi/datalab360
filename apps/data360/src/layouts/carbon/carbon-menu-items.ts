@@ -117,6 +117,10 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
+  // NOTE: "Deploy App" is intentionally NOT a top-level menu module.
+  // The deploy-app flow is reached from AI Intelligence → Snowpark Services
+  // (Container Services / Streamlit Apps), where app hosting + versioning
+  // actually live. The route /deploy-app still exists for deep-linking.
   // 5. Governance
   {
     id: 6,

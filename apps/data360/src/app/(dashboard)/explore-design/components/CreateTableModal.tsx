@@ -140,7 +140,11 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
   const [tableNameCheck, setTableNameCheck] = useState<NamingCheckItem | null>(null);
   const [tableNameCheckLoading, setTableNameCheckLoading] = useState(false);
   const [columnNameChecks, setColumnNameChecks] = useState<Record<string, NamingCheckItem>>({});
-  const columnCheckTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Single shared debounce timer + a pending {columnId -> name} map so we
+  // batch all dirty columns into ONE /ai/check-naming call instead of one
+  // call per column blur. The check-naming endpoint accepts names[].
+  const columnCheckTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingColumnChecks = useRef<Record<string, string>>({});
 
   // Sync tableType when initialTableType changes (dropdown re-opens)
   useEffect(() => {
@@ -168,30 +172,53 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
     }
   }, [projectId, isAiEnabled]);
 
-  // AI Naming: check column name with debounce
+  // AI Naming: queue a column for checking. All columns dirtied within the
+  // 800ms debounce window are sent together as a single batched API call.
   const checkColumnNaming = useCallback((columnId: string, name: string) => {
     const trimmed = name.trim();
-    if (!trimmed || trimmed.length < 2 || !isAiEnabled('naming_checker')) return;
+    if (!isAiEnabled('naming_checker')) return;
 
-    if (columnCheckTimers.current[columnId]) {
-      clearTimeout(columnCheckTimers.current[columnId]);
+    if (!trimmed || trimmed.length < 2) {
+      delete pendingColumnChecks.current[columnId];
+      return;
     }
+    pendingColumnChecks.current[columnId] = trimmed;
 
-    columnCheckTimers.current[columnId] = setTimeout(async () => {
+    if (columnCheckTimer.current) clearTimeout(columnCheckTimer.current);
+    columnCheckTimer.current = setTimeout(async () => {
+      const batch = { ...pendingColumnChecks.current };
+      pendingColumnChecks.current = {};
+      const entries = Object.entries(batch);
+      if (entries.length === 0) return;
       try {
         const result = await aiCheckNaming(projectId, {
-          names: [trimmed],
+          names: entries.map(([, n]) => n),
           entity_type: 'column',
           convention: 'UPPER_SNAKE',
         });
-        if (result.results?.length > 0) {
-          setColumnNameChecks(prev => ({ ...prev, [columnId]: result.results[0] }));
-        }
+        // Map results back to columnIds by name (results preserve order,
+        // but match by name to stay correct if the API reorders/dedupes).
+        const byName = new Map(result.results?.map(r => [r.name, r]) ?? []);
+        setColumnNameChecks(prev => {
+          const next = { ...prev };
+          for (const [colId, n] of entries) {
+            const item = byName.get(n);
+            if (item) next[colId] = item;
+          }
+          return next;
+        });
       } catch (err) {
-        console.warn('[AI] Naming check failed for column:', err);
+        console.warn('[AI] Naming check failed for columns:', err);
       }
     }, 800);
   }, [projectId, isAiEnabled]);
+
+  // Flush any pending debounce timer on unmount to avoid a leaked timeout.
+  useEffect(() => {
+    return () => {
+      if (columnCheckTimer.current) clearTimeout(columnCheckTimer.current);
+    };
+  }, []);
 
   // AI: Suggest columns — uses dedicated API when table_templates feature is enabled, falls back to Cortex
   const fetchAiSuggestions = useCallback(async (force = false) => {
@@ -363,6 +390,7 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
     }
     setColumns(columns.filter((col) => col.id !== id));
     // Clean up naming check for removed column
+    delete pendingColumnChecks.current[id];
     setColumnNameChecks(prev => {
       const next = { ...prev };
       delete next[id];
@@ -564,6 +592,8 @@ const CreateTableModal: React.FC<CreateTableModalProps> = ({
       setAiSuggestions([]); setAiDismissed(false); lastAiQuery.current = '';
       setMatResult(null);
       setTableNameCheck(null); setColumnNameChecks({});
+      pendingColumnChecks.current = {};
+      if (columnCheckTimer.current) clearTimeout(columnCheckTimer.current);
 
       onClose();
     } catch (error: any) {
