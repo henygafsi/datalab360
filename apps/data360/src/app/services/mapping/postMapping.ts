@@ -33,8 +33,12 @@ export interface TestMappingResponse {
 }
 
 /**
- * Sends mapping data to your FastAPI endpoint: POST /mapping/test_mapping
- * The endpoint expects a TestMappingPayload with project_id and mappings array.
+ * Sends mapping data to a FastAPI endpoint.
+ *
+ * NOTE: /explore-design/guided/test_mapping/ DOES NOT EXIST on the current
+ * backend router (the /explore-design router has no /guided sub-prefix).
+ * Wrapped in try-catch with safe, non-throwing fallback so callers can
+ * detect "not implemented" via response.message.
  */
 export async function postMapping(payload: TestMappingPayload): Promise<TestMappingResponse> {
     try {
@@ -44,7 +48,21 @@ export async function postMapping(payload: TestMappingPayload): Promise<TestMapp
         );
         return response.data;
     } catch (error) {
-        console.error('Error saving mapping:', error);
-        throw error;
+        if (process.env.NODE_ENV === 'development') {
+            console.warn(
+                '[postMapping] /explore-design/guided/test_mapping/ not implemented on backend.',
+                error
+            );
+        }
+        return {
+            message: 'Mapping validation endpoint not implemented on backend.',
+            project_id: payload.project_id,
+            validation_results: payload.mappings.map((m) => ({
+                source_table: `${m.source_database}.${m.source_schema}.${m.source_table}`,
+                target_table: `${m.target_database}.${m.target_schema}.${m.target_table}`,
+                status: 'warning' as const,
+                warnings: ['Backend test_mapping endpoint not available; skipped server-side validation.'],
+            })),
+        };
     }
 }

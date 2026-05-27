@@ -233,29 +233,56 @@ export interface RLSPolicy {
   active: boolean;
 }
 
+/**
+ * GET /gouvernance/rls-policies exists in backend.
+ * NOTE: createRLSPolicy, applyRLSPolicy, removeRLSPolicy below use
+ * endpoints that do NOT exist in the backend. The canonical RLS service
+ * is in policies.ts (/gouvernance/policies/row-access/*).
+ * These are kept for backward compatibility and wrapped in try/catch.
+ */
 export async function getRLSPolicies(): Promise<RLSPolicy[]> {
-  const response = await apiClient.get('/gouvernance/rls-policies');
-  return response.data;
+  try {
+    const response = await apiClient.get('/gouvernance/rls-policies');
+    return response.data;
+  } catch (error) {
+    console.warn('getRLSPolicies: endpoint unavailable, returning []', error);
+    return [];
+  }
 }
 
 export async function createRLSPolicy(policy: Omit<RLSPolicy, 'active'>): Promise<RLSPolicy> {
-  const response = await apiClient.post('/gouvernance/rls-policies', policy);
-  return response.data;
+  try {
+    const response = await apiClient.post('/gouvernance/rls-policies', policy);
+    return response.data;
+  } catch (error: any) {
+    console.error('createRLSPolicy: POST /gouvernance/rls-policies not available — use policies.ts createRLSPolicy instead', error);
+    throw error;
+  }
 }
 
 export async function applyRLSPolicy(policyName: string, tableName: string, database: string, schema: string): Promise<void> {
-  await apiClient.post('/gouvernance/rls-policies/apply', {
-    policy_name: policyName,
-    table_name: tableName,
-    database,
-    schema,
-  });
+  try {
+    await apiClient.post('/gouvernance/rls-policies/apply', {
+      policy_name: policyName,
+      table_name: tableName,
+      database,
+      schema,
+    });
+  } catch (error: any) {
+    console.error('applyRLSPolicy: POST /gouvernance/rls-policies/apply not available — use policies.ts applyRLSPolicy instead', error);
+    throw error;
+  }
 }
 
 export async function removeRLSPolicy(tableName: string, database: string, schema: string): Promise<void> {
-  await apiClient.post('/gouvernance/rls-policies/remove', {
-    table_name: tableName,
-    database,
-    schema,
-  });
+  try {
+    await apiClient.post('/gouvernance/rls-policies/remove', {
+      table_name: tableName,
+      database,
+      schema,
+    });
+  } catch (error: any) {
+    console.error('removeRLSPolicy: POST /gouvernance/rls-policies/remove not available — use policies.ts removeRLSPolicy instead', error);
+    throw error;
+  }
 }

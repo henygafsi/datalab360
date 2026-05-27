@@ -4,7 +4,7 @@
  */
 import apiClient from '@/lib/api-client';
 import { GrantTableDataType } from '@/app/shared/gouvernance/grants/table';
-import { getRoles } from '@/app/services/gouvernance/fetch_roles';
+import { getRoles } from '@/app/services/governance/fetch_roles';
 
 /**
  * Fetches permissions/grants from the backend.

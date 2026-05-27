@@ -38,19 +38,30 @@ async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' | 'PUT' | 'DE
 /**
  * Fetch query access history with joined metadata
  * GET /gouvernance/get_user_info
+ * NOTE: This endpoint may not exist on all deployments — returns [] on failure.
  */
 export async function getQueryAccessHistory(): Promise<QueryAccessHistory[]> {
-  return apiCall<QueryAccessHistory[]>('/gouvernance/get_user_info');
+  try {
+    return await apiCall<QueryAccessHistory[]>('/gouvernance/get_user_info');
+  } catch (error) {
+    console.warn('getQueryAccessHistory: endpoint unavailable, returning []', error);
+    return [];
+  }
 }
 
 /**
  * Get stage storage sizes
  * GET /gouvernance/get_stage_storage_info
- * Backend returns { count, stages }; we return stages array for hooks.
+ * NOTE: This endpoint may not exist on all deployments — returns [] on failure.
  */
 export async function getStageStorageInfo(): Promise<StageSize[]> {
-  const res = await apiCall<{ count?: number; stages?: StageSize[] }>('/gouvernance/get_stage_storage_info');
-  return Array.isArray(res?.stages) ? res.stages : [];
+  try {
+    const res = await apiCall<{ count?: number; stages?: StageSize[] }>('/gouvernance/get_stage_storage_info');
+    return Array.isArray(res?.stages) ? res.stages : [];
+  } catch (error) {
+    console.warn('getStageStorageInfo: endpoint unavailable, returning []', error);
+    return [];
+  }
 }
 
 /**
@@ -71,9 +82,15 @@ export async function getDwhStorageInfo(
 /**
  * Get storage for tables loaded from stages
  * GET /gouvernance/get_src_table_storage_info
+ * NOTE: This endpoint may not exist on all deployments — returns empty object on failure.
  */
 export async function getSrcTableStorageInfo(): Promise<StagedTableStorage> {
-  return apiCall<StagedTableStorage>('/gouvernance/get_src_table_storage_info');
+  try {
+    return await apiCall<StagedTableStorage>('/gouvernance/get_src_table_storage_info');
+  } catch (error) {
+    console.warn('getSrcTableStorageInfo: endpoint unavailable, returning empty', error);
+    return {} as StagedTableStorage;
+  }
 }
 
 /**

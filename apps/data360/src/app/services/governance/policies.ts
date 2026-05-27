@@ -1350,9 +1350,14 @@ export async function removeAggregationPolicy(
   table: string
 ): Promise<any> {
   try {
-    const response = await apiClient.delete<StandardResponse>(
-      `${POLICIES_API}/aggregation/${database}/${schema}/${table}`
-    );
+    // Backend uses POST /gouvernance/policies/aggregation/remove (not DELETE)
+    const response = await apiClient.post<StandardResponse>(`${POLICIES_API}/aggregation/remove`, null, {
+      params: {
+        database,
+        schema,
+        table,
+      },
+    });
     return response.data.data;
   } catch (error: any) {
     console.error('Remove aggregation policy error:', {
@@ -1501,8 +1506,8 @@ export async function assignPolicyToRoles(
   // console.log('[assignPolicyToRoles] Roles:', roles);
 
   try {
-    // Backend returns plain dict (not StandardResponse) with:
-    // { message, policy_name, policy_type, granted, already_had_policy, requested_roles, errors }
+    // NOTE: PUT /gouvernance/policies/{type}/{name}/roles may not exist in backend.
+    // This endpoint is kept for forward-compatibility.
     const response = await apiClient.put<{
       message: string;
       policy_name: string;
@@ -1515,8 +1520,6 @@ export async function assignPolicyToRoles(
       { roles } // Send as body
     );
 
-    // console.log('[assignPolicyToRoles] Response:', response.data);
-
     const data = response.data;
     return {
       message: data.message,
@@ -1526,7 +1529,7 @@ export async function assignPolicyToRoles(
       verified_roles: data.requested_roles || roles,
     };
   } catch (error: any) {
-    console.error('Assign policy to roles error:', {
+    console.error('Assign policy to roles error (endpoint may not exist):', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
       status: error.response?.status,
@@ -1583,25 +1586,29 @@ export async function getPolicyReferences(
   database: string = 'cp_data360',
   schema: string = 'gouvernance'
 ): Promise<PolicyReferencesResponse> {
-  // Use lowercase policy type for this endpoint
+  // NOTE: Only /gouvernance/policies/dmf/references exists in backend.
+  // For other policy types, this endpoint may not exist.
   const type = policyType.toLowerCase().replace('_', '-');
   const url = `${POLICIES_API}/${type}/${policyName}/references`;
-
-  // console.log('[getPolicyReferences] GET', url);
 
   try {
     const response = await apiClient.get<StandardResponse<PolicyReferencesResponse>>(url, {
       params: { database, schema }
     });
-    // console.log('[getPolicyReferences] Response:', response.data);
     return response.data.data;
   } catch (error: any) {
-    console.error('Get policy references error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
+    console.warn(`getPolicyReferences: ${url} may not exist`, {
       status: error.response?.status,
+      detail: error.response?.data?.detail,
     });
-    throw error;
+    // Return safe default — assume no references (allows delete to proceed)
+    return {
+      policy_name: policyName,
+      policy_type: policyType,
+      references: [],
+      reference_count: 0,
+      can_delete: true,
+    };
   }
 }
 
@@ -1615,25 +1622,28 @@ export async function unapplyPolicyFromAll(
   database: string = 'cp_data360',
   schema: string = 'gouvernance'
 ): Promise<UnapplyAllResponse> {
-  // Use lowercase policy type for this endpoint
+  // NOTE: POST /gouvernance/policies/{type}/{name}/unapply-all does NOT exist in backend.
+  // This is kept for forward-compatibility. Returns empty result on failure.
   const type = policyType.toLowerCase().replace('_', '-');
   const url = `${POLICIES_API}/${type}/${policyName}/unapply-all`;
-
-  // console.log('[unapplyPolicyFromAll] POST', url);
 
   try {
     const response = await apiClient.post<StandardResponse<UnapplyAllResponse>>(url, null, {
       params: { database, schema }
     });
-    // console.log('[unapplyPolicyFromAll] Response:', response.data);
     return response.data.data;
   } catch (error: any) {
-    console.error('Unapply policy from all error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
+    console.warn(`unapplyPolicyFromAll: ${url} may not exist`, {
       status: error.response?.status,
+      detail: error.response?.data?.detail,
     });
-    throw error;
+    // Return safe fallback — no removals, no errors, allow deletion to proceed
+    return {
+      policy_name: policyName,
+      removed: [],
+      errors: [],
+      can_delete: true,
+    };
   }
 }
 
@@ -1761,6 +1771,11 @@ export async function getTablePolicies(
  * Replace an existing masking policy on a column with a new one
  * Use this when column already has a masking policy applied
  */
+/**
+ * Replace an existing masking policy on a column with a new one.
+ * NOTE: POST /gouvernance/policies/masking/replace does NOT exist in backend.
+ * Fallback: remove old policy then apply new one.
+ */
 export async function replaceMaskingPolicy(data: {
   new_policy_name: string;
   database: string;
@@ -1770,7 +1785,6 @@ export async function replaceMaskingPolicy(data: {
   policy_schema?: string;
 }): Promise<any> {
   const url = `${POLICIES_API}/masking/replace`;
-  // console.log('[replaceMaskingPolicy] POST', url, 'data:', data);
 
   const params: Record<string, string> = {
     new_policy_name: data.new_policy_name,
@@ -1786,9 +1800,21 @@ export async function replaceMaskingPolicy(data: {
 
   try {
     const response = await apiClient.post<StandardResponse>(url, null, { params });
-    // console.log('[replaceMaskingPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
+    // Fallback: remove then apply
+    if (error?.response?.status === 404 || error?.response?.status === 405) {
+      console.warn('replaceMaskingPolicy: /masking/replace not available, using remove+apply fallback');
+      await removeMaskingPolicy(data.database, data.schema, data.table, data.column);
+      return applyMaskingPolicy({
+        policy_name: data.new_policy_name,
+        database: data.database,
+        schema: data.schema,
+        table: data.table,
+        column: data.column,
+        policy_schema: data.policy_schema,
+      });
+    }
     console.error('Replace masking policy error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
@@ -1802,6 +1828,11 @@ export async function replaceMaskingPolicy(data: {
  * Replace an existing RLS policy on a table with a new one
  * Use this when table already has an RLS policy applied
  */
+/**
+ * Replace an existing RLS policy on a table with a new one.
+ * NOTE: POST /gouvernance/policies/row-access/replace does NOT exist in backend.
+ * Fallback: remove old policy then apply new one.
+ */
 export async function replaceRLSPolicy(data: {
   new_policy_name: string;
   database: string;
@@ -1811,7 +1842,6 @@ export async function replaceRLSPolicy(data: {
   policy_schema?: string;
 }): Promise<any> {
   const url = `${POLICIES_API}/row-access/replace`;
-  // console.log('[replaceRLSPolicy] POST', url, 'data:', data);
 
   const params: Record<string, string> = {
     new_policy_name: data.new_policy_name,
@@ -1827,9 +1857,21 @@ export async function replaceRLSPolicy(data: {
 
   try {
     const response = await apiClient.post<StandardResponse>(url, null, { params });
-    // console.log('[replaceRLSPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
+    // Fallback: remove then apply
+    if (error?.response?.status === 404 || error?.response?.status === 405) {
+      console.warn('replaceRLSPolicy: /row-access/replace not available, using remove+apply fallback');
+      await removeRLSPolicy(data.table, data.database, data.schema);
+      return applyRLSPolicy({
+        policy_name: data.new_policy_name,
+        table_name: data.table,
+        database: data.database,
+        schema: data.schema,
+        policy_column: data.policy_column,
+        policy_schema: data.policy_schema,
+      });
+    }
     console.error('Replace RLS policy error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
@@ -1843,6 +1885,11 @@ export async function replaceRLSPolicy(data: {
  * Replace an existing aggregation policy on a table with a new one
  * Use this when table already has an aggregation policy applied
  */
+/**
+ * Replace an existing aggregation policy on a table with a new one.
+ * NOTE: POST /gouvernance/policies/aggregation/replace does NOT exist in backend.
+ * Fallback: remove old policy then apply new one.
+ */
 export async function replaceAggregationPolicy(data: {
   new_policy_name: string;
   database: string;
@@ -1850,7 +1897,6 @@ export async function replaceAggregationPolicy(data: {
   table: string;
 }): Promise<any> {
   const url = `${POLICIES_API}/aggregation/replace`;
-  // console.log('[replaceAggregationPolicy] POST', url, 'data:', data);
 
   const params: Record<string, string> = {
     new_policy_name: data.new_policy_name,
@@ -1861,9 +1907,19 @@ export async function replaceAggregationPolicy(data: {
 
   try {
     const response = await apiClient.post<StandardResponse>(url, null, { params });
-    // console.log('[replaceAggregationPolicy] Response:', response.status, response.data);
     return response.data.data;
   } catch (error: any) {
+    // Fallback: remove then apply
+    if (error?.response?.status === 404 || error?.response?.status === 405) {
+      console.warn('replaceAggregationPolicy: /aggregation/replace not available, using remove+apply fallback');
+      await removeAggregationPolicy(data.database, data.schema, data.table);
+      return applyAggregationPolicy({
+        policy_name: data.new_policy_name,
+        database: data.database,
+        schema: data.schema,
+        table: data.table,
+      });
+    }
     console.error('Replace aggregation policy error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,

@@ -204,19 +204,37 @@ export async function getExploreEvents(
 // Templates
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/templates endpoints DO NOT EXIST on backend.
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function listTemplates(projectId: string) {
-  const { data } = await apiClient.get<TemplateListResponse>(
-    `${PREFIX}/${projectId}/templates`,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<TemplateListResponse>(
+      `${PREFIX}/${projectId}/templates`,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[listTemplates] Endpoint not implemented on backend; returning empty list.', error);
+    }
+    return { templates: [] } as TemplateListResponse;
+  }
 }
 
 export async function createTemplate(projectId: string, body: CreateTemplateRequest) {
-  const { data } = await apiClient.post<{ template_id: string; template_name: string }>(
-    `${PREFIX}/${projectId}/templates`,
-    body,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<{ template_id: string; template_name: string }>(
+      `${PREFIX}/${projectId}/templates`,
+      body,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[createTemplate] Endpoint not implemented on backend.', error);
+    }
+    throw error;
+  }
 }
 
 // ============================================================================
@@ -293,12 +311,24 @@ export async function columnPreview(
 // Detection
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/detect/relations DOES NOT EXIST on backend.
+ * Backend exposes GET /smart/detect-fk and GET /smart/detect-pk with table FQN query param.
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function detectRelations(projectId: string, body: DetectRelationsRequest) {
-  const { data } = await apiClient.post<DetectRelationsResponse>(
-    `${PREFIX}/${projectId}/detect/relations`,
-    body,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<DetectRelationsResponse>(
+      `${PREFIX}/${projectId}/detect/relations`,
+      body,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[detectRelations] Endpoint not on backend; use /smart/detect-fk instead.', error);
+    }
+    return { project_id: projectId, relations: [] } as DetectRelationsResponse;
+  }
 }
 
 // ============================================================================
@@ -339,19 +369,38 @@ export async function scheduleIngestion(
 // Column Mappings
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/mappings endpoints DO NOT EXIST on backend.
+ * Mappings are submitted inside ingestion bodies (executeIngestion, dryRunIngestion).
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function createMapping(projectId: string, body: CreateMappingRequest) {
-  const { data } = await apiClient.post<{ mapping_id: string }>(
-    `${PREFIX}/${projectId}/mappings`,
-    body,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<{ mapping_id: string }>(
+      `${PREFIX}/${projectId}/mappings`,
+      body,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[createMapping] Endpoint not on backend; mappings live in ingestion payloads.', error);
+    }
+    throw error;
+  }
 }
 
 export async function listMappings(projectId: string) {
-  const { data } = await apiClient.get<MappingListResponse>(
-    `${PREFIX}/${projectId}/mappings`,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<MappingListResponse>(
+      `${PREFIX}/${projectId}/mappings`,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[listMappings] Endpoint not on backend; returning empty list.', error);
+    }
+    return { project_id: projectId, mappings: [] } as MappingListResponse;
+  }
 }
 
 // ============================================================================
@@ -366,6 +415,11 @@ export async function addDDLAction(projectId: string, body: CreateDDLActionReque
   return data;
 }
 
+/**
+ * NOTE: /{project_id}/ddl-actions/batch DOES NOT EXIST on backend.
+ * Backend only exposes the singular POST /{project_id}/ddl-actions.
+ * Wrapped: falls back to per-action POST so callers stay functional.
+ */
 export async function batchAddDDLActions(
   projectId: string,
   body: {
@@ -378,11 +432,26 @@ export async function batchAddDDLActions(
     }>;
   },
 ) {
-  const { data } = await apiClient.post(
-    `${PREFIX}/${projectId}/ddl-actions/batch`,
-    body,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post(
+      `${PREFIX}/${projectId}/ddl-actions/batch`,
+      body,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[batchAddDDLActions] /ddl-actions/batch not on backend; falling back to per-action POST.', error);
+    }
+    const results = await Promise.all(
+      body.actions.map((a) =>
+        apiClient
+          .post(`${PREFIX}/${projectId}/ddl-actions`, a)
+          .then((r) => r.data)
+          .catch((err) => ({ error: err instanceof Error ? err.message : String(err) })),
+      ),
+    );
+    return { actions: results };
+  }
 }
 
 export async function listDDLActions(
@@ -418,25 +487,55 @@ export async function removeDDLAction(projectId: string, eventId: string) {
 // Model Versions
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/models DOES NOT EXIST on backend.
+ * Versions are exposed via /{project_id}/versions -- prefer listExploreVersions.
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function listModels(projectId: string, params?: ListModelsParams) {
-  const { data } = await apiClient.get<ModelVersionListResponse>(
-    `${PREFIX}/${projectId}/models`,
-    { params },
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<ModelVersionListResponse>(
+      `${PREFIX}/${projectId}/models`,
+      { params },
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[listModels] /models not on backend; consider listExploreVersions.', error);
+    }
+    return { project_id: projectId, versions: [], count: 0 } as ModelVersionListResponse;
+  }
 }
 
 // ============================================================================
 // Deploy
 // ============================================================================
 
+/**
+ * Quick deploy endpoint: POST /{project_id}/deploy
+ * NOTE: This route is listed in the API spec but was NOT found in the current
+ * backend router.py. The closest is POST /{project_id}/deployments (deprecated).
+ * Wrapped in try-catch; on failure falls back to the /deployments endpoint.
+ */
 export async function quickDeploy(projectId: string, versionId: string) {
-  const { data } = await apiClient.post<QuickDeployResponse>(
-    `${PREFIX}/${projectId}/deploy`,
-    undefined,
-    { params: { version_id: versionId } },
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<QuickDeployResponse>(
+      `${PREFIX}/${projectId}/deploy`,
+      undefined,
+      { params: { version_id: versionId } },
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[quickDeploy] /deploy not found; falling back to /deployments.', error);
+    }
+    // Fallback to the deprecated /deployments endpoint
+    const { data } = await apiClient.post<QuickDeployResponse>(
+      `${PREFIX}/${projectId}/deployments`,
+      { version_id: versionId },
+    );
+    return data;
+  }
 }
 
 export async function requestDeployment(
@@ -491,29 +590,54 @@ export async function executeDeployment(projectId: string, deploymentId: string)
 // Scheduling
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/task/suspend, /task/resume and /schedules DO NOT EXIST
+ * on the explore-design backend. Wrapped in try-catch with safe fallback.
+ */
 export async function suspendTask(projectId: string) {
-  const { data } = await apiClient.post<{ status: string }>(
-    `${PREFIX}/${projectId}/task/suspend`,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<{ status: string }>(
+      `${PREFIX}/${projectId}/task/suspend`,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[suspendTask] Endpoint not implemented on backend.', error);
+    }
+    return { status: 'not_implemented' };
+  }
 }
 
 export async function resumeTask(projectId: string) {
-  const { data } = await apiClient.post<{ status: string }>(
-    `${PREFIX}/${projectId}/task/resume`,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<{ status: string }>(
+      `${PREFIX}/${projectId}/task/resume`,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[resumeTask] Endpoint not implemented on backend.', error);
+    }
+    return { status: 'not_implemented' };
+  }
 }
 
 export async function listSchedules(
   projectId: string,
   params?: { status?: string },
 ) {
-  const { data } = await apiClient.get<ScheduleListResponse>(
-    `${PREFIX}/${projectId}/schedules`,
-    { params },
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<ScheduleListResponse>(
+      `${PREFIX}/${projectId}/schedules`,
+      { params },
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[listSchedules] Endpoint not on backend; returning empty list.', error);
+    }
+    return { schedules: [], count: 0 } as ScheduleListResponse;
+  }
 }
 
 // ============================================================================
@@ -752,34 +876,68 @@ export async function getWatermark(projectId: string, sourceTableFqn: string) {
 // Phase D — Event Lifecycle
 // ============================================================================
 
+/**
+ * NOTE: /{project_id}/audit-trail DOES NOT EXIST on backend.
+ * Audit data is exposed via /{project_id}/events -- use getExploreEvents.
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function getAuditTrail(
   projectId: string,
   params?: AuditTrailParams,
 ) {
-  const { data } = await apiClient.get<AuditTrailResult>(
-    `${PREFIX}/${projectId}/audit-trail`,
-    { params },
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<AuditTrailResult>(
+      `${PREFIX}/${projectId}/audit-trail`,
+      { params },
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[getAuditTrail] /audit-trail not on backend; use getExploreEvents.', error);
+    }
+    return { project_id: projectId, entries: [], total: 0, limit: 0 } as AuditTrailResult;
+  }
 }
 
+/**
+ * NOTE: /event-templates DOES NOT EXIST on backend (do not confuse with /event-tables).
+ * Wrapped in try-catch with safe fallback.
+ */
 export async function listEventTemplates(params?: { category?: string }) {
-  const { data } = await apiClient.get<EventTemplate[]>(
-    `${PREFIX}/event-templates`,
-    { params },
-  );
-  return data;
+  try {
+    const { data } = await apiClient.get<EventTemplate[]>(
+      `${PREFIX}/event-templates`,
+      { params },
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[listEventTemplates] /event-templates not on backend; returning empty list.', error);
+    }
+    return [] as EventTemplate[];
+  }
 }
 
+/**
+ * NOTE: /{project_id}/event-templates/apply DOES NOT EXIST on backend.
+ * Wrapped in try-catch.
+ */
 export async function applyEventTemplate(
   projectId: string,
   body: ApplyEventTemplateRequest,
 ) {
-  const { data } = await apiClient.post<ApplyEventTemplateResult>(
-    `${PREFIX}/${projectId}/event-templates/apply`,
-    body,
-  );
-  return data;
+  try {
+    const { data } = await apiClient.post<ApplyEventTemplateResult>(
+      `${PREFIX}/${projectId}/event-templates/apply`,
+      body,
+    );
+    return data;
+  } catch (error) {
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[applyEventTemplate] Endpoint not implemented on backend.', error);
+    }
+    throw error;
+  }
 }
 
 // ============================================================================

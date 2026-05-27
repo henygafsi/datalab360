@@ -151,6 +151,8 @@ export async function deleteUser(username: string): Promise<{
 
 /**
  * Deletes multiple users from Snowflake in batch.
+ * NOTE: Backend /gouvernance/drop-users-batch may not exist — falls back to
+ * sequential single-user deletion if the batch endpoint is unavailable.
  * @param usernames Array of usernames to delete.
  * @returns A promise with batch delete results.
  */
@@ -164,7 +166,22 @@ export async function deleteMultipleUsers(usernames: string[]): Promise<{
       usernames
     });
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
+    // Batch endpoint may not exist — fall back to sequential deletion
+    if (error?.response?.status === 404 || error?.response?.status === 405) {
+      console.warn('drop-users-batch not available, falling back to sequential deletion');
+      const failed: { username: string; error: string }[] = [];
+      let deleted = 0;
+      for (const username of usernames) {
+        try {
+          await deleteUser(username);
+          deleted++;
+        } catch (e: any) {
+          failed.push({ username, error: e?.message || 'Unknown error' });
+        }
+      }
+      return { message: `Deleted ${deleted}/${usernames.length} users`, deleted, failed };
+    }
     console.error('Error deleting multiple users:', error);
     throw error;
   }
@@ -208,6 +225,8 @@ export async function enableUser(username: string): Promise<{
 
 /**
  * Updates user information in Snowflake.
+ * Tries PUT /gouvernance/enterprise-users/{username} first (full profile update),
+ * falls back to PUT /gouvernance/users/{username} if the enterprise endpoint is unavailable.
  * @param username The username to update.
  * @param data The fields to update (email, first_name, last_name, etc.).
  * @returns A promise with the update operation result.
@@ -219,7 +238,8 @@ export async function updateUser(
     first_name?: string;
     last_name?: string;
     display_name?: string;
-    comment?: string;
+    default_role?: string;
+    default_warehouse?: string;
   }
 ): Promise<{
   status: string;
@@ -227,9 +247,13 @@ export async function updateUser(
   updated_fields: string[];
 }> {
   try {
-    const response = await apiClient.put(`/gouvernance/users/${username}`, data);
+    // Uses PUT /gouvernance/enterprise-users/{username} for full profile update
+    const response = await apiClient.put(
+      `/gouvernance/enterprise-users/${encodeURIComponent(username)}`,
+      data
+    );
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating user:', error);
     throw error;
   }

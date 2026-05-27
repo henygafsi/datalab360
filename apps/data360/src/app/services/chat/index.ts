@@ -1,6 +1,19 @@
 /**
- * Chat Service — CRUD for AI chat conversations persisted in Snowflake.
+ * Chat Service — CRUD for conversations, messages, participants, attachments.
  * Uses the /chat backend endpoints (CHAT_CONVERSATIONS + CHAT_MESSAGES tables).
+ *
+ * Backend routes covered:
+ *   GET    /chat/conversations
+ *   GET    /chat/conversations/{id}
+ *   GET    /chat/conversations/{id}/messages
+ *   GET    /chat/conversations/{id}/participants
+ *   GET    /chat/online-users
+ *   PATCH  /chat/conversations/{id}
+ *   POST   /chat/conversations/dm
+ *   POST   /chat/conversations/group
+ *   POST   /chat/conversations/{id}/attachments
+ *   POST   /chat/conversations/{id}/messages
+ *   POST   /chat/conversations/{id}/read
  */
 import apiClient from '@/lib/api-client';
 
@@ -26,6 +39,13 @@ export interface ChatMessageRecord {
   IS_EDITED?: boolean;
 }
 
+export interface ChatParticipant {
+  username: string;
+  role: 'ADMIN' | 'MEMBER';
+  joined_at?: string;
+  is_online?: boolean;
+}
+
 export interface ConversationListResponse {
   items: ChatConversation[];
   total: number;
@@ -38,6 +58,19 @@ export interface MessageListResponse {
   total: number;
   page: number;
   page_size: number;
+}
+
+export interface AttachmentResponse {
+  attachment_id: string;
+  file_name: string;
+  file_size?: number;
+  mime_type?: string;
+  uploaded_at?: string;
+}
+
+export interface OnlineUsersResponse {
+  online_users: string[];
+  count: number;
 }
 
 // ── Key normalizer ─────────────────────────────────────────────────────
@@ -79,6 +112,12 @@ export async function listConversations(page = 1, pageSize = 50): Promise<Conver
   };
 }
 
+/** Get a single conversation by ID */
+export async function getConversation(conversationId: string): Promise<ChatConversation> {
+  const res = await apiClient.get(`/chat/conversations/${conversationId}`);
+  return normalizeConversation(res.data?.data ?? res.data);
+}
+
 /** Create a DM conversation (used for AI chat — DM with self or bot user) */
 export async function createDMConversation(targetUsername: string): Promise<ChatConversation> {
   const res = await apiClient.post('/chat/conversations/dm', { target_username: targetUsername });
@@ -95,10 +134,15 @@ export async function createGroupConversation(title: string, participants: strin
 }
 
 /** Get messages for a conversation */
-export async function getMessages(conversationId: string, page = 1, pageSize = 100): Promise<MessageListResponse> {
-  const res = await apiClient.get(`/chat/conversations/${conversationId}/messages`, {
-    params: { page, page_size: pageSize },
-  });
+export async function getMessages(
+  conversationId: string,
+  page = 1,
+  pageSize = 100,
+  beforeMessageId?: string,
+): Promise<MessageListResponse> {
+  const params: Record<string, any> = { page, page_size: pageSize };
+  if (beforeMessageId) params.before_message_id = beforeMessageId;
+  const res = await apiClient.get(`/chat/conversations/${conversationId}/messages`, { params });
   const data = res.data?.data ?? res.data;
   return {
     ...data,
@@ -110,12 +154,14 @@ export async function getMessages(conversationId: string, page = 1, pageSize = 1
 export async function sendMessage(
   conversationId: string,
   content: string,
-  messageType: 'TEXT' | 'SYSTEM' = 'TEXT',
+  messageType: 'TEXT' | 'SYSTEM' | 'FILE' | 'IMAGE' = 'TEXT',
+  replyToMessageId?: string,
+  attachmentIds?: string[],
 ): Promise<ChatMessageRecord> {
-  const res = await apiClient.post(`/chat/conversations/${conversationId}/messages`, {
-    content,
-    message_type: messageType,
-  });
+  const body: Record<string, any> = { content, message_type: messageType };
+  if (replyToMessageId) body.reply_to_message_id = replyToMessageId;
+  if (attachmentIds?.length) body.attachment_ids = attachmentIds;
+  const res = await apiClient.post(`/chat/conversations/${conversationId}/messages`, body);
   return normalizeMessage(res.data?.data ?? res.data);
 }
 
@@ -123,4 +169,48 @@ export async function sendMessage(
 export async function updateConversation(conversationId: string, title: string): Promise<ChatConversation> {
   const res = await apiClient.patch(`/chat/conversations/${conversationId}`, { title });
   return normalizeConversation(res.data?.data ?? res.data);
+}
+
+/** Get participants in a conversation */
+export async function getParticipants(conversationId: string): Promise<ChatParticipant[]> {
+  const res = await apiClient.get(`/chat/conversations/${conversationId}/participants`);
+  const data = res.data?.data ?? res.data;
+  return data?.participants ?? [];
+}
+
+/** Mark messages as read up to a specific message */
+export async function markAsRead(
+  conversationId: string,
+  lastReadMessageId: string,
+): Promise<Record<string, any>> {
+  const res = await apiClient.post(`/chat/conversations/${conversationId}/read`, {
+    last_read_message_id: lastReadMessageId,
+  });
+  return res.data?.data ?? res.data;
+}
+
+/** Upload a file attachment to a conversation. Returns attachment metadata. */
+export async function uploadAttachment(
+  conversationId: string,
+  file: File,
+): Promise<AttachmentResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiClient.post(
+    `/chat/conversations/${conversationId}/attachments`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return res.data?.data ?? res.data;
+}
+
+/** Get list of currently online users (active WebSocket connections) */
+export async function getOnlineUsers(): Promise<OnlineUsersResponse> {
+  try {
+    const res = await apiClient.get('/chat/online-users');
+    return res.data?.data ?? res.data ?? { online_users: [], count: 0 };
+  } catch {
+    // Graceful fallback — presence is non-critical
+    return { online_users: [], count: 0 };
+  }
 }

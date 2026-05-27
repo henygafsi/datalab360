@@ -11,6 +11,11 @@ export type LanguageCode = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'ja' | 'ko'
 export interface CompletionRequest {
   prompt: string;
   model?: LLMModel;
+  /**
+   * NOTE: The backend CompletionRequest model does NOT include a guardrails
+   * field.  Sending it is harmless (Pydantic ignores unknown fields) but has
+   * no effect. Kept here for future use if the backend adds support.
+   */
   guardrails?: boolean;
 }
 
@@ -129,13 +134,15 @@ export async function generateCompletion(request: CompletionRequest): Promise<Co
 }
 
 /**
- * Analyze sentiment of texts
+ * Analyze sentiment of texts.
+ * Backend SentimentAnalysisRequest requires text_column (even for direct texts mode).
+ * We send a placeholder value since the backend only uses it for table-based analysis.
  */
 export async function analyzeSentiment(texts: string[]): Promise<SentimentResult[]> {
   try {
     const response = await apiClient.post(
       '/cortex/ml/sentiment',
-      { texts }
+      { texts, text_column: 'inline' }
     );
 
     const data = response.data?.data || response.data;

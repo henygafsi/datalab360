@@ -49,6 +49,17 @@ export async function getDashboard(projectId: string) {
   return data;
 }
 
+export async function updateDashboard(
+  projectId: string,
+  body: UpdateDashboardRequest
+) {
+  const { data } = await apiClient.put<FullDashboard>(
+    `${PREFIX}/${projectId}`,
+    body
+  );
+  return data;
+}
+
 export async function deleteDashboard(projectId: string) {
   const { data } = await apiClient.delete(`${PREFIX}/${projectId}`);
   return data;
@@ -189,7 +200,9 @@ export interface NlToChartRequest {
 }
 
 export interface NlToChartResponse {
-  chart_config: Record<string, unknown>;
+  chart_config: Record<string, unknown> | null;
+  valid: boolean;
+  validation_errors?: Array<{ type: string; msg: string }> | null;
   question: string;
   execution_time_ms: number;
 }
