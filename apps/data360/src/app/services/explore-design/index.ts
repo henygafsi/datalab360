@@ -190,16 +190,22 @@ export async function detectRelations(
   detected_relations: RelationDetection[];
   suggestions: RelationDetection[];
 }> {
-  const response = await apiClient.post(
-    `${ED}/detect/relations`,
-    {
-      source_tables: sourceTables,
-      target_tables: targetTables,
-      detection_methods: options?.detection_methods ?? ['naming_convention', 'data_type_match', 'value_overlap'],
-      sample_size: options?.sample_size ?? 1000,
-    },
-  );
-  return response.data;
+  try {
+    const response = await apiClient.get(
+      `${ED}/smart/detect-fk`,
+      {
+        params: {
+          source_tables: sourceTables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+          target_tables: targetTables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+          sample_size: options?.sample_size ?? 1000,
+        },
+      },
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('[detectRelations] Error:', error?.response?.status, error?.message);
+    return { detected_relations: [], suggestions: [] };
+  }
 }
 
 /**
@@ -225,16 +231,20 @@ export async function detectPrimaryKeys(
     recommendation: string;
   }>;
 }> {
-  const response = await apiClient.post(
-    `${ED}/detect/primary-keys`,
-    {
-      tables,
-      patterns: options?.patterns ?? ['*_ID', 'ID_*', '*_PK', '*_KEY'],
-      check_uniqueness: options?.check_uniqueness ?? true,
-      check_nullability: options?.check_nullability ?? true,
-    },
-  );
-  return response.data;
+  try {
+    const response = await apiClient.get(
+      `${ED}/smart/detect-pk`,
+      {
+        params: {
+          tables: tables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+        },
+      },
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('[detectPrimaryKeys] Error:', error?.response?.status, error?.message);
+    return { detections: [] };
+  }
 }
 
 // ============================================
@@ -251,7 +261,7 @@ export async function recordEvent(
   payload: Record<string, any>
 ): Promise<{ event_id: string; status: EventStatus; created_at: string }> {
   const response = await apiClient.post(
-    `${ED}/events`,
+    `/projects/${projectId}/events`,
     {
       project_id: projectId,
       event_type: eventType,
@@ -296,13 +306,13 @@ export async function getProjectEvents(
       },
     };
   } catch {
-    // Fallback to legacy endpoint
+    // Fallback to cross-module endpoint
     const params: Record<string, string> = {};
     if (filters?.status) params.status = filters.status;
     if (filters?.event_type) params.event_type = filters.event_type;
 
     const response = await apiClient.get(
-      `${ED}/projects/${projectId}/events`,
+      `/projects/${projectId}/events`,
       { params },
     );
     return response.data;
@@ -346,7 +356,7 @@ export async function validateEvents(
   summary: { validated: number; failed: number };
 }> {
   const response = await apiClient.post(
-    `${ED}/validate-events`,
+    `${ED}/${projectId}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
@@ -363,6 +373,7 @@ export async function validateEvents(
 /**
  * Deploy validated events
  */
+// TODO: backend endpoint not implemented — use the deployment pipeline (createDeployment + executeDeploymentV1)
 export async function deployEvents(
   projectId: string,
   eventIds: string[],
@@ -373,15 +384,13 @@ export async function deployEvents(
   results: DeploymentResult[];
   summary: { applied: number; failed: number; skipped: number };
 }> {
-  const response = await apiClient.post(
-    `${ED}/events/deploy`,
-    {
-      project_id: projectId,
-      event_ids: eventIds,
-      rollback_on_error: options?.rollback_on_error ?? true,
-    },
-  );
-  return response.data;
+  console.warn('[deployEvents] no backend route — use deployment pipeline instead');
+  return {
+    deployment_id: '',
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
 }
 
 // ============================================
@@ -496,7 +505,7 @@ export async function createExploreProject(
  * Get project state
  */
 export async function getProjectState(projectId: string): Promise<ProjectState> {
-  const response = await apiClient.get(`${ED}/project/${projectId}`);
+  const response = await apiClient.get(`${ED}/${projectId}/state`);
   return response.data;
 }
 
@@ -507,7 +516,7 @@ export async function saveProjectState(
   projectId: string,
   state: Partial<ProjectState>
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.put(`${ED}/project/${projectId}`, state);
+  const response = await apiClient.put(`${ED}/${projectId}/state`, state);
   return response.data;
 }
 
@@ -550,34 +559,34 @@ export interface ConfigTemplate {
 /**
  * List available templates
  */
+// TODO: backend endpoint not implemented — event-templates exist separately per project
 export async function getTemplates(): Promise<ConfigTemplate[]> {
-  const response = await apiClient.get(`${ED}/templates`);
-  return response.data;
+  console.warn('[getTemplates] no backend route');
+  return [];
 }
 
 /**
  * Save a configuration template
  */
+// TODO: backend endpoint not implemented
 export async function saveTemplate(
   template: Omit<ConfigTemplate, 'id'>
 ): Promise<{ template_id: string; message: string }> {
-  const response = await apiClient.post(`${ED}/templates`, template);
-  return response.data;
+  console.warn('[saveTemplate] no backend route');
+  return { template_id: '', message: 'Backend endpoint not implemented' };
 }
 
 /**
  * Apply template to tables
  */
+// TODO: backend endpoint not implemented
 export async function applyTemplate(
   templateId: string,
   projectId: string,
   tables: TableReference[]
 ): Promise<{ success: boolean; applied_to: number; events_created: number }> {
-  const response = await apiClient.post(
-    `${ED}/templates/${templateId}/apply`,
-    { project_id: projectId, tables },
-  );
-  return response.data;
+  console.warn('[applyTemplate] no backend route');
+  return { success: false, applied_to: 0, events_created: 0 };
 }
 
 // ============================================
@@ -598,11 +607,15 @@ export interface SchemaChange {
 /**
  * Detect schema changes since last sync
  */
+// TODO: backend endpoint not implemented
 export async function detectSchemaChanges(
   projectId: string
 ): Promise<{ last_sync: string; changes: SchemaChange }> {
-  const response = await apiClient.get(`${ED}/schema-changes/${projectId}`);
-  return response.data;
+  console.warn('[detectSchemaChanges] no backend route');
+  return {
+    last_sync: '',
+    changes: { new_tables: [], modified_tables: [], removed_tables: [] },
+  };
 }
 
 // ============================================
@@ -685,7 +698,7 @@ export async function createDeployment(
   approval_request_id?: string;
 }> {
   const response = await apiClient.post(
-    `${ED}/deployments`,
+    `${ED}/${projectId}/deployments`,
     {
       project_id: projectId,
       version,
@@ -706,6 +719,7 @@ export async function createDeployment(
 /**
  * Get deployment details
  */
+// TODO: backend endpoint not implemented — no single-deployment GET route exists
 export async function getDeployment(deploymentId: string): Promise<Deployment & {
   execution_log: Array<{
     timestamp: string;
@@ -721,21 +735,29 @@ export async function getDeployment(deploymentId: string): Promise<Deployment & 
     duration_seconds: number;
   };
 }> {
-  const response = await apiClient.get(`${ED}/deployments/${deploymentId}`);
-  return response.data;
+  return {
+    deployment_id: deploymentId,
+    project_id: '',
+    version: '',
+    type: 'immediate' as DeploymentType,
+    status: 'draft' as DeploymentStatus,
+    config: { immediate: false, rollback_on_error: false, notification_channels: [], approvers: [] },
+    event_ids: [],
+    created_at: '',
+    execution_log: [],
+    metrics: { total_events: 0, succeeded: 0, failed: 0, duration_seconds: 0 },
+  };
 }
 
 /**
  * Execute a deployment.
  *
  * @deprecated DIVERGENT URL SHAPE — do not use in the explore-design deployment
- * UI. This hits `POST /explore-design/deployments/{deploymentId}/execute`
- * (no projectId). The canonical, project-scoped path used by the deployment
- * wizard (`StepDeploy`) is `exploreDesignApi.executeDeployment` →
- * `POST /explore-design/{projectId}/deployments/{deploymentId}/execute`
- * (mirrored here as `executeDeploymentV1`). Kept only for non-explore-design
- * callers; the explore-design UI must converge on `exploreDesignApi`.
+ * UI. Use `executeDeploymentV1(projectId, deploymentId)` instead which hits
+ * `POST /explore-design/{projectId}/deployments/{deploymentId}/execute`.
+ * This stub returns a no-op response; signature kept for backward-compat.
  */
+// TODO: backend endpoint requires projectId — use executeDeploymentV1 instead
 export async function executeDeployment(
   deploymentId: string,
   options?: { execution_mode?: 'immediate' | 'dry_run'; dry_run?: boolean }
@@ -744,42 +766,32 @@ export async function executeDeployment(
   status: DeploymentStatus;
   execution_started: string;
 }> {
-  const response = await apiClient.post(
-    `${ED}/deployments/${deploymentId}/execute`,
-    {
-      execution_mode: options?.execution_mode ?? 'immediate',
-      dry_run: options?.dry_run ?? false,
-    },
-  );
-  return response.data;
+  console.warn('[executeDeployment] deprecated — use executeDeploymentV1(projectId, deploymentId) instead');
+  return {
+    deployment_id: deploymentId,
+    status: 'failed' as DeploymentStatus,
+    execution_started: '',
+  };
 }
 
 /**
  * Rollback a deployment
  */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
 export async function rollbackDeployment(
   deploymentId: string,
   targetVersion: string,
   reason: string
 ): Promise<{ success: boolean; message: string; rollback_deployment_id?: string }> {
-  const response = await apiClient.post(
-    `${ED}/deployments/${deploymentId}/rollback`,
-    {
-      target_version: targetVersion,
-      reason,
-    },
-  );
-  return response.data;
+  console.warn('[rollbackDeployment] no backend route — use projectsApi.rollbackProject(projectId, ...) instead');
+  return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
 }
 
 /**
  * List deployments for a project.
  *
- * @deprecated DIVERGENT URL SHAPE — do not use in the explore-design deployment
- * UI. This hits `GET /explore-design/deployments/project/{projectId}`. The
- * canonical, project-scoped path is `exploreDesignApi.listDeployments` /
- * `listProjectDeploymentsV1` → `GET /explore-design/{projectId}/deployments`.
- * Kept only for non-explore-design callers.
+ * @deprecated Use `listProjectDeploymentsV1` instead. Path corrected to
+ * `GET /explore-design/{projectId}/deployments`.
  */
 export async function listDeployments(
   projectId: string,
@@ -790,7 +802,7 @@ export async function listDeployments(
   if (filters?.limit) params.limit = String(filters.limit);
 
   const response = await apiClient.get(
-    `${ED}/deployments/project/${projectId}`,
+    `${ED}/${projectId}/deployments`,
     { params },
   );
   return response.data;
@@ -829,43 +841,47 @@ export interface Version {
 /**
  * Create a new version
  */
+// TODO: backend endpoint not implemented — versions are created via the deployment flow in the projects module
 export async function createVersion(
   projectId: string,
   versionType: VersionType,
   changelogSummary: string,
   snapshotEvents?: boolean
 ): Promise<{ version_id: string; version: string; previous_version?: string }> {
-  const response = await apiClient.post(
-    `${ED}/versions`,
-    {
-      project_id: projectId,
-      version_type: versionType,
-      changelog: changelogSummary,
-      snapshot_events: snapshotEvents ?? true,
-    },
-  );
-  return response.data;
+  console.warn('[createVersion] no backend route — versions are created via the deployment flow');
+  return { version_id: '', version: '', previous_version: undefined };
 }
 
 /**
  * List versions for a project
  */
 export async function listVersions(projectId: string): Promise<{ versions: Version[] }> {
-  const response = await apiClient.get(`${ED}/versions/${projectId}`);
+  const response = await apiClient.get(`${ED}/${projectId}/versions`);
   return response.data;
 }
 
 /**
  * Get version details
  */
+// TODO: backend endpoint not implemented — no single-version detail route
 export async function getVersion(versionId: string): Promise<Version & { snapshot: any }> {
-  const response = await apiClient.get(`${ED}/versions/detail/${versionId}`);
-  return response.data;
+  console.warn('[getVersion] no backend route for version detail');
+  return {
+    version_id: versionId,
+    project_id: '',
+    version: '',
+    status: 'draft' as VersionStatus,
+    created_at: '',
+    created_by: '',
+    changelog: { summary: '', changes: [] },
+    snapshot: null,
+  };
 }
 
 /**
  * Compare two versions
  */
+// TODO: backend endpoint not implemented — no version comparison route
 export async function compareVersions(
   fromVersionId: string,
   toVersionId: string
@@ -883,26 +899,30 @@ export async function compareVersions(
     policies_removed: string[];
   };
 }> {
-  const response = await apiClient.get(
-    `${ED}/versions/${fromVersionId}/compare/${toVersionId}`,
-  );
-  return response.data;
+  console.warn('[compareVersions] no backend route');
+  return {
+    from_version: fromVersionId,
+    to_version: toVersionId,
+    diff: { tables_added: [], tables_removed: [], tables_modified: [], policies_added: [], policies_removed: [] },
+  };
 }
 
 /**
  * Publish a version
  */
+// TODO: backend endpoint not implemented
 export async function publishVersion(versionId: string): Promise<{ success: boolean; published_at: string }> {
-  const response = await apiClient.post(`${ED}/versions/${versionId}/publish`, {});
-  return response.data;
+  console.warn('[publishVersion] no backend route');
+  return { success: false, published_at: '' };
 }
 
 /**
  * Archive a version
  */
+// TODO: backend endpoint not implemented
 export async function archiveVersion(versionId: string): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.post(`${ED}/versions/${versionId}/archive`, {});
-  return response.data;
+  console.warn('[archiveVersion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
 }
 
 // ============================================
@@ -946,66 +966,71 @@ export interface ApprovalRequest {
 /**
  * Get pending approvals for current user
  */
+// TODO: backend endpoint not implemented — approval workflow uses deployment approve/reject routes
 export async function getPendingApprovals(): Promise<{
   pending: ApprovalRequest[];
   total: number;
 }> {
-  const response = await apiClient.get(`${ED}/approvals/pending`);
-  return response.data;
+  console.warn('[getPendingApprovals] no backend route');
+  return { pending: [], total: 0 };
 }
 
 /**
  * Get approval details
  */
+// TODO: backend endpoint not implemented
 export async function getApprovalDetails(approvalId: string): Promise<ApprovalRequest> {
-  const response = await apiClient.get(`${ED}/approvals/${approvalId}`);
-  return response.data;
+  console.warn('[getApprovalDetails] no backend route');
+  return {
+    approval_request_id: approvalId,
+    project_id: '',
+    deployment_id: '',
+    version: '',
+    requested_by: '',
+    requested_at: '',
+    status: 'pending' as ApprovalStatus,
+    priority: 'low' as ApprovalPriority,
+    changes_summary: { total_events: 0, by_category: {}, high_risk_changes: 0, affected_tables: 0 },
+    approvers: [],
+    comments: [],
+  };
 }
 
 /**
  * Approve a request
  */
+// TODO: backend endpoint not implemented — use approveDeploymentV1(projectId, deploymentId) instead
 export async function approveRequest(
   approvalId: string,
   comment?: string
 ): Promise<{ success: boolean; deployment_status: string }> {
-  const response = await apiClient.post(
-    `${ED}/approvals/${approvalId}/approve`,
-    { comment },
-  );
-  return response.data;
+  console.warn('[approveRequest] no backend route — use approveDeploymentV1 instead');
+  return { success: false, deployment_status: '' };
 }
 
 /**
  * Reject a request
  */
+// TODO: backend endpoint not implemented — use rejectDeploymentV1(projectId, deploymentId, reason) instead
 export async function rejectRequest(
   approvalId: string,
   comment: string,
   requiredChanges?: Array<{ type: string; table?: string; column?: string }>
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.post(
-    `${ED}/approvals/${approvalId}/reject`,
-    {
-      comment,
-      required_changes: requiredChanges,
-    },
-  );
-  return response.data;
+  console.warn('[rejectRequest] no backend route — use rejectDeploymentV1 instead');
+  return { success: false, message: 'Backend endpoint not implemented. Use rejectDeploymentV1 instead.' };
 }
 
 /**
  * Add comment to approval request
  */
+// TODO: backend endpoint not implemented
 export async function addApprovalComment(
   approvalId: string,
   comment: string
 ): Promise<{ success: boolean; comment_id: string }> {
-  const response = await apiClient.post(
-    `${ED}/approvals/${approvalId}/comment`,
-    { comment },
-  );
-  return response.data;
+  console.warn('[addApprovalComment] no backend route');
+  return { success: false, comment_id: '' };
 }
 
 // ============================================
@@ -1043,39 +1068,27 @@ export interface BatchTaskConfig {
 /**
  * Create/configure Snowpipe
  */
+// TODO: backend endpoint not implemented — Snowpipe config lives in the connect module
 export async function createSnowpipe(
   projectId: string,
   tableId: string,
   config: SnowpipeConfig
 ): Promise<{ pipe_id: string; pipe_name: string; status: string }> {
-  const response = await apiClient.post(
-    `${ED}/ingestion/snowpipe`,
-    {
-      project_id: projectId,
-      table_id: tableId,
-      config,
-    },
-  );
-  return response.data;
+  console.warn('[createSnowpipe] no backend route in explore-design — use connect module');
+  return { pipe_id: '', pipe_name: '', status: 'not_implemented' };
 }
 
 /**
  * Create batch task
  */
+// TODO: backend endpoint not implemented
 export async function createBatchTask(
   projectId: string,
   tableId: string,
   config: BatchTaskConfig
 ): Promise<{ task_id: string; task_name: string; status: string }> {
-  const response = await apiClient.post(
-    `${ED}/ingestion/batch-task`,
-    {
-      project_id: projectId,
-      table_id: tableId,
-      config,
-    },
-  );
-  return response.data;
+  console.warn('[createBatchTask] no backend route');
+  return { task_id: '', task_name: '', status: 'not_implemented' };
 }
 
 /**
@@ -1088,7 +1101,7 @@ export async function createStream(
   options?: { append_only?: boolean; show_initial_rows?: boolean }
 ): Promise<{ stream_id: string; stream_name: string; status: string }> {
   const response = await apiClient.post(
-    `${ED}/ingestion/stream`,
+    `${ED}/streams`,
     {
       project_id: projectId,
       stream_name: streamName,
@@ -1103,29 +1116,25 @@ export async function createStream(
 /**
  * Pause ingestion (pipe or task)
  */
+// TODO: backend endpoint not implemented
 export async function pauseIngestion(
   ingestionId: string,
   type: 'snowpipe' | 'task'
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.post(
-    `${ED}/ingestion/${ingestionId}/pause`,
-    { type },
-  );
-  return response.data;
+  console.warn('[pauseIngestion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
 }
 
 /**
  * Resume ingestion (pipe or task)
  */
+// TODO: backend endpoint not implemented
 export async function resumeIngestion(
   ingestionId: string,
   type: 'snowpipe' | 'task'
 ): Promise<{ success: boolean; message: string }> {
-  const response = await apiClient.post(
-    `${ED}/ingestion/${ingestionId}/resume`,
-    { type },
-  );
-  return response.data;
+  console.warn('[resumeIngestion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
 }
 
 // ============================================
@@ -1570,62 +1579,37 @@ export async function rollbackIngestionOperation(
  *   options: { rollback_on_error: true }
  * });
  */
+// TODO: backend endpoint not implemented — use deployWithVersion or the deployment pipeline instead
 export async function deploySchema(
   request: SchemaDeploymentRequest
 ): Promise<SchemaDeploymentResponse> {
-  try {
-    const response = await apiClient.post<SchemaDeploymentResponse>(
-      `${ED}/deploy_schema`,
-      {
-        project_id: request.project_id,
-        version_name: request.version_name,
-        description: request.description,
-        sql_queries: request.sql_queries,
-        events: request.events,
-        options: request.options || { rollback_on_error: true },
-      },
-    );
-
-    return response.data;
-  } catch (error: any) {
-    console.error('[deploySchema] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
-
-    return {
-      status: 'failed',
-      version_name: request.version_name || 'Unknown',
-      version_number: 0,
-      executed_statements: 0,
-      failed_statements: request.sql_queries.length,
-      changes_summary: {
-        tables_created: 0,
-        tables_modified: 0,
-        tables_dropped: 0,
-        columns_added: 0,
-        columns_modified: 0,
-        columns_dropped: 0,
-        constraints_added: 0,
-        constraints_dropped: 0,
-      },
-      rollback_available: false,
-      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
-      warnings: [],
-    };
-  }
+  console.warn('[deploySchema] no backend route — use deployWithVersion or deployment pipeline');
+  return {
+    status: 'failed',
+    version_name: request.version_name || 'Unknown',
+    version_number: 0,
+    executed_statements: 0,
+    failed_statements: request.sql_queries.length,
+    changes_summary: {
+      tables_created: 0,
+      tables_modified: 0,
+      tables_dropped: 0,
+      columns_added: 0,
+      columns_modified: 0,
+      columns_dropped: 0,
+      constraints_added: 0,
+      constraints_dropped: 0,
+    },
+    rollback_available: false,
+    errors: ['Backend endpoint /explore-design/deploy_schema not implemented'],
+    warnings: [],
+  };
 }
 
 /**
  * Get schema version history for a project.
  *
- * Primary:  GET /explore-design/{project_id}/versions          — currently 400
- * Fallback: GET /explore-design/schema_versions/{project_id}   — currently 404
- *
- * Both endpoints are known-broken on the backend (see Backend Gap note in
- * `SchemaVersionDisplaySwitch` / `DeploymentUnavailableNote`). The path/param
- * shape here matches the working v1 endpoints in this file (and the canonical
- * `exploreDesignApi.listExploreVersions`), so the 400 is a genuine backend
- * rejection — NOT a client path bug. We therefore surface the failure honestly
- * via `availability: 'unavailable'` instead of returning a silent empty list.
+ * Endpoint: GET /explore-design/{project_id}/versions
  *
  * @param projectId - Project ID
  * @param options - Query options. Pass `signal` to abort on unmount.
@@ -1639,13 +1623,11 @@ export async function getSchemaVersions(
     signal?: AbortSignal;
   }
 ): Promise<SchemaVersionsResponse> {
-  // Try v1 versions endpoint first
   try {
     const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/versions`, {
       params: options?.limit ? { limit: options.limit } : undefined,
       signal: options?.signal,
     });
-    // Map v1 response to legacy shape
     const versions = (data.versions || []).map((v: any) => ({
       version_id: v.version_id,
       version_name: v.version_name || `v${v.version_number}`,
@@ -1665,39 +1647,19 @@ export async function getSchemaVersions(
       total_versions: versions.length,
       availability: versions.length > 0 ? 'ok' : 'empty',
     };
-  } catch (primaryError: any) {
-    // Fallback to legacy endpoint
-    try {
-      const params: Record<string, string> = {};
-      if (options?.limit) params.limit = options.limit.toString();
-      if (options?.include_rolled_back) params.include_rolled_back = 'true';
-
-      const response = await apiClient.get<SchemaVersionsResponse>(
-        `${ED}/schema_versions/${projectId}`,
-        { params, signal: options?.signal },
-      );
-
-      const data = response.data;
-      return {
-        ...data,
-        availability: (data.versions?.length ?? 0) > 0 ? 'ok' : 'empty',
-      };
-    } catch (error: any) {
-      console.error('[getSchemaVersions] Both version endpoints failed:', error);
-      const detail =
-        error?.response?.data?.detail ||
-        primaryError?.response?.data?.detail ||
-        error?.message ||
-        'Version endpoints are unavailable';
-      // Honest failure: endpoint errored. Do NOT pretend "no versions".
-      return {
-        project_id: projectId,
-        versions: [],
-        total_versions: 0,
-        availability: 'unavailable',
-        error: typeof detail === 'string' ? detail : JSON.stringify(detail),
-      };
-    }
+  } catch (error: any) {
+    console.error('[getSchemaVersions] Version endpoint failed:', error);
+    const detail =
+      error?.response?.data?.detail ||
+      error?.message ||
+      'Version endpoint is unavailable';
+    return {
+      project_id: projectId,
+      versions: [],
+      total_versions: 0,
+      availability: 'unavailable',
+      error: typeof detail === 'string' ? detail : JSON.stringify(detail),
+    };
   }
 }
 
@@ -1735,37 +1697,25 @@ export async function getRecentDeploymentErrors(
 /**
  * Rollback schema to a specific version
  *
- * Backend: POST /explore-design/rollback_schema/{version_id}
- *
  * @param versionId - Target version ID to rollback to
  * @param options - Rollback options
  * @returns Rollback result
  */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
 export async function rollbackSchema(
   versionId: string,
   options?: RollbackOptions
 ): Promise<RollbackResponse> {
-  try {
-    const response = await apiClient.post<RollbackResponse>(
-      `${ED}/rollback_schema/${versionId}`,
-      options || {},
-    );
-
-    return response.data;
-  } catch (error: any) {
-    console.error('[rollbackSchema] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
-
-    return {
-      status: 'failed',
-      rolled_back_from: '',
-      rolled_back_to: versionId,
-      versions_rolled_back: 0,
-      statements_executed: 0,
-      message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
-    };
-  }
+  console.warn('[rollbackSchema] no backend route — use projectsApi.rollbackProject(projectId, { target_version_id: versionId })');
+  return {
+    status: 'failed',
+    rolled_back_from: '',
+    rolled_back_to: versionId,
+    versions_rolled_back: 0,
+    statements_executed: 0,
+    message: 'Backend endpoint /explore-design/rollback_schema not implemented. Use POST /projects/{projectId}/rollback instead.',
+    errors: ['Backend endpoint not implemented'],
+  };
 }
 
 /**
@@ -1894,7 +1844,7 @@ export async function listSchedulesV1(
 /**
  * Get ingestion run history for a project
  *
- * Backend: GET /explore-design/ingestion_history/{project_id}
+ * Backend: GET /explore-design/{project_id}/ingestion/runs
  *
  * @param projectId - Project ID
  * @param options - Query options
@@ -1913,7 +1863,7 @@ export async function getIngestionHistory(
     if (options?.schema_version_id) params.schema_version_id = options.schema_version_id;
 
     const response = await apiClient.get<IngestionHistoryResponse>(
-      `${ED}/ingestion_history/${projectId}`,
+      `${ED}/${projectId}/ingestion/runs`,
       { params },
     );
 
@@ -4048,18 +3998,39 @@ export async function addDesignEvent(
   status: string;
   created_at: string;
 }> {
-  const response = await apiClient.post(
-    `${ED}/add-event`,
-    {
-      project_id: projectId,
-      event_id: eventId,
-      event_type: eventType,
-      target,
-      payload,
-      module_type: moduleType,
-    },
-  );
-  return response.data;
+  // Try the explore-design add-event endpoint, fall back to cross-module projects endpoint
+  try {
+    const response = await apiClient.post(
+      `${ED}/add-event`,
+      {
+        project_id: projectId,
+        event_id: eventId,
+        event_type: eventType,
+        target,
+        payload,
+        module_type: moduleType,
+      },
+    );
+    return response.data;
+  } catch {
+    // Fallback: POST /projects/{projectId}/events
+    try {
+      const response = await apiClient.post(
+        `/projects/${projectId}/events`,
+        {
+          event_id: eventId,
+          event_type: eventType,
+          target,
+          payload,
+          module_type: moduleType,
+        },
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[addDesignEvent] Both endpoints failed:', error?.message);
+      return { success: false, event_id: eventId, project_id: projectId, status: 'failed', created_at: '' };
+    }
+  }
 }
 
 /**
@@ -4102,7 +4073,7 @@ export async function getDesignEvents(
   if (eventType) params.event_type = eventType;
 
   const response = await apiClient.get(
-    `${ED}/projects/${projectId}/events`,
+    `${ED}/${projectId}/events`,
     { params },
   );
   return response.data;
@@ -4135,7 +4106,7 @@ export async function validateDesignEvents(
   };
 }> {
   const response = await apiClient.post(
-    `${ED}/validate-events`,
+    `${ED}/${projectId}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
@@ -4180,7 +4151,7 @@ export async function createDesignDeployment(
   created_at: string;
 }> {
   const response = await apiClient.post(
-    `${ED}/deployments`,
+    `${ED}/${projectId}/deployments`,
     {
       project_id: projectId,
       version,
@@ -4201,6 +4172,7 @@ export async function createDesignDeployment(
  * @param dryRun - If true, don't actually execute SQL
  * @returns Promise with execution results
  */
+// TODO: backend endpoint requires projectId — use executeDeploymentV1(projectId, deploymentId) instead
 export async function executeDesignDeployment(
   deploymentId: string,
   executionMode: string = 'immediate',
@@ -4221,14 +4193,13 @@ export async function executeDesignDeployment(
     skipped: number;
   };
 }> {
-  const response = await apiClient.post(
-    `${ED}/deployments/${deploymentId}/execute`,
-    {
-      execution_mode: executionMode,
-      dry_run: dryRun,
-    },
-  );
-  return response.data;
+  console.warn('[executeDesignDeployment] deprecated — use executeDeploymentV1(projectId, deploymentId)');
+  return {
+    deployment_id: deploymentId,
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
 }
 
 /**
@@ -4272,16 +4243,14 @@ export async function immediateDesignDeploy(
     skipped: number;
   };
 }> {
-  const response = await apiClient.post(
-    `${ED}/deploy/immediate`,
-    {
-      project_id: projectId,
-      events,
-      rollback_on_error: rollbackOnError,
-      created_by: createdBy,
-    },
-  );
-  return response.data;
+  // TODO: backend endpoint not implemented — use createDeployment + executeDeploymentV1 instead
+  console.warn('[immediateDesignDeploy] no backend route — use createDeployment + executeDeploymentV1');
+  return {
+    deployment_id: '',
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
 }
 
 /**
@@ -4411,6 +4380,7 @@ export async function executeScheduledDesignDeployment(
  * @param reason - Reason for rollback
  * @returns Promise with rollback status
  */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
 export async function rollbackDesignDeployment(
   deploymentId: string,
   reason: string
@@ -4419,14 +4389,8 @@ export async function rollbackDesignDeployment(
   rollback_deployment_id?: string;
   message: string;
 }> {
-  const response = await apiClient.post(
-    `${ED}/deployments/${deploymentId}/rollback`,
-    {
-      deployment_id: deploymentId,
-      reason,
-    },
-  );
-  return response.data;
+  console.warn('[rollbackDesignDeployment] no backend route — use projectsApi.rollbackProject');
+  return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
 }
 
 

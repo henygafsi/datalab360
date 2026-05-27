@@ -197,7 +197,7 @@ export async function scheduleWorkflow(
  */
 export async function suspendTask(workflowId: string): Promise<{ message: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/task/suspend`,
+    `/workflow/${encodeURIComponent(workflowId)}/schedule/pause`,
     {}
   );
   return response.data;
@@ -208,7 +208,7 @@ export async function suspendTask(workflowId: string): Promise<{ message: string
  */
 export async function resumeTask(workflowId: string): Promise<{ message: string }> {
   const response = await apiClient.post(
-    `/workflow/${encodeURIComponent(workflowId)}/task/resume`,
+    `/workflow/${encodeURIComponent(workflowId)}/schedule/resume`,
     {}
   );
   return response.data;
@@ -274,8 +274,8 @@ export async function rollbackWorkflow(
   message: string;
 }> {
   const response = await apiClient.post(
-    `/workflow/${workflowId}/versions/${versionId}/rollback`,
-    { reason }
+    `/projects/${workflowId}/rollback`,
+    { target_version_id: versionId, reason }
   );
   return response.data;
 }
@@ -558,7 +558,7 @@ function getDeploymentActions(status: string): ('approve' | 'reject' | 'activate
  */
 export async function getWorkflowContributors(workflowId: string): Promise<WorkflowContributor[]> {
   const response = await apiClient.get(
-    `/workflow/${workflowId}/contributors`
+    `/projects/${workflowId}/contributors`
   );
   return response.data.contributors || [];
 }
@@ -572,7 +572,7 @@ export async function addWorkflowContributor(
   role: ContributorRole
 ): Promise<{ message: string; contributor_id: string }> {
   const response = await apiClient.post(
-    `/workflow/${workflowId}/contributors`,
+    `/projects/${workflowId}/contributors`,
     { user_name: userName, role }
   );
   return response.data;
@@ -583,10 +583,10 @@ export async function addWorkflowContributor(
  */
 export async function removeWorkflowContributor(
   workflowId: string,
-  contributorId: string
+  username: string
 ): Promise<{ message: string }> {
   const response = await apiClient.delete(
-    `/workflow/${workflowId}/contributors/${contributorId}`
+    `/projects/${workflowId}/contributors/${encodeURIComponent(username)}`
   );
   return response.data;
 }
@@ -597,6 +597,7 @@ export async function removeWorkflowContributor(
 
 /**
  * Initialize workflow tracking tables (run once)
+ * TODO: no backend route POST /workflow/setup/initialize-tables exists yet
  */
 export async function initializeTables(): Promise<{
   status: string;
@@ -747,7 +748,7 @@ export interface ComputePool {
 }
 
 export async function listComputePools(): Promise<ComputePool[]> {
-  const res = await apiClient.get('/workflow/compute-pools');
+  const res = await apiClient.get('/cortex/snowpark/compute-pools');
   return res.data?.data || res.data || [];
 }
 
@@ -759,10 +760,11 @@ export async function createComputePool(params: {
   auto_resume?: boolean;
   auto_suspend_secs?: number;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/workflow/compute-pools', params);
+  const res = await apiClient.post('/cortex/snowpark/compute-pools', params);
   return res.data;
 }
 
+// TODO: no PATCH endpoint exists in backend for compute pools
 export async function alterComputePool(name: string, params: {
   min_nodes?: number;
   max_nodes?: number;
@@ -773,7 +775,7 @@ export async function alterComputePool(name: string, params: {
 }
 
 export async function dropComputePool(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/workflow/compute-pools/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(`/cortex/snowpark/compute-pools/${encodeURIComponent(name)}`);
   return res.data;
 }
 
@@ -809,7 +811,7 @@ export interface ContainerServiceStatus {
 }
 
 export async function listContainerServices(): Promise<ContainerService[]> {
-  const res = await apiClient.get('/workflow/services');
+  const res = await apiClient.get('/cortex/snowpark/services');
   return res.data?.data || res.data || [];
 }
 
@@ -820,28 +822,29 @@ export async function createContainerService(params: {
   min_instances?: number;
   max_instances?: number;
 }): Promise<{ message: string }> {
-  const res = await apiClient.post('/workflow/services', params);
+  const res = await apiClient.post('/cortex/snowpark/services', params);
   return res.data;
 }
 
+// TODO: no exact backend route for GET /cortex/snowpark/services/{name} exists yet
 export async function describeContainerService(name: string): Promise<ContainerServiceDetail> {
-  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}`);
+  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}`);
   return res.data?.data || res.data;
 }
 
 export async function getContainerServiceStatus(name: string): Promise<ContainerServiceStatus> {
-  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}/status`);
+  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}/status`);
   return res.data?.data || res.data;
 }
 
 export async function getContainerServiceLogs(name: string, instanceId?: string): Promise<string[]> {
   const params = instanceId ? { instance_id: instanceId } : {};
-  const res = await apiClient.get(`/workflow/services/${encodeURIComponent(name)}/logs`, { params });
+  const res = await apiClient.get(`/cortex/snowpark/services/${encodeURIComponent(name)}/logs`, { params });
   return res.data?.data || res.data || [];
 }
 
 export async function dropContainerService(name: string): Promise<{ message: string }> {
-  const res = await apiClient.delete(`/workflow/services/${encodeURIComponent(name)}`);
+  const res = await apiClient.delete(`/cortex/snowpark/services/${encodeURIComponent(name)}`);
   return res.data;
 }
 

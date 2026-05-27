@@ -1,15 +1,8 @@
 'use client';
 
 /**
- * RollbackVersionDialog
- *
- * Lists the last 10 versions of a workflow and lets the user roll back to one.
- * QA flow: select a version → see a small client-side diff vs. current
- * (steps_count delta + step_names changed) → confirm via the shared
- * ConfirmDestructiveDialog (tier='hard') before the rollback fires.
- *
- * Used only by the workflow header (ETLPipelineBuilder.tsx) — kept minimal so
- * it stays inside the "do not touch other modules" boundary.
+ * RollbackVersionDialog — select a version, preview the diff, roll back.
+ * Uses POST /projects/{id}/rollback (projectsApi).
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
@@ -33,10 +26,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { ConfirmDestructiveDialog } from '@/components/ui/confirm-dialog';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import * as workflowApi from '@/app/services/api/workflowApi';
+import * as projectsApi from '@/app/services/api/projectsApi';
 import { getApiErrorMessage } from '@/lib/api-client';
 import type { WorkflowVersion } from '@/app/services/api/types';
 
@@ -95,7 +88,6 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
   onRolledBack,
 }) => {
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [isRollingBack, setIsRollingBack] = useState(false);
 
   const fetchFn = useCallback(
@@ -160,7 +152,6 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
   useEffect(() => {
     if (!open) {
       setSelectedVersionId(null);
-      setShowConfirm(false);
     }
   }, [open]);
 
@@ -169,11 +160,10 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
     if (!workflowId || !selectedVersion) return;
     setIsRollingBack(true);
     try {
-      await workflowApi.rollbackVersion(workflowId, {
+      await projectsApi.rollbackVersion(workflowId, {
         target_version_id: selectedVersion.version_id,
       });
       toast.success(`Rolled back to v${selectedVersion.version_number}`);
-      setShowConfirm(false);
       onOpenChange(false);
       onRolledBack?.();
     } catch (err) {
@@ -187,7 +177,7 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
   // ---- Render ------------------------------------------------------------
   return (
     <>
-      <Dialog open={open && !showConfirm} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-2xl bg-white dark:bg-slate-900">
           <DialogHeader>
             <div className="flex items-center gap-3">
@@ -397,63 +387,22 @@ const RollbackVersionDialog: React.FC<RollbackVersionDialogProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (!selectedVersion) {
-                    toast.error('Pick a version first');
-                    return;
-                  }
-                  if (selectedVersion.version_id === currentVersion?.version_id) {
-                    toast.error('That is already the current version');
-                    return;
-                  }
-                  setShowConfirm(true);
-                }}
-                disabled={!selectedVersion || selectedVersion.version_id === currentVersion?.version_id}
+                onClick={handleConfirmRollback}
+                disabled={!selectedVersion || selectedVersion.version_id === currentVersion?.version_id || isRollingBack}
                 className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-amber-600 px-4 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-50"
               >
-                <History className="h-4 w-4" />
-                Roll back…
+                {isRollingBack ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <History className="h-4 w-4" />
+                )}
+                {isRollingBack ? 'Rolling back…' : 'Roll back'}
               </button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* Hard-tier confirm gate — required by QA persona */}
-      <ConfirmDestructiveDialog
-        open={showConfirm}
-        onOpenChange={(next) => {
-          setShowConfirm(next);
-          if (!next && !isRollingBack) {
-            // Keep main dialog open so the user can re-confirm.
-          }
-        }}
-        tier="hard"
-        resourceLabel="workflow"
-        resourceName={workflowName || 'workflow'}
-        title="Replace current workflow definition"
-        body={
-          selectedVersion ? (
-            <span>
-              This replaces the current canvas with{' '}
-              <strong>
-                v{selectedVersion.version_number}
-                {selectedVersion.version_name
-                  ? ` — ${selectedVersion.version_name}`
-                  : ''}
-              </strong>
-              . Unsaved changes will be lost. A new version row is created so
-              you can re-roll forward if needed.
-            </span>
-          ) : (
-            'Replace the current workflow with the selected version.'
-          )
-        }
-        confirmLabel={isRollingBack ? 'Rolling back…' : 'Roll back'}
-        loading={isRollingBack}
-        onConfirm={handleConfirmRollback}
-        onCancel={() => setShowConfirm(false)}
-      />
     </>
   );
 };

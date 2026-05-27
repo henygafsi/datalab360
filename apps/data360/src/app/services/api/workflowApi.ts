@@ -33,7 +33,6 @@ import type {
   RejectWorkflowScheduleRequest,
   WorkflowVersionsResponse,
   ListWorkflowVersionsParams,
-  WorkflowRollbackParams,
   CreateWorkflowDeploymentRequest,
   WorkflowDeployment,
   WorkflowDeploymentListResponse,
@@ -101,7 +100,7 @@ export async function deleteStep(workflowId: string, stepId: string) {
 
 export async function listActionTemplates() {
   const { data } = await apiClient.get<ActionTemplatesResponse>(
-    `${PREFIX}/actions/templates`,
+    `${PREFIX}/action-templates`,
   );
   return data;
 }
@@ -216,15 +215,6 @@ export async function listVersions(
 ) {
   const { data } = await apiClient.get<WorkflowVersionsResponse>(
     `${PREFIX}/${workflowId}/versions`,
-    { params },
-  );
-  return data;
-}
-
-export async function rollbackVersion(workflowId: string, params: WorkflowRollbackParams) {
-  const { data } = await apiClient.post<{ status: string }>(
-    `${PREFIX}/${workflowId}/rollback`,
-    null,
     { params },
   );
   return data;

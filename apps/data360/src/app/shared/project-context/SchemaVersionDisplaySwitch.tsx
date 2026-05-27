@@ -13,7 +13,8 @@ import {
   FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getSchemaVersions, rollbackSchema, type SchemaVersion } from '@/app/services/explore-design';
+import { getSchemaVersions, type SchemaVersion } from '@/app/services/explore-design';
+import { rollbackVersion } from '@/app/services/api/projectsApi';
 import { DeploymentUnavailableNote } from '@/app/(dashboard)/explore-design/components/DeploymentUnavailableNote';
 import { toast } from 'react-hot-toast';
 
@@ -113,12 +114,12 @@ export function SchemaVersionDisplaySwitch({
     if (!ok) return;
     setRollingBackId(versionId);
     try {
-      await rollbackSchema(versionId, { dry_run: false });
+      await rollbackVersion(projectId, { target_version_id: versionId });
       toast.success('Schema rolled back');
       await fetchVersions();
       onVersionChange?.();
     } catch (e: any) {
-      toast.error(e?.message ?? 'Rollback failed');
+      toast.error(e?.response?.data?.detail ?? e?.message ?? 'Rollback failed');
     } finally {
       setRollingBackId(null);
     }
@@ -149,8 +150,7 @@ export function SchemaVersionDisplaySwitch({
           title="Version history is unavailable"
           description="The backend returned an error while loading schema versions. Your deployments may still have succeeded — check the History tab."
           endpoints={[
-            { endpoint: 'GET /explore-design/{projectId}/versions', status: 'currently 400' },
-            { endpoint: 'GET /explore-design/schema_versions/{projectId}', status: 'currently 404' },
+            { endpoint: 'GET /explore-design/{projectId}/versions', status: 'error' },
           ]}
           error={error ?? undefined}
           onRetry={() => fetchVersions()}

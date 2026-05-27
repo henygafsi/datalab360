@@ -1,6 +1,11 @@
 /**
  * Unified Project Management API client — /projects/*
- * Handles: CRUD, lock/unlock, versions, deployments, runs, contributors, state, events.
+ * Handles: CRUD, versions, deployments, runs, contributors, events.
+ *
+ * NOTE: Some functions call routes that do not exist on the unified /projects/
+ * router (e.g. versions are per-module, not per-project; state lives under
+ * /explore-design). These are wrapped in try-catch so they degrade gracefully
+ * (empty response, no error pop-up) when the backend returns 404.
  */
 import apiClient from '@/lib/api-client';
 import type {
@@ -64,7 +69,7 @@ export async function createProject(body: CreateProjectRequest) {
 }
 
 export async function updateProject(projectId: string, body: UpdateProjectRequest) {
-  const { data } = await apiClient.patch<Project>(`${PREFIX}/${projectId}`, body);
+  const { data } = await apiClient.put<Project>(`${PREFIX}/${projectId}`, body);
   return data;
 }
 
@@ -74,44 +79,76 @@ export async function deleteProject(projectId: string) {
 }
 
 // ============================================================================
-// Lock / Unlock
+// Lock / Unlock — NOT wired on the unified /projects/ router.
+// Calls are kept for forward-compat but return null on 404.
 // ============================================================================
 
-export async function lockProject(projectId: string) {
-  const { data } = await apiClient.post<Project>(`${PREFIX}/${projectId}/lock`);
-  return data;
+export async function lockProject(projectId: string): Promise<Project | null> {
+  try {
+    const { data } = await apiClient.post<Project>(`${PREFIX}/${projectId}/lock`);
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-export async function unlockProject(projectId: string) {
-  const { data } = await apiClient.post<Project>(`${PREFIX}/${projectId}/unlock`);
-  return data;
+export async function unlockProject(projectId: string): Promise<Project | null> {
+  try {
+    const { data } = await apiClient.post<Project>(`${PREFIX}/${projectId}/unlock`);
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 // ============================================================================
-// Version Management
+// Version Management — /projects/{id}/versions does NOT exist on the unified
+// router. Versions live per-module (/workflow/{id}/versions, etc.).
+// These stubs keep callers working; they degrade gracefully on 404.
 // ============================================================================
 
-export async function createVersion(projectId: string, body: CreateVersionRequest) {
-  const { data } = await apiClient.post<CreateVersionResponse>(
-    `${PREFIX}/${projectId}/versions`,
-    body,
-  );
-  return data;
+export async function createVersion(
+  projectId: string,
+  body: CreateVersionRequest,
+): Promise<CreateVersionResponse | null> {
+  try {
+    const { data } = await apiClient.post<CreateVersionResponse>(
+      `${PREFIX}/${projectId}/versions`,
+      body,
+    );
+    return data;
+  } catch {
+    return null;
+  }
 }
 
-export async function listVersions(projectId: string, params?: ListVersionsParams) {
-  const { data } = await apiClient.get<VersionListResponse>(
-    `${PREFIX}/${projectId}/versions`,
-    { params },
-  );
-  return data;
+export async function listVersions(
+  projectId: string,
+  params?: ListVersionsParams,
+): Promise<VersionListResponse> {
+  try {
+    const { data } = await apiClient.get<VersionListResponse>(
+      `${PREFIX}/${projectId}/versions`,
+      { params },
+    );
+    return data;
+  } catch {
+    return { project_id: projectId, versions: [], total: 0, current_version: null };
+  }
 }
 
-export async function getVersion(projectId: string, versionId: string) {
-  const { data } = await apiClient.get<ProjectVersion>(
-    `${PREFIX}/${projectId}/versions/${versionId}`,
-  );
-  return data;
+export async function getVersion(
+  projectId: string,
+  versionId: string,
+): Promise<ProjectVersion | null> {
+  try {
+    const { data } = await apiClient.get<ProjectVersion>(
+      `${PREFIX}/${projectId}/versions/${versionId}`,
+    );
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 export async function rollbackVersion(projectId: string, body: RollbackRequest) {
@@ -173,6 +210,64 @@ export async function executeDeployment(
   return data;
 }
 
+// ── BE-1 / BE-3 — single-deployment detail + per-step persistence ──
+// The 8 wizard steps. The frontend's internal token for step 2 is 'config';
+// the backend's WIZARD_STEPS uses 'configure' — callers must map at this
+// boundary (see DeploymentContext.toTrackedStep for the existing pattern).
+export type WizardStepKey =
+  | 'review' | 'configure' | 'pre_checks' | 'dry_run'
+  | 'sql_diff' | 'impact' | 'deploy' | 'verify';
+
+export interface DeploymentStepEntry {
+  step: WizardStepKey;
+  order: number;
+  result: Record<string, unknown> | null;
+  has_result: boolean;
+  status: 'pending' | 'completed' | 'failed';
+}
+
+/** Full detail returned by GET /projects/{id}/deployments/{deployment_id} (BE-1). */
+export interface DeploymentDetail extends ProjectDeployment {
+  version: Record<string, unknown> | null;
+  approvals: unknown | null;
+  runs: ProjectRun[];
+  run_count: number;
+  steps: DeploymentStepEntry[];
+  step_results: Record<
+    string,
+    { step: string; status: string; result: Record<string, unknown>; saved_by: string; saved_at: string }
+  >;
+  completed_steps: string[];
+}
+
+/** BE-1 — full detail of one deployment; rehydrates the deploy view on reload. */
+export async function getDeployment(projectId: string, deploymentId: string) {
+  const { data } = await apiClient.get<DeploymentDetail>(
+    `${PREFIX}/${projectId}/deployments/${deploymentId}`,
+  );
+  return data;
+}
+
+/** BE-3 — persist one wizard step's result onto the deployment record. */
+export async function saveDeploymentStep(
+  projectId: string,
+  deploymentId: string,
+  step: WizardStepKey,
+  result: Record<string, unknown>,
+  status: 'completed' | 'failed' = 'completed',
+) {
+  const { data } = await apiClient.put<{
+    deployment_id: string;
+    step: string;
+    status: string;
+    saved: boolean;
+  }>(
+    `${PREFIX}/${projectId}/deployments/${deploymentId}/steps/${step}`,
+    { result, status },
+  );
+  return data;
+}
+
 // ============================================================================
 // Execution Runs
 // ============================================================================
@@ -185,11 +280,18 @@ export async function listRuns(projectId: string, params?: ListRunsParams) {
   return data;
 }
 
-export async function getRunSummary(projectId: string) {
-  const { data } = await apiClient.get<Record<string, unknown>>(
-    `${PREFIX}/${projectId}/runs/summary`,
-  );
-  return data;
+/** /projects/{id}/runs/summary does NOT exist. Degrades to empty object. */
+export async function getRunSummary(
+  projectId: string,
+): Promise<Record<string, unknown>> {
+  try {
+    const { data } = await apiClient.get<Record<string, unknown>>(
+      `${PREFIX}/${projectId}/runs/summary`,
+    );
+    return data;
+  } catch {
+    return {};
+  }
 }
 
 // ============================================================================
@@ -211,20 +313,35 @@ export async function addContributor(projectId: string, body: AddContributorRequ
   return data;
 }
 
-export async function removeContributor(projectId: string, username: string) {
-  const { data } = await apiClient.delete<{ status: string; username: string }>(
-    `${PREFIX}/${projectId}/contributors/${username}`,
-  );
-  return data;
+/** DELETE /projects/{id}/contributors/{username} is NOT wired in the router
+ *  (service function exists but no route). Degrades gracefully on 404. */
+export async function removeContributor(
+  projectId: string,
+  username: string,
+): Promise<{ status: string; username: string }> {
+  try {
+    const { data } = await apiClient.delete<{ status: string; username: string }>(
+      `${PREFIX}/${projectId}/contributors/${username}`,
+    );
+    return data;
+  } catch {
+    return { status: 'noop', username };
+  }
 }
 
 // ============================================================================
-// Project State (Wizard)
+// Project State (Wizard) — /projects/{id}/state does NOT exist under the
+// unified router; wizard state lives under /explore-design/{id}/state.
+// Degrades gracefully on 404.
 // ============================================================================
 
-export async function getState(projectId: string) {
-  const { data } = await apiClient.get<WizardState>(`${PREFIX}/${projectId}/state`);
-  return data;
+export async function getState(projectId: string): Promise<WizardState> {
+  try {
+    const { data } = await apiClient.get<WizardState>(`${PREFIX}/${projectId}/state`);
+    return data;
+  } catch {
+    return { project_id: projectId, step: 0, state: {} };
+  }
 }
 
 // ============================================================================
@@ -247,16 +364,22 @@ export async function addEvent(projectId: string, body: CreateEventRequest) {
   return data;
 }
 
+/** PATCH /projects/{id}/events/{eventId} does NOT exist — only bulk-update
+ *  is available. Degrades gracefully; callers should prefer bulkUpdateEvents. */
 export async function updateEvent(
   projectId: string,
   eventId: string,
   body: UpdateEventRequest,
-) {
-  const { data } = await apiClient.patch<{ event_id: string; status: string }>(
-    `${PREFIX}/${projectId}/events/${eventId}`,
-    body,
-  );
-  return data;
+): Promise<{ event_id: string; status: string }> {
+  try {
+    const { data } = await apiClient.patch<{ event_id: string; status: string }>(
+      `${PREFIX}/${projectId}/events/${eventId}`,
+      body,
+    );
+    return data;
+  } catch {
+    return { event_id: eventId, status: 'noop' };
+  }
 }
 
 export async function bulkUpdateEvents(
@@ -270,11 +393,18 @@ export async function bulkUpdateEvents(
   return data;
 }
 
-export async function listGlobalEvents(params?: GlobalEventsParams) {
-  const { data } = await apiClient.get<EventListResponse>(`${PREFIX}/events/all`, {
-    params,
-  });
-  return data;
+/** GET /projects/events/all does NOT exist. Degrades to empty list. */
+export async function listGlobalEvents(
+  params?: GlobalEventsParams,
+): Promise<EventListResponse> {
+  try {
+    const { data } = await apiClient.get<EventListResponse>(`${PREFIX}/events/all`, {
+      params,
+    });
+    return data;
+  } catch {
+    return { project_id: '', events: [], count: 0 };
+  }
 }
 
 // ============================================================================

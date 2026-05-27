@@ -31,6 +31,50 @@ interface BackendPolicy {
   expiration_date: string | null;
 }
 
+// ============= ENRICHED POLICY (unified endpoint) =============
+
+export interface GrantedObject {
+  database: string;
+  schema: string;
+  object_name: string;
+  column: string | null;
+  object_type: string;
+  display: string;
+}
+
+export interface EnrichedPolicy {
+  name: string;
+  database_name: string;
+  schema_name: string;
+  created_on: string | null;
+  comment: string | null;
+  granted_roles: string[];
+  granted_objects: GrantedObject[];
+  granted_objects_count: number;
+  expiration_date: string | null;
+}
+
+type EnrichedPolicyType = 'AGGREGATION' | 'MASKING' | 'PASSWORD' | 'ROW_ACCESS' | 'SESSION';
+
+export async function listPoliciesEnriched(
+  policyType: EnrichedPolicyType
+): Promise<EnrichedPolicy[]> {
+  const { data } = await apiClient.get<{
+    policy_type: string;
+    total: number;
+    policies: EnrichedPolicy[];
+  }>(`${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies/${policyType}`);
+  return data?.policies ?? [];
+}
+
+export function formatPolicyError(error: any, defaultMessage: string): string {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail))
+    return detail.map((e: any) => e.msg || JSON.stringify(e)).join(', ');
+  return error?.response?.data?.message || error?.message || defaultMessage;
+}
+
 // ============= TYPES & INTERFACES =============
 
 export enum MaskingType {

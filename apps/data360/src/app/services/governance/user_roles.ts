@@ -1,6 +1,6 @@
 /**
  * User roles service — getUsersWithRolesAndModules + updateUserRoles.
- * Used by: shared/governance/user-grants/table.tsx
+ * Used by: shared/gouvernance/user-grants/table.tsx
  */
 import apiClient from '@/lib/api-client';
 
@@ -58,7 +58,7 @@ export async function getUsersWithRolesAndModules(): Promise<UserGrantTableData[
  */
 export async function updateUserRoles(username: string, roles: string[]) {
   const response = await apiClient.put(
-    `/governance/users/${encodeURIComponent(username)}/roles`,
+    `/gouvernance/users/${encodeURIComponent(username)}/roles`,
     { roles }
   );
   return response.data;

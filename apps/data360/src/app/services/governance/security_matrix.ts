@@ -148,19 +148,19 @@ export async function updateSecurityMatrixEntry(
   id: number,
   entry: UpdateMatrixEntryPayload
 ): Promise<{ message: string }> {
-  const response = await apiClient.put(`/governance/security-matrix/${id}`, entry);
+  const response = await apiClient.put(`/gouvernance/security-matrix/${id}`, entry);
   return response.data;
 }
 
 export async function deleteSecurityMatrixEntry(id: number): Promise<{ message: string }> {
-  const response = await apiClient.delete(`/governance/security-matrix/${id}`);
+  const response = await apiClient.delete(`/gouvernance/security-matrix/${id}`);
   return response.data;
 }
 
 export async function deleteSecurityMatrixByRole(
   roleName: string
 ): Promise<{ message: string; deleted: number }> {
-  const response = await apiClient.delete(`/governance/security-matrix/role/${roleName}`);
+  const response = await apiClient.delete(`/gouvernance/security-matrix/role/${roleName}`);
   return response.data;
 }
 
@@ -185,12 +185,12 @@ export async function createSecurityAxis(axis: Omit<SecurityAxis, 'id'>): Promis
 }
 
 export async function updateSecurityAxis(id: number, updates: Partial<SecurityAxis>): Promise<SecurityAxis> {
-  const response = await apiClient.put(`/governance/security-axes/${id}`, updates);
+  const response = await apiClient.put(`/gouvernance/security-axes/${id}`, updates);
   return response.data;
 }
 
 export async function deleteSecurityAxis(id: number): Promise<void> {
-  await apiClient.delete(`/governance/security-axes/${id}`);
+  await apiClient.delete(`/gouvernance/security-axes/${id}`);
 }
 
 // ============= ENTERPRISE USERS =============
@@ -207,12 +207,12 @@ export async function updateEnterpriseUser(
   username: string,
   updates: EnterpriseUserUpdate
 ): Promise<{ message: string; updated_fields: string[] }> {
-  const response = await apiClient.put(`/governance/enterprise-users/${username}`, updates);
+  const response = await apiClient.put(`/gouvernance/enterprise-users/${username}`, updates);
   return response.data;
 }
 
 export async function deleteEnterpriseUser(username: string): Promise<{ message: string }> {
-  const response = await apiClient.delete(`/governance/enterprise-users/${username}`);
+  const response = await apiClient.delete(`/gouvernance/enterprise-users/${username}`);
   return response.data;
 }
 

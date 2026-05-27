@@ -3,7 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
-import { RoleTableDataType } from '@/app/shared/governance/roles/table';
+import { RoleTableDataType } from '@/app/shared/gouvernance/roles/table';
 
 /**
  * Fetches the list of roles from the backend API.
@@ -54,7 +54,7 @@ export async function addRole(roleName: string): Promise<string> {
  */
 export async function getRolesForUser(username: string): Promise<string[]> {
   try {
-    const response = await apiClient.get(`/governance/roles-for-user/${username}`);
+    const response = await apiClient.get(`/gouvernance/roles-for-user/${username}`);
     return Array.isArray(response.data) ? (response.data as string[]) : [];
   } catch (error) {
     console.error('Error fetching roles for user:', error);
@@ -68,7 +68,7 @@ export async function getRolesForUser(username: string): Promise<string[]> {
  */
 export async function getRoleDetails(roleName: string): Promise<RoleTableDataType> {
   try {
-    const response = await apiClient.get(`/governance/roles/${roleName}`);
+    const response = await apiClient.get(`/gouvernance/roles/${roleName}`);
     const role = response.data;
 
     return {
@@ -90,7 +90,7 @@ export async function getRoleDetails(roleName: string): Promise<RoleTableDataTyp
  */
 export async function getRoleForEdit(roleName: string): Promise<RoleTableDataType> {
   try {
-    const response = await apiClient.get(`/governance/roles/edit/${roleName}`);
+    const response = await apiClient.get(`/gouvernance/roles/edit/${roleName}`);
     const role = response.data;
 
     return {
@@ -168,7 +168,7 @@ export async function updateRole(
   updated_fields: string[];
 }> {
   try {
-    const response = await apiClient.put(`/governance/roles/${roleName}`, data);
+    const response = await apiClient.put(`/gouvernance/roles/${roleName}`, data);
     return response.data;
   } catch (error) {
     console.error('Error updating role:', error);

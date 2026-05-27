@@ -16,7 +16,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { PiCoinsDuotone, PiChartBarDuotone, PiSparkleDuotone, PiInfoDuotone } from 'react-icons/pi';
+import { PiCoinsDuotone, PiChartBarDuotone, PiSparkleDuotone, PiInfoDuotone, PiTrendUpDuotone, PiWarehouseDuotone } from 'react-icons/pi';
 import { useAiMonthly } from '@/app/(dashboard)/intelligent/store/ai-store';
 import {
   getCredits,
@@ -24,6 +24,8 @@ import {
   getCreditsTrend,
   getMetering,
   getMeteringTrend,
+  getCreditForecast,
+  getWarehouseCredits,
 } from '@/app/services/org-accounts/hooks';
 import { formatCredits } from '@/app/services/org-accounts/utils';
 import type {
@@ -57,6 +59,8 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
   const [creditTrend, setCreditTrend] = useState<CreditTrendPoint[]>([]);
   const [metering, setMetering] = useState<MeteringEntry[]>([]);
   const [meteringTrend, setMeteringTrend] = useState<MeteringTrendPoint[]>([]);
+  const [forecast, setForecast] = useState<any>(null);
+  const [warehouseCredits, setWarehouseCredits] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
@@ -70,7 +74,9 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       getCreditsTrend(days).catch(() => null),
       getMetering(days).catch(() => null),
       getMeteringTrend(days).catch(() => null),
-    ]).then(([creditsData, topData, trendData, meteringData, mTrendData]) => {
+      getCreditForecast(days).catch(() => null),
+      getWarehouseCredits(days).catch(() => null),
+    ]).then(([creditsData, topData, trendData, meteringData, mTrendData, forecastData, whCreditsData]) => {
       if (creditsData) {
         setCredits(Array.isArray(creditsData.accounts) ? creditsData.accounts : []);
         setTotalCredits(creditsData.total_credits || 0);
@@ -79,14 +85,31 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       if (trendData) setCreditTrend(Array.isArray(trendData.trend) ? trendData.trend : []);
       if (meteringData) setMetering(Array.isArray(meteringData.metering) ? meteringData.metering : []);
       if (mTrendData) setMeteringTrend(Array.isArray(mTrendData.trend) ? mTrendData.trend : []);
+      setForecast(forecastData);
+      setWarehouseCredits(whCreditsData);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
   const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
+  // Derived forecast values
+  const forecastHistory = Array.isArray(forecast?.history) ? forecast.history : [];
+  const dailyAvg = forecast?.daily_avg ?? 0;
+  const projected30d = forecast?.projected_30d_total ?? 0;
+  const trendDirection = forecast?.trend_direction ?? 'stable';
+  const budgetAtRisk = forecast?.budget_at_risk ?? false;
+
+  // Derived warehouse credits values (Snowflake returns UPPERCASE keys)
+  const warehouses = Array.isArray(warehouseCredits?.warehouses) ? warehouseCredits.warehouses : [];
+
   if (loading) {
     return (
       <div className="space-y-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+        <SkeletonCard />
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <SkeletonCard />
           <SkeletonCard />
@@ -185,6 +208,132 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
                 </BarChart>
               </ResponsiveContainer>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Credit Forecast + Warehouse Credits */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Credit Forecast */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <PiTrendUpDuotone className="h-5 w-5 text-emerald-500" />
+            <Text className="font-semibold text-gray-900 dark:text-white">Credit Forecast</Text>
+            {budgetAtRisk && (
+              <Badge variant="flat" color="danger" className="text-xs ml-auto">Budget at Risk</Badge>
+            )}
+          </div>
+
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 gap-4 mb-4">
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+              <Text className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Daily Avg</Text>
+              <div className="mt-1 text-2xl font-bold text-gray-900 dark:text-white">
+                {formatCredits(dailyAvg)}
+              </div>
+              <Text className="text-xs text-gray-500">credits/day</Text>
+            </div>
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-700/40 p-3">
+              <Text className="text-xs uppercase tracking-wider text-gray-500 dark:text-gray-400">Projected 30d</Text>
+              <div className={cn(
+                'mt-1 text-2xl font-bold',
+                budgetAtRisk ? 'text-red-600' : 'text-gray-900 dark:text-white'
+              )}>
+                {formatCredits(projected30d)}
+              </div>
+              <Text className="text-xs text-gray-500">
+                Trend: <span className={cn(
+                  'font-medium',
+                  trendDirection === 'increasing' ? 'text-red-500' :
+                  trendDirection === 'decreasing' ? 'text-green-500' : 'text-gray-500'
+                )}>{trendDirection}</span>
+              </Text>
+            </div>
+          </div>
+
+          {/* Mini line chart of historical usage */}
+          <div className="h-40">
+            {forecastHistory.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-gray-500 text-sm">No forecast data available</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={forecastHistory} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                  <XAxis
+                    dataKey="date"
+                    tickFormatter={(d: string) => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    stroke="#9ca3af"
+                    fontSize={11}
+                    tickLine={false}
+                  />
+                  <YAxis stroke="#9ca3af" fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const item = payload[0].payload;
+                    return (
+                      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3">
+                        <Text className="text-sm font-medium text-gray-900 dark:text-white">{item.date}</Text>
+                        <Text className="text-sm text-emerald-600">Credits: <span className="font-semibold">{Number(item.credits).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></Text>
+                      </div>
+                    );
+                  }} />
+                  <Line type="monotone" dataKey="credits" stroke="#10b981" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* Warehouse Credits */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800" id="warehouse-credits">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2">
+            <PiWarehouseDuotone className="h-5 w-5 text-blue-500" />
+            <Text className="font-semibold text-gray-900 dark:text-white">Warehouse Credits</Text>
+            {warehouses.length > 0 && (
+              <Badge variant="flat" color="info" className="text-xs ml-auto">{warehouses.length} warehouses</Badge>
+            )}
+          </div>
+          <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
+            <table className="w-full">
+              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800/50">
+                <tr className="border-b border-gray-200 dark:border-gray-700">
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Account</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Warehouse</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Total Credits</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Compute</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase">Cloud Svc</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {warehouses.length === 0 ? (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No warehouse credit data</td></tr>
+                ) : warehouses.map((w: any, i: number) => (
+                  <tr key={`${w.ACCOUNT_NAME || w.account_name}-${w.WAREHOUSE_NAME || w.warehouse_name}-${i}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <td className="px-4 py-2">
+                      <Text className="text-sm text-gray-900 dark:text-white">{w.ACCOUNT_NAME || w.account_name || '—'}</Text>
+                    </td>
+                    <td className="px-4 py-2">
+                      <Badge variant="flat" color="primary" className="text-xs">{(w.WAREHOUSE_NAME || w.warehouse_name || '—').replace(/_/g, ' ')}</Badge>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Text className="text-sm font-medium text-gray-900 dark:text-white">
+                        {formatCredits(Number(w.TOTAL_CREDITS || w.total_credits || 0))}
+                      </Text>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Text className="text-sm text-gray-600 dark:text-gray-300">
+                        {formatCredits(Number(w.COMPUTE_CREDITS || w.compute_credits || 0))}
+                      </Text>
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      <Text className="text-sm text-gray-600 dark:text-gray-300">
+                        {formatCredits(Number(w.CLOUD_CREDITS || w.cloud_credits || 0))}
+                      </Text>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

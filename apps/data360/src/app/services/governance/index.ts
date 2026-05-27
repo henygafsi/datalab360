@@ -40,7 +40,7 @@ async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' | 'PUT' | 'DE
  * GET /gouvernance/get_user_info
  */
 export async function getQueryAccessHistory(): Promise<QueryAccessHistory[]> {
-  return apiCall<QueryAccessHistory[]>('/governance/get_user_info');
+  return apiCall<QueryAccessHistory[]>('/gouvernance/get_user_info');
 }
 
 /**
@@ -49,7 +49,7 @@ export async function getQueryAccessHistory(): Promise<QueryAccessHistory[]> {
  * Backend returns { count, stages }; we return stages array for hooks.
  */
 export async function getStageStorageInfo(): Promise<StageSize[]> {
-  const res = await apiCall<{ count?: number; stages?: StageSize[] }>('/governance/get_stage_storage_info');
+  const res = await apiCall<{ count?: number; stages?: StageSize[] }>('/gouvernance/get_stage_storage_info');
   return Array.isArray(res?.stages) ? res.stages : [];
 }
 
@@ -65,7 +65,7 @@ export async function getDwhStorageInfo(
     database_name: databaseName,
     schema_name: schemaName,
   });
-  return apiCall<DwhStorageSummary>(`/governance/get_dwh_storage_info?${params}`);
+  return apiCall<DwhStorageSummary>(`/gouvernance/get_dwh_storage_info?${params}`);
 }
 
 /**
@@ -73,7 +73,7 @@ export async function getDwhStorageInfo(
  * GET /gouvernance/get_src_table_storage_info
  */
 export async function getSrcTableStorageInfo(): Promise<StagedTableStorage> {
-  return apiCall<StagedTableStorage>('/governance/get_src_table_storage_info');
+  return apiCall<StagedTableStorage>('/gouvernance/get_src_table_storage_info');
 }
 
 /**
@@ -81,7 +81,7 @@ export async function getSrcTableStorageInfo(): Promise<StagedTableStorage> {
  * GET /gouvernance/get_dwh_schemas
  */
 export async function getDwhSchemas(): Promise<string[]> {
-  return apiCall<string[]>('/governance/get_dwh_schemas');
+  return apiCall<string[]>('/gouvernance/get_dwh_schemas');
 }
 
 /**
@@ -90,7 +90,7 @@ export async function getDwhSchemas(): Promise<string[]> {
  */
 export async function getDwhHealthInfo(schemaName: string): Promise<DwhHealthInfo> {
   const params = new URLSearchParams({ schema_name: schemaName });
-  return apiCall<DwhHealthInfo>(`/governance/get_dwh_health_info?${params}`);
+  return apiCall<DwhHealthInfo>(`/gouvernance/get_dwh_health_info?${params}`);
 }
 
 /**
@@ -98,7 +98,7 @@ export async function getDwhHealthInfo(schemaName: string): Promise<DwhHealthInf
  * GET /gouvernance/client/dashboard
  */
 export async function getClientDashboardInfo(): Promise<ClientDashboardInfo> {
-  return apiCall<ClientDashboardInfo>('/governance/client/dashboard');
+  return apiCall<ClientDashboardInfo>('/gouvernance/client/dashboard');
 }
 
 /**
@@ -106,7 +106,7 @@ export async function getClientDashboardInfo(): Promise<ClientDashboardInfo> {
  * GET /gouvernance/info
  */
 export async function getConnectorsInfo(): Promise<ConnectorsResponse> {
-  return apiCall<ConnectorsResponse>('/governance/info');
+  return apiCall<ConnectorsResponse>('/gouvernance/info');
 }
 
 /**
@@ -128,8 +128,8 @@ export async function getAllUsersActivity(
 
   const queryString = params.toString();
   const endpoint = queryString
-    ? `/governance/dashboard/activity?${queryString}`
-    : '/governance/dashboard/activity';
+    ? `/gouvernance/dashboard/activity?${queryString}`
+    : '/gouvernance/dashboard/activity';
 
   // API returns array directly
   return apiCall<UserActivityWithQuery[]>(endpoint);
@@ -151,7 +151,7 @@ export async function getDashboardErrors(params?: {
   if (params?.start_date) search.set('start_date', params.start_date);
   if (params?.end_date) search.set('end_date', params.end_date);
   const qs = search.toString();
-  return apiCall(qs ? `/governance/dashboard/errors?${qs}` : '/governance/dashboard/errors');
+  return apiCall(qs ? `/gouvernance/dashboard/errors?${qs}` : '/gouvernance/dashboard/errors');
 }
 
 /**
@@ -159,7 +159,7 @@ export async function getDashboardErrors(params?: {
  * POST /gouvernance/user/mfa/set
  */
 export async function setUserMfa(username: string, enable: boolean): Promise<MfaStatus> {
-  return apiCall<MfaStatus>('/governance/user/mfa/set', 'POST', { username, enable });
+  return apiCall<MfaStatus>('/gouvernance/user/mfa/set', 'POST', { username, enable });
 }
 
 /**
@@ -168,7 +168,7 @@ export async function setUserMfa(username: string, enable: boolean): Promise<Mfa
  */
 export async function getUserMfaStatus(username: string): Promise<MfaStatus> {
   const params = new URLSearchParams({ username });
-  return apiCall<MfaStatus>(`/governance/user/mfa/status?${params}`);
+  return apiCall<MfaStatus>(`/gouvernance/user/mfa/status?${params}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ export interface GuiPermissionCreate {
  * GET /gouvernance/gui-permissions
  */
 export async function listGuiPermissions(): Promise<{ data: GuiPermission[]; count: number }> {
-  return apiCall<{ data: GuiPermission[]; count: number }>('/governance/gui-permissions');
+  return apiCall<{ data: GuiPermission[]; count: number }>('/gouvernance/gui-permissions');
 }
 
 /**
@@ -206,7 +206,7 @@ export async function upsertGuiPermission(
   payload: GuiPermissionCreate
 ): Promise<{ success: boolean; message: string }> {
   return apiCall<{ success: boolean; message: string }>(
-    '/governance/gui-permissions',
+    '/gouvernance/gui-permissions',
     'POST',
     payload
   );
@@ -222,7 +222,7 @@ export async function getMyPageAccess(): Promise<{
   roles: string[];
 }> {
   return apiCall<{ data: Record<string, 'READ' | 'WRITE' | 'NONE'>; roles: string[] }>(
-    '/governance/gui-permissions/my-access'
+    '/gouvernance/gui-permissions/my-access'
   );
 }
 
@@ -234,7 +234,7 @@ export async function deleteGuiPermission(
   permissionId: string
 ): Promise<{ success: boolean; message: string }> {
   const { data } = await apiClient.delete<{ success: boolean; message: string }>(
-    `/governance/gui-permissions/${permissionId}`
+    `/gouvernance/gui-permissions/${permissionId}`
   );
   return data;
 }
@@ -277,7 +277,7 @@ export async function listOAuthIntegrations(): Promise<{
   integrations: OAuthIntegration[];
   count: number;
 }> {
-  return apiCall('/governance/oauth/integrations');
+  return apiCall('/gouvernance/oauth/integrations');
 }
 
 /**
@@ -288,7 +288,7 @@ export async function listNetworkPolicies(): Promise<{
   policies: NetworkPolicy[];
   count: number;
 }> {
-  return apiCall('/governance/oauth/network-policies');
+  return apiCall('/gouvernance/oauth/network-policies');
 }
 
 /**
@@ -299,7 +299,7 @@ export async function listApiKeys(): Promise<{
   api_keys: ApiKeyUser[];
   count: number;
 }> {
-  return apiCall('/governance/oauth/api-keys');
+  return apiCall('/gouvernance/oauth/api-keys');
 }
 
 // =====================================
@@ -334,7 +334,7 @@ export async function createOAuthIntegration(body: CreateOAuthIntegrationBody): 
   provider: string;
   enabled: boolean;
 }> {
-  return apiCall('/governance/oauth/integrations', 'POST', body);
+  return apiCall('/gouvernance/oauth/integrations', 'POST', body);
 }
 
 export async function createSAMLIntegration(body: CreateSAMLIntegrationBody): Promise<{
@@ -344,7 +344,7 @@ export async function createSAMLIntegration(body: CreateSAMLIntegrationBody): Pr
   sso_url: string;
   enabled: boolean;
 }> {
-  return apiCall('/governance/oauth/saml-integrations', 'POST', body);
+  return apiCall('/gouvernance/oauth/saml-integrations', 'POST', body);
 }
 
 // =====================================
@@ -356,18 +356,18 @@ export async function createServiceUser(body: {
   default_role?: string;
   comment?: string;
 }): Promise<{ message: string; username: string }> {
-  return apiCall('/governance/oauth/service-users', 'POST', body);
+  return apiCall('/gouvernance/oauth/service-users', 'POST', body);
 }
 
 export async function assignRSAKey(body: {
   username: string;
   rsa_public_key: string;
 }): Promise<{ message: string; username: string }> {
-  return apiCall('/governance/oauth/assign-rsa-key', 'POST', body);
+  return apiCall('/gouvernance/oauth/assign-rsa-key', 'POST', body);
 }
 
 export async function revokeRSAKey(username: string): Promise<{ message: string }> {
-  return apiCall(`/governance/oauth/revoke-rsa-key/${encodeURIComponent(username)}`, 'DELETE');
+  return apiCall(`/gouvernance/oauth/revoke-rsa-key/${encodeURIComponent(username)}`, 'DELETE');
 }
 
 // Re-export types for convenience

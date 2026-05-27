@@ -2,6 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import toast from 'react-hot-toast';
+import { Text, Badge } from 'rizzui';
+import cn from '@core/utils/class-names';
+import {
+  PiClockCounterClockwiseDuotone,
+  PiGaugeDuotone,
+  PiCalendarDuotone,
+} from 'react-icons/pi';
 import {
   getDashboardOverview,
   getDashboardUsage,
@@ -13,6 +20,9 @@ import {
   getStorage,
   getDataTransfer,
   getWarehouses,
+  getOrgEvents,
+  getUsageAnalytics,
+  getResourceMonitors,
 } from '@/app/services/org-accounts/hooks';
 import type {
   DashboardOverviewResponse,
@@ -78,7 +88,14 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [warehousesLoading, setWarehousesLoading] = useState(true);
 
+  // Step 4: New data (events, resource monitors)
+  const [events, setEvents] = useState<any[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [resourceMonitors, setResourceMonitors] = useState<any[]>([]);
+  const [resourceMonitorsLoading, setResourceMonitorsLoading] = useState(true);
+
   // UI state
+  const [globalDays, setGlobalDays] = useState<7 | 30 | 90>(30);
   const [creditDateRange, setCreditDateRange] = useState<DateRange>('30d');
   const [storageDateRange, setStorageDateRange] = useState<DateRange>('30d');
   const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(null);
@@ -97,13 +114,13 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
     }
   }, []);
 
-  const fetchSecondaryData = useCallback(async () => {
+  const fetchSecondaryData = useCallback(async (days: number) => {
     getDashboardUsage()
       .then((data) => setUsageData(data))
       .catch((e) => console.error('Failed to fetch usage:', e))
       .finally(() => setUsageLoading(false));
 
-    getDashboardTrends()
+    getDashboardTrends(days)
       .then((data) => {
         setCreditTrends(Array.isArray(data.credits) ? data.credits : []);
         setStorageTrends(Array.isArray(data.storage) ? data.storage : []);
@@ -111,7 +128,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .catch((e) => console.error('Failed to fetch trends:', e))
       .finally(() => setTrendsLoading(false));
 
-    getAlerts()
+    getAlerts(days)
       .then((data) => {
         setAlerts(Array.isArray(data.alerts) ? data.alerts : []);
         setAlertsData(data);
@@ -124,12 +141,12 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .catch((e) => { console.error('Failed to fetch health:', e); setHealthScores([]); })
       .finally(() => setHealthLoading(false));
 
-    getTopConsumers(30, 10)
+    getTopConsumers(days, 10)
       .then((data) => setTopConsumers(Array.isArray(data.top_consumers) ? data.top_consumers : []))
       .catch((e) => console.error('Failed to fetch top consumers:', e))
       .finally(() => setTopConsumersLoading(false));
 
-    getCredits(30)
+    getCredits(days)
       .then((data) => setCreditAccounts(Array.isArray(data.accounts) ? data.accounts : []))
       .catch((e) => console.error('Failed to fetch credits:', e));
 
@@ -137,7 +154,7 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .then((data) => setStorageAccounts(Array.isArray(data.accounts) ? data.accounts : []))
       .catch((e) => console.error('Failed to fetch storage:', e));
 
-    getDataTransfer()
+    getDataTransfer(days)
       .then((data) => {
         setDataTransfers(Array.isArray(data.transfers) ? data.transfers : []);
         setDataTransferTotalBytes(data.total_bytes || 0);
@@ -145,19 +162,30 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       .catch((e) => console.error('Failed to fetch data transfer:', e))
       .finally(() => setDataTransferLoading(false));
 
-    getWarehouses(30)
+    getWarehouses(days)
       .then((data) => setWarehouses(Array.isArray(data.warehouses) ? data.warehouses : []))
       .catch((e) => console.error('Failed to fetch warehouses:', e))
       .finally(() => setWarehousesLoading(false));
+
+    // New endpoints
+    getOrgEvents(days)
+      .then((data) => setEvents(Array.isArray(data.events) ? data.events.slice(0, 5) : []))
+      .catch((e) => console.error('Failed to fetch events:', e))
+      .finally(() => setEventsLoading(false));
+
+    getResourceMonitors()
+      .then((data) => setResourceMonitors(Array.isArray(data.monitors) ? data.monitors : []))
+      .catch((e) => console.error('Failed to fetch resource monitors:', e))
+      .finally(() => setResourceMonitorsLoading(false));
   }, []);
 
   useEffect(() => {
     const load = async () => {
       await fetchOverview();
-      fetchSecondaryData();
+      fetchSecondaryData(globalDays);
     };
     load();
-  }, [fetchOverview, fetchSecondaryData, refreshKey]);
+  }, [fetchOverview, fetchSecondaryData, refreshKey, globalDays]);
 
   const creditUsageMap = useMemo(() => {
     const map: Record<string, number> = {};
@@ -173,6 +201,26 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
 
   return (
     <div className="space-y-6">
+      {/* Date range selector */}
+      <div className="flex items-center justify-end gap-2">
+        <PiCalendarDuotone className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+        <Text className="text-sm text-gray-500 dark:text-gray-400 mr-1">Period:</Text>
+        {([7, 30, 90] as const).map((d) => (
+          <button
+            key={d}
+            onClick={() => setGlobalDays(d)}
+            className={cn(
+              'px-3 py-1 rounded-md text-sm font-medium transition-colors',
+              globalDays === d
+                ? 'bg-primary text-white'
+                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+            )}
+          >
+            {d}d
+          </button>
+        ))}
+      </div>
+
       <OverviewCards
         overview={overview}
         usage={usageData}
@@ -228,6 +276,176 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <DataTransferChart data={dataTransfers} totalBytes={dataTransferTotalBytes} loading={dataTransferLoading} />
         <WarehouseUsageChart data={warehouses} loading={warehousesLoading} />
+      </div>
+
+      {/* Recent Platform Events + Resource Monitors */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {/* Recent Platform Events */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PiClockCounterClockwiseDuotone className="h-5 w-5 text-gray-600 dark:text-gray-300" />
+                <Text className="font-semibold text-gray-900 dark:text-white">
+                  Recent Platform Events
+                </Text>
+                {events.length > 0 && (
+                  <Badge variant="flat" color="info" className="text-xs">
+                    {events.length}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-[320px] overflow-y-auto">
+            {eventsLoading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : events.length === 0 ? (
+              <div className="p-8 text-center">
+                <PiClockCounterClockwiseDuotone className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+                <Text className="text-gray-500 dark:text-gray-400 text-sm">
+                  No recent events
+                </Text>
+              </div>
+            ) : (
+              events.map((evt: any, index: number) => {
+                const statusColor = evt.STATUS === 'SUCCESS'
+                  ? 'text-green-600 dark:text-green-400'
+                  : evt.STATUS === 'ERROR'
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-gray-600 dark:text-gray-400';
+                return (
+                  <div key={evt.EVENT_ID || index} className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-shrink-0 h-8 w-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                        <PiClockCounterClockwiseDuotone className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <Text className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                            {evt.EVENT_TYPE || 'Event'}{' '}
+                            <span className="font-normal text-gray-500">
+                              {evt.MODULE_NAME ? `in ${evt.MODULE_NAME}` : ''}
+                            </span>
+                          </Text>
+                          <Text className="text-xs text-gray-400 flex-shrink-0">
+                            {evt.CREATED_AT
+                              ? new Date(evt.CREATED_AT).toLocaleString(undefined, {
+                                  month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                                })
+                              : ''}
+                          </Text>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          {evt.USERNAME && (
+                            <Text className="text-xs text-gray-500 dark:text-gray-400">
+                              by {evt.USERNAME}
+                            </Text>
+                          )}
+                          {evt.STATUS && (
+                            <Text className={cn('text-xs font-medium', statusColor)}>
+                              {evt.STATUS}
+                            </Text>
+                          )}
+                          {evt.ENTITY_TYPE && (
+                            <Text className="text-xs text-gray-400">
+                              {evt.ENTITY_TYPE}
+                            </Text>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Resource Monitors */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <PiGaugeDuotone className="h-5 w-5 text-gray-600 dark:text-gray-300" />
+                <Text className="font-semibold text-gray-900 dark:text-white">
+                  Resource Monitors
+                </Text>
+                {resourceMonitors.length > 0 && (
+                  <Badge variant="flat" color="secondary" className="text-xs">
+                    {resourceMonitors.length}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="divide-y divide-gray-200 dark:divide-gray-700 max-h-[320px] overflow-y-auto">
+            {resourceMonitorsLoading ? (
+              <div className="p-4 space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-14 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : resourceMonitors.length === 0 ? (
+              <div className="p-8 text-center">
+                <PiGaugeDuotone className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+                <Text className="text-gray-500 dark:text-gray-400 text-sm">
+                  No resource monitors configured
+                </Text>
+              </div>
+            ) : (
+              resourceMonitors.map((mon: any, index: number) => {
+                const pct = mon.usage_pct ?? 0;
+                const barColor = pct >= 80
+                  ? 'bg-red-500'
+                  : pct >= 50
+                    ? 'bg-amber-500'
+                    : 'bg-green-500';
+                const barBg = pct >= 80
+                  ? 'bg-red-100 dark:bg-red-900/20'
+                  : pct >= 50
+                    ? 'bg-amber-100 dark:bg-amber-900/20'
+                    : 'bg-green-100 dark:bg-green-900/20';
+                return (
+                  <div key={mon.name || index} className="p-3 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <Text className="font-medium text-gray-900 dark:text-white text-sm truncate">
+                        {mon.name}
+                      </Text>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Text className="text-xs text-gray-500 dark:text-gray-400">
+                          {mon.used_credits?.toLocaleString(undefined, { maximumFractionDigits: 1 })} / {mon.credit_quota?.toLocaleString(undefined, { maximumFractionDigits: 0 })} credits
+                        </Text>
+                        <Badge
+                          variant="flat"
+                          color={pct >= 80 ? 'danger' : pct >= 50 ? 'warning' : 'success'}
+                          size="sm"
+                        >
+                          {pct.toFixed(1)}%
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className={cn('h-2 rounded-full overflow-hidden', barBg)}>
+                      <div
+                        className={cn('h-full rounded-full transition-all', barColor)}
+                        style={{ width: `${Math.min(pct, 100)}%` }}
+                      />
+                    </div>
+                    {mon.frequency && (
+                      <Text className="text-xs text-gray-400 mt-1">
+                        {mon.frequency}{mon.level ? ` | ${mon.level}` : ''}
+                      </Text>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

@@ -3,7 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
-import { UserTableDataType } from '@/app/shared/governance/users/table';
+import { UserTableDataType } from '@/app/shared/gouvernance/users/table';
 
 /**
  * Fetches the list of users from the backend API.
@@ -90,7 +90,7 @@ export async function assignRoleToUser(username: string, roleName: string): Prom
  */
 export async function getUserDetails(username: string): Promise<UserTableDataType> {
   try {
-    const response = await apiClient.get(`/governance/users/${username}`);
+    const response = await apiClient.get(`/gouvernance/users/${username}`);
     const user = response.data;
 
     let roles: string[] = [];
@@ -180,7 +180,7 @@ export async function disableUser(username: string): Promise<{
   username: string;
 }> {
   try {
-    const response = await apiClient.post(`/governance/disable_user/?username=${username}`);
+    const response = await apiClient.post(`/gouvernance/disable_user/?username=${username}`);
     return response.data;
   } catch (error) {
     console.error('Error disabling user:', error);
@@ -198,7 +198,7 @@ export async function enableUser(username: string): Promise<{
   username: string;
 }> {
   try {
-    const response = await apiClient.post(`/governance/enable_user/?username=${username}`);
+    const response = await apiClient.post(`/gouvernance/enable_user/?username=${username}`);
     return response.data;
   } catch (error) {
     console.error('Error enabling user:', error);
@@ -227,7 +227,7 @@ export async function updateUser(
   updated_fields: string[];
 }> {
   try {
-    const response = await apiClient.put(`/governance/users/${username}`, data);
+    const response = await apiClient.put(`/gouvernance/users/${username}`, data);
     return response.data;
   } catch (error) {
     console.error('Error updating user:', error);

@@ -3,8 +3,8 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
-import { GrantTableDataType } from '@/app/shared/governance/grants/table';
-import { getRoles } from '@/app/services/governance/fetch_roles';
+import { GrantTableDataType } from '@/app/shared/gouvernance/grants/table';
+import { getRoles } from '@/app/services/gouvernance/fetch_roles';
 
 /**
  * Fetches permissions/grants from the backend.
@@ -65,7 +65,7 @@ export async function getRolesForGrantsMatrix(roleName: string): Promise<string[
  */
 export async function getGrantsForRole(roleName: string): Promise<string[]> {
   try {
-    const response = await apiClient.get(`/governance/grants-for-role/${roleName}`);
+    const response = await apiClient.get(`/gouvernance/grants-for-role/${roleName}`);
     return Array.isArray(response.data) ? (response.data as string[]) : [];
   } catch (error: any) {
     console.error(`Error fetching grants for role ${roleName}:`, error.response?.data || error.message);
@@ -89,7 +89,7 @@ export async function grantPermission(
     params.append('object_name', object_name);
     params.append('role_name', role_name);
 
-    const response = await apiClient.post(`/governance/grant-permission?${params.toString()}`);
+    const response = await apiClient.post(`/gouvernance/grant-permission?${params.toString()}`);
     return response.data;
   } catch (error: any) {
     console.error('Error granting permission:', error.response?.data || error.message);
