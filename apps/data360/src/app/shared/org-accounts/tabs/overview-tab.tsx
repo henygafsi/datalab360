@@ -21,7 +21,6 @@ import {
   getDataTransfer,
   getWarehouses,
   getOrgEvents,
-  getUsageAnalytics,
   getResourceMonitors,
 } from '@/app/services/org-accounts/hooks';
 import type {
@@ -115,6 +114,17 @@ export default function OverviewTab({ refreshKey }: OverviewTabProps) {
   }, []);
 
   const fetchSecondaryData = useCallback(async (days: number) => {
+    // Reset loading states for refetch feedback on period change
+    setUsageLoading(true);
+    setTrendsLoading(true);
+    setAlertsLoading(true);
+    setHealthLoading(true);
+    setTopConsumersLoading(true);
+    setDataTransferLoading(true);
+    setWarehousesLoading(true);
+    setEventsLoading(true);
+    setResourceMonitorsLoading(true);
+
     getDashboardUsage()
       .then((data) => setUsageData(data))
       .catch((e) => console.error('Failed to fetch usage:', e))
