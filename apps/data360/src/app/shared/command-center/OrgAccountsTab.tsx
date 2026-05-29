@@ -95,6 +95,22 @@ function fmtNumber(n: number | null | undefined): string {
   return String(n);
 }
 
+/**
+ * Detect an API error envelope returned as 200 OK (e.g. {error_code, message}
+ * or {success:false}). The org-level endpoints return this when the current
+ * Snowflake role can't read SNOWFLAKE.ORGANIZATION_USAGE.* — i.e. the logged-in
+ * account is NOT a Snowflake Organization account.
+ */
+function isApiError(data: unknown): boolean {
+  if (data === null || data === undefined) return false;
+  if (typeof data !== 'object' || Array.isArray(data)) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    ('error_code' in d && 'message' in d) ||
+    ('success' in d && d.success === false)
+  );
+}
+
 export default function OrgAccountsTab() {
   const [state, setState] = useState<OrgAccountsState>({
     overview: null,
@@ -114,13 +130,18 @@ export default function OrgAccountsTab() {
   const fetchAll = async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
-      const [overview, accounts, trends, readerRes, shareRes] = await Promise.all([
+      const [overviewRaw, accountsRaw, trendsRaw, readerRes, shareRes] = await Promise.all([
         getDashboardOverview().catch(() => null),
         getAccounts().catch(() => null),
         getDashboardTrends(30).catch(() => null),
         getReaderAccounts().catch(() => ({ reader_accounts: [] as any[] })),
         getShares().catch(() => ({ shares: [] as any[] })),
       ]);
+      // Treat error-envelope 200s (role can't read org views) as "no data" so
+      // the UI shows the friendly not-an-org state instead of a wall of zeros.
+      const overview = isApiError(overviewRaw) ? null : overviewRaw;
+      const accounts = isApiError(accountsRaw) ? null : accountsRaw;
+      const trends = isApiError(trendsRaw) ? null : trendsRaw;
       const readerList = (readerRes?.reader_accounts ?? []) as Array<{
         name: string;
         cloud?: string;
@@ -194,6 +215,16 @@ export default function OrgAccountsTab() {
   // Backend tells us when the Snowflake role can't see org-level data so
   // the UI can show a clear empty/CTA state instead of a wall of zeros.
   const orgAdminAvailable = o?.org_admin_available !== false;
+  const accountCount = state.accounts?.accounts?.length ?? 0;
+  // "Not a Snowflake Organization account" — the common case. We reach this
+  // when loading finished but every org-level call returned null/empty (the
+  // role can't read SNOWFLAKE.ORGANIZATION_USAGE.*). Render one friendly info
+  // panel instead of nine zeroed KPI cards + empty charts.
+  const notOrgAccount =
+    !state.loading &&
+    !state.error &&
+    !state.overview &&
+    accountCount === 0;
 
   // Recent org account events — last 8 by created_on desc
   const recentEvents = useMemo(() => {
@@ -206,6 +237,44 @@ export default function OrgAccountsTab() {
       )
       .slice(0, 8);
   }, [state.accounts]);
+
+  // Friendly, non-error empty state for the common case: this account is not a
+  // Snowflake Organization account, so there is simply nothing org-level to
+  // show. This is NOT an error — render an info panel, not a red banner.
+  if (notOrgAccount) {
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border border-slate-200 bg-white p-8 dark:border-slate-700 dark:bg-slate-900">
+          <div className="mx-auto max-w-md text-center">
+            <Building2 className="mx-auto h-10 w-10 text-slate-300 dark:text-slate-600" />
+            <h3 className="mt-3 text-sm font-semibold text-slate-900 dark:text-white">
+              This account is not a Snowflake Organization account
+            </h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500 dark:text-slate-400">
+              Organization-level metrics (multi-account roll-ups, replication and
+              failover groups, cross-account credits and storage) are only
+              available when the connected Snowflake account has the{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] dark:bg-slate-800">
+                ORGADMIN
+              </code>{' '}
+              role and reads{' '}
+              <code className="rounded bg-slate-100 px-1 py-0.5 text-[10px] dark:bg-slate-800">
+                SNOWFLAKE.ORGANIZATION_USAGE
+              </code>
+              . Per-account metrics are still available on the other tabs.
+            </p>
+            <button
+              type="button"
+              onClick={fetchAll}
+              className="mt-4 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Retry
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -122,6 +122,25 @@ export async function getDashboardTrends(days = 30): Promise<DashboardTrendsResp
   const { data } = await apiClient.get<DashboardTrendsResponse>(`${BASE_URL}/dashboard/trends?days=${days}`);
   return data;
 }
+
+/**
+ * List all client accounts in the Snowflake organization (optionally filtered).
+ *
+ * Backend: `GET /org-accounts/accounts` (queries
+ * SNOWFLAKE.ORGANIZATION_USAGE.ACCOUNTS). On a NON org-level account the role
+ * can't read that view, so the backend returns either an error envelope or an
+ * empty `accounts` list — consumers (OrgAccountsTab / SnowflakeAccountsTab)
+ * must treat an empty list as "not a Snowflake Organization account" and
+ * degrade to an info/empty state rather than surfacing a hard error.
+ */
+export async function getAccounts(filters?: AccountFilters): Promise<AccountsListResponse> {
+  const { data } = await apiClient.get<AccountsListResponse>(`${BASE_URL}/accounts`, {
+    params: filters,
+    timeout: 60000,
+  });
+  return data;
+}
+
 /**
  * Get detailed info for a specific account.
  */

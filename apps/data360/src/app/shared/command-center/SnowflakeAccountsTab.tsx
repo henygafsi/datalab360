@@ -83,6 +83,22 @@ function fmtBytes(b: number | null | undefined): string {
   return `${b} B`;
 }
 
+/**
+ * Detect an API error envelope returned as 200 OK ({error_code, message} or
+ * {success:false}). `/org-accounts/accounts` returns this when the current
+ * Snowflake role can't read the org views — we treat it as an empty list so
+ * the graceful "No Snowflake accounts" panel renders instead of a red error.
+ */
+function isApiError(data: unknown): boolean {
+  if (data === null || data === undefined) return false;
+  if (typeof data !== 'object' || Array.isArray(data)) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    ('error_code' in d && 'message' in d) ||
+    ('success' in d && d.success === false)
+  );
+}
+
 export default function SnowflakeAccountsTab() {
   const [state, setState] = useState<SfAccountsState>({
     accounts: null,
@@ -100,7 +116,13 @@ export default function SnowflakeAccountsTab() {
   useEffect(() => {
     (async () => {
       try {
-        const accounts = await getAccounts();
+        const raw = await getAccounts();
+        // An error envelope (role can't read org views) → degrade to an empty
+        // list so the friendly "No Snowflake accounts" panel renders, not a
+        // red error banner.
+        const accounts = isApiError(raw)
+          ? ({ accounts: [], count: 0 } as unknown as AccountsListResponse)
+          : raw;
         const first = accounts?.accounts?.[0]?.account_name ?? null;
         setState((s) => ({
           ...s,
@@ -109,10 +131,14 @@ export default function SnowflakeAccountsTab() {
           loadingList: false,
         }));
       } catch (e) {
+        // Network/HTTP failure listing accounts is also treated as an empty
+        // org rather than a hard error — the empty-state panel already
+        // explains the /org-accounts/accounts endpoint returned nothing.
         setState((s) => ({
           ...s,
+          accounts: { accounts: [], count: 0 } as unknown as AccountsListResponse,
+          selected: null,
           loadingList: false,
-          error: e instanceof Error ? e.message : String(e),
         }));
       }
     })();
