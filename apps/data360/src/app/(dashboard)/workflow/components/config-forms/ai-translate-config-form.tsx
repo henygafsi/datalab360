@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FormField, Select, Input } from './_shared';
+import { FormField, Select, Input, AI_MODEL_OPTIONS } from './_shared';
 
 /**
  * AITranslateConfigForm — handles block type(s): `ai_translate`.

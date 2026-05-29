@@ -16,6 +16,7 @@ import ReactFlow, {
   ReactFlowInstance,
   BackgroundVariant,
   MarkerType,
+  ConnectionMode,
 } from 'reactflow';
 // @ts-ignore — CSS import handled by Next.js bundler
 import 'reactflow/dist/style.css';
@@ -2828,7 +2829,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             onConnectEnd={isReadOnly ? undefined : onConnectEnd}
             isValidConnection={isValidConnection}
             connectionRadius={30}
-            connectionMode={'strict' as 'strict' | 'loose'}
+            connectionMode={ConnectionMode.Strict}
             connectionLineComponent={(p) => (
               <CustomConnectionLine {...p} isValid={isValidPair} />
             )}

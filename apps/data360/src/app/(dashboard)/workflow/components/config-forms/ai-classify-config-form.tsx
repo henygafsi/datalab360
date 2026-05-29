@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { FormField, Select, Input, Textarea } from './_shared';
+import { FormField, Select, Input, Textarea, AI_MODEL_OPTIONS } from './_shared';
 
 /**
  * AIClassifyConfigForm — handles block type(s): `ai_classify`.

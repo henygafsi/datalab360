@@ -3,7 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
-import { UserTableDataType } from '@/app/shared/gouvernance/users/table';
+import { UserTableDataType } from '@/app/shared/governance/users/table';
 
 /**
  * Fetches the list of users from the backend API.

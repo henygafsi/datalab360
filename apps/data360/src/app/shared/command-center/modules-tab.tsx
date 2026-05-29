@@ -234,7 +234,7 @@ function ModulesTab() {
   // Recommendations derived from module-health data — never hardcoded text.
   const moduleRecommendations: string[] = [];
   moduleCards
-    .filter((m) => m.status === 'degraded' || m.status === 'error')
+    .filter((m) => m.status === 'degraded')
     .slice(0, 3)
     .forEach((m) => {
       moduleRecommendations.push(`Investigate ${m.name} — status is ${m.status}.`);

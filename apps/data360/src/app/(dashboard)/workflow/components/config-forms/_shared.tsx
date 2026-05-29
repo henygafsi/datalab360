@@ -142,3 +142,16 @@ export const normalizeToStringArray = (items: unknown): string[] => {
   if (!Array.isArray(items)) return [];
   return items.map(extractString).filter(Boolean);
 };
+
+// ============================================
+// SHARED OPTION SETS
+// ============================================
+
+// AI model choices shared across the AI config forms (classify/complete/
+// sentiment/translate/apply-udf). Single source of truth.
+export const AI_MODEL_OPTIONS = [
+  { value: 'mistral-large2', label: 'Mistral Large 2' },
+  { value: 'llama3.1-70b', label: 'Llama 3.1 70B' },
+  { value: 'llama3.1-8b', label: 'Llama 3.1 8B' },
+  { value: 'snowflake-arctic', label: 'Snowflake Arctic' },
+];

@@ -50,7 +50,7 @@ export default function OrgAccountsDashboard() {
   // Fetch org name on mount
   useEffect(() => {
     getDashboardOverview()
-      .then((data) => setOrgName(data.overview.organization_name))
+      .then((data) => setOrgName(data.overview.organization_name ?? ''))
       .catch(() => {});
   }, []);
 

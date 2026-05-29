@@ -209,7 +209,7 @@ export default function ContextRightBar({
                     />
                   )}
                   {activeTab === 'quality' && (
-                    <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} />
+                    <QualityPanel table={selectedTable} columns={tableColumns} profileData={profileData} onAddEvent={onAddEvent} />
                   )}
                   {activeTab === 'deploy' && (
                     <DeployPanel
@@ -493,7 +493,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             try {
               const api = await import('@/app/services/api/exploreDesignApi');
               const res = await api.enhancedImpactAnalysis(projectId || '', { database: table.database, schema: table.schema, table: table.table });
-              const count = res?.impacts?.length || res?.affected_objects?.length || 0;
+              const count = res?.impacts?.length || 0;
               toast.success(`Impact: ${count} downstream objects, risk ${res?.risk_score ?? 0}/100`);
             } catch { toast.error('Impact analysis failed'); }
           }} />
@@ -634,7 +634,7 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
 // C. Quality Panel
 // ---------------------------------------------------------------------------
 
-function QualityPanel({ table, columns, profileData }: { table: TableItem; columns: ColumnInfo[]; profileData?: any }) {
+function QualityPanel({ table, columns, profileData, onAddEvent }: { table: TableItem; columns: ColumnInfo[]; profileData?: any; onAddEvent: (e: any) => void }) {
   const nullCols = profileData?.columns?.filter((c: any) => (c.null_count ?? 0) > 0).length ?? 0;
   const pkCandidate = columns.find((c) => c.isPrimaryKey)?.name || columns[0]?.name || '—';
   const qualityScore = profileData?.aggregate_quality_score ?? 100;
@@ -901,9 +901,9 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
           for (const tbl of targets) {
             try {
               const r = await api.enhancedImpactAnalysis(projectId, { database: db, schema: sch, table: tbl, column: undefined });
-              const tableImpacts = (r?.impacts || r?.affected_objects || []).map((i: any) => ({ ...i, sourceTable: tbl }));
+              const tableImpacts = (r?.impacts || []).map((i: any) => ({ ...i, sourceTable: tbl }));
               allImpacts.push(...tableImpacts);
-              const score = r?.risk_score ?? r?.overall_risk_score ?? 0;
+              const score = r?.risk_score ?? 0;
               if (score > maxRisk) maxRisk = score;
             } catch { log(`Impact for ${tbl}: endpoint unavailable`, 'info'); }
           }
@@ -935,7 +935,7 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
           if (!approvalRequested) {
             log('Requesting deployment approval...', 'info');
             const deployReq = await api.requestDeployment(projectId, { deployment_type: 'with_approval', approvers: ['DATA_ENGINEER', 'DBA'], note: approvalNote || 'Deployment from catalog pipeline' });
-            result = { status: 'pending_approval', deployment_id: deployReq?.deployment_id || deployReq?.id, message: 'Submitted for approval. Awaiting approver action.', request: deployReq };
+            result = { status: 'pending_approval', deployment_id: deployReq?.deployment_id, message: 'Submitted for approval. Awaiting approver action.', request: deployReq };
             setApprovalRequested(true);
             log(`Deployment submitted for approval (ID: ${result.deployment_id || '—'})`, 'success');
             setStepStatus((p) => ({ ...p, [stepId]: 'done' }));

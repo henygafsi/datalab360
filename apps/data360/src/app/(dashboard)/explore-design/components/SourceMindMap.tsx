@@ -13,17 +13,9 @@ import {
   BarChart3, Shield, Key, FileText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface TableItem {
-  id: string;
-  database: string;
-  schema: string;
-  table: string;
-  columnCount: number;
-  hasPrimaryKey: boolean;
-  status: string;
-  sensitiveColumns?: number;
-}
+// Canonical table shape — shared with the page state + VirtualizedTableList so
+// the onSelectTable callback returns a value assignable to setSelectedTable.
+import type { TableItem } from '../../mapping/components/VirtualizedTableList';
 
 interface SourceMindMapProps {
   databases: string[];

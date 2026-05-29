@@ -262,10 +262,12 @@ export default function RLSPoliciesContent() {
     setColumns([]); // Clear columns when resetting form
   };
 
+  // EnrichedPolicy carries no active/inactive state, so surface real signals
+  // from the data instead of always-zero placeholders.
   const stats = {
     total: policies?.length || 0,
-    active: policies?.filter(p => p?.active)?.length || 0,
-    inactive: policies?.filter(p => !p?.active)?.length || 0,
+    grantedObjects: policies?.reduce((sum, p) => sum + (p?.granted_objects_count || 0), 0) || 0,
+    grantedRoles: new Set(policies?.flatMap(p => p?.granted_roles || [])).size || 0,
   };
 
   return (
@@ -298,8 +300,8 @@ export default function RLSPoliciesContent() {
         <ModernCard className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Active</p>
-              <p className="text-3xl font-bold text-green-600">{stats.active}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Granted Objects</p>
+              <p className="text-3xl font-bold text-green-600">{stats.grantedObjects}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 flex items-center justify-center">
               <HiOutlineCheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
@@ -310,8 +312,8 @@ export default function RLSPoliciesContent() {
         <ModernCard className="p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Inactive</p>
-              <p className="text-3xl font-bold text-slate-600">{stats.inactive}</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400">Granted Roles</p>
+              <p className="text-3xl font-bold text-slate-600">{stats.grantedRoles}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center">
               <HiOutlineXCircle className="w-6 h-6 text-slate-600 dark:text-slate-400" />
@@ -516,7 +518,7 @@ export default function RLSPoliciesContent() {
             <div>
               <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Apply RLS Policy</h2>
               <p className="text-sm text-slate-600 dark:text-slate-400">
-                Apply "{selectedPolicy?.policy_name}" to a table
+                Apply "{selectedPolicy?.name}" to a table
               </p>
             </div>
           </div>

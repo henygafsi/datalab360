@@ -3575,7 +3575,7 @@ export default function ExploreDesignPage() {
             </div>
           ) : undefined}
           grantsSlot={selectedProjectId ? (
-            <AccessManagementSlot projectId={selectedProjectId} />
+            <AccessManagementSlot projectId={selectedProjectId!} />
           ) : undefined}
           errorsSlot={<RecentDeploymentErrorsSlot />}
         />

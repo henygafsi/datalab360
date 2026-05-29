@@ -3,7 +3,7 @@
  * Works in both server-side (SSR) and client-side contexts
  */
 import apiClient from '@/lib/api-client';
-import { RoleTableDataType } from '@/app/shared/gouvernance/roles/table';
+import { RoleTableDataType } from '@/app/shared/governance/roles/table';
 
 /**
  * Fetches the list of roles from the backend API.
