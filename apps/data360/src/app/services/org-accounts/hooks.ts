@@ -330,14 +330,12 @@ export async function getCredits(days = 30): Promise<CreditsResponse> {
  * Top credit consuming accounts.
  */
 export async function getTopConsumers(days = 30, limit = 10): Promise<TopConsumersResponse> {
-  try {
-    const { data } = await apiClient.get<TopConsumersResponse>(
-      `${BASE_URL}/credits/top?days=${days}&limit=${limit}`
-    );
-    return data;
-  } catch {
-    return { consumers: [], total: 0 } as TopConsumersResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer credits-tab.tsx re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<TopConsumersResponse>(
+    `${BASE_URL}/credits/top?days=${days}&limit=${limit}`
+  );
+  return data;
 }
 
 /**
@@ -377,40 +375,34 @@ export async function getStorage(): Promise<StorageResponse> {
  * Daily storage trend.
  */
 export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> {
-  try {
-    const { data } = await apiClient.get<StorageTrendResponse>(`${BASE_URL}/storage/trend?days=${days}`);
-    return data;
-  } catch {
-    return { trend: [], days: 0 } as StorageTrendResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<StorageTrendResponse>(`${BASE_URL}/storage/trend?days=${days}`);
+  return data;
 }
 
 /**
  * Database-level storage breakdown (yesterday's snapshot).
  */
 export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
-  try {
-    const { data } = await apiClient.get<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return { databases: [], total: 0 } as DatabaseStorageResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
+    timeout: 60000,
+  });
+  return data;
 }
 
 /**
  * Stage storage per account (yesterday's snapshot).
  */
 export async function getStorageStages(): Promise<StageStorageResponse> {
-  try {
-    const { data } = await apiClient.get<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return { stages: [], total: 0 } as StageStorageResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
+    timeout: 60000,
+  });
+  return data;
 }
 
 // =============================================================================
@@ -422,14 +414,11 @@ export async function getStorageStages(): Promise<StageStorageResponse> {
  * Uses extended timeout (60s) due to slow Snowflake queries.
  */
 export async function getWarehouses(days = 30): Promise<WarehousesResponse> {
-  try {
-    const { data } = await apiClient.get<WarehousesResponse>(`${BASE_URL}/warehouses?days=${days}`, {
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return { warehouses: [], total: 0 } as WarehousesResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<WarehousesResponse>(`${BASE_URL}/warehouses?days=${days}`, {
+    timeout: 60000,
+  });
+  return data;
 }
 
 /**
@@ -480,24 +469,18 @@ export async function getAccountLoginHistory(accountName: string, days = 7): Pro
  * Query metrics (requires premium views).
  */
 export async function getQueries(days = 7): Promise<QueriesResponse> {
-  try {
-    const { data } = await apiClient.get<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
-    return data;
-  } catch {
-    return { queries: [], total: 0 } as QueriesResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<QueriesResponse>(`${BASE_URL}/queries?days=${days}`);
+  return data;
 }
 
 /**
  * Daily query volume trend.
  */
 export async function getQueriesTrend(days = 30): Promise<QueryTrendResponse> {
-  try {
-    const { data } = await apiClient.get<QueryTrendResponse>(`${BASE_URL}/queries/trend?days=${days}`);
-    return data;
-  } catch {
-    return { trend: [], days: 0 } as QueryTrendResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<QueryTrendResponse>(`${BASE_URL}/queries/trend?days=${days}`);
+  return data;
 }
 
 // =============================================================================
@@ -509,14 +492,11 @@ export async function getQueriesTrend(days = 30): Promise<QueryTrendResponse> {
  * Uses extended timeout (60s) due to slow Snowflake queries.
  */
 export async function getDataTransfer(days = 30): Promise<DataTransferResponse> {
-  try {
-    const { data } = await apiClient.get<DataTransferResponse>(`${BASE_URL}/data-transfer?days=${days}`, {
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return { transfers: [], total_bytes: 0 } as DataTransferResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<DataTransferResponse>(`${BASE_URL}/data-transfer?days=${days}`, {
+    timeout: 60000,
+  });
+  return data;
 }
 
 // =============================================================================
@@ -535,12 +515,10 @@ export async function getBalance(): Promise<BalanceResponse> {
  * Contract items.
  */
 export async function getContract(): Promise<ContractResponse> {
-  try {
-    const { data } = await apiClient.get<ContractResponse>(`${BASE_URL}/contract`);
-    return data;
-  } catch {
-    return { items: [] } as ContractResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<ContractResponse>(`${BASE_URL}/contract`);
+  return data;
 }
 
 /**
@@ -549,24 +527,20 @@ export async function getContract(): Promise<ContractResponse> {
  * Uses extended timeout (60s) — Snowflake USAGE_IN_CURRENCY_DAILY can be slow.
  */
 export async function getOrganizationCosts(days = 30): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/organization/costs`, { params: { days }, timeout: 60000 });
-    return data;
-  } catch {
-    return { costs: [], total: 0, period_days: days };
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get(`${BASE_URL}/organization/costs`, { params: { days }, timeout: 60000 });
+  return data;
 }
 
 /**
  * Current pricing rates per account.
  */
 export async function getRateSheet(): Promise<RateSheetResponse> {
-  try {
-    const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
-    return data;
-  } catch {
-    return { rates: [] } as RateSheetResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
+  return data;
 }
 
 // =============================================================================
@@ -585,12 +559,10 @@ export async function getMetering(days = 30): Promise<MeteringResponse> {
  * Daily metering trend.
  */
 export async function getMeteringTrend(days = 30): Promise<MeteringTrendResponse> {
-  try {
-    const { data } = await apiClient.get<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
-    return data;
-  } catch {
-    return { trend: [], days: 0 } as MeteringTrendResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
+  return data;
 }
 
 // =============================================================================
@@ -631,14 +603,12 @@ export async function getAlerts(days = 7): Promise<AlertsResponse> {
  * Uses extended timeout (60s) since it queries SHOW RESOURCE MONITORS.
  */
 export async function getResourceMonitors(): Promise<{ monitors: any[]; count: number }> {
-  try {
-    const { data } = await apiClient.get<{ monitors: any[]; count: number }>(
-      `${BASE_URL}/resource-monitors`, { timeout: 60000 }
-    );
-    return data;
-  } catch {
-    return { monitors: [], count: 0 };
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): one consumer (resource-monitors tab) re-swallows with .catch(()=>null); overview-tab logs via .catch
+  const { data } = await apiClient.get<{ monitors: any[]; count: number }>(
+    `${BASE_URL}/resource-monitors`, { timeout: 60000 }
+  );
+  return data;
 }
 
 // =============================================================================
@@ -649,60 +619,50 @@ export async function getResourceMonitors(): Promise<{ monitors: any[]; count: n
  * Auto-clustering credits per account.
  */
 export async function getServicesClustering(days = 30): Promise<ClusteringResponse> {
-  try {
-    const { data } = await apiClient.get<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_credits: 0 } as ClusteringResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
+  return data;
 }
 
 /**
  * Materialized view refresh credits per account.
  */
 export async function getServicesMaterializedViews(days = 30): Promise<MaterializedViewResponse> {
-  try {
-    const { data } = await apiClient.get<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_credits: 0 } as MaterializedViewResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
+  return data;
 }
 
 /**
  * Snowpipe usage per account.
  */
 export async function getServicesPipes(days = 30): Promise<PipeResponse> {
-  try {
-    const { data } = await apiClient.get<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_credits: 0 } as PipeResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
+  return data;
 }
 
 /**
  * Search optimization credits per account.
  */
 export async function getServicesSearchOptimization(days = 30): Promise<SearchOptimizationResponse> {
-  try {
-    const { data } = await apiClient.get<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_credits: 0 } as SearchOptimizationResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
+  return data;
 }
 
 /**
  * Query acceleration credits per account.
  */
 export async function getServicesQueryAcceleration(days = 30): Promise<QueryAccelerationResponse> {
-  try {
-    const { data } = await apiClient.get<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_credits: 0 } as QueryAccelerationResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
+  return data;
 }
 
 // =============================================================================
@@ -713,24 +673,20 @@ export async function getServicesQueryAcceleration(days = 30): Promise<QueryAcce
  * Replication usage per account.
  */
 export async function getReplication(days = 30): Promise<ReplicationResponse> {
-  try {
-    const { data } = await apiClient.get<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
-    return data;
-  } catch {
-    return { data: [], total_bytes: 0 } as ReplicationResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
+  return data;
 }
 
 /**
  * Cost anomalies detected.
  */
 export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
-  try {
-    const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
-    return data;
-  } catch {
-    return { anomalies: [], count: 0 } as AnomalyResponse;
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer anomalies tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
+  return data;
 }
 
 // =============================================================================
@@ -793,47 +749,35 @@ export async function getSecurityOverview(days = 30, filters?: Partial<CommandCe
 }
 
 export async function getGovernanceOverview(): Promise<GovernanceOverviewResponse> {
-  try {
-    const { data } = await apiClient.get<GovernanceOverviewResponse>(
-      `${BASE_URL}/governance-overview`, { timeout: 60000 }
-    );
-    return data;
-  } catch {
-    return {} as GovernanceOverviewResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<GovernanceOverviewResponse>(
+    `${BASE_URL}/governance-overview`, { timeout: 60000 }
+  );
+  return data;
 }
 
 export async function getDataLoadingOverview(days = 30): Promise<DataLoadingOverviewResponse> {
-  try {
-    const { data } = await apiClient.get<DataLoadingOverviewResponse>(
-      `${BASE_URL}/data-loading-overview`, { params: { days }, timeout: 60000 }
-    );
-    return data;
-  } catch {
-    return {} as DataLoadingOverviewResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<DataLoadingOverviewResponse>(
+    `${BASE_URL}/data-loading-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
 }
 
 export async function getAutomationOverview(days = 30): Promise<AutomationOverviewResponse> {
-  try {
-    const { data } = await apiClient.get<AutomationOverviewResponse>(
-      `${BASE_URL}/automation-overview`, { params: { days }, timeout: 60000 }
-    );
-    return data;
-  } catch {
-    return {} as AutomationOverviewResponse;
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get<AutomationOverviewResponse>(
+    `${BASE_URL}/automation-overview`, { params: { days }, timeout: 60000 }
+  );
+  return data;
 }
 
 export async function getPerformanceOverview(days = 7, filters?: Partial<CommandCenterFilters>): Promise<PerformanceOverviewResponse> {
-  try {
-    const { data } = await apiClient.get<PerformanceOverviewResponse>(
-      `${BASE_URL}/performance-overview`, { params: { days, ...filters }, timeout: 60000 }
-    );
-    return data;
-  } catch {
-    return {} as PerformanceOverviewResponse;
-  }
+  // surfaced error (was silently swallowed) — consumer try/catch shows toast.error on throw
+  const { data } = await apiClient.get<PerformanceOverviewResponse>(
+    `${BASE_URL}/performance-overview`, { params: { days, ...filters }, timeout: 60000 }
+  );
+  return data;
 }
 
 export async function getCortexCosts(days = 30, filters?: Partial<CommandCenterFilters>): Promise<CortexCostsResponse> {
@@ -980,23 +924,13 @@ export async function getLoginAuditHistory(
  * Backend param is `days_back`, not `days`.
  */
 export async function getCreditForecast(days = 90): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/credit-forecast`, {
-      params: { days_back: days },
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return {
-      daily_avg: 0,
-      trend_direction: 'stable',
-      projected_30d_total: 0,
-      budget_at_risk: false,
-      history: [],
-      forecast: [],
-      days_back: days,
-    };
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get(`${BASE_URL}/credit-forecast`, {
+    params: { days_back: days },
+    timeout: 60000,
+  });
+  return data;
 }
 
 /**
@@ -1004,15 +938,13 @@ export async function getCreditForecast(days = 90): Promise<any> {
  * Returns warehouses (rows with UPPERCASE Snowflake keys) and total (row count).
  */
 export async function getWarehouseCredits(days = 30): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/organization/warehouse-credits`, {
-      params: { days },
-      timeout: 60000,
-    });
-    return data;
-  } catch {
-    return { warehouses: [], total: 0, period_days: days };
-  }
+  // surfaced error (was silently swallowed)
+  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  const { data } = await apiClient.get(`${BASE_URL}/organization/warehouse-credits`, {
+    params: { days },
+    timeout: 60000,
+  });
+  return data;
 }
 
 // =============================================================================
@@ -1026,12 +958,9 @@ export async function getWarehouseCredits(days = 30): Promise<any> {
  * ENTITY_TYPE, ENTITY_ID, USERNAME, STATUS, DETAILS, CREATED_AT.
  */
 export async function getOrgEvents(days = 7): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/events`, { params: { days }, timeout: 60000 });
-    return data;
-  } catch {
-    return { events: [], total: 0 };
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get(`${BASE_URL}/events`, { params: { days }, timeout: 60000 });
+  return data;
 }
 
 /**
@@ -1040,10 +969,7 @@ export async function getOrgEvents(days = 7): Promise<any> {
  *           warehouse_utilization, storage_growth_trend, days }.
  */
 export async function getUsageAnalytics(days = 30): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/usage-analytics`, { params: { days }, timeout: 60000 });
-    return data;
-  } catch {
-    return { top_queries_by_credits: [], top_users_by_credits: [], warehouse_utilization: [], storage_growth_trend: [], days: 0 };
-  }
+  // surfaced error (was silently swallowed)
+  const { data } = await apiClient.get(`${BASE_URL}/usage-analytics`, { params: { days }, timeout: 60000 });
+  return data;
 }

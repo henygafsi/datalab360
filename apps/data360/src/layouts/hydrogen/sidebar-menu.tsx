@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold, PiDatabase, PiChartBar, PiBrain, PiFolderDuotone } from 'react-icons/pi';
+import { PiCaretDownBold, PiDatabase, PiBrain, PiFolderDuotone } from 'react-icons/pi';
 import {
   HiOutlineMap,
   HiOutlineCog8Tooth,
@@ -11,7 +11,6 @@ import {
   HiOutlineShieldCheck,
   HiOutlineKey,
   HiOutlineHome,
-  HiOutlineDocumentChartBar,
   HiOutlineSquares2X2,
   HiOutlineSparkles,
   HiOutlineBuildingOffice2,
@@ -68,25 +67,9 @@ const modernMenuItems = [
     ]
   },
   {
-    name: 'Analytics',
-    icon: <PiChartBar className="w-5 h-5" />,
-    dropdownItems: [
-      {
-        name: 'BI Dashboard',
-        href: '/bi-dashboard',
-        icon: <PiChartBar className="w-4 h-4" />,
-      },
-      {
-        name: 'Dashboards',
-        href: '/analytics',
-        icon: <HiOutlineDocumentChartBar className="w-4 h-4" />,
-      },
-      {
-        name: 'Intelligent (Cortex)',
-        href: '/intelligent',
-        icon: <PiBrain className="w-4 h-4" />,
-      },
-    ]
+    name: 'Intelligent',
+    href: '/intelligent',
+    icon: <PiBrain className="w-5 h-5" />,
   },
   {
     name: 'Observability',
@@ -185,7 +168,7 @@ export function SidebarMenu() {
           };
         }
         // Hide other groups entirely when not connected
-        if (['Sources', 'Products / Projects', 'Modeling', 'Data Sources', 'Analytics', 'Observability', 'Governance', 'Client Accounts'].includes(item.name)) {
+        if (['Sources', 'Products / Projects', 'Modeling', 'Data Sources', 'Intelligent', 'Observability', 'Governance', 'Client Accounts'].includes(item.name)) {
           return null as any;
         }
         return item;
