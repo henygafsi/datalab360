@@ -1,13 +1,10 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Badge, Button, Loader, Tooltip } from 'rizzui';
+import { Badge, Button, Loader } from 'rizzui';
 import {
-  X, Columns3, ShieldAlert, Key, Sparkles, Eye, BarChart3,
-  RefreshCw, CheckCircle, Lock, Tag, Brain, GitBranch,
-  Fingerprint, ArrowRight, Wand2, Layers, Shield, AlertTriangle,
-  ChevronRight, Activity, Clock, Package, FolderOpen, Zap,
-  ExternalLink,
+  X, Columns3, RefreshCw, GitBranch, ArrowRight, Shield,
+  AlertTriangle, ChevronRight, Clock, Package, FolderOpen, Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -19,8 +16,7 @@ import {
   type ObjectAction,
   type ActionsResponse,
 } from '@/app/services/catalog';
-import apiClient from '@/lib/api-client';
-import toast from 'react-hot-toast';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 
 interface TableDetailPanelProps {
   database: string;
@@ -39,55 +35,68 @@ export default function TableDetailPanel({
   const [data360, setData360] = useState<Object360Response | null>(null);
   const [actions, setActions] = useState<ActionsResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionsLoading, setActionsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionsError, setActionsError] = useState<string | null>(null);
   const [recomputing, setRecomputing] = useState(false);
+  const [recomputeError, setRecomputeError] = useState<string | null>(null);
   const [executingAction, setExecutingAction] = useState<string | null>(null);
+  const [actionResult, setActionResult] = useState<{ id: string; ok: boolean; message: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<ObjectAction | null>(null);
 
   const objectId = objectIdFromTable(database, schema, table, objectType);
   const fqn = `${database}.${schema}.${table}`;
 
-  useEffect(() => {
+  const loadObject = useCallback(() => {
     setLoading(true);
-    setActionsLoading(true);
+    setLoadError(null);
+    setActionsError(null);
     setData360(null);
     setActions(null);
-    setTab('object');
+    setActionResult(null);
+    setRecomputeError(null);
 
     Promise.allSettled([
       getObject360(objectId),
       getObjectActions(objectId),
     ]).then(([d360, acts]) => {
       if (d360.status === 'fulfilled') setData360(d360.value);
+      else setLoadError(getApiErrorMessage(d360.reason));
       if (acts.status === 'fulfilled') setActions(acts.value);
+      else setActionsError(getApiErrorMessage(acts.reason));
       setLoading(false);
-      setActionsLoading(false);
     });
   }, [objectId]);
 
+  useEffect(() => {
+    setTab('object');
+    loadObject();
+  }, [loadObject]);
+
   const handleRecompute = useCallback(async () => {
     setRecomputing(true);
+    setRecomputeError(null);
     try {
       await recomputeObjectScores(objectId);
       const fresh = await getObject360(objectId);
       setData360(fresh);
-      toast.success('Scores recomputed');
-    } catch { toast.error('Failed to recompute scores'); }
+    } catch (err) {
+      setRecomputeError(getApiErrorMessage(err));
+    }
     setRecomputing(false);
   }, [objectId]);
 
   const executeAction = useCallback(async (action: ObjectAction) => {
     setExecutingAction(action.action_id);
+    setActionResult(null);
     try {
       if (action.http.method === 'GET') {
         await apiClient.get(action.http.path);
-        toast.success(`${action.label} completed`);
       } else {
         await apiClient.post(action.http.path, action.body_hint || {});
-        toast.success(`${action.label} completed`);
       }
-    } catch (err: any) {
-      toast.error(err?.response?.data?.detail?.message || `${action.label} failed`);
+      setActionResult({ id: action.action_id, ok: true, message: `${action.label} completed` });
+    } catch (err) {
+      setActionResult({ id: action.action_id, ok: false, message: getApiErrorMessage(err) });
     }
     setExecutingAction(null);
   }, []);
@@ -167,14 +176,17 @@ export default function TableDetailPanel({
             <Loader size="lg" />
           </div>
         ) : !data360 ? (
-          <div className="text-center py-16">
-            <AlertTriangle className="h-8 w-8 text-amber-400 mx-auto mb-3" />
-            <p className="text-xs text-gray-500">Could not load object details</p>
-            <p className="text-[10px] text-gray-400 mt-1">Endpoint may not be available yet</p>
+          <div className="px-4 py-12 text-center" role="alert">
+            <AlertTriangle className="h-8 w-8 text-rose-400 mx-auto mb-3" />
+            <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Could not load object details</p>
+            {loadError && <p className="mt-1 text-[10px] text-rose-600 dark:text-rose-400 break-words">{loadError}</p>}
+            <Button size="sm" variant="outline" className="mt-3 gap-1.5" onClick={loadObject}>
+              <RefreshCw className="h-3 w-3" />Retry
+            </Button>
           </div>
         ) : (
           <div className="p-4 space-y-4">
-            {tab === 'object' && <ObjectTier data={data360} onRecompute={handleRecompute} recomputing={recomputing} />}
+            {tab === 'object' && <ObjectTier data={data360} onRecompute={handleRecompute} recomputing={recomputing} recomputeError={recomputeError} />}
             {tab === 'product' && <ProductTierCard tier={data360.tiers.product} />}
             {tab === 'project' && <ProjectTierCard tier={data360.tiers.project} />}
             {tab === 'dependencies' && <DependenciesTierCard tier={data360.tiers.dependencies} />}
@@ -244,6 +256,28 @@ export default function TableDetailPanel({
               </div>
             )}
 
+            {/* Last action result (inline, replaces toast) */}
+            {actionResult && (
+              <div
+                role="status"
+                className={cn(
+                  'rounded-lg px-3 py-2 text-xs break-words',
+                  actionResult.ok
+                    ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400'
+                    : 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-400'
+                )}
+              >
+                {actionResult.message}
+              </div>
+            )}
+
+            {/* Actions failed to load */}
+            {actionsError && Object.keys(actionGroups).length === 0 && (
+              <p role="alert" className="text-[10px] text-rose-600 dark:text-rose-400 break-words">
+                Could not load actions: {actionsError}
+              </p>
+            )}
+
             {/* Server-driven Actions */}
             {Object.keys(actionGroups).length > 0 && (
               <div>
@@ -292,8 +326,8 @@ export default function TableDetailPanel({
 // Tier cards
 // ---------------------------------------------------------------------------
 
-function ObjectTier({ data, onRecompute, recomputing }: {
-  data: Object360Response; onRecompute: () => void; recomputing: boolean;
+function ObjectTier({ data, onRecompute, recomputing, recomputeError }: {
+  data: Object360Response; onRecompute: () => void; recomputing: boolean; recomputeError: string | null;
 }) {
   const { identity, profiling, governance } = data.tiers.object;
   return (
@@ -362,10 +396,15 @@ function ObjectTier({ data, onRecompute, recomputing }: {
       </div>
 
       {/* Recompute */}
-      <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={onRecompute} disabled={recomputing}>
-        {recomputing ? <Loader size="sm" className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
-        Recompute Scores
-      </Button>
+      <div>
+        <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={onRecompute} disabled={recomputing}>
+          {recomputing ? <Loader size="sm" className="h-3 w-3" /> : <RefreshCw className="h-3 w-3" />}
+          Recompute Scores
+        </Button>
+        {recomputeError && (
+          <p role="alert" className="mt-1.5 text-[10px] text-rose-600 dark:text-rose-400 break-words">{recomputeError}</p>
+        )}
+      </div>
     </div>
   );
 }

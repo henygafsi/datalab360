@@ -12,14 +12,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { PiDatabaseDuotone, PiHardDrivesDuotone } from 'react-icons/pi';
+import { PiDatabaseDuotone, PiHardDrivesDuotone, PiWarningCircleDuotone } from 'react-icons/pi';
 import {
   getStorage,
   getStorageTrend,
   getStorageDatabases,
   getStorageStages,
 } from '@/app/services/org-accounts/hooks';
-import { formatStorage, formatBytes } from '@/app/services/org-accounts/utils';
+import { formatStorage, formatBytes, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   AccountStorage,
   StorageTrendPoint,
@@ -48,17 +48,22 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
   const [databases, setDatabases] = useState<DatabaseStorage[]>([]);
   const [stages, setStages] = useState<StageStorage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load storage'); return null; });
 
     Promise.all([
-      getStorage().catch(() => null),
-      getStorageTrend(days).catch(() => null),
-      getStorageDatabases().catch(() => null),
-      getStorageStages().catch(() => null),
+      guard(getStorage()),
+      guard(getStorageTrend(days)),
+      guard(getStorageDatabases()),
+      guard(getStorageStages()),
     ]).then(([storageData, trendData, dbData, stagesData]) => {
       if (storageData) {
         setStorageAccounts(Array.isArray(storageData.accounts) ? storageData.accounts : []);
@@ -67,6 +72,7 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
       if (trendData) setStorageTrend(Array.isArray(trendData.trend) ? trendData.trend : []);
       if (dbData) setDatabases(Array.isArray(dbData.databases) ? dbData.databases : []);
       if (stagesData) setStages(Array.isArray(stagesData.stages) ? stagesData.stages : []);
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -83,6 +89,15 @@ export default function StorageTab({ refreshKey }: StorageTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some storage data could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

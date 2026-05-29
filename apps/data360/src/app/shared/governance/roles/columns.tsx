@@ -56,7 +56,7 @@ export const roleListColumns = [
     header: 'Grants',
     cell: ({ row }) => (
       <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-        {row.original.numberOfGrants ?? 0}
+        {row.original.numberOfGrants ?? '—'}
       </span>
     ),
   }),
@@ -66,7 +66,7 @@ export const roleListColumns = [
     header: 'Users',
     cell: ({ row }) => (
       <span className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-700 dark:bg-green-900/30 dark:text-green-400">
-        {row.original.assignedUsers ?? 0}
+        {row.original.assignedUsers ?? '—'}
       </span>
     ),
   }),

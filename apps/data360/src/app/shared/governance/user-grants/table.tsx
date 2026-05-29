@@ -17,7 +17,8 @@ import TablePagination from '@core/components/table/pagination';
 import TableFooter from '@core/components/table/footer';
 import Table from '@core/components/table';
 import { toast } from 'react-hot-toast';
-import { Checkbox, Button, Badge, Modal, ActionIcon } from 'rizzui';
+import { Checkbox, Button, Badge, ActionIcon } from 'rizzui';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import { getAllModules, type ModuleConfig } from '@/config/modules';
 import {
   PiUserCircleDuotone,
@@ -54,6 +55,7 @@ export default function UserGrantsTable() {
     user?: UserGrantTableDataType;
     selectedRoles: string[];
   }>({ open: false, selectedRoles: [] });
+  const [saveRolesError, setSaveRolesError] = useState<string | null>(null);
 
   /* ------------------------------------------------------------------ */
   /* 1. Fetch Data                                                      */
@@ -226,6 +228,7 @@ export default function UserGrantsTable() {
     // If user somehow has "ALL" in their roles, don't pre-select it
     const userRolesWithoutAll = user.roles.filter(r => r !== 'ALL');
 
+    setSaveRolesError(null);
     setModal({
       open: true,
       user,
@@ -235,6 +238,7 @@ export default function UserGrantsTable() {
 
   const handleCloseModal = () => {
     setModal({ open: false, selectedRoles: [] });
+    setSaveRolesError(null);
   };
 
   const handleRoleToggle = (roleName: string) => {
@@ -266,6 +270,7 @@ export default function UserGrantsTable() {
     if (!modal.user) return;
 
     const currentUser = modal.user; // Capture user reference for closure
+    setSaveRolesError(null);
 
     try {
       // console.log('[User Grants] ========== SAVE STARTED ==========');
@@ -313,12 +318,11 @@ export default function UserGrantsTable() {
       // console.error('[User Grants] Error response:', err.response?.data);
 
       if (shouldRedirectToLoginOnError(err)) {
-        // console.warn('[User Grants Table] Auth/connection error during save, redirecting to login...', err.name);
         redirectToLogin();
         return;
       }
 
-      toast.error(`Failed to update roles: ${err.message || 'Unknown error'}`);
+      setSaveRolesError(`Failed to update roles: ${err.message || 'Unknown error'}`);
     }
   };
 
@@ -375,13 +379,19 @@ export default function UserGrantsTable() {
         <TableFooter table={table} />
       </div>
 
-      {/* Edit Roles Modal */}
-      <Modal isOpen={modal.open} onClose={handleCloseModal} size="lg">
-        <div className="p-6">
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-            Manage Roles - {modal.user?.displayName}
-          </h2>
-
+      {/* Edit Roles Panel */}
+      <PolicyFormPanel
+        isOpen={modal.open}
+        onClose={handleCloseModal}
+        title={`Manage Roles${modal.user?.displayName ? ` — ${modal.user.displayName}` : ''}`}
+        accentClassName="bg-blue-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={handleCloseModal}>Cancel</Button>
+            <Button onClick={handleSaveRoles}>Save Changes</Button>
+          </>
+        }
+      >
           <div className="space-y-4">
             {/* Roles Selection */}
             <div>
@@ -430,18 +440,13 @@ export default function UserGrantsTable() {
               </div>
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-700">
-              <Button variant="outline" onClick={handleCloseModal}>
-                Cancel
-              </Button>
-              <Button onClick={handleSaveRoles}>
-                Save Changes
-              </Button>
-            </div>
+            {saveRolesError && (
+              <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+                {saveRolesError}
+              </p>
+            )}
           </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </>
   );
 }

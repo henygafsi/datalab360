@@ -1,11 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Button, Input, Loader, Badge, Modal, Textarea } from 'rizzui';
-import toast from 'react-hot-toast';
+import { Button, Input, Loader, Badge, Textarea } from 'rizzui';
 import {
   PiGearDuotone,
-  PiRocketLaunch,
   PiFilePdf,
   PiChartBar,
   PiTrendUp,
@@ -15,14 +13,46 @@ import {
   PiStop,
   PiInfo,
   PiEye,
-  PiSparkle,
   PiDatabase,
+  PiWarningCircle,
+  PiX,
+  PiSparkle,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 const PREFIX = '/cortex';
+
+// ── Shared inline error display — replaces error toasts so the failed action
+// state stays on-screen next to the control that produced it. ──
+function InlineError({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+      <PiWarningCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+      <p className="flex-1 text-sm text-red-700 dark:text-red-300">{message}</p>
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} aria-label="Dismiss error" className="shrink-0 text-red-400 hover:text-red-600 dark:hover:text-red-300">
+          <PiX className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Inline success notice — transient confirmation rendered in-flow. ──
+function InlineSuccess({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+  return (
+    <div role="status" className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-green-900/20">
+      <p className="flex-1 text-sm text-green-700 dark:text-green-300">{message}</p>
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} aria-label="Dismiss" className="shrink-0 text-green-500 hover:text-green-700 dark:hover:text-green-300">
+          <PiX className="h-4 w-4" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Fine-Tuning API
 async function createFineTuneJob(body: any) { const { data } = await apiClient.post(`${PREFIX}/ml/finetune`, body); return data; }
@@ -265,8 +295,10 @@ function FineTuningSection() {
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ model_name: '', base_model: 'mistral-7b', training_data: '', validation_data: '', max_epochs: 3 });
   const [creating, setCreating] = useState(false);
-  const [detail, setDetail] = useState<any>(null);
-  const [showDetail, setShowDetail] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [detailJobId, setDetailJobId] = useState<string | null>(null);
   const [confirmCancelJob, setConfirmCancelJob] = useState<string | null>(null);
 
   const fetchJobs = useCallback(async () => {
@@ -280,39 +312,41 @@ function FineTuningSection() {
   );
 
   const handleCreate = async () => {
-    if (!form.model_name || !form.training_data) { toast.error('Model name and training data are required'); return; }
+    if (!form.model_name || !form.training_data) { setFormError('Model name and training data are required'); return; }
     setCreating(true);
+    setFormError(null);
     try {
       await createFineTuneJob(form);
-      toast.success('Fine-tuning job created');
       setShowCreate(false);
       setForm({ model_name: '', base_model: 'mistral-7b', training_data: '', validation_data: '', max_epochs: 3 });
       loadJobs();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create job');
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Failed to create job');
     } finally {
       setCreating(false);
     }
   };
 
   const handleCancel = async (jobId: string) => {
+    setActionError(null);
     try {
       await cancelFineTuneJob(jobId);
-      toast.success('Job cancelled');
       setConfirmCancelJob(null);
       loadJobs();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to cancel job');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to cancel job');
     }
   };
 
   const handleDescribe = async (jobId: string) => {
+    if (detailJobId === jobId) { setDetailJobId(null); setDetail(null); return; }
+    setActionError(null);
     try {
       const result = await describeFineTuneJob(jobId);
-      setDetail(result.data || result);
-      setShowDetail(true);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to describe job');
+      setDetail((result.data || result) as Record<string, unknown>);
+      setDetailJobId(jobId);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to describe job');
     }
   };
 
@@ -320,10 +354,31 @@ function FineTuningSection() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Fine-Tuning Jobs</h3>
-        <Button onClick={() => setShowCreate(true)} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
+        <Button onClick={() => { setShowCreate((v) => !v); setFormError(null); }} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
           <PiPlus className="w-4 h-4" /> New Fine-Tune Job
         </Button>
       </div>
+
+      {/* Inline create panel (was a centered modal) */}
+      {showCreate && (
+        <div className="p-4 border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Create Fine-Tuning Job</h4>
+          <Input label="Model Name" placeholder="my_finetuned_model" value={form.model_name} onChange={(e) => setForm({ ...form, model_name: e.target.value })} />
+          <Input label="Base Model" placeholder="mistral-7b" value={form.base_model} onChange={(e) => setForm({ ...form, base_model: e.target.value })} />
+          <Textarea label="Training Data (SQL or table ref)" placeholder="SELECT prompt, completion FROM training_data" value={form.training_data} onChange={(e) => setForm({ ...form, training_data: e.target.value })} rows={3} />
+          <Input label="Validation Data (optional)" placeholder="SQL query or table reference" value={form.validation_data} onChange={(e) => setForm({ ...form, validation_data: e.target.value })} />
+          <Input label="Max Epochs" type="number" value={String(form.max_epochs)} onChange={(e) => setForm({ ...form, max_epochs: parseInt(e.target.value) || 3 })} />
+          {formError && <InlineError message={formError} onDismiss={() => setFormError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setFormError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-amber-600 text-white hover:bg-amber-700">
+              {creating ? <Loader variant="spinner" size="sm" /> : 'Start Training'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {actionError && <InlineError message={actionError} onDismiss={() => setActionError(null)} />}
 
       {loading ? (
         <div className="space-y-4 p-4">
@@ -353,7 +408,7 @@ function FineTuningSection() {
                   <Badge className={job.status === 'COMPLETED' || job.STATUS === 'COMPLETED' ? 'bg-green-100 text-green-800' : job.status === 'RUNNING' || job.STATUS === 'RUNNING' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-800'}>
                     {job.status || job.STATUS || 'UNKNOWN'}
                   </Badge>
-                  <Button variant="outline" size="sm" onClick={() => handleDescribe(jobId)}>
+                  <Button variant="outline" size="sm" onClick={() => handleDescribe(jobId)} aria-expanded={detailJobId === jobId}>
                     <PiInfo className="w-4 h-4" />
                   </Button>
                   {(job.status === 'RUNNING' || job.STATUS === 'RUNNING') && confirmCancelJob !== jobId && (
@@ -363,6 +418,14 @@ function FineTuningSection() {
                   )}
                 </div>
               </div>
+              {detailJobId === jobId && detail && (
+                <div className="bg-slate-50 dark:bg-slate-900 rounded-lg p-3">
+                  <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5">Job Details</p>
+                  <pre className="text-xs overflow-auto max-h-64 text-slate-700 dark:text-slate-300">
+                    {JSON.stringify(detail, null, 2)}
+                  </pre>
+                </div>
+              )}
               {confirmCancelJob === jobId && (
                 <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 flex items-center justify-between gap-2">
                   <span className="text-xs text-red-700 dark:text-red-300 font-medium">Cancel this fine-tuning job?</span>
@@ -381,50 +444,6 @@ function FineTuningSection() {
           })}
         </div>
       )}
-
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)}>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Create Fine-Tuning Job</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setForm({
-                model_name: `ft_support_${Date.now().toString(36)}`,
-                base_model: 'mistral-7b',
-                training_data: "SELECT QUESTION AS prompt, ANSWER AS completion FROM CP_DATA360.RETAIL_DW.SUPPORT_TICKETS WHERE RESOLUTION_STATUS = 'RESOLVED' LIMIT 500",
-                validation_data: "SELECT QUESTION AS prompt, ANSWER AS completion FROM CP_DATA360.RETAIL_DW.SUPPORT_TICKETS WHERE RESOLUTION_STATUS = 'RESOLVED' LIMIT 50 OFFSET 500",
-                max_epochs: 3,
-              })}
-              className="gap-1.5 text-amber-600 border-amber-300 hover:bg-amber-50 dark:text-amber-400 dark:border-amber-700 dark:hover:bg-amber-900/30"
-            >
-              <PiSparkle className="w-3.5 h-3.5" />
-              Use Sample Data
-            </Button>
-          </div>
-          <Input label="Model Name" placeholder="my_finetuned_model" value={form.model_name} onChange={(e) => setForm({ ...form, model_name: e.target.value })} />
-          <Input label="Base Model" placeholder="mistral-7b" value={form.base_model} onChange={(e) => setForm({ ...form, base_model: e.target.value })} />
-          <Textarea label="Training Data (SQL or table ref)" placeholder="SELECT prompt, completion FROM training_data" value={form.training_data} onChange={(e) => setForm({ ...form, training_data: e.target.value })} rows={3} />
-          <Input label="Validation Data (optional)" placeholder="SQL query or table reference" value={form.validation_data} onChange={(e) => setForm({ ...form, validation_data: e.target.value })} />
-          <Input label="Max Epochs" type="number" value={String(form.max_epochs)} onChange={(e) => setForm({ ...form, max_epochs: parseInt(e.target.value) || 3 })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating} className="bg-amber-600 text-white hover:bg-amber-700">
-              {creating ? <Loader variant="spinner" size="sm" /> : 'Start Training'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={showDetail} onClose={() => setShowDetail(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Job Details</h3>
-          <pre className="text-sm bg-slate-50 dark:bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 text-slate-700 dark:text-slate-300">
-            {JSON.stringify(detail, null, 2)}
-          </pre>
-          <Button variant="outline" onClick={() => setShowDetail(false)}>Close</Button>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -434,10 +453,15 @@ function ClassificationSection() {
   const [showTrain, setShowTrain] = useState(false);
   const [trainForm, setTrainForm] = useState({ model_name: '', training_table: '', target_column: '', database: '', schema: '' });
   const [training, setTraining] = useState(false);
+  const [trainError, setTrainError] = useState<string | null>(null);
   const [showPredict, setShowPredict] = useState(false);
+  const [predicting, setPredicting] = useState(false);
   const [predictForm, setPredictForm] = useState({ model_name: '', input_table: '', database: '', schema: '' });
+  const [predictError, setPredictError] = useState<string | null>(null);
+  const [predictNotice, setPredictNotice] = useState<string | null>(null);
   const [metrics, setMetrics] = useState<any>(null);
-  const [showMetrics, setShowMetrics] = useState(false);
+  const [metricsModel, setMetricsModel] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [confirmDropModel, setConfirmDropModel] = useState<string | null>(null);
 
   const fetchModels = useCallback(async () => {
@@ -452,10 +476,11 @@ function ClassificationSection() {
 
   const handleTrain = async () => {
     if (!trainForm.model_name || !trainForm.training_table || !trainForm.target_column) {
-      toast.error('Model name, training table, and target column are required');
+      setTrainError('Model name, training table, and target column are required');
       return;
     }
     setTraining(true);
+    setTrainError(null);
     try {
       await trainClassification({
         ...trainForm,
@@ -463,49 +488,56 @@ function ClassificationSection() {
         schema: trainForm.schema || undefined,
         evaluate: true,
       });
-      toast.success('Classification model training started');
       setShowTrain(false);
+      setTrainForm({ model_name: '', training_table: '', target_column: '', database: '', schema: '' });
       loadModels();
-    } catch (err: any) {
-      toast.error(err.message || 'Training failed');
+    } catch (err) {
+      setTrainError(err instanceof Error ? err.message : 'Training failed');
     } finally {
       setTraining(false);
     }
   };
 
   const handlePredict = async () => {
-    if (!predictForm.model_name || !predictForm.input_table) { toast.error('Model name and input table are required'); return; }
+    if (!predictForm.model_name || !predictForm.input_table) { setPredictError('Model name and input table are required'); return; }
+    setPredicting(true);
+    setPredictError(null);
+    setPredictNotice(null);
     try {
-      const result = await predictClassification({
+      await predictClassification({
         ...predictForm,
         database: predictForm.database || undefined,
         schema: predictForm.schema || undefined,
       });
-      toast.success('Prediction complete');
-      setShowPredict(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Prediction failed');
+      setPredictNotice('Prediction complete');
+    } catch (err) {
+      setPredictError(err instanceof Error ? err.message : 'Prediction failed');
+    } finally {
+      setPredicting(false);
     }
   };
 
   const handleViewMetrics = async (model: string) => {
+    if (metricsModel === model) { setMetricsModel(null); setMetrics(null); return; }
+    setActionError(null);
     try {
       const result = await getClassificationMetrics(model);
       setMetrics(result.data || result);
-      setShowMetrics(true);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load metrics');
+      setMetricsModel(model);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to load metrics');
     }
   };
 
   const handleDrop = async (model: string) => {
+    setActionError(null);
     try {
       await dropClassificationModel(model);
-      toast.success('Model dropped');
       setConfirmDropModel(null);
+      if (metricsModel === model) { setMetricsModel(null); setMetrics(null); }
       loadModels();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to drop model');
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Failed to drop model');
     }
   };
 
@@ -514,14 +546,54 @@ function ClassificationSection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">ML Classification Models</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowPredict(true)} className="gap-2">
+          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); setPredictNotice(null); }} className="gap-2">
             <PiPlay className="w-4 h-4" /> Predict
           </Button>
-          <Button onClick={() => setShowTrain(true)} className="gap-2 bg-blue-600 text-white hover:bg-blue-700">
+          <Button onClick={() => { setShowTrain((v) => !v); setTrainError(null); }} className="gap-2 bg-blue-600 text-white hover:bg-blue-700">
             <PiPlus className="w-4 h-4" /> Train Model
           </Button>
         </div>
       </div>
+
+      {/* Inline train panel (was a centered modal) */}
+      {showTrain && (
+        <div className="p-4 border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Train Classification Model</h4>
+          <Input label="Model Name" value={trainForm.model_name} onChange={(e) => setTrainForm({ ...trainForm, model_name: e.target.value })} />
+          <Input label="Training Table" placeholder="DB.SCHEMA.TABLE" value={trainForm.training_table} onChange={(e) => setTrainForm({ ...trainForm, training_table: e.target.value })} />
+          <Input label="Target Column" placeholder="label_column" value={trainForm.target_column} onChange={(e) => setTrainForm({ ...trainForm, target_column: e.target.value })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Database (optional)" value={trainForm.database} onChange={(e) => setTrainForm({ ...trainForm, database: e.target.value })} />
+            <Input label="Schema (optional)" value={trainForm.schema} onChange={(e) => setTrainForm({ ...trainForm, schema: e.target.value })} />
+          </div>
+          {trainError && <InlineError message={trainError} onDismiss={() => setTrainError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowTrain(false); setTrainError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handleTrain} disabled={training} className="bg-blue-600 text-white hover:bg-blue-700">
+              {training ? <Loader variant="spinner" size="sm" /> : 'Train'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Inline predict panel (was a centered modal) */}
+      {showPredict && (
+        <div className="p-4 border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Run Prediction</h4>
+          <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
+          <Input label="Input Table" placeholder="DB.SCHEMA.TABLE" value={predictForm.input_table} onChange={(e) => setPredictForm({ ...predictForm, input_table: e.target.value })} />
+          {predictError && <InlineError message={predictError} onDismiss={() => setPredictError(null)} />}
+          {predictNotice && <InlineSuccess message={predictNotice} onDismiss={() => setPredictNotice(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowPredict(false); setPredictError(null); setPredictNotice(null); }}>Close</Button>
+            <Button size="sm" onClick={handlePredict} disabled={predicting} className="bg-blue-600 text-white hover:bg-blue-700">
+              {predicting ? <Loader variant="spinner" size="sm" /> : 'Predict'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {actionError && <InlineError message={actionError} onDismiss={() => setActionError(null)} />}
 
       {loading ? (
         <div className="space-y-4 p-4">
@@ -548,7 +620,7 @@ function ClassificationSection() {
                   <p className="text-sm text-slate-500 mt-0.5">{m.created_on || m.CREATED_ON || ''}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => handleViewMetrics(modelName)} className="gap-1">
+                  <Button variant="outline" size="sm" onClick={() => handleViewMetrics(modelName)} className="gap-1" aria-expanded={metricsModel === modelName}>
                     <PiEye className="w-3.5 h-3.5" /> Metrics
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => setConfirmDropModel(modelName)} className="gap-1 text-red-600 hover:bg-red-50">
@@ -556,6 +628,7 @@ function ClassificationSection() {
                   </Button>
                 </div>
               </div>
+              {metricsModel === modelName && metrics && <ClassificationMetricsView metrics={metrics} />}
               {confirmDropModel === modelName && (
                 <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 flex items-center justify-between gap-2">
                   <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
@@ -576,139 +649,79 @@ function ClassificationSection() {
           })}
         </div>
       )}
+    </div>
+  );
+}
 
-      <Modal isOpen={showTrain} onClose={() => setShowTrain(false)}>
-        <div className="p-6 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Train Classification Model</h3>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setTrainForm({
-                model_name: `cls_retail_${Date.now().toString(36)}`,
-                training_table: 'CP_DATA360.RETAIL_DW.DIM_CLIENTS',
-                target_column: 'COD_SEGMENT',
-                database: '',
-                schema: '',
-              })}
-              className="gap-1.5 text-blue-600 border-blue-300 hover:bg-blue-50 dark:text-blue-400 dark:border-blue-700 dark:hover:bg-blue-900/30"
-            >
-              <PiSparkle className="w-3.5 h-3.5" />
-              Use Sample Data
-            </Button>
-          </div>
-          <Input label="Model Name" value={trainForm.model_name} onChange={(e) => setTrainForm({ ...trainForm, model_name: e.target.value })} />
-          <Input label="Training Table" placeholder="DB.SCHEMA.TABLE" value={trainForm.training_table} onChange={(e) => setTrainForm({ ...trainForm, training_table: e.target.value })} />
-          <Input label="Target Column" placeholder="label_column" value={trainForm.target_column} onChange={(e) => setTrainForm({ ...trainForm, target_column: e.target.value })} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Database (optional)" value={trainForm.database} onChange={(e) => setTrainForm({ ...trainForm, database: e.target.value })} />
-            <Input label="Schema (optional)" value={trainForm.schema} onChange={(e) => setTrainForm({ ...trainForm, schema: e.target.value })} />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowTrain(false)}>Cancel</Button>
-            <Button onClick={handleTrain} disabled={training} className="bg-blue-600 text-white hover:bg-blue-700">
-              {training ? <Loader variant="spinner" size="sm" /> : 'Train'}
-            </Button>
+// ===== Classification metrics — inline expandable view (was a modal) =====
+function ClassificationMetricsView({ metrics }: { metrics: any }) {
+  const m = metrics?.metrics || metrics;
+  const global = m?.show_global_evaluation_metrics;
+  const importance = m?.show_feature_importance;
+  const confusion = m?.show_confusion_matrix;
+
+  let globalData: any = null;
+  try { globalData = typeof global === 'string' ? JSON.parse(global) : global; } catch { globalData = null; }
+
+  let importanceData: any = null;
+  try { importanceData = typeof importance === 'string' ? JSON.parse(importance) : importance; } catch { importanceData = null; }
+
+  return (
+    <div className="space-y-4 bg-slate-50 dark:bg-slate-900 rounded-lg p-4">
+      <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Model Evaluation Metrics</h4>
+
+      {globalData && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'Accuracy', value: globalData?.accuracy ?? globalData?.ACCURACY, color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
+            { label: 'Precision', value: globalData?.precision ?? globalData?.PRECISION, color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
+            { label: 'Recall', value: globalData?.recall ?? globalData?.RECALL, color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
+            { label: 'F1 Score', value: globalData?.f1 ?? globalData?.F1, color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' },
+          ].filter(kpi => kpi.value != null).map((kpi, idx) => (
+            <div key={idx} className={`rounded-xl p-3 text-center ${kpi.color}`}>
+              <p className="text-xs font-medium opacity-80">{kpi.label}</p>
+              <p className="text-2xl font-bold mt-1">{typeof kpi.value === 'number' ? (kpi.value * 100).toFixed(1) + '%' : String(kpi.value)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {importanceData && (
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">Feature Importance</h4>
+          <div className="space-y-2">
+            {(Array.isArray(importanceData) ? importanceData : Object.entries(importanceData).map(([k, v]) => ({ feature: k, importance: v }))).slice(0, 10).map((feat: any, idx: number) => {
+              const name = feat.feature || feat.FEATURE || feat.name || `Feature ${idx}`;
+              const val = Number(feat.importance || feat.IMPORTANCE || feat.score || 0);
+              const pct = Math.min(val * 100, 100);
+              return (
+                <div key={idx} className="flex items-center gap-3">
+                  <span className="text-xs text-slate-600 dark:text-slate-400 w-32 truncate">{name}</span>
+                  <div className="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2.5">
+                    <div className="bg-blue-500 rounded-full h-2.5" style={{ width: `${pct}%` }} />
+                  </div>
+                  <span className="text-xs font-mono text-slate-600 dark:text-slate-400 w-12 text-right">{(val * 100).toFixed(1)}%</span>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </Modal>
+      )}
 
-      <Modal isOpen={showPredict} onClose={() => setShowPredict(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Run Prediction</h3>
-          <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
-          <Input label="Input Table" placeholder="DB.SCHEMA.TABLE" value={predictForm.input_table} onChange={(e) => setPredictForm({ ...predictForm, input_table: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowPredict(false)}>Cancel</Button>
-            <Button onClick={handlePredict} className="bg-blue-600 text-white hover:bg-blue-700">Predict</Button>
-          </div>
+      {confusion && (
+        <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
+          <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Confusion Matrix</h4>
+          <pre className="text-xs bg-slate-50 dark:bg-slate-900 p-3 rounded-lg overflow-auto max-h-40 text-slate-700 dark:text-slate-300">
+            {typeof confusion === 'string' ? confusion : JSON.stringify(confusion, null, 2)}
+          </pre>
         </div>
-      </Modal>
+      )}
 
-      <Modal isOpen={showMetrics} onClose={() => setShowMetrics(false)}>
-        <div className="p-6 space-y-4 max-w-2xl">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Model Evaluation Metrics</h3>
-
-          {/* Visual KPI Cards */}
-          {(() => {
-            const m = metrics?.metrics || metrics;
-            const global = m?.show_global_evaluation_metrics;
-            const importance = m?.show_feature_importance;
-            const confusion = m?.show_confusion_matrix;
-
-            // Parse global metrics if string
-            let globalData: any = null;
-            try { globalData = typeof global === 'string' ? JSON.parse(global) : global; } catch { globalData = null; }
-
-            // Parse feature importance if string
-            let importanceData: any = null;
-            try { importanceData = typeof importance === 'string' ? JSON.parse(importance) : importance; } catch { importanceData = null; }
-
-            return (
-              <div className="space-y-4">
-                {/* Metric KPI Cards */}
-                {globalData && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {[
-                      { label: 'Accuracy', value: globalData?.accuracy ?? globalData?.ACCURACY, color: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300' },
-                      { label: 'Precision', value: globalData?.precision ?? globalData?.PRECISION, color: 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300' },
-                      { label: 'Recall', value: globalData?.recall ?? globalData?.RECALL, color: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300' },
-                      { label: 'F1 Score', value: globalData?.f1 ?? globalData?.F1, color: 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300' },
-                    ].filter(kpi => kpi.value != null).map((kpi, idx) => (
-                      <div key={idx} className={`rounded-xl p-3 text-center ${kpi.color}`}>
-                        <p className="text-xs font-medium opacity-80">{kpi.label}</p>
-                        <p className="text-2xl font-bold mt-1">{typeof kpi.value === 'number' ? (kpi.value * 100).toFixed(1) + '%' : String(kpi.value)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Feature Importance */}
-                {importanceData && (
-                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-3">Feature Importance</h4>
-                    <div className="space-y-2">
-                      {(Array.isArray(importanceData) ? importanceData : Object.entries(importanceData).map(([k, v]) => ({ feature: k, importance: v }))).slice(0, 10).map((feat: any, idx: number) => {
-                        const name = feat.feature || feat.FEATURE || feat.name || `Feature ${idx}`;
-                        const val = Number(feat.importance || feat.IMPORTANCE || feat.score || 0);
-                        const pct = Math.min(val * 100, 100);
-                        return (
-                          <div key={idx} className="flex items-center gap-3">
-                            <span className="text-xs text-slate-600 dark:text-slate-400 w-32 truncate">{name}</span>
-                            <div className="flex-1 bg-slate-100 dark:bg-slate-700 rounded-full h-2.5">
-                              <div className="bg-blue-500 rounded-full h-2.5" style={{ width: `${pct}%` }} />
-                            </div>
-                            <span className="text-xs font-mono text-slate-600 dark:text-slate-400 w-12 text-right">{(val * 100).toFixed(1)}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Confusion Matrix */}
-                {confusion && (
-                  <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-4">
-                    <h4 className="text-sm font-semibold text-slate-900 dark:text-white mb-2">Confusion Matrix</h4>
-                    <pre className="text-xs bg-slate-50 dark:bg-slate-900 p-3 rounded-lg overflow-auto max-h-40 text-slate-700 dark:text-slate-300">
-                      {typeof confusion === 'string' ? confusion : JSON.stringify(confusion, null, 2)}
-                    </pre>
-                  </div>
-                )}
-
-                {/* Fallback: raw JSON if no structured data */}
-                {!globalData && !importanceData && !confusion && (
-                  <pre className="text-sm bg-slate-50 dark:bg-slate-900 p-4 rounded-lg overflow-auto max-h-96 text-slate-700 dark:text-slate-300">
-                    {JSON.stringify(metrics, null, 2)}
-                  </pre>
-                )}
-              </div>
-            );
-          })()}
-
-          <Button variant="outline" onClick={() => setShowMetrics(false)}>Close</Button>
-        </div>
-      </Modal>
+      {!globalData && !importanceData && !confusion && (
+        <pre className="text-sm bg-white dark:bg-slate-800 p-4 rounded-lg overflow-auto max-h-96 text-slate-700 dark:text-slate-300">
+          {JSON.stringify(metrics, null, 2)}
+        </pre>
+      )}
     </div>
   );
 }
@@ -730,14 +743,21 @@ function DocumentAISection() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ model_name: '', database: '', schema: '' });
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [showPredict, setShowPredict] = useState(false);
+  const [predicting, setPredicting] = useState(false);
   const [predictForm, setPredictForm] = useState({ model_name: '', stage: '', file_path: '', database: '', schema: '' });
   const [predictResult, setPredictResult] = useState<any>(null);
+  const [predictError, setPredictError] = useState<string | null>(null);
   const [uploadedFile, setUploadedFile] = useState<{ name: string; stage: string; path: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [saveTarget, setSaveTarget] = useState('');
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
 
   const fetchDocModels = useCallback(async () => {
     const result = await listDocumentAIModels();
@@ -750,16 +770,16 @@ function DocumentAISection() {
   );
 
   const handleCreate = async () => {
-    if (!createForm.model_name) { toast.error('Model name is required'); return; }
+    if (!createForm.model_name) { setCreateError('Model name is required'); return; }
     setCreating(true);
+    setCreateError(null);
     try {
       await createDocumentAIModel({ ...createForm, database: createForm.database || undefined, schema: createForm.schema || undefined });
-      toast.success('Document AI model created');
       setShowCreate(false);
       setCreateForm({ model_name: '', database: '', schema: '' });
       loadModels();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create model');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create model');
     } finally {
       setCreating(false);
     }
@@ -769,14 +789,14 @@ function DocumentAISection() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setUploadError(null);
     try {
       const result = await uploadDocumentFile(file);
       const uploadData = result?.data || result;
       setUploadedFile({ name: uploadData.file_name || file.name, stage: uploadData.stage || '', path: uploadData.file_path || file.name });
       setPredictForm((prev) => ({ ...prev, stage: uploadData.stage || '', file_path: uploadData.file_path || file.name }));
-      toast.success(`Uploaded: ${file.name}`);
-    } catch (err: any) {
-      toast.error(err.message || 'Upload failed');
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
     }
@@ -784,21 +804,27 @@ function DocumentAISection() {
 
   const handlePredict = async () => {
     if (!predictForm.model_name || !predictForm.stage || !predictForm.file_path) {
-      toast.error('Model, stage, and file path are required');
+      setPredictError('Model, stage, and file path are required');
       return;
     }
+    setPredicting(true);
+    setPredictError(null);
     try {
       const result = await predictDocumentAI({ ...predictForm, database: predictForm.database || undefined, schema: predictForm.schema || undefined });
       setPredictResult(result.data || result);
-      toast.success('Document processed');
-    } catch (err: any) {
-      toast.error(err.message || 'Prediction failed');
+      setShowPredict(false);
+    } catch (err) {
+      setPredictError(err instanceof Error ? err.message : 'Prediction failed');
+    } finally {
+      setPredicting(false);
     }
   };
 
   const handleSaveToTable = async () => {
-    if (!predictForm.model_name || !saveTarget) { toast.error('Target table is required'); return; }
+    if (!predictForm.model_name || !saveTarget) { setSaveError('Target table is required'); return; }
     setSaving(true);
+    setSaveError(null);
+    setSaveNotice(null);
     try {
       await extractToTable({
         model_name: predictForm.model_name,
@@ -806,9 +832,9 @@ function DocumentAISection() {
         file_path: predictForm.file_path,
         target_table: saveTarget,
       });
-      toast.success(`Data saved to ${saveTarget}`);
-    } catch (err: any) {
-      toast.error(err.message || 'Save failed');
+      setSaveNotice(`Data saved to ${saveTarget}`);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);
     }
@@ -824,14 +850,99 @@ function DocumentAISection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Document AI Models</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowPredict(true)} className="gap-2">
+          <Button variant="outline" onClick={() => { setShowPredict((v) => !v); setPredictError(null); }} className="gap-2" aria-expanded={showPredict}>
             <PiEye className="w-4 h-4" /> Extract from Document
           </Button>
-          <Button onClick={() => setShowCreate(true)} className="gap-2 bg-red-600 text-white hover:bg-red-700">
+          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} className="gap-2 bg-red-600 text-white hover:bg-red-700" aria-expanded={showCreate}>
             <PiPlus className="w-4 h-4" /> Create Model
           </Button>
         </div>
       </div>
+
+      {/* Inline create panel (was a centered modal) */}
+      {showCreate && (
+        <div className="p-4 border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Create Document AI Model</h4>
+          <Input label="Model Name" value={createForm.model_name} onChange={(e) => setCreateForm({ ...createForm, model_name: e.target.value })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Database (optional)" value={createForm.database} onChange={(e) => setCreateForm({ ...createForm, database: e.target.value })} />
+            <Input label="Schema (optional)" value={createForm.schema} onChange={(e) => setCreateForm({ ...createForm, schema: e.target.value })} />
+          </div>
+          {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setCreateError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-red-600 text-white hover:bg-red-700">
+              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Inline extract panel (was a centered modal) */}
+      {showPredict && (
+        <div className="p-4 border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Extract from Document</h4>
+
+          {/* File Upload */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Upload Document</label>
+            <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-6 text-center hover:border-red-400 transition-colors bg-white dark:bg-slate-800">
+              <PiFilePdf className="w-10 h-10 mx-auto mb-2 text-slate-400" />
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.tiff"
+                onChange={handleFileUpload}
+                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-red-50 file:text-red-700 hover:file:bg-red-100 dark:file:bg-red-900/30 dark:file:text-red-300"
+              />
+              {uploading && <div className="mt-2"><Loader variant="spinner" size="sm" /></div>}
+              {uploadedFile && (
+                <p className="mt-2 text-sm text-green-600 dark:text-green-400">
+                  Uploaded: {uploadedFile.name} to {uploadedFile.stage}
+                </p>
+              )}
+            </div>
+            {uploadError && <InlineError message={uploadError} onDismiss={() => setUploadError(null)} />}
+          </div>
+
+          {/* Template Selector */}
+          {templates.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Document Template</label>
+              <div className="flex flex-wrap gap-2">
+                {templates.map((tpl: any, idx: number) => {
+                  const isSel = selectedTemplate === tpl.name;
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      aria-pressed={isSel}
+                      onClick={() => setSelectedTemplate(isSel ? null : tpl.name)}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
+                        isSel
+                          ? 'border-red-300 bg-red-100 text-red-700 dark:border-red-700 dark:bg-red-900/40 dark:text-red-300'
+                          : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {tpl.name}{typeof tpl.fields?.length === 'number' ? ` · ${tpl.fields.length} fields` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
+          <Input label="Stage" placeholder="@my_stage" value={predictForm.stage} onChange={(e) => setPredictForm({ ...predictForm, stage: e.target.value })} />
+          <Input label="File Path" placeholder="path/to/document.pdf" value={predictForm.file_path} onChange={(e) => setPredictForm({ ...predictForm, file_path: e.target.value })} />
+          {predictError && <InlineError message={predictError} onDismiss={() => setPredictError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowPredict(false); setPredictError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handlePredict} disabled={predicting} className="bg-red-600 text-white hover:bg-red-700">
+              {predicting ? <Loader variant="spinner" size="sm" /> : 'Extract'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-4 p-4">
@@ -901,88 +1012,23 @@ function DocumentAISection() {
           })()}
 
           {/* Save to Table */}
-          <div className="flex items-center gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
-            <Input
-              placeholder="TARGET_DB.SCHEMA.TABLE"
-              value={saveTarget}
-              onChange={(e) => setSaveTarget(e.target.value)}
-              className="flex-1"
-            />
-            <Button onClick={handleSaveToTable} disabled={saving || !saveTarget} className="gap-2 bg-green-600 text-white hover:bg-green-700 whitespace-nowrap">
-              {saving ? <Loader variant="spinner" size="sm" /> : <><PiDatabase className="w-4 h-4" /> Save to Table</>}
-            </Button>
+          <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-3">
+              <Input
+                placeholder="TARGET_DB.SCHEMA.TABLE"
+                value={saveTarget}
+                onChange={(e) => setSaveTarget(e.target.value)}
+                className="flex-1"
+              />
+              <Button onClick={handleSaveToTable} disabled={saving || !saveTarget} className="gap-2 bg-green-600 text-white hover:bg-green-700 whitespace-nowrap">
+                {saving ? <Loader variant="spinner" size="sm" /> : <><PiDatabase className="w-4 h-4" /> Save to Table</>}
+              </Button>
+            </div>
+            {saveError && <InlineError message={saveError} onDismiss={() => setSaveError(null)} />}
+            {saveNotice && <InlineSuccess message={saveNotice} onDismiss={() => setSaveNotice(null)} />}
           </div>
         </div>
       )}
-
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold">Create Document AI Model</h3>
-          <Input label="Model Name" value={createForm.model_name} onChange={(e) => setCreateForm({ ...createForm, model_name: e.target.value })} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Database (optional)" value={createForm.database} onChange={(e) => setCreateForm({ ...createForm, database: e.target.value })} />
-            <Input label="Schema (optional)" value={createForm.schema} onChange={(e) => setCreateForm({ ...createForm, schema: e.target.value })} />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating} className="bg-red-600 text-white hover:bg-red-700">
-              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={showPredict} onClose={() => setShowPredict(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Extract from Document</h3>
-
-          {/* File Upload */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Upload Document</label>
-            <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-6 text-center hover:border-red-400 transition-colors">
-              <PiFilePdf className="w-10 h-10 mx-auto mb-2 text-slate-400" />
-              <input
-                type="file"
-                accept=".pdf,.png,.jpg,.jpeg,.tiff"
-                onChange={handleFileUpload}
-                className="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-red-50 file:text-red-700 hover:file:bg-red-100 dark:file:bg-red-900/30 dark:file:text-red-300"
-              />
-              {uploading && <div className="mt-2"><Loader variant="spinner" size="sm" /></div>}
-              {uploadedFile && (
-                <p className="mt-2 text-sm text-green-600 dark:text-green-400">
-                  Uploaded: {uploadedFile.name} to {uploadedFile.stage}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Template Selector */}
-          {templates.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Document Template</label>
-              <div className="flex flex-wrap gap-2">
-                {templates.map((tpl: any, idx: number) => (
-                  <button
-                    key={idx}
-                    onClick={() => toast.success(`Template: ${tpl.name} — ${tpl.fields?.length || 0} fields`)}
-                    className="px-3 py-1.5 text-xs font-medium rounded-lg border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                  >
-                    {tpl.name}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
-          <Input label="Stage" placeholder="@my_stage" value={predictForm.stage} onChange={(e) => setPredictForm({ ...predictForm, stage: e.target.value })} />
-          <Input label="File Path" placeholder="path/to/document.pdf" value={predictForm.file_path} onChange={(e) => setPredictForm({ ...predictForm, file_path: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowPredict(false)}>Cancel</Button>
-            <Button onClick={handlePredict} className="bg-red-600 text-white hover:bg-red-700">Extract</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
@@ -992,8 +1038,11 @@ function TopInsightsSection() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ instance_name: '', database: '', schema: '' });
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [showAnalyze, setShowAnalyze] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
   const [analyzeForm, setAnalyzeForm] = useState({ instance_name: '', input_data: '', label_column: '', metric_column: '', database: '', schema: '' });
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any>(null);
 
   const fetchInstances = useCallback(async () => {
@@ -1007,15 +1056,16 @@ function TopInsightsSection() {
   );
 
   const handleCreate = async () => {
-    if (!createForm.instance_name) { toast.error('Instance name is required'); return; }
+    if (!createForm.instance_name) { setCreateError('Instance name is required'); return; }
     setCreating(true);
+    setCreateError(null);
     try {
       await createTopInsights({ ...createForm, database: createForm.database || undefined, schema: createForm.schema || undefined });
-      toast.success('Top Insights instance created');
       setShowCreate(false);
+      setCreateForm({ instance_name: '', database: '', schema: '' });
       loadInstances();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to create instance');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create instance');
     } finally {
       setCreating(false);
     }
@@ -1023,9 +1073,11 @@ function TopInsightsSection() {
 
   const handleAnalyze = async () => {
     if (!analyzeForm.instance_name || !analyzeForm.input_data || !analyzeForm.label_column || !analyzeForm.metric_column) {
-      toast.error('All fields are required');
+      setAnalyzeError('All fields are required');
       return;
     }
+    setAnalyzing(true);
+    setAnalyzeError(null);
     try {
       const result = await analyzeTopInsights(analyzeForm.instance_name, {
         ...analyzeForm,
@@ -1033,10 +1085,11 @@ function TopInsightsSection() {
         schema: analyzeForm.schema || undefined,
       });
       setAnalysisResult(result.data || result);
-      toast.success('Analysis complete');
       setShowAnalyze(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Analysis failed');
+    } catch (err) {
+      setAnalyzeError(err instanceof Error ? err.message : 'Analysis failed');
+    } finally {
+      setAnalyzing(false);
     }
   };
 
@@ -1045,14 +1098,51 @@ function TopInsightsSection() {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Top Insights / Contribution Explorer</h3>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setShowAnalyze(true)} className="gap-2">
+          <Button variant="outline" onClick={() => { setShowAnalyze((v) => !v); setAnalyzeError(null); }} className="gap-2" aria-expanded={showAnalyze}>
             <PiTrendUp className="w-4 h-4" /> Analyze
           </Button>
-          <Button onClick={() => setShowCreate(true)} className="gap-2 bg-green-600 text-white hover:bg-green-700">
+          <Button onClick={() => { setShowCreate((v) => !v); setCreateError(null); }} className="gap-2 bg-green-600 text-white hover:bg-green-700" aria-expanded={showCreate}>
             <PiPlus className="w-4 h-4" /> New Instance
           </Button>
         </div>
       </div>
+
+      {/* Inline create panel (was a centered modal) */}
+      {showCreate && (
+        <div className="p-4 border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Create Top Insights Instance</h4>
+          <Input label="Instance Name" value={createForm.instance_name} onChange={(e) => setCreateForm({ ...createForm, instance_name: e.target.value })} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Database (optional)" value={createForm.database} onChange={(e) => setCreateForm({ ...createForm, database: e.target.value })} />
+            <Input label="Schema (optional)" value={createForm.schema} onChange={(e) => setCreateForm({ ...createForm, schema: e.target.value })} />
+          </div>
+          {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowCreate(false); setCreateError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handleCreate} disabled={creating} className="bg-green-600 text-white hover:bg-green-700">
+              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Inline analyze panel (was a centered modal) */}
+      {showAnalyze && (
+        <div className="p-4 border border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-900/20 rounded-xl space-y-3">
+          <h4 className="font-medium text-slate-900 dark:text-white">Run Top Insights Analysis</h4>
+          <Input label="Instance Name" value={analyzeForm.instance_name} onChange={(e) => setAnalyzeForm({ ...analyzeForm, instance_name: e.target.value })} />
+          <Input label="Input Data" placeholder="DB.SCHEMA.TABLE or SQL query" value={analyzeForm.input_data} onChange={(e) => setAnalyzeForm({ ...analyzeForm, input_data: e.target.value })} />
+          <Input label="Label Column" placeholder="Boolean column (FALSE=control, TRUE=test)" value={analyzeForm.label_column} onChange={(e) => setAnalyzeForm({ ...analyzeForm, label_column: e.target.value })} />
+          <Input label="Metric Column" placeholder="Non-negative float metric" value={analyzeForm.metric_column} onChange={(e) => setAnalyzeForm({ ...analyzeForm, metric_column: e.target.value })} />
+          {analyzeError && <InlineError message={analyzeError} onDismiss={() => setAnalyzeError(null)} />}
+          <div className="flex justify-end gap-3 pt-1">
+            <Button variant="outline" size="sm" onClick={() => { setShowAnalyze(false); setAnalyzeError(null); }}>Cancel</Button>
+            <Button size="sm" onClick={handleAnalyze} disabled={analyzing} className="bg-green-600 text-white hover:bg-green-700">
+              {analyzing ? <Loader variant="spinner" size="sm" /> : 'Analyze'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="space-y-4 p-4">
@@ -1085,37 +1175,6 @@ function TopInsightsSection() {
           </pre>
         </div>
       )}
-
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold">Create Top Insights Instance</h3>
-          <Input label="Instance Name" value={createForm.instance_name} onChange={(e) => setCreateForm({ ...createForm, instance_name: e.target.value })} />
-          <div className="grid grid-cols-2 gap-3">
-            <Input label="Database (optional)" value={createForm.database} onChange={(e) => setCreateForm({ ...createForm, database: e.target.value })} />
-            <Input label="Schema (optional)" value={createForm.schema} onChange={(e) => setCreateForm({ ...createForm, schema: e.target.value })} />
-          </div>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={creating} className="bg-green-600 text-white hover:bg-green-700">
-              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      <Modal isOpen={showAnalyze} onClose={() => setShowAnalyze(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold">Run Top Insights Analysis</h3>
-          <Input label="Instance Name" value={analyzeForm.instance_name} onChange={(e) => setAnalyzeForm({ ...analyzeForm, instance_name: e.target.value })} />
-          <Input label="Input Data" placeholder="DB.SCHEMA.TABLE or SQL query" value={analyzeForm.input_data} onChange={(e) => setAnalyzeForm({ ...analyzeForm, input_data: e.target.value })} />
-          <Input label="Label Column" placeholder="Boolean column (FALSE=control, TRUE=test)" value={analyzeForm.label_column} onChange={(e) => setAnalyzeForm({ ...analyzeForm, label_column: e.target.value })} />
-          <Input label="Metric Column" placeholder="Non-negative float metric" value={analyzeForm.metric_column} onChange={(e) => setAnalyzeForm({ ...analyzeForm, metric_column: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowAnalyze(false)}>Cancel</Button>
-            <Button onClick={handleAnalyze} className="bg-green-600 text-white hover:bg-green-700">Analyze</Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }

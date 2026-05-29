@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useCallback, Fragment } from 'react';
-import { Button, Input, Loader, Badge, Modal, Textarea, Select } from 'rizzui';
+import { Button, Input, Loader, Badge, Textarea, Select } from 'rizzui';
 import { ObjectSelector } from './components/ObjectSelector';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import { getColumns } from '@/app/services/governance/policies';
 import toast from 'react-hot-toast';
 import {
@@ -141,6 +142,7 @@ export default function DMFContent() {
   const [showCreate, setShowCreate] = useState(false);
   const [createForm, setCreateForm] = useState({ name: '', table_args: '', expression: '', comment: '' });
   const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Associate modal
   const [showAssociate, setShowAssociate] = useState(false);
@@ -152,11 +154,13 @@ export default function DMFContent() {
   const [assocColumnOptions, setAssocColumnOptions] = useState<string[]>([]);
   const [loadingAssocColumns, setLoadingAssocColumns] = useState(false);
   const [associating, setAssociating] = useState(false);
+  const [associateError, setAssociateError] = useState<string | null>(null);
 
   // Schedule modal
   const [showSchedule, setShowSchedule] = useState(false);
   const [schedTarget, setSchedTarget] = useState({ database: '', schema: '', table: '' });
   const [schedForm, setSchedForm] = useState({ table_fqn: '', schedule: '' });
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
 
   // References
   const [refs, setRefs] = useState<any[]>([]);
@@ -183,8 +187,6 @@ export default function DMFContent() {
     setLoading(true);
     try {
       const result = await listDMFs(database || undefined, schema || undefined);
-      // eslint-disable-next-line no-console
-      console.log('[DMF] List response:', result);
       // Backend returns { dmfs: [...], count: N }. Some proxies wrap in StandardResponse
       // shape { data: { dmfs: [...] } }, so check both before falling back.
       const raw =
@@ -241,26 +243,27 @@ export default function DMFContent() {
 
   const handleCreate = async () => {
     if (!createForm.name || !createForm.table_args || !createForm.expression) {
-      toast.error('Name, table args, and expression are required');
+      setCreateError('Name, table args, and expression are required.');
       return;
     }
     // Validate table_args format: must contain TABLE keyword
     const argsUpper = createForm.table_args.toUpperCase().trim();
     if (!argsUpper.includes('TABLE(') && !argsUpper.includes('TABLE (')) {
-      toast.error('Table arguments must use Snowflake syntax: ARG_NAME TABLE(col_name TYPE). You wrote a table name instead of TABLE keyword.');
+      setCreateError('Table arguments must use Snowflake syntax: ARG_NAME TABLE(col_name TYPE). You wrote a table name instead of TABLE keyword.');
       return;
     }
     // Validate name: alphanumeric + underscore only
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(createForm.name.trim())) {
-      toast.error('DMF name must be alphanumeric with underscores (e.g. null_count_check)');
+      setCreateError('DMF name must be alphanumeric with underscores (e.g. null_count_check).');
       return;
     }
     // Validate expression references the arg name
     const argName = createForm.table_args.trim().split(/\s+/)[0];
     if (argName && !createForm.expression.toUpperCase().includes(argName.toUpperCase())) {
-      toast.error(`Expression must reference table arg "${argName}" (e.g. SELECT ... FROM ${argName})`);
+      setCreateError(`Expression must reference table arg "${argName}" (e.g. SELECT ... FROM ${argName}).`);
       return;
     }
+    setCreateError(null);
     setCreating(true);
     try {
       await createDMF({ ...createForm, database: database || undefined, schema: schema || undefined });
@@ -270,11 +273,11 @@ export default function DMFContent() {
       loadItems();
     } catch (err: any) {
       const msg = errorMessage(err, 'Failed to create DMF');
-      // Show SQL hint if compilation error
+      // Surface a SQL hint inline if this looks like a compilation error.
       if (msg.includes('syntax error') || msg.includes('SQL compilation')) {
-        toast.error(`SQL Error: ${msg}\n\nExpected format:\n  Args: ARG TABLE(col_name TYPE)\n  Expr: SELECT COUNT_IF(col_name IS NULL) FROM ARG`, { duration: 8000 });
+        setCreateError(`SQL Error: ${msg} — expected Args: ARG TABLE(col_name TYPE), Expr: SELECT COUNT_IF(col_name IS NULL) FROM ARG`);
       } else {
-        toast.error(msg);
+        setCreateError(msg);
       }
     } finally {
       setCreating(false);
@@ -339,17 +342,18 @@ export default function DMFContent() {
   const handleAssociate = async () => {
     const { database: db, schema: sc, table: tb } = assocTarget;
     if (!db || !sc || !tb) {
-      toast.error('Select database, schema, and table');
+      setAssociateError('Select database, schema, and table.');
       return;
     }
     if (!assocDmfName) {
-      toast.error('Pick a Data Metric Function');
+      setAssociateError('Pick a Data Metric Function.');
       return;
     }
     if (!assocColumns.length) {
-      toast.error('Select at least one column');
+      setAssociateError('Select at least one column.');
       return;
     }
+    setAssociateError(null);
     setAssociating(true);
     try {
       await associateDMF({
@@ -370,11 +374,11 @@ export default function DMFContent() {
     } catch (err: any) {
       const msg = errorMessage(err, 'Failed to associate DMF');
       if (msg.includes('does not exist')) {
-        toast.error(`${msg}\n\nHint: The DMF name must be fully qualified (DB.SCHEMA.NAME). Check the function exists in Snowflake.`, { duration: 8000 });
+        setAssociateError(`${msg} — the DMF name must be fully qualified (DB.SCHEMA.NAME); check the function exists in Snowflake.`);
       } else if (msg.includes('SQL compilation')) {
-        toast.error(`SQL Error: ${msg}`, { duration: 8000 });
+        setAssociateError(`SQL Error: ${msg}`);
       } else {
-        toast.error(msg);
+        setAssociateError(msg);
       }
     } finally {
       setAssociating(false);
@@ -384,13 +388,14 @@ export default function DMFContent() {
   const handleSchedule = async () => {
     const { database: db, schema: sc, table: tb } = schedTarget;
     if (!db || !sc || !tb) {
-      toast.error('Select database, schema, and table');
+      setScheduleError('Select database, schema, and table.');
       return;
     }
     if (!schedForm.schedule) {
-      toast.error('Schedule is required');
+      setScheduleError('Schedule is required.');
       return;
     }
+    setScheduleError(null);
     try {
       await setDMFSchedule({
         table_fqn: `${db}.${sc}.${tb}`,
@@ -401,7 +406,7 @@ export default function DMFContent() {
       setSchedTarget({ database: '', schema: '', table: '' });
       setSchedForm({ table_fqn: '', schedule: '' });
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to set schedule'));
+      setScheduleError(errorMessage(err, 'Failed to set schedule'));
     }
   };
 
@@ -424,13 +429,13 @@ export default function DMFContent() {
           <Button variant="outline" onClick={() => loadItems()} className="gap-2">
             <PiArrowsClockwise className="w-4 h-4" />
           </Button>
-          <Button variant="outline" onClick={() => setShowAssociate(true)} className="gap-2">
+          <Button variant="outline" onClick={() => { setAssociateError(null); setShowAssociate(true); }} className="gap-2">
             <PiLink className="w-4 h-4" /> Associate
           </Button>
-          <Button variant="outline" onClick={() => setShowSchedule(true)} className="gap-2">
+          <Button variant="outline" onClick={() => { setScheduleError(null); setShowSchedule(true); }} className="gap-2">
             <PiCalendar className="w-4 h-4" /> Schedule
           </Button>
-          <Button onClick={() => setShowCreate(true)} className="gap-2 bg-teal-600 text-white hover:bg-teal-700">
+          <Button onClick={() => { setCreateError(null); setShowCreate(true); }} className="gap-2 bg-teal-600 text-white hover:bg-teal-700">
             <PiPlus className="w-4 h-4" /> Create DMF
           </Button>
         </div>
@@ -562,10 +567,22 @@ export default function DMFContent() {
         </div>
       )}
 
-      {/* Create Modal */}
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Create Data Metric Function</h3>
+      {/* Create Panel */}
+      <PolicyFormPanel
+        isOpen={showCreate}
+        onClose={() => setShowCreate(false)}
+        title="Create Data Metric Function"
+        description="Define a quantitative data-quality check"
+        accentClassName="bg-teal-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+            <Button onClick={() => handleCreate()} disabled={creating} className="bg-teal-600 text-white hover:bg-teal-700">
+              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
+            </Button>
+          </>
+        }
+      >
           {/* Template buttons */}
           <div>
             <p className="text-[10px] font-medium text-gray-500 mb-1.5">Quick templates:</p>
@@ -593,25 +610,33 @@ export default function DMFContent() {
             <p className="text-[10px] text-gray-400 mt-0.5">SQL body. Reference columns from the table arg. Must return a NUMBER.</p>
           </div>
           <Input label="Comment (optional)" placeholder="Description" value={createForm.comment} onChange={(e) => setCreateForm({ ...createForm, comment: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={() => handleCreate()} disabled={creating} className="bg-teal-600 text-white hover:bg-teal-700">
-              {creating ? <Loader variant="spinner" size="sm" /> : 'Create'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Associate Modal */}
-      <Modal isOpen={showAssociate} onClose={() => setShowAssociate(false)}>
-        <div className="p-6 space-y-5 max-w-2xl">
-          <div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Associate DMF with Table</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-              Attach a data metric function to specific columns so Snowflake runs it on schedule.
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
             </p>
-          </div>
+          )}
+      </PolicyFormPanel>
 
+      {/* Associate Panel */}
+      <PolicyFormPanel
+        isOpen={showAssociate}
+        onClose={() => setShowAssociate(false)}
+        title="Associate DMF with Table"
+        description="Attach a data metric function to specific columns so Snowflake runs it on schedule."
+        accentClassName="bg-teal-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowAssociate(false)}>Cancel</Button>
+            <Button
+              onClick={() => handleAssociate()}
+              disabled={associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
+              className="bg-teal-600 text-white hover:bg-teal-700"
+            >
+              {associating ? <Loader variant="spinner" size="sm" /> : 'Associate'}
+            </Button>
+          </>
+        }
+      >
           {/* Target table picker */}
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
@@ -743,31 +768,30 @@ export default function DMFContent() {
             )}
           </div>
 
-          <div className="flex justify-end gap-3 pt-2 border-t border-slate-200 dark:border-slate-700">
-            <Button variant="outline" onClick={() => setShowAssociate(false)}>Cancel</Button>
-            <Button
-              onClick={() => handleAssociate()}
-              disabled={associating || !assocTarget.table || !assocDmfName || assocColumns.length === 0}
-              className="bg-teal-600 text-white hover:bg-teal-700"
-            >
-              {associating ? <Loader variant="spinner" size="sm" /> : 'Associate'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {associateError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {associateError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Schedule Modal */}
-      <Modal
+      {/* Schedule Panel */}
+      <PolicyFormPanel
         isOpen={showSchedule}
         onClose={() => {
           setShowSchedule(false);
           setSchedTarget({ database: '', schema: '', table: '' });
           setSchedForm({ table_fqn: '', schedule: '' });
         }}
+        title="Set DMF Schedule"
+        accentClassName="bg-teal-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowSchedule(false)}>Cancel</Button>
+            <Button onClick={() => handleSchedule()} disabled={!schedTarget.table || !schedForm.schedule} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
+          </>
+        }
       >
-        <div className="p-6 space-y-5">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Set DMF Schedule</h3>
-
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
               Target table
@@ -800,31 +824,34 @@ export default function DMFContent() {
           </div>
 
           <Input label="Schedule" placeholder="e.g. TRIGGER_ON_CHANGES or 5 MINUTE" value={schedForm.schedule} onChange={(e) => setSchedForm({ ...schedForm, schedule: e.target.value })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowSchedule(false)}>Cancel</Button>
-            <Button onClick={() => handleSchedule()} disabled={!schedTarget.table || !schedForm.schedule} className="bg-teal-600 text-white hover:bg-teal-700">Set Schedule</Button>
-          </div>
-        </div>
-      </Modal>
+          {scheduleError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {scheduleError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Detail Modal */}
-      <Modal isOpen={showDetail} onClose={() => setShowDetail(false)}>
-        <DMFDetailsModalContent detail={detail} onClose={() => setShowDetail(false)} />
-      </Modal>
+      {/* Detail Panel */}
+      <PolicyFormPanel
+        isOpen={showDetail}
+        onClose={() => setShowDetail(false)}
+        title="DMF Details"
+        accentClassName="bg-teal-500"
+        footer={<Button variant="outline" onClick={() => setShowDetail(false)}>Close</Button>}
+      >
+        <DMFDetailsModalContent detail={detail} />
+      </PolicyFormPanel>
 
-      {/* Table DMFs Modal */}
-      <Modal
+      {/* Table DMFs Panel */}
+      <PolicyFormPanel
         isOpen={showTableDmfs}
         onClose={() => setShowTableDmfs(false)}
+        title="Table DMF Associations"
+        description={`${tableDmfsTarget.database}.${tableDmfsTarget.schema}.${tableDmfsTarget.table}`}
+        accentClassName="bg-teal-500"
+        footer={<Button variant="outline" onClick={() => setShowTableDmfs(false)}>Close</Button>}
       >
-        <div className="p-6 space-y-5 max-w-3xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Table DMF Associations</h3>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 font-mono">
-                {tableDmfsTarget.database}.{tableDmfsTarget.schema}.{tableDmfsTarget.table}
-              </p>
-            </div>
+          <div className="flex items-center justify-end">
             <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">
               {tableDmfs.length} DMF{tableDmfs.length !== 1 ? 's' : ''}
             </Badge>
@@ -895,12 +922,7 @@ export default function DMFContent() {
               })}
             </div>
           )}
-
-          <div className="flex justify-end pt-3 border-t border-slate-200 dark:border-slate-700">
-            <Button variant="outline" onClick={() => setShowTableDmfs(false)}>Close</Button>
-          </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
   );
 }
@@ -909,17 +931,9 @@ export default function DMFContent() {
 // Snowflake DESCRIBE FUNCTION returns a list of {property, value} rows.
 // We render them as a property grid, pulling out "body" (SQL) into its own
 // code block for readability.
-function DMFDetailsModalContent({ detail, onClose }: { detail: any; onClose: () => void }) {
+function DMFDetailsModalContent({ detail }: { detail: any }) {
   if (!detail) {
-    return (
-      <div className="p-6 space-y-4">
-        <h3 className="text-lg font-semibold text-slate-900 dark:text-white">DMF Details</h3>
-        <p className="text-slate-500">No details available</p>
-        <div className="flex justify-end">
-          <Button variant="outline" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-    );
+    return <p className="text-slate-500">No details available</p>;
   }
 
   const name: string = detail.name || detail.NAME || 'DMF';
@@ -950,12 +964,9 @@ function DMFDetailsModalContent({ detail, onClose }: { detail: any; onClose: () 
   const otherRows = rows.filter((r) => !highlighted.has(r.property.toLowerCase()));
 
   return (
-    <div className="p-6 space-y-5 max-w-3xl">
+    <div className="space-y-5">
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">DMF Details</h3>
-          <p className="text-sm font-mono text-slate-600 dark:text-slate-400 mt-1">{name}</p>
-        </div>
+        <p className="text-sm font-mono text-slate-600 dark:text-slate-400">{name}</p>
         <div className="flex items-center gap-2">
           {language && (
             <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 text-xs font-medium">
@@ -1015,10 +1026,6 @@ function DMFDetailsModalContent({ detail, onClose }: { detail: any; onClose: () 
           </pre>
         </div>
       )}
-
-      <div className="flex justify-end pt-2 border-t border-slate-200 dark:border-slate-700">
-        <Button variant="outline" onClick={onClose}>Close</Button>
-      </div>
     </div>
   );
 }

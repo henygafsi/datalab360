@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Text, Badge } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { PiWarningCircleDuotone } from 'react-icons/pi';
 import {
   LineChart,
   Line,
@@ -27,7 +28,7 @@ import {
   getCreditForecast,
   getWarehouseCredits,
 } from '@/app/services/org-accounts/hooks';
-import { formatCredits } from '@/app/services/org-accounts/utils';
+import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   AccountCredit,
   TopConsumer,
@@ -62,20 +63,27 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
   const [forecast, setForecast] = useState<any>(null);
   const [warehouseCredits, setWarehouseCredits] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
+    // Capture the first failure so we can surface an inline error distinct
+    // from a genuine empty result, rather than swallowing it into null.
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load credits'); return null; });
 
     Promise.all([
-      getCredits(days).catch(() => null),
-      getTopConsumers(days, 10).catch(() => null),
-      getCreditsTrend(days).catch(() => null),
-      getMetering(days).catch(() => null),
-      getMeteringTrend(days).catch(() => null),
-      getCreditForecast(days).catch(() => null),
-      getWarehouseCredits(days).catch(() => null),
+      guard(getCredits(days)),
+      guard(getTopConsumers(days, 10)),
+      guard(getCreditsTrend(days)),
+      guard(getMetering(days)),
+      guard(getMeteringTrend(days)),
+      guard(getCreditForecast(days)),
+      guard(getWarehouseCredits(days)),
     ]).then(([creditsData, topData, trendData, meteringData, mTrendData, forecastData, whCreditsData]) => {
       if (creditsData) {
         setCredits(Array.isArray(creditsData.accounts) ? creditsData.accounts : []);
@@ -87,6 +95,7 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
       if (mTrendData) setMeteringTrend(Array.isArray(mTrendData.trend) ? mTrendData.trend : []);
       setForecast(forecastData);
       setWarehouseCredits(whCreditsData);
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -122,6 +131,15 @@ export default function CreditsTab({ refreshKey }: CreditsTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some credits data could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Date Range Selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -26,8 +26,9 @@ export default function TrustCenterCard() {
         getTrustCenterFindings(),
         getTrustCenterSummary(),
       ]);
-      setFindings(findingsResult.data || findingsResult.findings || findingsResult || []);
-      setSummary(summaryResult.data || summaryResult);
+      const f = findingsResult.findings ?? findingsResult.data ?? findingsResult;
+      setFindings(Array.isArray(f) ? f : []);
+      setSummary(summaryResult.data ?? summaryResult);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load Trust Center data');
     } finally {

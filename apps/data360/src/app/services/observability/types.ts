@@ -410,3 +410,17 @@ export interface HealthStatus {
   timestamp: string;
   version: string;
 }
+
+// =============================================================================
+// DYNAMIC SNOWFLAKE PASS-THROUGH RESPONSES
+// =============================================================================
+
+/**
+ * Several observability endpoints (cross-module lineage, dependency graph,
+ * task-enriched lineage, Trust Center, freshness probes) return Snowflake
+ * metadata graphs whose shape varies by account configuration. Consumers
+ * navigate them defensively (`result.data ?? result.nodes ?? result`), so we
+ * type them as an indexable record rather than locking a brittle interface or
+ * leaking `any`. Property access yields `unknown`, keeping call sites honest.
+ */
+export type ObservabilityRecord = Record<string, unknown>;

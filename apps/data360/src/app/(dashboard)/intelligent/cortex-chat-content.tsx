@@ -133,6 +133,7 @@ export default function CortexChatContent() {
   // Conversation persistence
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [conversationLoadError, setConversationLoadError] = useState<string | null>(null);
   const userInitials = getUserInitials();
 
   // ── Load models via useCacheAwareQuery ─────────────────────────────
@@ -179,6 +180,7 @@ export default function CortexChatContent() {
   );
 
   const loadConversationMessages = async (conversationId: string) => {
+    setConversationLoadError(null);
     try {
       const data = await getMessages(conversationId, 1, 200);
       const items = data?.items ?? [];
@@ -194,8 +196,7 @@ export default function CortexChatContent() {
       setMessages(loaded);
       setActiveConversationId(conversationId);
     } catch (err: any) {
-      console.warn('[CortexChat] Could not load messages:', err?.message);
-      toast.error('Could not load conversation history');
+      setConversationLoadError(err?.message || 'Could not load conversation history');
     }
   };
 
@@ -334,7 +335,6 @@ export default function CortexChatContent() {
             : msg
         )
       );
-      toast.error(error.message || 'Failed to process query');
     } finally {
       setIsQuerying(false);
     }
@@ -459,12 +459,12 @@ export default function CortexChatContent() {
         );
       }
 
-      if ((result as any).type === 'suggestions' && (result as any).suggestions) {
+      if (result.type === 'suggestions' && result.suggestions) {
         return (
           <div key={index} className="mt-3">
             <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-2">Suggested follow-ups:</p>
             <div className="flex flex-wrap gap-2">
-              {(result as any).suggestions.map((s: string, si: number) => (
+              {result.suggestions.map((s: string, si: number) => (
                 <button
                   key={si}
                   onClick={() => handleSendMessage(s)}
@@ -619,6 +619,12 @@ export default function CortexChatContent() {
 
         {/* Chat Messages Area */}
         <div className="flex-1 overflow-y-auto py-4 px-4 space-y-4">
+          {conversationLoadError && (
+            <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+              <p className="flex-1 text-sm text-red-700 dark:text-red-300">{conversationLoadError}</p>
+              <button type="button" onClick={() => setConversationLoadError(null)} aria-label="Dismiss error" className="shrink-0 text-xs font-medium text-red-500 hover:text-red-700 dark:hover:text-red-300">Dismiss</button>
+            </div>
+          )}
           {messages.length === 0 ? (
             /* Welcome State */
             <div className="flex flex-col items-center justify-center h-full text-center px-4">

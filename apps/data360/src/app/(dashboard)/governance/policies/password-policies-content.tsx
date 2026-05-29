@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal } from 'rizzui';
+import { Button, Input } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -17,6 +17,14 @@ import {
   type EnrichedPolicy,
 } from '@/app/services/governance/policies';
 import PolicyCard from './components/PolicyCard';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
+
+interface PasswordPolicyDetails {
+  policy_name?: string;
+  details?: Record<string, number | string | null | undefined>;
+}
 
 export default function PasswordPoliciesContent() {
   const fetchPolicies = useCallback(() => listPoliciesEnriched('PASSWORD'), []);
@@ -25,11 +33,13 @@ export default function PasswordPoliciesContent() {
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
-  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [policyDetails, setPolicyDetails] = useState<PasswordPolicyDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -45,16 +55,20 @@ export default function PasswordPoliciesContent() {
 
   const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
-    setShowDetailsModal(true);
+    setShowDetailsPanel(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
+    setDetailsError(null);
 
     try {
-      const details = await getPasswordPolicyDetails(policy.name);
-      setPolicyDetails(details);
-    } catch (error: any) {
-      console.error('Error loading policy details:', error);
-      toast.error('Failed to load policy details');
+      const details: PasswordPolicyDetails | null = await getPasswordPolicyDetails(policy.name);
+      if (!details) {
+        setDetailsError('No details returned for this policy.');
+      } else {
+        setPolicyDetails(details);
+      }
+    } catch (error) {
+      setDetailsError(formatPolicyError(error, 'Failed to load policy details'));
     } finally {
       setLoadingDetails(false);
     }
@@ -62,10 +76,11 @@ export default function PasswordPoliciesContent() {
 
   const handleCreate = async () => {
     if (!policyName) {
-      toast.error('Please provide a policy name');
+      setCreateError('Please provide a policy name.');
       return;
     }
 
+    setCreateError(null);
     try {
       const requestData = {
         policy_name: policyName,
@@ -83,12 +98,11 @@ export default function PasswordPoliciesContent() {
       await createPasswordPolicy(requestData);
 
       toast.success('Password policy created successfully!');
-      setShowCreateModal(false);
+      setShowCreatePanel(false);
       resetForm();
       refetch();
-    } catch (error: any) {
-      console.error('[Password Create] Error:', error.response?.data || error);
-      toast.error(formatPolicyError(error, 'Failed to create policy'));
+    } catch (error) {
+      setCreateError(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
@@ -118,6 +132,7 @@ export default function PasswordPoliciesContent() {
     setMaxAgeDays('90');
     setLockoutThreshold('5');
     setExpirationDate('');
+    setCreateError(null);
   };
 
   return (
@@ -139,7 +154,7 @@ export default function PasswordPoliciesContent() {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
           className="bg-red-600 hover:bg-red-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -149,7 +164,9 @@ export default function PasswordPoliciesContent() {
 
       {/* Policies List */}
       {loading ? (
-        <div className="text-center py-12">Loading...</div>
+        <TableSkeleton rows={4} columns={3} showHeader={false} />
+      ) : error ? (
+        <ErrorDisplay error={error.message} onRetry={() => refetch()} context="general" />
       ) : !policies || policies.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No password policies found. Create one to get started.
@@ -184,11 +201,20 @@ export default function PasswordPoliciesContent() {
         </div>
       )}
 
-      {/* Create Policy Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">Create Password Policy</h2>
-
+      {/* Create Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showCreatePanel}
+        onClose={() => setShowCreatePanel(false)}
+        title="Create Password Policy"
+        description="Set complexity, rotation and lockout requirements"
+        accentClassName="bg-red-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
+            <Button onClick={handleCreate} className="bg-red-600 hover:bg-red-700">Create Policy</Button>
+          </>
+        }
+      >
           <Input
             label="Policy Name"
             placeholder="STRONG_PASSWORD_POLICY"
@@ -283,29 +309,28 @@ export default function PasswordPoliciesContent() {
             </p>
           </div>
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} className="bg-red-600 hover:bg-red-700">
-              Create Policy
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Policy Details Modal */}
-      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.name}
-          </h2>
-
+      {/* Policy Details Panel */}
+      <PolicyFormPanel
+        isOpen={showDetailsPanel}
+        onClose={() => setShowDetailsPanel(false)}
+        title={`Policy Details: ${selectedPolicy?.name ?? ''}`}
+        accentClassName="bg-red-500"
+        footer={<Button variant="outline" onClick={() => setShowDetailsPanel(false)}>Close</Button>}
+      >
           {loadingDetails ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600 mx-auto"></div>
               <p className="mt-2 text-slate-500">Loading details...</p>
             </div>
+          ) : detailsError ? (
+            <ErrorDisplay error={detailsError} onRetry={() => selectedPolicy && handleViewDetails(selectedPolicy)} context="general" />
           ) : policyDetails ? (
             <div className="space-y-4">
               <div>
@@ -313,7 +338,7 @@ export default function PasswordPoliciesContent() {
                   Policy Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.policy_name || selectedPolicy?.name || 'N/A'}
+                  {policyDetails.policy_name || selectedPolicy?.name || '—'}
                 </code>
               </div>
 
@@ -322,7 +347,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Length</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_LENGTH ??
-                     policyDetails.details?.min_length ?? 'N/A'}
+                     policyDetails.details?.min_length ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -330,7 +355,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Length</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_LENGTH ??
-                     policyDetails.details?.max_length ?? 'N/A'}
+                     policyDetails.details?.max_length ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -338,7 +363,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Uppercase</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_UPPER_CASE_CHARS ??
-                     policyDetails.details?.min_upper_case_chars ?? 'N/A'}
+                     policyDetails.details?.min_upper_case_chars ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -346,7 +371,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Lowercase</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_LOWER_CASE_CHARS ??
-                     policyDetails.details?.min_lower_case_chars ?? 'N/A'}
+                     policyDetails.details?.min_lower_case_chars ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -354,7 +379,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Numeric</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_NUMERIC_CHARS ??
-                     policyDetails.details?.min_numeric_chars ?? 'N/A'}
+                     policyDetails.details?.min_numeric_chars ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -362,7 +387,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Special</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_SPECIAL_CHARS ??
-                     policyDetails.details?.min_special_chars ?? 'N/A'}
+                     policyDetails.details?.min_special_chars ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -370,7 +395,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Age</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_AGE_DAYS ??
-                     policyDetails.details?.max_age_days ?? 'N/A'}
+                     policyDetails.details?.max_age_days ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">days</p>
                 </div>
@@ -378,7 +403,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Retries</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_RETRIES ??
-                     policyDetails.details?.max_retries ?? 'N/A'}
+                     policyDetails.details?.max_retries ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">attempts</p>
                 </div>
@@ -386,7 +411,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Lockout Time</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_LOCKOUT_TIME_MINS ??
-                     policyDetails.details?.lockout_time_mins ?? 'N/A'}
+                     policyDetails.details?.lockout_time_mins ?? '—'}
                   </p>
                   <p className="text-xs text-slate-500">minutes</p>
                 </div>
@@ -404,14 +429,7 @@ export default function PasswordPoliciesContent() {
               No details available
             </div>
           )}
-
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
   );
 }

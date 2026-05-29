@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal } from 'rizzui';
+import { Button, Input } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -18,6 +18,17 @@ import {
   type EnrichedPolicy,
 } from '@/app/services/governance/policies';
 import PolicyCard from './components/PolicyCard';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
+
+interface NetworkPolicyDetails {
+  policy_name?: string;
+  allowed_ip_list?: string;
+  blocked_ip_list?: string;
+  comment?: string;
+  details?: { allowed_ip_list?: string; blocked_ip_list?: string; comment?: string };
+}
 
 /** Map a raw NetworkPolicy to the EnrichedPolicy shape expected by PolicyCard. */
 function networkToEnriched(p: NetworkPolicy): EnrichedPolicy {
@@ -35,11 +46,13 @@ function networkToEnriched(p: NetworkPolicy): EnrichedPolicy {
 }
 
 export default function NetworkPoliciesContent() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<NetworkPolicy | null>(null);
-  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [policyDetails, setPolicyDetails] = useState<NetworkPolicyDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Form state
   const [policyName, setPolicyName] = useState('');
@@ -59,16 +72,20 @@ export default function NetworkPoliciesContent() {
     // Find the raw NetworkPolicy to keep raw fields for the details modal
     const raw = policies?.find(p => (p.policy_name || p.name) === policy.name) ?? null;
     setSelectedPolicy(raw);
-    setShowDetailsModal(true);
+    setShowDetailsPanel(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
+    setDetailsError(null);
 
     try {
-      const details = await getNetworkPolicyDetails(policy.name);
-      setPolicyDetails(details);
-    } catch (error: any) {
-      console.error('Error loading policy details:', error);
-      toast.error('Failed to load policy details');
+      const details: NetworkPolicyDetails | null = await getNetworkPolicyDetails(policy.name);
+      if (!details) {
+        setDetailsError('No details returned for this policy.');
+      } else {
+        setPolicyDetails(details);
+      }
+    } catch (error) {
+      setDetailsError(formatPolicyError(error, 'Failed to load policy details'));
     } finally {
       setLoadingDetails(false);
     }
@@ -76,15 +93,16 @@ export default function NetworkPoliciesContent() {
 
   const handleCreate = async () => {
     if (!policyName) {
-      toast.error('Please provide a policy name');
+      setCreateError('Please provide a policy name.');
       return;
     }
 
     if (!allowedIPs && !blockedIPs) {
-      toast.error('Please specify at least one allowed or blocked IP range');
+      setCreateError('Please specify at least one allowed or blocked IP range.');
       return;
     }
 
+    setCreateError(null);
     try {
       const requestData = {
         policy_name: policyName,
@@ -97,12 +115,11 @@ export default function NetworkPoliciesContent() {
       await createNetworkPolicy(requestData);
 
       toast.success('Network policy created successfully!');
-      setShowCreateModal(false);
+      setShowCreatePanel(false);
       resetForm();
       refetch();
-    } catch (error: any) {
-      console.error('[Network Create] Error:', error.response?.data || error);
-      toast.error(formatPolicyError(error, 'Failed to create policy'));
+    } catch (error) {
+      setCreateError(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
@@ -127,6 +144,7 @@ export default function NetworkPoliciesContent() {
     setBlockedIPs('');
     setComment('');
     setExpirationDate('');
+    setCreateError(null);
   };
 
   return (
@@ -148,7 +166,7 @@ export default function NetworkPoliciesContent() {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
           className="bg-blue-600 hover:bg-blue-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -158,7 +176,9 @@ export default function NetworkPoliciesContent() {
 
       {/* Policies List */}
       {loading ? (
-        <div className="text-center py-12">Loading...</div>
+        <TableSkeleton rows={4} columns={3} showHeader={false} />
+      ) : error ? (
+        <ErrorDisplay error={error.message} onRetry={() => refetch()} context="general" />
       ) : !policies || policies.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No network policies found. Create one to get started.
@@ -222,11 +242,20 @@ export default function NetworkPoliciesContent() {
         </div>
       )}
 
-      {/* Create Policy Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">Create Network Policy</h2>
-
+      {/* Create Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showCreatePanel}
+        onClose={() => setShowCreatePanel(false)}
+        title="Create Network Policy"
+        description="Restrict account access by IP address or CIDR range"
+        accentClassName="bg-blue-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
+            <Button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-700">Create Policy</Button>
+          </>
+        }
+      >
           <Input
             label="Policy Name"
             placeholder="OFFICE_NETWORK_POLICY"
@@ -292,29 +321,28 @@ export default function NetworkPoliciesContent() {
             </p>
           </div>
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} className="bg-blue-600 hover:bg-blue-700">
-              Create Policy
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Policy Details Modal */}
-      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.name}
-          </h2>
-
+      {/* Policy Details Panel */}
+      <PolicyFormPanel
+        isOpen={showDetailsPanel}
+        onClose={() => setShowDetailsPanel(false)}
+        title={`Policy Details: ${selectedPolicy?.name ?? ''}`}
+        accentClassName="bg-blue-500"
+        footer={<Button variant="outline" onClick={() => setShowDetailsPanel(false)}>Close</Button>}
+      >
           {loadingDetails ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
               <p className="mt-2 text-slate-500">Loading details...</p>
             </div>
+          ) : detailsError ? (
+            <ErrorDisplay error={detailsError} onRetry={() => selectedPolicy && handleViewDetails(networkToEnriched(selectedPolicy))} context="general" />
           ) : policyDetails ? (
             <div className="space-y-4">
               <div>
@@ -322,7 +350,7 @@ export default function NetworkPoliciesContent() {
                   Policy Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.policy_name || selectedPolicy?.name || 'N/A'}
+                  {policyDetails.policy_name || selectedPolicy?.name || '—'}
                 </code>
               </div>
 
@@ -356,14 +384,7 @@ export default function NetworkPoliciesContent() {
               No details available
             </div>
           )}
-
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
-              Close
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   PiReceiptDuotone,
   PiChartBarDuotone,
   PiFileTextDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import {
   getBalance,
@@ -27,7 +28,7 @@ import {
   getRateSheet,
   getOrganizationCosts,
 } from '@/app/services/org-accounts/hooks';
-import { formatCredits, formatDate } from '@/app/services/org-accounts/utils';
+import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   BalanceResponse,
   ContractItem,
@@ -64,6 +65,19 @@ function EmptyState({ icon: Icon, label }: { icon: React.ElementType; label: str
     <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-8 text-center">
       <Icon className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
       <Text className="text-sm text-gray-400 dark:text-gray-500">{label}</Text>
+    </div>
+  );
+}
+
+/** Inline error banner — distinct from EmptyState so a failed fetch never reads as "no data". */
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+      <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+      <div>
+        <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some billing data could not be loaded</Text>
+        <Text className="text-xs text-red-600 dark:text-red-400">{message}</Text>
+      </div>
     </div>
   );
 }
@@ -107,17 +121,23 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
   const [costsRaw, setCostsRaw] = useState<any[]>([]);
   const [costsCurrency, setCostsCurrency] = useState('USD');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load billing'); return null; });
+
     Promise.all([
-      getBalance().catch(() => null),
-      getContract().catch(() => null),
-      getRateSheet().catch(() => null),
-      getOrganizationCosts(days).catch(() => null),
+      guard(getBalance()),
+      guard(getContract()),
+      guard(getRateSheet()),
+      guard(getOrganizationCosts(days)),
     ]).then(([balanceData, contractData, rateData, costsData]) => {
       if (balanceData) setBalance(balanceData);
       if (contractData) setContracts(Array.isArray(contractData.contracts) ? contractData.contracts : []);
@@ -132,6 +152,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
       } else {
         setCostsRaw([]);
       }
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, days]);
 
@@ -153,6 +174,7 @@ export default function BillingTab({ refreshKey }: BillingTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && <ErrorState message={error} />}
       {/* Date Range Selector */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

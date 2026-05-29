@@ -25,7 +25,6 @@ export const getProjectLatestEvents = async (projectId: string): Promise<StepEve
             throw new Error('User is not authenticated: Access token not found in session.');
         }
 
-        // TODO(backend): POST /explore-design/guided/get-steps-event/ — endpoint not in API; wire it or remove this call
         const response = await axios.post<LatestEventApiResponse>(
             `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/get-steps-event/`,
             null,

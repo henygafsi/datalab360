@@ -1,25 +1,20 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Badge, Button, Input, Loader } from 'rizzui';
+import { Badge, Button, Loader } from 'rizzui';
 import {
   Database, Search, Table2, Layers, RefreshCw, ChevronRight,
-  BarChart3, Shield, Zap, Clock, Filter, ArrowUpDown, Grid3X3,
-  List, Eye, Sparkles, Key, Fingerprint, Wand2, Brain, Download,
+  Grid3X3, List, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
-import { getCatalogOverview, type CatalogOverviewResponse } from '@/app/services/catalog';
 import { getApiErrorMessage } from '@/lib/api-client';
-import toast from 'react-hot-toast';
 
 interface SourceTable {
   database: string;
   schema: string;
   name: string;
   fqn: string;
-  columnCount?: number;
-  columnsLoaded?: boolean;
 }
 
 interface SourcesOverviewProps {
@@ -29,6 +24,8 @@ interface SourcesOverviewProps {
 export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps) {
   const [tables, setTables] = useState<SourceTable[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [partialErrors, setPartialErrors] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [filterSchema, setFilterSchema] = useState<string>('');
@@ -39,6 +36,9 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
 
   const loadSources = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setPartialErrors([]);
+    const warnings: string[] = [];
     try {
       const dbs = await getDatabases();
       setAllDatabases(dbs);
@@ -46,29 +46,36 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
       const schemaSet = new Set<string>();
 
       for (const db of dbs) {
+        let schemas: string[];
         try {
-          const schemas = await getSchemas(db);
-          schemas.forEach((s) => schemaSet.add(s));
-          for (const sch of schemas) {
-            try {
-              const tbls = await getTables(db, sch);
-              tbls.forEach((t) => {
-                allTables.push({
-                  database: db,
-                  schema: sch,
-                  name: t,
-                  fqn: `${db}.${sch}.${t}`,
-                });
+          schemas = await getSchemas(db);
+        } catch (err) {
+          warnings.push(`${db}: ${getApiErrorMessage(err)}`);
+          continue;
+        }
+        schemas.forEach((s) => schemaSet.add(s));
+        for (const sch of schemas) {
+          try {
+            const tbls = await getTables(db, sch);
+            tbls.forEach((t) => {
+              allTables.push({
+                database: db,
+                schema: sch,
+                name: t,
+                fqn: `${db}.${sch}.${t}`,
               });
-            } catch { /* skip */ }
+            });
+          } catch (err) {
+            warnings.push(`${db}.${sch}: ${getApiErrorMessage(err)}`);
           }
-        } catch { /* skip */ }
+        }
       }
 
       setAllSchemas(Array.from(schemaSet));
       setTables(allTables);
+      setPartialErrors(warnings);
     } catch (err) {
-      toast.error(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     }
     setLoading(false);
   }, []);
@@ -86,7 +93,7 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
     }
     if (filterDb) result = result.filter((t) => t.database === filterDb);
     if (filterSchema) result = result.filter((t) => t.schema === filterSchema);
-    result.sort((a, b) => {
+    result = [...result].sort((a, b) => {
       if (sortBy === 'name') return a.name.localeCompare(b.name);
       if (sortBy === 'schema') return a.schema.localeCompare(b.schema);
       return a.database.localeCompare(b.database);
@@ -102,6 +109,35 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
 
   return (
     <div className="space-y-4">
+      {/* Top-level error */}
+      {error && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 dark:border-rose-800 dark:bg-rose-950/30">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-rose-800 dark:text-rose-300">Failed to load sources</p>
+            <p className="text-xs text-rose-700 dark:text-rose-400">{error}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={loadSources} className="gap-1.5">
+            <RefreshCw className="h-3 w-3" />Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Partial load warnings — surface skipped databases/schemas instead of silently dropping them */}
+      {!error && partialErrors.length > 0 && (
+        <details className="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
+          <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="h-3.5 w-3.5" />
+            {partialErrors.length} source{partialErrors.length > 1 ? 's' : ''} could not be listed
+          </summary>
+          <ul className="mt-2 space-y-0.5">
+            {partialErrors.map((w, i) => (
+              <li key={i} className="text-[11px] text-amber-700 dark:text-amber-400">• {w}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-3">
         {[
@@ -157,7 +193,7 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
 
         <select
           value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
+          onChange={(e) => setSortBy(e.target.value as 'name' | 'schema' | 'database')}
           className="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
         >
           <option value="name">Sort by Name</option>
@@ -193,10 +229,12 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
             <div key={i} className="animate-pulse h-14 rounded-lg bg-gray-100 dark:bg-gray-800" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : error ? null : filtered.length === 0 ? (
         <div className="text-center py-16">
           <Table2 className="h-10 w-10 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-          <p className="text-sm text-gray-500">No tables found</p>
+          <p className="text-sm text-gray-500">
+            {tables.length === 0 ? 'No tables found' : 'No tables match your filters'}
+          </p>
         </div>
       ) : viewMode === 'list' ? (
         <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
@@ -206,15 +244,24 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Table</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Schema</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500">Database</th>
-                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500">Actions</th>
+                <th className="px-4 py-2.5 text-right text-xs font-medium text-gray-500" aria-label="Open details" />
               </tr>
             </thead>
             <tbody>
               {filtered.map((t) => (
                 <tr
                   key={t.fqn}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open ${t.fqn}`}
                   onClick={() => onSelectTable(t.database, t.schema, t.name)}
-                  className="border-b border-gray-50 dark:border-gray-800 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onSelectTable(t.database, t.schema, t.name);
+                    }
+                  }}
+                  className="border-b border-gray-50 dark:border-gray-800 hover:bg-blue-50/50 dark:hover:bg-blue-900/10 cursor-pointer transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500"
                 >
                   <td className="px-4 py-2.5">
                     <div className="flex items-center gap-2">
@@ -229,15 +276,7 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
                     <Badge size="sm" className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">{t.database}</Badge>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" title="Enrich">
-                        <Sparkles className="h-3.5 w-3.5 text-amber-500" />
-                      </button>
-                      <button className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700" title="Preview">
-                        <Eye className="h-3.5 w-3.5 text-gray-400" />
-                      </button>
-                      <ChevronRight className="h-3.5 w-3.5 text-gray-300" />
-                    </div>
+                    <ChevronRight className="ml-auto h-3.5 w-3.5 text-gray-300" />
                   </td>
                 </tr>
               ))}

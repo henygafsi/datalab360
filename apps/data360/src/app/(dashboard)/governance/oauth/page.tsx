@@ -21,7 +21,13 @@ import {
 } from '@/app/services/governance';
 
 function getApiErrorMessage(err: unknown): string {
-  return (err as any)?.response?.data?.detail || (err as any)?.message || 'Operation failed';
+  if (err && typeof err === 'object') {
+    const e = err as { response?: { data?: { detail?: unknown } }; message?: unknown };
+    const detail = e.response?.data?.detail;
+    if (typeof detail === 'string' && detail) return detail;
+    if (typeof e.message === 'string' && e.message) return e.message;
+  }
+  return 'Operation failed';
 }
 
 // ---------------------------------------------------------------------------

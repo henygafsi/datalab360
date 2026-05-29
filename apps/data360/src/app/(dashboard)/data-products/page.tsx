@@ -1,13 +1,11 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Badge, Button, Input, Loader } from 'rizzui';
-import { toast } from 'react-hot-toast';
+import { Badge, Button } from 'rizzui';
 import {
   Package, Search, Plus, Loader2, RefreshCw, ShieldCheck, Eye,
-  Star, Tag, X, CheckCircle, Database, Layers, BarChart3, TrendingUp,
-  ArrowRight, GitBranch, Brain, Zap, Users, Clock, Shield, Activity,
-  ChevronRight, Target, FolderOpen, Settings, Download,
+  Tag, X, CheckCircle, Database, Layers, Users, Clock, Shield,
+  Activity, Target, AlertCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -20,62 +18,76 @@ import {
   type CreateDataProductRequest,
 } from '@/app/services/data-products';
 import {
-  getCatalogOverview,
   getCatalogScores,
-  getCatalogProducts,
-  type CatalogOverviewResponse,
   type CatalogScoresResponse,
 } from '@/app/services/catalog';
 
-type ViewMode = 'portfolio' | 'grid';
+/** Render a missing/unknown numeric value as an em-dash, never a fake 0. */
+function fmtNum(v: number | null | undefined): string {
+  return v === null || v === undefined ? '—' : String(v);
+}
 
 function DataProductsPage() {
   const [products, setProducts] = useState<DataProduct[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [subscribing, setSubscribing] = useState<string | null>(null);
+  const [subscribeError, setSubscribeError] = useState<{ id: string; message: string } | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>('portfolio');
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [catalogScores, setCatalogScores] = useState<CatalogScoresResponse | null>(null);
+  const [scoresError, setScoresError] = useState<string | null>(null);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await listDataProducts();
       setProducts(res.data || []);
     } catch (err) {
-      toast.error(getApiErrorMessage(err));
+      setError(getApiErrorMessage(err));
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchProducts();
-    getCatalogScores().then(setCatalogScores).catch(() => {});
-  }, [fetchProducts]);
+  const fetchScores = useCallback(async () => {
+    setScoresError(null);
+    try {
+      setCatalogScores(await getCatalogScores());
+    } catch (err) {
+      setScoresError(getApiErrorMessage(err));
+    }
+  }, []);
 
-  const handleCreate = useCallback(async (body: CreateDataProductRequest) => {
+  useEffect(() => {
+    void fetchProducts();
+    void fetchScores();
+  }, [fetchProducts, fetchScores]);
+
+  const handleCreate = useCallback(async (body: CreateDataProductRequest): Promise<string | null> => {
     try {
       await createDataProduct(body);
-      toast.success(`Product "${body.name}" created`);
       setShowCreate(false);
       await fetchProducts();
+      return null;
     } catch (err) {
-      toast.error(getApiErrorMessage(err));
+      return getApiErrorMessage(err);
     }
   }, [fetchProducts]);
 
   const handleSubscribe = useCallback(async (productId: string) => {
     setSubscribing(productId);
+    setSubscribeError(null);
     try {
-      const res = await subscribeToProduct(productId);
-      toast.success(res.message || 'Subscribed');
-      setProducts((prev) => prev.map((p) => p.PRODUCT_ID === productId ? { ...p, CONSUMERS: (p.CONSUMERS ?? 0) + 1 } : p));
+      await subscribeToProduct(productId);
+      setProducts((prev) => prev.map((p) =>
+        p.PRODUCT_ID === productId ? { ...p, CONSUMERS: (p.CONSUMERS ?? 0) + 1 } : p
+      ));
     } catch (err) {
-      toast.error(getApiErrorMessage(err));
+      setSubscribeError({ id: productId, message: getApiErrorMessage(err) });
     } finally {
       setSubscribing(null);
     }
@@ -98,16 +110,37 @@ function DataProductsPage() {
     return result;
   }, [products, search, filterStatus]);
 
-  const stats = useMemo(() => ({
-    total: products.length,
-    active: products.filter((p) => p.STATUS === 'active' || p.STATUS === 'certified').length,
-    consumers: products.reduce((s, p) => s + (p.CONSUMERS ?? 0), 0),
-    avgQuality: products.length ? Math.round(products.reduce((s, p) => s + (p.QUALITY_THRESHOLD || 0), 0) / products.length) : 0,
-    certified: products.filter((p) => p.STATUS === 'certified').length,
-    domains: new Set(products.flatMap((p) => p.TAGS || [])).size,
-  }), [products]);
+  const stats = useMemo(() => {
+    const hasProducts = products.length > 0;
+    return {
+      total: products.length,
+      active: products.filter((p) => p.STATUS === 'active' || p.STATUS === 'certified').length,
+      consumers: hasProducts ? products.reduce((s, p) => s + (p.CONSUMERS ?? 0), 0) : null,
+      avgQuality: hasProducts
+        ? Math.round(products.reduce((s, p) => s + (p.QUALITY_THRESHOLD || 0), 0) / products.length)
+        : null,
+      certified: products.filter((p) => p.STATUS === 'certified').length,
+      domains: new Set(products.flatMap((p) => p.TAGS || [])).size,
+    };
+  }, [products]);
 
   const sel = products.find((p) => p.PRODUCT_ID === selectedProduct);
+
+  const trustAvg = catalogScores?.averages?.trust_avg;
+
+  const kpis: { label: string; value: string; icon: React.ReactNode; color: string; sub: string }[] = [
+    { label: 'Data Products', value: fmtNum(stats.total), icon: <Package className="h-4 w-4" />, color: 'blue', sub: loading ? '—' : `${stats.active} active` },
+    { label: 'Certified', value: fmtNum(stats.certified), icon: <ShieldCheck className="h-4 w-4" />, color: 'emerald', sub: 'verified quality' },
+    { label: 'Avg Quality', value: stats.avgQuality === null ? '—' : `${stats.avgQuality}%`, icon: <Target className="h-4 w-4" />, color: 'purple', sub: 'threshold score' },
+    { label: 'Consumers', value: fmtNum(stats.consumers), icon: <Users className="h-4 w-4" />, color: 'amber', sub: 'total subscribers' },
+    { label: 'Domains', value: fmtNum(stats.domains), icon: <Tag className="h-4 w-4" />, color: 'indigo', sub: 'tag categories' },
+    {
+      label: 'Trust Score',
+      value: scoresError ? '—' : trustAvg != null ? `${Math.round(trustAvg)}` : '—',
+      icon: <Activity className="h-4 w-4" />, color: 'emerald',
+      sub: scoresError ? 'scores unavailable' : 'catalog average',
+    },
+  ];
 
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)]">
@@ -129,11 +162,19 @@ function DataProductsPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={fetchProducts} disabled={loading}>
+            <Button
+              variant="outline" size="sm" className="gap-1.5"
+              onClick={() => { void fetchProducts(); void fetchScores(); }}
+              disabled={loading}
+            >
               {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
               Refresh
             </Button>
-            <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(!showCreate)}>
+            <Button
+              size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+              onClick={() => setShowCreate((v) => !v)}
+              aria-expanded={showCreate}
+            >
               <Plus className="h-3.5 w-3.5" />Create Product
             </Button>
           </div>
@@ -141,14 +182,7 @@ function DataProductsPage() {
 
         {/* KPI Stats Row */}
         <div className="grid grid-cols-6 gap-3 mb-4">
-          {[
-            { label: 'Data Products', value: stats.total, icon: <Package className="h-4 w-4" />, color: 'blue', sub: `${stats.active} active` },
-            { label: 'Certified', value: stats.certified, icon: <ShieldCheck className="h-4 w-4" />, color: 'emerald', sub: 'verified quality' },
-            { label: 'Avg Quality', value: `${stats.avgQuality}%`, icon: <Target className="h-4 w-4" />, color: 'purple', sub: 'threshold score' },
-            { label: 'Consumers', value: stats.consumers, icon: <Users className="h-4 w-4" />, color: 'amber', sub: 'total subscribers' },
-            { label: 'Domains', value: stats.domains, icon: <Tag className="h-4 w-4" />, color: 'indigo', sub: 'tag categories' },
-            { label: 'Trust Score', value: catalogScores?.averages?.trust_avg != null ? `${Math.round(catalogScores.averages.trust_avg)}` : '—', icon: <Activity className="h-4 w-4" />, color: 'emerald', sub: 'catalog average' },
-          ].map((s) => (
+          {kpis.map((s) => (
             <div key={s.label} className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <div className="flex items-center gap-1.5 mb-1">
                 <span className={cn(`text-${s.color}-500`)}>{s.icon}</span>
@@ -167,6 +201,7 @@ function DataProductsPage() {
             <input
               type="text"
               placeholder="Search products, tables, tags..."
+              aria-label="Search products"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -175,6 +210,7 @@ function DataProductsPage() {
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
+            aria-label="Filter by status"
             className="text-xs px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
             <option value="">All Statuses</option>
@@ -203,13 +239,22 @@ function DataProductsPage() {
                 </div>
               ))}
             </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 p-6 text-center">
+              <AlertCircle className="h-8 w-8 text-red-400 mx-auto mb-3" />
+              <h3 className="text-sm font-semibold text-red-700 dark:text-red-300 mb-1">Failed to load data products</h3>
+              <p className="text-xs text-red-600 dark:text-red-400 mb-4 break-words">{error}</p>
+              <Button size="sm" variant="outline" className="gap-1.5" onClick={() => void fetchProducts()}>
+                <RefreshCw className="h-3.5 w-3.5" />Retry
+              </Button>
+            </div>
           ) : filtered.length === 0 ? (
             <div className="text-center py-16">
               <Package className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-4" />
               <h3 className="text-sm font-semibold text-gray-600 dark:text-gray-400 mb-2">
-                {search ? 'No products match your search' : 'No data products yet'}
+                {search || filterStatus ? 'No products match your filters' : 'No data products yet'}
               </h3>
-              {!search && (
+              {!search && !filterStatus && (
                 <Button size="sm" className="mt-2 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(true)}>
                   <Plus className="h-3.5 w-3.5" />Create your first product
                 </Button>
@@ -225,6 +270,7 @@ function DataProductsPage() {
                   onSelect={() => setSelectedProduct(selectedProduct === product.PRODUCT_ID ? null : product.PRODUCT_ID)}
                   onSubscribe={() => handleSubscribe(product.PRODUCT_ID)}
                   subscribing={subscribing === product.PRODUCT_ID}
+                  subscribeError={subscribeError?.id === product.PRODUCT_ID ? subscribeError.message : null}
                 />
               ))}
             </div>
@@ -260,19 +306,32 @@ function DataProductsPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Create Form
+// Create Form (inline) — returns an error string on failure, surfaced inline.
 // ---------------------------------------------------------------------------
-function CreateForm({ onSubmit, onCancel }: { onSubmit: (d: CreateDataProductRequest) => void; onCancel: () => void }) {
+function CreateForm({
+  onSubmit,
+  onCancel,
+}: {
+  onSubmit: (d: CreateDataProductRequest) => Promise<string | null>;
+  onCancel: () => void;
+}) {
   const [name, setName] = useState('');
   const [tableFqn, setTableFqn] = useState('');
   const [description, setDescription] = useState('');
   const [sla, setSla] = useState(24);
   const [qualityThreshold, setQualityThreshold] = useState(90);
   const [tagsStr, setTagsStr] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const handleSubmit = () => {
-    if (!name.trim() || !tableFqn.trim()) { toast.error('Name and Table FQN are required'); return; }
-    onSubmit({
+  const handleSubmit = useCallback(async () => {
+    if (!name.trim() || !tableFqn.trim()) {
+      setFormError('Name and Table FQN are required.');
+      return;
+    }
+    setFormError(null);
+    setSubmitting(true);
+    const err = await onSubmit({
       name: name.trim(),
       table_fqn: tableFqn.trim(),
       description: description.trim() || undefined,
@@ -280,7 +339,9 @@ function CreateForm({ onSubmit, onCancel }: { onSubmit: (d: CreateDataProductReq
       quality_threshold: qualityThreshold,
       tags: tagsStr ? tagsStr.split(',').map((t) => t.trim()).filter(Boolean) : undefined,
     });
-  };
+    setSubmitting(false);
+    if (err) setFormError(err);
+  }, [name, tableFqn, description, sla, qualityThreshold, tagsStr, onSubmit]);
 
   return (
     <div className="rounded-xl border border-blue-200 dark:border-blue-800/50 bg-blue-50/30 dark:bg-blue-900/10 p-5 space-y-3">
@@ -288,19 +349,28 @@ function CreateForm({ onSubmit, onCancel }: { onSubmit: (d: CreateDataProductReq
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
           <Plus className="h-4 w-4 text-blue-600" />New Data Product
         </h3>
-        <button onClick={onCancel} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"><X className="h-4 w-4 text-gray-500" /></button>
+        <button onClick={onCancel} aria-label="Cancel" className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"><X className="h-4 w-4 text-gray-500" /></button>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Input size="sm" placeholder="Product Name *" value={name} onChange={(e) => setName(e.target.value)} />
-        <Input size="sm" placeholder="DB.SCHEMA.TABLE *" value={tableFqn} onChange={(e) => setTableFqn(e.target.value)} />
-        <Input size="sm" placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} className="col-span-2" />
-        <Input size="sm" type="number" placeholder="SLA hours" value={String(sla)} onChange={(e) => setSla(Number(e.target.value))} />
-        <Input size="sm" type="number" placeholder="Quality %" value={String(qualityThreshold)} onChange={(e) => setQualityThreshold(Number(e.target.value))} />
-        <Input size="sm" placeholder="Tags (comma-separated)" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} className="col-span-2" />
+        <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Product Name *" aria-label="Product name" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="DB.SCHEMA.TABLE *" aria-label="Table FQN" value={tableFqn} onChange={(e) => setTableFqn(e.target.value)} />
+        <input className="col-span-2 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Description" aria-label="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" type="number" placeholder="SLA hours" aria-label="SLA freshness hours" value={String(sla)} onChange={(e) => setSla(Number(e.target.value))} />
+        <input className="col-span-1 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" type="number" placeholder="Quality %" aria-label="Quality threshold percent" value={String(qualityThreshold)} onChange={(e) => setQualityThreshold(Number(e.target.value))} />
+        <input className="col-span-2 px-3 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Tags (comma-separated)" aria-label="Tags" value={tagsStr} onChange={(e) => setTagsStr(e.target.value)} />
       </div>
+      {formError && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="break-words">{formError}</span>
+        </div>
+      )}
       <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button size="sm" className="bg-blue-600 hover:bg-blue-700 text-white" onClick={handleSubmit}>Create Product</Button>
+        <Button size="sm" variant="outline" onClick={onCancel} disabled={submitting}>Cancel</Button>
+        <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => void handleSubmit()} disabled={submitting}>
+          {submitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Create Product
+        </Button>
       </div>
     </div>
   );
@@ -317,9 +387,10 @@ const TAG_COLORS = [
   'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
 ];
 
-function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing }: {
+function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, subscribeError }: {
   product: DataProduct; isSelected: boolean;
   onSelect: () => void; onSubscribe: () => void; subscribing: boolean;
+  subscribeError: string | null;
 }) {
   const qualityColor = product.QUALITY_THRESHOLD >= 90
     ? 'text-emerald-600 dark:text-emerald-400'
@@ -344,7 +415,7 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing }
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white truncate">{product.NAME}</h3>
             {isCertified && <ShieldCheck className="h-4 w-4 text-emerald-500 shrink-0" />}
           </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{product.OWNER || product.CREATED_BY}</p>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{product.OWNER || product.CREATED_BY || '—'}</p>
         </div>
         <div className="flex items-center gap-2">
           <Badge
@@ -369,7 +440,7 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing }
       <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
         <span className="flex items-center gap-1"><Database className="h-3 w-3" /><span className="font-mono truncate max-w-[180px]">{product.TABLE_FQN}</span></span>
         <span className="flex items-center gap-1"><Clock className="h-3 w-3" />SLA: {product.SLA_FRESHNESS_HOURS}h</span>
-        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{product.CONSUMERS ?? 0}</span>
+        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{fmtNum(product.CONSUMERS)}</span>
       </div>
 
       {product.TAGS && product.TAGS.length > 0 && (
@@ -379,6 +450,13 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing }
               <Tag className="h-2.5 w-2.5" />{tag}
             </span>
           ))}
+        </div>
+      )}
+
+      {subscribeError && (
+        <div role="alert" className="flex items-start gap-1.5 rounded-lg border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-900/20 px-2.5 py-1.5 text-[11px] text-red-700 dark:text-red-300">
+          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
+          <span className="break-words">{subscribeError}</span>
         </div>
       )}
 
@@ -406,16 +484,23 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing }
 }
 
 // ---------------------------------------------------------------------------
-// Product Detail Panel
+// Product Detail Panel (right rail)
 // ---------------------------------------------------------------------------
 function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClose: () => void }) {
   const qualityColor = product.QUALITY_THRESHOLD >= 90 ? 'emerald' : product.QUALITY_THRESHOLD >= 70 ? 'amber' : 'red';
+
+  const metrics: { label: string; value: string; color: string }[] = [
+    { label: 'Quality', value: `${product.QUALITY_THRESHOLD}%`, color: qualityColor },
+    { label: 'SLA', value: `${product.SLA_FRESHNESS_HOURS}h`, color: 'blue' },
+    { label: 'Consumers', value: fmtNum(product.CONSUMERS), color: 'amber' },
+    { label: 'Status', value: product.STATUS, color: product.STATUS === 'certified' ? 'emerald' : 'gray' },
+  ];
 
   return (
     <div className="p-5 space-y-5">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-gray-900 dark:text-white">{product.NAME}</h3>
-        <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+        <button onClick={onClose} aria-label="Close details" className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
           <X className="h-4 w-4 text-gray-400" />
         </button>
       </div>
@@ -426,12 +511,7 @@ function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClos
 
       {/* Overview Metrics */}
       <div className="grid grid-cols-2 gap-2">
-        {[
-          { label: 'Quality', value: `${product.QUALITY_THRESHOLD}%`, color: qualityColor },
-          { label: 'SLA', value: `${product.SLA_FRESHNESS_HOURS}h`, color: 'blue' },
-          { label: 'Consumers', value: product.CONSUMERS ?? 0, color: 'amber' },
-          { label: 'Status', value: product.STATUS, color: product.STATUS === 'certified' ? 'emerald' : 'gray' },
-        ].map((m) => (
+        {metrics.map((m) => (
           <div key={m.label} className={cn('p-3 rounded-lg border', `border-${m.color}-100 dark:border-${m.color}-800 bg-${m.color}-50/50 dark:bg-${m.color}-900/10`)}>
             <p className="text-[10px] text-gray-500">{m.label}</p>
             <p className={cn('text-sm font-bold', `text-${m.color}-600 dark:text-${m.color}-400`)}>{m.value}</p>
@@ -444,8 +524,8 @@ function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClos
         <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300">Details</h4>
         <div className="space-y-1.5">
           {[
-            { label: 'Table FQN', value: product.TABLE_FQN },
-            { label: 'Owner', value: product.OWNER || product.CREATED_BY },
+            { label: 'Table FQN', value: product.TABLE_FQN || '—' },
+            { label: 'Owner', value: product.OWNER || product.CREATED_BY || '—' },
             { label: 'Created', value: product.CREATED_AT ? new Date(product.CREATED_AT).toLocaleDateString() : '—' },
           ].map((d) => (
             <div key={d.label} className="flex items-center justify-between text-xs">
@@ -470,51 +550,14 @@ function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClos
         </div>
       )}
 
-      {/* Lineage Placeholder */}
-      <div>
-        <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Lineage</h4>
-        <div className="p-4 rounded-lg border border-dashed border-gray-200 dark:border-gray-700 text-center">
-          <GitBranch className="h-6 w-6 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-          <p className="text-[10px] text-gray-400">Source → Model → Product lineage</p>
-          <p className="text-[10px] text-gray-400">Available after modeling</p>
-        </div>
-      </div>
-
-      {/* Recommended Actions */}
-      <div>
-        <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 mb-2">Recommended Actions</h4>
-        <div className="space-y-1.5">
-          {[
-            { icon: <Shield className="h-3 w-3 text-emerald-500" />, text: 'Apply governance policies', severity: 'medium' },
-            { icon: <BarChart3 className="h-3 w-3 text-blue-500" />, text: 'Generate KPI metrics', severity: 'low' },
-            { icon: <Brain className="h-3 w-3 text-purple-500" />, text: 'Enrich with AI descriptions', severity: 'low' },
-            { icon: <Zap className="h-3 w-3 text-amber-500" />, text: 'Optimize refresh schedule', severity: 'low' },
-          ].map((a, i) => (
-            <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer transition-colors">
-              {a.icon}
-              <span className="text-xs text-gray-700 dark:text-gray-300 flex-1">{a.text}</span>
-              <Badge size="sm" className={cn(
-                'text-[9px]',
-                a.severity === 'high' ? 'bg-red-100 text-red-700' :
-                  a.severity === 'medium' ? 'bg-amber-100 text-amber-700' :
-                    'bg-gray-100 text-gray-600'
-              )}>
-                {a.severity}
-              </Badge>
-              <ChevronRight className="h-3 w-3 text-gray-300" />
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Actions */}
+      {/* Explore the backing table in Explore & Design */}
       <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-        <Button size="sm" variant="outline" className="flex-1 gap-1.5">
-          <Settings className="h-3 w-3" />Configure
-        </Button>
-        <Button size="sm" className="flex-1 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
-          <ArrowRight className="h-3 w-3" />Open in Modeling
-        </Button>
+        <a
+          href="/explore-design"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-2"
+        >
+          <Layers className="h-3 w-3" />Open in Explore & Design
+        </a>
       </div>
     </div>
   );

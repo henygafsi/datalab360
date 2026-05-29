@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal, Select } from 'rizzui';
+import { Button, Input, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -17,10 +17,12 @@ import {
   deleteMaskingPolicy,
   type EnrichedPolicy,
   type GrantedObject,
+  type MaskingPolicyDetails,
   MaskingType,
 } from '@/app/services/governance/policies';
 import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import { DEFAULTS } from '@/config/database.config';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
@@ -35,12 +37,16 @@ const MASKING_TYPES = [
 ];
 
 export default function MaskingPoliciesContent() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showApplyModal, setShowApplyModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [showApplyPanel, setShowApplyPanel] = useState(false);
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
-  const [policyDetails, setPolicyDetails] = useState<any>(null);
+  const [policyDetails, setPolicyDetails] = useState<MaskingPolicyDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  // Inline form-level errors (replace error toasts).
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Form state for creating policy
   const [policyName, setPolicyName] = useState('');
@@ -64,16 +70,20 @@ export default function MaskingPoliciesContent() {
 
   const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
-    setShowDetailsModal(true);
+    setShowDetailsPanel(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
+    setDetailsError(null);
 
     try {
-      const details = await getMaskingPolicyDetails(policy.name);
-      setPolicyDetails(details);
-    } catch (error: any) {
-      console.error('Error loading policy details:', error);
-      toast.error('Failed to load policy details');
+      const details: MaskingPolicyDetails | null = await getMaskingPolicyDetails(policy.name);
+      if (!details) {
+        setDetailsError('No details returned for this policy.');
+      } else {
+        setPolicyDetails(details);
+      }
+    } catch (error) {
+      setDetailsError(formatErrorMessage(error, 'Failed to load policy details'));
     } finally {
       setLoadingDetails(false);
     }
@@ -99,15 +109,16 @@ export default function MaskingPoliciesContent() {
 
   const handleCreate = async () => {
     if (!policyName || !columnType) {
-      toast.error('Please fill in all required fields');
+      setCreateError('Please fill in all required fields.');
       return;
     }
 
     if (maskingType === 'CUSTOM' && !customExpression) {
-      toast.error('Please provide a custom masking expression');
+      setCreateError('Please provide a custom masking expression.');
       return;
     }
 
+    setCreateError(null);
     try {
       const requestData = {
         policy_name: policyName,
@@ -118,27 +129,25 @@ export default function MaskingPoliciesContent() {
         schema: DEFAULTS.SCHEMA,
         expiration_date: expirationDate || undefined,
       };
-      // console.log('[Masking Create] Sending request:', requestData);
 
-      const result = await createMaskingPolicy(requestData);
-      // console.log('[Masking Create] Response:', result);
+      await createMaskingPolicy(requestData);
 
       toast.success('Masking policy created successfully!');
-      setShowCreateModal(false);
+      setShowCreatePanel(false);
       resetCreateForm();
       refetch();
-    } catch (error: any) {
-      console.error('[Masking Create] Error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create policy'));
+    } catch (error) {
+      setCreateError(formatErrorMessage(error, 'Failed to create policy'));
     }
   };
 
   const handleApply = async () => {
     if (!selectedPolicy || !database || !schema || !table || !column) {
-      toast.error('Please select all required fields');
+      setApplyError('Please select all required fields.');
       return;
     }
 
+    setApplyError(null);
     try {
       await applyMaskingPolicy({
         policy_name: selectedPolicy.name,
@@ -149,13 +158,12 @@ export default function MaskingPoliciesContent() {
         policy_schema: DEFAULTS.SCHEMA,
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}.${column}`);
-      setShowApplyModal(false);
+      setShowApplyPanel(false);
       setSelectedPolicy(null);
       resetApplyForm();
       refetch();
-    } catch (error: any) {
-      console.error('Apply masking policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to apply policy'));
+    } catch (error) {
+      setApplyError(formatErrorMessage(error, 'Failed to apply policy'));
     }
   };
 
@@ -173,6 +181,7 @@ export default function MaskingPoliciesContent() {
     setMaskingType('FULL');
     setCustomExpression('');
     setExpirationDate('');
+    setCreateError(null);
   };
 
   const resetApplyForm = () => {
@@ -180,6 +189,7 @@ export default function MaskingPoliciesContent() {
     setSchema('');
     setTable('');
     setColumn('');
+    setApplyError(null);
   };
 
   return (
@@ -201,7 +211,7 @@ export default function MaskingPoliciesContent() {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
           className="bg-amber-600 hover:bg-amber-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -239,7 +249,8 @@ export default function MaskingPoliciesContent() {
               onViewDetails={handleViewDetails}
               onApply={(p) => {
                 setSelectedPolicy(p);
-                setShowApplyModal(true);
+                setApplyError(null);
+                setShowApplyPanel(true);
               }}
               onDelete={handleDeletePolicy}
               onRevokeObject={handleRevokeObject}
@@ -251,11 +262,24 @@ export default function MaskingPoliciesContent() {
         </div>
       )}
 
-      {/* Create Policy Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">Create Masking Policy</h2>
-
+      {/* Create Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showCreatePanel}
+        onClose={() => setShowCreatePanel(false)}
+        title="Create Masking Policy"
+        description="Protect a column type with a dynamic masking expression"
+        accentClassName="bg-amber-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreatePanel(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleCreate} className="bg-amber-600 hover:bg-amber-700">
+              Create Policy
+            </Button>
+          </>
+        }
+      >
           <Input
             label="Policy Name"
             placeholder="MASK_SSN"
@@ -325,28 +349,35 @@ export default function MaskingPoliciesContent() {
             </p>
           </div>
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
+            </p>
+          )}
+      </PolicyFormPanel>
+
+      {/* Apply Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showApplyPanel}
+        onClose={() => { setShowApplyPanel(false); setSelectedPolicy(null); resetApplyForm(); }}
+        title={`Apply Policy: ${selectedPolicy?.name ?? ''}`}
+        description="Select the column to apply this masking policy to"
+        accentClassName="bg-amber-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedPolicy(null); resetApplyForm(); }}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} className="bg-amber-600 hover:bg-amber-700">
-              Create Policy
+            <Button
+              onClick={handleApply}
+              disabled={!database || !schema || !table || !column}
+              className="bg-amber-600 hover:bg-amber-700"
+            >
+              Apply Policy
             </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Apply Policy Modal */}
-      <Modal isOpen={showApplyModal} onClose={() => setShowApplyModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Apply Policy: {selectedPolicy?.name}
-          </h2>
-
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Select the column to apply this masking policy to:
-          </p>
-
+          </>
+        }
+      >
           <ObjectSelector
             level="database"
             onSelect={(val) => {
@@ -395,100 +426,82 @@ export default function MaskingPoliciesContent() {
             />
           )}
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowApplyModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleApply}
-              disabled={!database || !schema || !table || !column}
-              className="bg-amber-600 hover:bg-amber-700"
-            >
-              Apply Policy
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Policy Details Modal */}
-      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.name}
-          </h2>
-
-          {loadingDetails ? (
-            <div className="text-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto"></div>
-              <p className="mt-2 text-slate-500">Loading details...</p>
-            </div>
-          ) : policyDetails ? (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Signature
-                </label>
-                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.details.details.signature || policyDetails.signature || 'N/A'}
-                  {console.log('details', policyDetails.details.details.signature) /* Debugging line */}
-                </code>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Return Type
-                </label>
-                <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.details.details.return_type || policyDetails.return_type || 'N/A'}
-                </code>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Masking Expression (Body)
-                </label>
-                <pre className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">
-                  {policyDetails.details.details.body || policyDetails.body || 'N/A'}
-                </pre>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Schema
-                  </label>
-                  <p className="text-sm">{policyDetails.schema || selectedPolicy?.schema_name || 'N/A'}</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-                    Data Type
-                  </label>
-                  <p className="text-sm">{policyDetails?.details?.details?.signature?.split(' ')[1] || 'N/A'}</p>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-center py-8 text-slate-500">
-              No details available
-            </div>
+          {applyError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {applyError}
+            </p>
           )}
+      </PolicyFormPanel>
 
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
+      {/* Policy Details Panel */}
+      <PolicyFormPanel
+        isOpen={showDetailsPanel}
+        onClose={() => setShowDetailsPanel(false)}
+        title={`Policy Details: ${selectedPolicy?.name ?? ''}`}
+        accentClassName="bg-amber-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowDetailsPanel(false)}>
               Close
             </Button>
             <Button
               className="bg-amber-600 hover:bg-amber-700"
               onClick={() => {
-                setShowDetailsModal(false);
-                setShowApplyModal(true);
+                setShowDetailsPanel(false);
+                setApplyError(null);
+                setShowApplyPanel(true);
               }}
             >
               Apply to Column
             </Button>
-          </div>
-        </div>
-      </Modal>
+          </>
+        }
+      >
+          {loadingDetails ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-600 mx-auto"></div>
+              <p className="mt-2 text-slate-500">Loading details...</p>
+            </div>
+          ) : detailsError ? (
+            <ErrorDisplay error={detailsError} onRetry={() => selectedPolicy && handleViewDetails(selectedPolicy)} context="general" />
+          ) : policyDetails ? (
+            (() => {
+              const fields = policyDetails.details?.details ?? policyDetails.details ?? policyDetails;
+              const signature = fields.signature || policyDetails.signature || '—';
+              const returnType = fields.return_type || policyDetails.return_type || '—';
+              const body = fields.body || policyDetails.body || '—';
+              const dataType = fields.signature?.split(' ')[1] || '—';
+              return (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Signature</label>
+                    <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">{signature}</code>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Return Type</label>
+                    <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">{returnType}</code>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Masking Expression (Body)</label>
+                    <pre className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono overflow-x-auto whitespace-pre-wrap">{body}</pre>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Schema</label>
+                      <p className="text-sm">{policyDetails.schema || selectedPolicy?.schema_name || '—'}</p>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Data Type</label>
+                      <p className="text-sm">{dataType}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
+            <div className="text-center py-8 text-slate-500">No details available</div>
+          )}
+      </PolicyFormPanel>
     </div>
   );
 }

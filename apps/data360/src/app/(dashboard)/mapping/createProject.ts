@@ -27,7 +27,6 @@ export const createProject = async (payload: CreateProjectPayload): Promise<Crea
     const token = session.user.access_token;
 
     try {
-        // TODO(backend): POST /explore-design/guided/create_project — endpoint not in API; wire it or remove this call
         const response = await axios.post<CreateProjectResponse>(
             `${API_BASE_URL}/explore-design/guided/create_project`,
             payload,

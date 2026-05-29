@@ -70,6 +70,22 @@ export function getHealthBgColor(score: number): string {
   return 'bg-red-500';
 }
 
+/**
+ * Extract a human-readable message from a thrown API error (axios-style).
+ * Falls back to a generic label so callers can always render an inline error
+ * state with the exact backend detail when present.
+ */
+export function extractApiError(err: unknown, fallback = 'Failed to load data'): string {
+  const e = err as { response?: { status?: number; data?: { detail?: string; message?: string } }; message?: string };
+  const detail = e?.response?.data?.detail ?? e?.response?.data?.message;
+  if (detail) return detail;
+  const status = e?.response?.status;
+  if (status === 404 || status === 405) return `${fallback} — endpoint not available (${status}).`;
+  if (status) return `${fallback} (HTTP ${status}).`;
+  if (e?.message) return `${fallback}: ${e.message}`;
+  return fallback;
+}
+
 export function getStatusColor(status: string): string {
   switch (status) {
     case 'healthy':

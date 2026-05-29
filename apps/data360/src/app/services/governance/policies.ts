@@ -457,6 +457,23 @@ export async function deleteRLSPolicy(
 
 // ============= MASKING POLICY SERVICES =============
 
+/**
+ * Shape of the masking policy detail payload returned by
+ * `/policies/masking/{name}/details`. The backend nests the function
+ * signature under `details.details`; older callers also read the flat
+ * top-level fields, so both are modelled here.
+ */
+export interface MaskingPolicyDetailFields {
+  signature?: string;
+  return_type?: string;
+  body?: string;
+}
+
+export interface MaskingPolicyDetails extends MaskingPolicyDetailFields {
+  schema?: string;
+  details?: { details?: MaskingPolicyDetailFields } & MaskingPolicyDetailFields;
+}
+
 export async function getMaskingPolicyDetails(
   policy_name: string,
 ): Promise<any> {

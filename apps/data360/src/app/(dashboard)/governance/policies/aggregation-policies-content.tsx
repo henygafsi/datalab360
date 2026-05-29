@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal } from 'rizzui';
+import { Button, Input } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -19,6 +19,9 @@ import {
 } from '@/app/services/governance/policies';
 import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 import { DEFAULTS } from '@/config/database.config';
 
 export default function AggregationPoliciesContent() {
@@ -28,9 +31,11 @@ export default function AggregationPoliciesContent() {
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [showApplyPanel, setShowApplyPanel] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Form state for creating policy
   const [policyName, setPolicyName] = useState('');
@@ -46,10 +51,11 @@ export default function AggregationPoliciesContent() {
 
   const handleCreate = async () => {
     if (!policyName || !aggregationConstraint) {
-      toast.error('Please fill in all required fields');
+      setCreateError('Please fill in all required fields.');
       return;
     }
 
+    setCreateError(null);
     try {
       const requestData = {
         policy_name: policyName,
@@ -61,21 +67,21 @@ export default function AggregationPoliciesContent() {
 
       await createAggregationPolicy(requestData);
       toast.success('Aggregation policy created successfully!');
-      setShowCreateModal(false);
+      setShowCreatePanel(false);
       resetCreateForm();
       refetch();
-    } catch (error: any) {
-      console.error('[Aggregation Create] Error:', error.response?.data || error);
-      toast.error(formatPolicyError(error, 'Failed to create policy'));
+    } catch (error) {
+      setCreateError(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
   const handleApply = async () => {
     if (!selectedPolicy || !database || !schema || !table) {
-      toast.error('Please select all required fields');
+      setApplyError('Please select all required fields.');
       return;
     }
 
+    setApplyError(null);
     try {
       await applyAggregationPolicy({
         policy_name: selectedPolicy.name,
@@ -84,13 +90,12 @@ export default function AggregationPoliciesContent() {
         table,
       });
       toast.success(`Policy applied to ${database}.${schema}.${table}`);
-      setShowApplyModal(false);
+      setShowApplyPanel(false);
       setSelectedPolicy(null);
       resetApplyForm();
       refetch();
-    } catch (error: any) {
-      console.error('Apply aggregation policy error:', error.response?.data || error);
-      toast.error(formatPolicyError(error, 'Failed to apply policy'));
+    } catch (error) {
+      setApplyError(formatPolicyError(error, 'Failed to apply policy'));
     }
   };
 
@@ -106,12 +111,14 @@ export default function AggregationPoliciesContent() {
     setPolicyName('');
     setAggregationConstraint("CASE WHEN COUNT(*) < 5 THEN NULL ELSE COUNT(*) END");
     setExpirationDate('');
+    setCreateError(null);
   };
 
   const resetApplyForm = () => {
     setDatabase('');
     setSchema('');
     setTable('');
+    setApplyError(null);
   };
 
   return (
@@ -133,7 +140,7 @@ export default function AggregationPoliciesContent() {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
           className="bg-cyan-600 hover:bg-cyan-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -143,7 +150,9 @@ export default function AggregationPoliciesContent() {
 
       {/* Policies List */}
       {loading ? (
-        <div className="text-center py-12">Loading...</div>
+        <TableSkeleton rows={4} columns={3} showHeader={false} />
+      ) : error ? (
+        <ErrorDisplay error={error.message} onRetry={() => refetch()} context="general" />
       ) : !policies || policies.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No aggregation policies found. Create one to get started.
@@ -158,7 +167,8 @@ export default function AggregationPoliciesContent() {
               policyType="aggregation"
               onApply={(p) => {
                 setSelectedPolicy(p);
-                setShowApplyModal(true);
+                setApplyError(null);
+                setShowApplyPanel(true);
               }}
               onDelete={handleDeletePolicy}
               onRevokeObject={handleRevokeObject}
@@ -170,11 +180,20 @@ export default function AggregationPoliciesContent() {
         </div>
       )}
 
-      {/* Create Policy Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">Create Aggregation Policy</h2>
-
+      {/* Create Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showCreatePanel}
+        onClose={() => setShowCreatePanel(false)}
+        title="Create Aggregation Policy"
+        description="Enforce a minimum group size to prevent small-group identification"
+        accentClassName="bg-cyan-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
+            <Button onClick={handleCreate} className="bg-cyan-600 hover:bg-cyan-700">Create Policy</Button>
+          </>
+        }
+      >
           <Input
             label="Policy Name"
             placeholder="MIN_COUNT_5"
@@ -214,28 +233,27 @@ export default function AggregationPoliciesContent() {
             </p>
           </div>
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} className="bg-cyan-600 hover:bg-cyan-700">
-              Create Policy
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Apply Policy Modal */}
-      <Modal isOpen={showApplyModal} onClose={() => setShowApplyModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Apply Policy: {selectedPolicy?.name}
-          </h2>
-
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Select the table to apply this aggregation policy to:
-          </p>
-
+      {/* Apply Policy Panel */}
+      <PolicyFormPanel
+        isOpen={showApplyPanel}
+        onClose={() => { setShowApplyPanel(false); setSelectedPolicy(null); resetApplyForm(); }}
+        title={`Apply Policy: ${selectedPolicy?.name ?? ''}`}
+        description="Select the table to apply this aggregation policy to"
+        accentClassName="bg-cyan-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedPolicy(null); resetApplyForm(); }}>Cancel</Button>
+            <Button onClick={handleApply} disabled={!database || !schema || !table} className="bg-cyan-600 hover:bg-cyan-700">Apply Policy</Button>
+          </>
+        }
+      >
           <ObjectSelector
             level="database"
             onSelect={(val) => {
@@ -268,20 +286,12 @@ export default function AggregationPoliciesContent() {
             />
           )}
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowApplyModal(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleApply}
-              disabled={!database || !schema || !table}
-              className="bg-cyan-600 hover:bg-cyan-700"
-            >
-              Apply Policy
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {applyError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {applyError}
+            </p>
+          )}
+      </PolicyFormPanel>
     </div>
   );
 }

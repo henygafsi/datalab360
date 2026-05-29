@@ -267,6 +267,29 @@ function safeStr(value: unknown, fallback = ''): string {
 }
 
 /**
+ * Safe numeric coercion. `Number(undefined)` is `NaN`, and `NaN ?? fallback`
+ * does NOT fall back (?? only catches null/undefined), so the common
+ * `Number(x) ?? 0` idiom renders literal "NaN". Use this instead — it returns
+ * `fallback` for null/undefined AND for any non-finite result.
+ */
+function safeNum(value: unknown, fallback = 0): number {
+  if (value === null || value === undefined || value === '') return fallback;
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/**
+ * Safe percentage from part/total. Returns 0 when total is 0/invalid (never
+ * NaN/Infinity). Rounds to the nearest integer by default.
+ */
+function safePct(part: unknown, total: unknown, fallback = 0): number {
+  const p = safeNum(part, NaN);
+  const t = safeNum(total, NaN);
+  if (!Number.isFinite(p) || !Number.isFinite(t) || t <= 0) return fallback;
+  return Math.round((p / t) * 100);
+}
+
+/**
  * Backfill missing day buckets so daily-trend charts render an even category
  * axis. Returns an array of `days` entries, each carrying the original row
  * when present and zero-filled defaults otherwise. Dates are ISO yyyy-mm-dd.
@@ -2427,16 +2450,19 @@ const OverviewTab = memo(function OverviewTab({
   // populated scores. We removed both the call and the widget.
 
   // Prefer cache row over legacy summary call.
+  // NOTE: `Number(x) ?? 0` is a trap — Number(undefined) is NaN and `?? 0`
+  // does NOT catch NaN, so missing summary fields used to render "NaN%·NaN".
+  // safeNum() coerces null/undefined/NaN/Infinity to the fallback.
   const creditsUsed =
-    kpis?.credits_used ?? Number(summary?.cost?.credits_30d) ?? 0;
+    kpis?.credits_used ?? safeNum(summary?.cost?.credits_30d, 0);
   const activeUsers =
-    kpis?.data360_users ?? Number(summary?.platform?.active_users_7d) ?? 0;
+    kpis?.data360_users ?? safeNum(summary?.platform?.active_users_7d, 0);
   const totalProjects =
-    kpis?.active_projects ?? Number(summary?.platform?.total_projects) ?? 0;
+    kpis?.active_projects ?? safeNum(summary?.platform?.total_projects, 0);
   const qualityScore =
-    kpis?.workspace_health_pct ?? Number(summary?.quality?.health_score) ?? 0;
-  const mfaCoverage = Number(summary?.security?.mfa_coverage_pct) ?? 0;
-  const aiModels = Number(summary?.ai?.semantic_models) ?? 0;
+    kpis?.workspace_health_pct ?? safeNum(summary?.quality?.health_score, 0);
+  const mfaCoverage = safeNum(summary?.security?.mfa_coverage_pct, 0);
+  const aiModels = safeNum(summary?.ai?.semantic_models, 0);
   const cacheAgeLabel = (() => {
     if (kpisLoading && !kpis) return 'Loading…';
     if (!kpis?.cache_age_seconds && kpis?.cache_age_seconds !== 0) return null;
@@ -2652,7 +2678,11 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="MFA / AI Models"
-          value={`${mfaCoverage}% · ${aiModels}`}
+          value={
+            summary?.security || summary?.ai
+              ? `${mfaCoverage}% · ${aiModels}`
+              : '—'
+          }
           icon={Shield}
           color="rose"
         />
@@ -4438,6 +4468,15 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
     { totalLogins: 0, successLogins: 0 }
   );
   const failedLoginCount = totalLogins - successLogins;
+  const successRatePct = safePct(successLogins, totalLogins, 0);
+  // Whether this window has ANY login telemetry. When false we show a single
+  // clear "no login activity" empty state rather than a wall of 0 / 0% cards
+  // and an empty bar chart, which read as broken.
+  const hasLoginActivity =
+    totalLogins > 0 ||
+    loginTrend.some(
+      (r: any) => safeNum(r?.success) + safeNum(r?.failure) + safeNum(r?.total) > 0,
+    );
 
   // Iter 5 additive panels — pull optional fields with graceful fallbacks
   const identity = ((data as any)?.identity ?? {}) as {
@@ -4495,7 +4534,7 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="Success Rate"
-          value={`${totalLogins > 0 ? Math.round((successLogins / totalLogins) * 100) : 0}%`}
+          value={totalLogins > 0 ? `${successRatePct}%` : '—'}
           icon={CheckCircle}
           color="green"
         />
@@ -4507,7 +4546,11 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
         />
         <KpiCard
           label="MFA Coverage"
-          value={`${mfaCoverage.mfa_percentage ?? 0}%`}
+          value={
+            mfaCoverage.mfa_percentage == null
+              ? '—'
+              : `${safeNum(mfaCoverage.mfa_percentage, 0)}%`
+          }
           icon={Lock}
           color="violet"
         />
@@ -4542,31 +4585,45 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
 
       {/* Login Trend Chart */}
       <SectionCard title={`Login Activity (${data.period_days ?? 7}d)`}>
-        <div className="h-64">
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={loginTrend}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-              <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar
-                dataKey="success"
-                fill="#10B981"
-                name="Success"
-                radius={[4, 4, 0, 0]}
-                stackId="a"
-              />
-              <Bar
-                dataKey="failure"
-                fill="#EF4444"
-                name="Failed"
-                radius={[4, 4, 0, 0]}
-                stackId="a"
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
+        {hasLoginActivity ? (
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={loginTrend}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="date" tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <YAxis tick={{ fill: '#9CA3AF', fontSize: 11 }} />
+                <Tooltip content={<ChartTooltip />} />
+                <Bar
+                  dataKey="success"
+                  fill="#10B981"
+                  name="Success"
+                  radius={[4, 4, 0, 0]}
+                  stackId="a"
+                />
+                <Bar
+                  dataKey="failure"
+                  fill="#EF4444"
+                  name="Failed"
+                  radius={[4, 4, 0, 0]}
+                  stackId="a"
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="flex h-64 flex-col items-center justify-center gap-1 text-center">
+            <Lock className="h-8 w-8 text-gray-300 dark:text-gray-600" />
+            <p className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              No login activity in this window
+            </p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              No successful or failed sign-ins were recorded for the selected
+              time range. Widen the range or check that audit views are
+              readable.
+            </p>
+          </div>
+        )}
       </SectionCard>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -4638,13 +4695,13 @@ const SecurityAdvTab = memo(function SecurityAdvTab({
                   MFA Adoption
                 </span>
                 <span className="text-sm font-medium text-gray-900 dark:text-white">
-                  {mfaCoverage.mfa_percentage ?? 0}%
+                  {safeNum(mfaCoverage.mfa_percentage, 0)}%
                 </span>
               </div>
               <div className="h-3 w-full rounded-full bg-gray-200 dark:bg-gray-700">
                 <div
                   className="h-3 rounded-full bg-green-500 transition-all"
-                  style={{ width: `${mfaCoverage.mfa_percentage ?? 0}%` }}
+                  style={{ width: `${Math.min(100, safeNum(mfaCoverage.mfa_percentage, 0))}%` }}
                 />
               </div>
             </div>

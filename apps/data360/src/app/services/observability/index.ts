@@ -6,24 +6,19 @@
 import apiClient from '@/lib/api-client';
 import type {
   IntelligentKpis,
-  DashboardSummary,
   GdprReport,
   Soc2Report,
   LineageResponse,
   AccessPatternsResponse,
   UserActivitySummary,
-  HeatmapResponse,
-  LoginsResponse,
   SecurityPosture,
-  SensitiveDataSummary,
-  UnusedTablesResponse,
-  DormantUsersResponse,
   WarehouseUsageSummary,
   DailyCreditsResponse,
   StorageMetrics,
   PerformanceMetrics,
   SlowQueriesResponse,
   HealthStatus,
+  ObservabilityRecord,
 } from './types';
 
 /**
@@ -146,12 +141,12 @@ export async function getAccessPatterns(days: number = 30): Promise<AccessPatter
 export async function getCrossModuleLineage(params?: {
   days?: number;
   database?: string;
-}): Promise<any> {
+}): Promise<ObservabilityRecord> {
   const searchParams = new URLSearchParams();
   if (params?.days) searchParams.append('days', params.days.toString());
   if (params?.database) searchParams.append('database', params.database);
   const qs = searchParams.toString();
-  return apiCall<any>(qs ? `/observability/lineage/cross-module?${qs}` : '/observability/lineage/cross-module');
+  return apiCall<ObservabilityRecord>(qs ? `/observability/lineage/cross-module?${qs}` : '/observability/lineage/cross-module');
 }
 
 // =============================================================================
@@ -257,14 +252,14 @@ export async function getObjectDependencies(params?: {
   object_domain?: string;
   direction?: 'upstream' | 'downstream';
   days?: number;
-}): Promise<any> {
+}): Promise<ObservabilityRecord> {
   const searchParams = new URLSearchParams();
   if (params?.object_name) searchParams.append('object_name', params.object_name);
   if (params?.object_domain) searchParams.append('object_domain', params.object_domain);
   if (params?.direction) searchParams.append('direction', params.direction);
   if (params?.days) searchParams.append('days', params.days.toString());
   const qs = searchParams.toString();
-  return apiCall<any>(qs ? `/observability/dependencies?${qs}` : '/observability/dependencies');
+  return apiCall<ObservabilityRecord>(qs ? `/observability/dependencies?${qs}` : '/observability/dependencies');
 }
 
 /**
@@ -274,12 +269,12 @@ export async function getObjectDependencies(params?: {
 export async function getDependencyGraph(params?: {
   database?: string;
   schema?: string;
-}): Promise<any> {
+}): Promise<ObservabilityRecord> {
   const searchParams = new URLSearchParams();
   if (params?.database) searchParams.append('database', params.database);
   if (params?.schema) searchParams.append('schema', params.schema);
   const qs = searchParams.toString();
-  return apiCall<any>(qs ? `/observability/dependencies/graph?${qs}` : '/observability/dependencies/graph');
+  return apiCall<ObservabilityRecord>(qs ? `/observability/dependencies/graph?${qs}` : '/observability/dependencies/graph');
 }
 
 // =============================================================================
@@ -290,16 +285,16 @@ export async function getDependencyGraph(params?: {
  * Get Trust Center security findings
  * GET /observability/trust-center/findings
  */
-export async function getTrustCenterFindings(): Promise<any> {
-  return apiCall<any>('/observability/trust-center/findings');
+export async function getTrustCenterFindings(): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>('/observability/trust-center/findings');
 }
 
 /**
  * Get Trust Center summary overview
  * GET /observability/trust-center/summary
  */
-export async function getTrustCenterSummary(): Promise<any> {
-  return apiCall<any>('/observability/trust-center/summary');
+export async function getTrustCenterSummary(): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>('/observability/trust-center/summary');
 }
 
 // =============================================================================
@@ -313,20 +308,20 @@ export async function getTrustCenterSummary(): Promise<any> {
 export async function getLineageWithTasks(params?: {
   database?: string;
   days?: number;
-}): Promise<any> {
+}): Promise<ObservabilityRecord> {
   const searchParams = new URLSearchParams();
   if (params?.database) searchParams.append('database', params.database);
   if (params?.days) searchParams.append('days', params.days.toString());
   const qs = searchParams.toString();
-  return apiCall<any>(qs ? `/observability/lineage/with-tasks?${qs}` : '/observability/lineage/with-tasks');
+  return apiCall<ObservabilityRecord>(qs ? `/observability/lineage/with-tasks?${qs}` : '/observability/lineage/with-tasks');
 }
 
 /**
  * Get importable tasks (for workflow import)
  * GET /observability/tasks/importable
  */
-export async function getImportableTasks(state: string = 'suspended'): Promise<any> {
-  return apiCall<any>(`/observability/tasks/importable?state=${state}`);
+export async function getImportableTasks(state: string = 'suspended'): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>(`/observability/tasks/importable?state=${state}`);
 }
 
 // =============================================================================
@@ -337,32 +332,32 @@ export async function getImportableTasks(state: string = 'suspended'): Promise<a
  * Probe table freshness using Snowflake row timestamps
  * GET /observability/probes/table
  */
-export async function probeTableFreshness(table: string): Promise<any> {
-  return apiCall<any>(`/observability/probes/table?table=${encodeURIComponent(table)}`);
+export async function probeTableFreshness(table: string): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>(`/observability/probes/table?table=${encodeURIComponent(table)}`);
 }
 
 /**
  * Probe all tables in a schema for freshness
  * GET /observability/probes/schema
  */
-export async function probeSchemaFreshness(database: string, schema: string): Promise<any> {
-  return apiCall<any>(`/observability/probes/schema?database=${encodeURIComponent(database)}&schema=${encodeURIComponent(schema)}`);
+export async function probeSchemaFreshness(database: string, schema: string): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>(`/observability/probes/schema?database=${encodeURIComponent(database)}&schema=${encodeURIComponent(schema)}`);
 }
 
 /**
  * Detect rows changed since a specific timestamp
  * GET /observability/probes/changes
  */
-export async function probeChanges(table: string, since: string): Promise<any> {
-  return apiCall<any>(`/observability/probes/changes?table=${encodeURIComponent(table)}&since=${encodeURIComponent(since)}`);
+export async function probeChanges(table: string, since: string): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>(`/observability/probes/changes?table=${encodeURIComponent(table)}&since=${encodeURIComponent(since)}`);
 }
 
 /**
  * Probe all Data360 metadata tables for freshness
  * GET /observability/probes/platform
  */
-export async function probePlatformFreshness(): Promise<any> {
-  return apiCall<any>('/observability/probes/platform');
+export async function probePlatformFreshness(): Promise<ObservabilityRecord> {
+  return apiCall<ObservabilityRecord>('/observability/probes/platform');
 }
 
 // Re-export types for convenience

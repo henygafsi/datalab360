@@ -41,7 +41,7 @@ import {
   listAlerts,
   dropAlert,
 } from '@/app/services/explore-design';
-import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeRename, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
@@ -58,7 +58,6 @@ const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr:
 const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
 import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
 import EventTable from './components/EventTable';
-import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
 import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
 import AiGuidedModelWizard from './components/ai-guided/AiGuidedModelWizard';
@@ -76,15 +75,8 @@ import {
   useEventStore,
   createPrimaryKeyEvent,
   createMaskingPolicyEvent,
-  createColumnExclusionEvent,
-  createSensitiveColumnEvent,
   EventType
 } from './stores/event-store';
-import ColumnPreviewModal from './components/ColumnPreviewModal';
-import SensitiveColumnModal from './components/SensitiveColumnModal';
-import ColumnExclusionModal from './components/ColumnExclusionModal';
-import TablePreviewModal from './components/TablePreviewModal';
-import TableProfileModal from './components/TableProfileModal';
 import CreateTableModal, { SnowflakeTableType } from './components/CreateTableModal';
 import RelationshipModal from './components/RelationshipModal';
 import AccessManagementSlot from './components/AccessManagementSlot';
@@ -109,7 +101,6 @@ import WhereClauseBuilder from './components/WhereClauseBuilder';
 import QualityGatesPanel from './components/QualityGatesPanel';
 import IngestionDryRunPanel from './components/IngestionDryRunPanel';
 import ConflictResolutionModal, { EventConflict } from './components/ConflictResolutionModal';
-import AuditTrailPanel from './components/AuditTrailPanel';
 import EventTemplatePickerModal from './components/EventTemplatePickerModal';
 import AiFeatureToggle from './components/AiFeatureToggle';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -1017,26 +1008,6 @@ export default function ExploreDesignPage() {
   const [showCreateMenuCatalog, setShowCreateMenuCatalog] = useState(false);
   const [showCreateMenuModeling, setShowCreateMenuModeling] = useState(false);
 
-  // Column action modals
-  const [columnPreviewModal, setColumnPreviewModal] = useState<{
-    isOpen: boolean;
-    column: ColumnInfo | null;
-  }>({ isOpen: false, column: null });
-  const [sensitiveColumnModal, setSensitiveColumnModal] = useState<{
-    isOpen: boolean;
-    column: ColumnInfo | null;
-  }>({ isOpen: false, column: null });
-  const [columnExclusionModal, setColumnExclusionModal] = useState<{
-    isOpen: boolean;
-    column: ColumnInfo | null;
-  }>({ isOpen: false, column: null });
-
-  // Table preview modal (legacy — kept for fallback)
-  const [tablePreviewModal, setTablePreviewModal] = useState(false);
-
-  // Table profile modal (legacy — kept for fallback)
-  const [tableProfileModal, setTableProfileModal] = useState(false);
-
   // Inline preview & profile panels (replace modals)
   const [showInlinePreview, setShowInlinePreview] = useState(false);
   const [showInlineProfile, setShowInlineProfile] = useState(false);
@@ -1071,9 +1042,6 @@ export default function ExploreDesignPage() {
     name: string;
   } | null>(null);
 
-  // Track excluded columns per table
-  const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
-
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
   // Persist viewMode to localStorage
@@ -1084,7 +1052,6 @@ export default function ExploreDesignPage() {
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
   const [showEventTemplatePicker, setShowEventTemplatePicker] = useState(false);
-  const [showAuditTrail, setShowAuditTrail] = useState(false);
   const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
   // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
   const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
@@ -1120,22 +1087,10 @@ export default function ExploreDesignPage() {
   const [showAiPanel, setShowAiPanel] = useState(false);
   const [showIngestionResults, setShowIngestionResults] = useState(false);
 
-  // Input modals (replace browser prompt())
-  const [renameTableModal, setRenameTableModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
-  const [renameColumnModal, setRenameColumnModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
-  const [addColumnModal, setAddColumnModal] = useState(false);
-  const [rightRailAction, setRightRailAction] = useState<'add_column' | 'policies' | 'ingestion' | 'rename_table' | 'rename_column' | 'primary_key' | null>(null);
-  const [rightRailColumnTarget, setRightRailColumnTarget] = useState<string>('');
   const [rightBarOpen, setRightBarOpen] = useState(false);
   const [activeRightTab, setActiveRightTab] = useState<RightBarTab>('actions');
   const [focusedAction, setFocusedAction] = useState<FocusedAction>(null);
   const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
-  const [addColName, setAddColName] = useState('');
-  const [addColType, setAddColType] = useState('VARCHAR');
-  const [addColComputed, setAddColComputed] = useState(false);
-  const [addColFormula, setAddColFormula] = useState('');
-  const [primaryKeyModal, setPrimaryKeyModal] = useState(false);
-
   // Conflict detection modal
   const [showConflictModal, setShowConflictModal] = useState(false);
   const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
@@ -2720,6 +2675,69 @@ export default function ExploreDesignPage() {
     setSelectedTables(new Set());
   }, [selectedTables, allTableConfigs]);
 
+  // Bulk: detect & set primary keys across the selected tables by matching a
+  // column-name pattern. Fires real PRIMARY_KEY_SET events per table (same
+  // event-store queue the single-table flow uses) — no fake toast.
+  const handleBulkSetPrimaryKey = useCallback((rule: '*_ID' | 'ID_*' | '*_PK') => {
+    const matches = (name: string) => {
+      const upper = name.toUpperCase();
+      if (rule === '*_ID') return upper.endsWith('_ID');
+      if (rule === 'ID_*') return upper.startsWith('ID_');
+      return upper.endsWith('_PK');
+    };
+
+    let tablesAffected = 0;
+    selectedTables.forEach(tableId => {
+      const table = tables.find(t => t.id === tableId);
+      if (!table) return;
+      const cols = (tableColumnsMap.get(tableId) || []).filter(c => matches(c.name)).map(c => c.name);
+      if (cols.length === 0) return;
+      addEvent({
+        ...createPrimaryKeyEvent({ database: table.database, schema: table.schema, table: table.table }, cols, true),
+        projectId: selectedProjectId ?? undefined,
+      });
+      tablesAffected += 1;
+    });
+
+    if (tablesAffected === 0) {
+      toast.error(`No columns matched "${rule}" in the selected tables`);
+      return;
+    }
+    toast.success(`Queued primary keys for ${tablesAffected} table(s) using "${rule}"`);
+    setSelectedTables(new Set());
+  }, [selectedTables, tables, tableColumnsMap, selectedProjectId, addEvent]);
+
+  // Bulk: apply a masking policy to the currently selected columns across the
+  // selected tables. Fires real MASKING_POLICY_APPLIED events per table.
+  const handleBulkApplyMasking = useCallback((policyName: string) => {
+    const cols = Array.from(selectedColumns);
+    if (cols.length === 0) {
+      toast.error('Select one or more columns before applying a masking policy');
+      return;
+    }
+
+    let tablesAffected = 0;
+    selectedTables.forEach(tableId => {
+      const table = tables.find(t => t.id === tableId);
+      if (!table) return;
+      const tableCols = new Set((tableColumnsMap.get(tableId) || []).map(c => c.name));
+      const applicable = cols.filter(c => tableCols.has(c));
+      if (applicable.length === 0) return;
+      addEvent({
+        ...createMaskingPolicyEvent({ database: table.database, schema: table.schema, table: table.table }, policyName, applicable, true),
+        projectId: selectedProjectId ?? undefined,
+      });
+      tablesAffected += 1;
+    });
+
+    if (tablesAffected === 0) {
+      toast.error('None of the selected columns exist in the selected tables');
+      return;
+    }
+    toast.success(`Queued masking policy "${policyName}" for ${tablesAffected} table(s)`);
+    setSelectedTables(new Set());
+  }, [selectedTables, selectedColumns, tables, tableColumnsMap, selectedProjectId, addEvent]);
+
   const handleSearchResultClick = useCallback((result: GlobalSearchResult) => {
     if (result.type === 'table' && result.database && result.schema) {
       const table = tables.find(t => t.table === result.name && t.schema === result.schema);
@@ -2729,18 +2747,6 @@ export default function ExploreDesignPage() {
     }
     setSearchQuery('');
   }, [tables]);
-
-  const handleColumnSelect = useCallback((column: string, selected: boolean) => {
-    setSelectedColumns(prev => {
-      const next = new Set(prev);
-      if (selected) {
-        next.add(column);
-      } else {
-        next.delete(column);
-      }
-      return next;
-    });
-  }, []);
 
   // Add selected tables to modeling view
   const handleAddToModeling = useCallback(() => {
@@ -2819,119 +2825,6 @@ export default function ExploreDesignPage() {
   }, [tables, selectedProjectId, addEvent]);
 
   // Add primary key to a table - saves event for later execution
-  const handleAddPrimaryKey = useCallback((
-    database: string,
-    schema: string,
-    tableName: string,
-    columns: string[]
-  ) => {
-    if (readOnlyGuard()) return;
-    if (columns.length === 0) {
-      toast.error('Please select at least one column for the primary key');
-      return;
-    }
-
-    if (!selectedProjectId) {
-      toast.error('Please select a project first');
-      return;
-    }
-
-    // Create PRIMARY_KEY_SET event (will be executed on validation)
-    addEvent({
-      type: 'PRIMARY_KEY_SET',
-      projectId: selectedProjectId || undefined,
-      target: {
-        database: database,
-        schema: schema,
-        table: tableName,
-      },
-      payload: {
-        columns: columns,
-      },
-    });
-
-    const pkType = columns.length > 1 ? 'composite' : 'simple';
-    toast.success(`${pkType} primary key for "${tableName}" added to pending changes`);
-  }, [addEvent, selectedProjectId]);
-
-  // Rename table handler - saves event for later execution
-  const handleRenameTable = useCallback((
-    database: string,
-    schema: string,
-    tableName: string,
-    newName: string
-  ) => {
-    if (readOnlyGuard()) return;
-    if (!newName || newName === tableName) {
-      toast.error('Please provide a different name');
-      return;
-    }
-
-    // Create TABLE_RENAMED event (will be executed on validation)
-    addEvent({
-      type: 'TABLE_RENAMED',
-      projectId: selectedProjectId || undefined,
-      target: {
-        database,
-        schema,
-        table: tableName,
-      },
-      payload: {
-        oldName: tableName,
-        newName: newName,
-      },
-    });
-
-    // Cascade rename: update references in other events (A2)
-    if (selectedProjectId) {
-      cascadeRename(selectedProjectId, {
-        old_table_name: `${database}.${schema}.${tableName}`,
-        new_table_name: `${database}.${schema}.${newName}`,
-      }).then((res) => {
-        if (res.events_updated > 0) {
-          toast.success(`Cascade: ${res.events_updated} dependent event(s) updated`);
-        }
-      }).catch(() => {
-        // Non-blocking — rename event is still registered
-      });
-    }
-
-    toast.success(`Table rename "${tableName}" → "${newName}" added to pending changes`);
-  }, [addEvent, selectedProjectId]);
-
-  // Rename column handler - saves event for later execution
-  const handleRenameColumn = useCallback((
-    database: string,
-    schema: string,
-    tableName: string,
-    columnName: string,
-    newName: string
-  ) => {
-    if (readOnlyGuard()) return;
-    if (!newName || newName === columnName) {
-      toast.error('Please provide a different name');
-      return;
-    }
-
-    // Create COLUMN_RENAMED event (will be executed on validation)
-    addEvent({
-      type: 'COLUMN_RENAMED',
-      projectId: selectedProjectId || undefined,
-      target: {
-        database,
-        schema,
-        table: tableName,
-        column: columnName,
-      },
-      payload: {
-        oldName: columnName,
-        newName: newName,
-      },
-    });
-
-    toast.success(`Column rename "${columnName}" → "${newName}" added to pending changes`);
-  }, [addEvent, selectedProjectId]);
-
   // AI Column Classification handler
   const handleAIClassify = useCallback(async () => {
     if (!selectedTable || !selectedProjectId) {
@@ -4531,114 +4424,166 @@ export default function ExploreDesignPage() {
         onConfigureRelations={() => { if (readOnlyGuard()) return; setShowRelationsModal(true); }}
       />
 
-      {/* Bulk PK Modal */}
-      <Modal isOpen={false && showBulkPKModal} onClose={() => setShowBulkPKModal(false)}>
-        <div className="p-6">
-          <h3 className="text-lg font-bold mb-4">Configure Primary Keys</h3>
-          <p className="text-slate-600 dark:text-slate-400 mb-4">
-            Select a rule to automatically detect primary keys for {selectedTables.size} tables.
-          </p>
-          <div className="space-y-3">
-            {[
-              { rule: '*_ID', description: 'Columns ending with _ID' },
-              { rule: 'ID_*', description: 'Columns starting with ID_' },
-              { rule: '*_PK', description: 'Columns ending with _PK' },
-              { rule: 'custom', description: 'Custom pattern...' },
-            ].map((option) => (
-              <button
-                key={option.rule}
-                className="w-full flex items-center gap-3 p-3 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 dark:border-slate-700 text-left"
-                onClick={() => {
-                  toast.success(`Applied PK rule: ${option.rule}`);
-                  setShowBulkPKModal(false);
-                }}
-              >
-                <Key className="h-5 w-5 text-amber-500" />
-                <div>
-                  <p className="font-medium">{option.rule}</p>
-                  <p className="text-sm text-slate-500">{option.description}</p>
-                </div>
-              </button>
-            ))}
+      {/* Bulk PK — right-side panel (non-blocking, page stays visible) */}
+      {showBulkPKModal && (
+        <div
+          role="dialog"
+          aria-label="Configure primary keys for selected tables"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Key className="h-4 w-4 text-amber-500" />
+              Set Primary Keys
+            </h3>
+            <button
+              aria-label="Close primary key panel"
+              onClick={() => setShowBulkPKModal(false)}
+              className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
           </div>
-          <div className="flex justify-end mt-6">
+          <div className="flex-1 overflow-auto p-5">
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+              Detect primary keys across {selectedTables.size} selected table(s) by matching a column-name pattern.
+            </p>
+            <div className="space-y-2">
+              {([
+                { rule: '*_ID' as const, description: 'Columns ending with _ID' },
+                { rule: 'ID_*' as const, description: 'Columns starting with ID_' },
+                { rule: '*_PK' as const, description: 'Columns ending with _PK' },
+              ]).map((option) => (
+                <button
+                  key={option.rule}
+                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    handleBulkSetPrimaryKey(option.rule);
+                    setShowBulkPKModal(false);
+                  }}
+                >
+                  <Key className="h-5 w-5 text-amber-500" />
+                  <div>
+                    <p className="font-medium">{option.rule}</p>
+                    <p className="text-sm text-slate-500">{option.description}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end border-t border-slate-200 px-5 py-3 dark:border-slate-700">
             <Button variant="outline" onClick={() => setShowBulkPKModal(false)}>
               Cancel
             </Button>
           </div>
         </div>
-      </Modal>
+      )}
 
-      {/* Bulk Masking Modal */}
-      <Modal isOpen={false && showBulkMaskingModal} onClose={() => setShowBulkMaskingModal(false)}>
-        <div className="p-6">
-          <h3 className="text-lg font-bold mb-4">Apply Masking Policy</h3>
-          <p className="text-slate-600 dark:text-slate-400 mb-4">
-            Apply a masking policy to sensitive columns in {selectedTables.size} tables.
-          </p>
-          <div className="space-y-3">
-            {maskingPolicies.map((policy) => (
-              <button
-                key={policy.name}
-                className="w-full flex items-center gap-3 p-3 border rounded-lg hover:bg-slate-50 dark:hover:bg-slate-800 dark:border-slate-700 text-left"
-                onClick={() => {
-                  toast.success(`Applied masking policy: ${policy.name}`);
-                  setShowBulkMaskingModal(false);
-                }}
-              >
-                <Shield className="h-5 w-5 text-green-500" />
-                <div>
-                  <p className="font-medium">{policy.name}</p>
-                  <p className="text-sm text-slate-500">Type: {policy.type}</p>
-                </div>
-              </button>
-            ))}
+      {/* Bulk Masking — right-side panel (non-blocking) */}
+      {showBulkMaskingModal && (
+        <div
+          role="dialog"
+          aria-label="Apply masking policy to selected tables"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Shield className="h-4 w-4 text-green-500" />
+              Apply Masking Policy
+            </h3>
+            <button
+              aria-label="Close masking panel"
+              onClick={() => setShowBulkMaskingModal(false)}
+              className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
           </div>
-          <div className="flex justify-end mt-6">
+          <div className="flex-1 overflow-auto p-5">
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+              Apply a masking policy to {selectedColumns.size} selected column(s) across {selectedTables.size} selected table(s).
+            </p>
+            {selectedColumns.size === 0 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-300">
+                No columns are selected. Open a single table and use its detail panel to choose
+                columns and apply masking — bulk masking applies the policy to those columns across
+                every selected table.
+              </div>
+            ) : maskingPolicies.length === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800">
+                No masking policies are defined yet. Create one in Governance.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {maskingPolicies.map((policy) => (
+                  <button
+                    key={policy.name}
+                    className="flex w-full items-center gap-3 rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                    onClick={() => {
+                      handleBulkApplyMasking(policy.name);
+                      setShowBulkMaskingModal(false);
+                    }}
+                  >
+                    <Shield className="h-5 w-5 text-green-500" />
+                    <div>
+                      <p className="font-medium">{policy.name}</p>
+                      <p className="text-sm text-slate-500">Type: {policy.type}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end border-t border-slate-200 px-5 py-3 dark:border-slate-700">
             <Button variant="outline" onClick={() => setShowBulkMaskingModal(false)}>
               Cancel
             </Button>
           </div>
         </div>
-      </Modal>
+      )}
 
-      {/* Relations Modal */}
-      <Modal isOpen={false && showRelationsModal} onClose={() => setShowRelationsModal(false)}>
-        <div className="p-6 max-w-2xl">
-          <h3 className="text-lg font-bold mb-4">Configure Relations</h3>
-          <p className="text-slate-600 dark:text-slate-400 mb-4">
-            Define relationships between selected tables.
-          </p>
-          <div className="border dark:border-slate-700 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-center gap-4 py-8">
-              <div className="text-center">
-                <Table2 className="h-8 w-8 mx-auto text-slate-400 mb-2" />
-                <p className="text-sm font-medium">Source Table</p>
-              </div>
-              <ArrowRight className="h-6 w-6 text-slate-400" />
-              <div className="text-center">
-                <Table2 className="h-8 w-8 mx-auto text-slate-400 mb-2" />
-                <p className="text-sm font-medium">Target Table</p>
-              </div>
-            </div>
+      {/* Relations — right-side panel (non-blocking) */}
+      {showRelationsModal && (
+        <div
+          role="dialog"
+          aria-label="Configure relations for selected tables"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-sm flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Link2 className="h-4 w-4 text-blue-500" />
+              Configure Relations
+            </h3>
+            <button
+              aria-label="Close relations panel"
+              onClick={() => setShowRelationsModal(false)}
+              className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
           </div>
-          <Button
-            className="w-full gap-2"
-            onClick={() => {
-              handleDiscoverRelationships();
-              setShowRelationsModal(false);
-            }}
-          >
-            <Sparkles className="h-4 w-4" />
-            Auto-Detect Relations
-          </Button>
-          <div className="flex justify-end mt-6">
+          <div className="flex-1 overflow-auto p-5">
+            <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+              Detect foreign-key relationships across {selectedTables.size} selected table(s).
+            </p>
+            <Button
+              className="w-full gap-2"
+              onClick={() => {
+                handleDiscoverRelationships();
+                setShowRelationsModal(false);
+              }}
+            >
+              <Sparkles className="h-4 w-4" />
+              Auto-Detect Relations
+            </Button>
+          </div>
+          <div className="flex justify-end border-t border-slate-200 px-5 py-3 dark:border-slate-700">
             <Button variant="outline" onClick={() => setShowRelationsModal(false)}>
               Cancel
             </Button>
           </div>
         </div>
-      </Modal>
+      )}
 
       {/* DAG Dependency Graph Modal */}
       <Modal isOpen={showDagViewer && !!selectedProjectId} onClose={() => setShowDagViewer(false)} size="full" className="max-w-6xl">
@@ -4672,21 +4617,31 @@ export default function ExploreDesignPage() {
         </div>
       </Modal>
 
-      {/* AI Intelligence Modal */}
-      <Modal isOpen={false && showAiPanel} onClose={() => setShowAiPanel(false)} size="lg">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+      {/* AI Intelligence — right-side panel (non-blocking) */}
+      {showAiPanel && (
+        <div
+          role="dialog"
+          aria-label="AI intelligence settings"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
               <Sparkles className="h-5 w-5 text-purple-500" />
               AI Intelligence
             </h3>
-            <button onClick={() => setShowAiPanel(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <button
+              aria-label="Close AI panel"
+              onClick={() => setShowAiPanel(false)}
+              className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
               <X className="h-4 w-4 text-slate-500" />
             </button>
           </div>
-          <AiFeatureToggle />
+          <div className="flex-1 overflow-auto p-5">
+            <AiFeatureToggle />
+          </div>
         </div>
-      </Modal>
+      )}
 
       {/* Deployment Modal — B1-B5 pipeline is now inside DeploymentValidation */}
       <Modal
@@ -4730,216 +4685,6 @@ export default function ExploreDesignPage() {
         onClose={() => setShowIngestionModal(false)}
         projectId={selectedProjectId}
       />
-
-      {/* Column Preview Modal */}
-      {columnPreviewModal.column && selectedTable && (
-        <ColumnPreviewModal
-          isOpen={false && columnPreviewModal.isOpen}
-          onClose={() => setColumnPreviewModal({ isOpen: false, column: null })}
-          projectId={selectedProjectId ?? ''}
-          database={selectedTable.database}
-          schema={selectedTable.schema}
-          table={selectedTable.table}
-          column={columnPreviewModal.column.name}
-          dataType={columnPreviewModal.column.dataType}
-        />
-      )}
-
-      {/* Sensitive Column Modal */}
-      {sensitiveColumnModal.column && selectedTable && (
-        <SensitiveColumnModal
-          isOpen={false && sensitiveColumnModal.isOpen}
-          onClose={() => setSensitiveColumnModal({ isOpen: false, column: null })}
-          database={selectedTable.database}
-          schema={selectedTable.schema}
-          table={selectedTable.table}
-          column={sensitiveColumnModal.column.name}
-          dataType={sensitiveColumnModal.column.dataType}
-          isSensitive={sensitiveColumnModal.column.isSensitive || false}
-          onMarkSensitive={(sensitiveType) => {
-            if (!selectedTable || !sensitiveColumnModal.column || !selectedProjectId) return;
-            const target = {
-              database: selectedTable.database,
-              schema: selectedTable.schema,
-              table: selectedTable.table,
-            };
-            addEvent({
-              ...createSensitiveColumnEvent(
-                target,
-                sensitiveColumnModal.column.name,
-                sensitiveType,
-                true
-              ),
-              projectId: selectedProjectId,
-            });
-            // Update local state
-            setTableColumns(prev =>
-              prev.map(c =>
-                c.name === sensitiveColumnModal.column?.name
-                  ? { ...c, isSensitive: true }
-                  : c
-              )
-            );
-            toast.success(`"${sensitiveColumnModal.column.name}" marked as sensitive (${sensitiveType})`);
-          }}
-          onRemoveSensitive={() => {
-            if (!selectedTable || !sensitiveColumnModal.column || !selectedProjectId) return;
-            const target = {
-              database: selectedTable.database,
-              schema: selectedTable.schema,
-              table: selectedTable.table,
-            };
-            addEvent({
-              ...createSensitiveColumnEvent(
-                target,
-                sensitiveColumnModal.column.name,
-                'removed',
-                false
-              ),
-              projectId: selectedProjectId,
-            });
-            // Update local state
-            setTableColumns(prev =>
-              prev.map(c =>
-                c.name === sensitiveColumnModal.column?.name
-                  ? { ...c, isSensitive: false }
-                  : c
-              )
-            );
-            toast.success(`Sensitive marking removed from "${sensitiveColumnModal.column.name}"`);
-          }}
-        />
-      )}
-
-      {/* Column Exclusion Modal */}
-      {columnExclusionModal.column && selectedTable && (
-        <ColumnExclusionModal
-          isOpen={false && columnExclusionModal.isOpen}
-          onClose={() => setColumnExclusionModal({ isOpen: false, column: null })}
-          database={selectedTable.database}
-          schema={selectedTable.schema}
-          table={selectedTable.table}
-          column={columnExclusionModal.column.name}
-          dataType={columnExclusionModal.column.dataType}
-          isExcluded={excludedColumns.get(selectedTable.id)?.has(columnExclusionModal.column.name) || false}
-          exclusionReason={undefined}
-          onExclude={(reason) => {
-            if (!selectedTable || !columnExclusionModal.column || !selectedProjectId) return;
-            const target = {
-              database: selectedTable.database,
-              schema: selectedTable.schema,
-              table: selectedTable.table,
-            };
-            addEvent({
-              ...createColumnExclusionEvent(
-                target,
-                columnExclusionModal.column.name,
-                true,
-                reason
-              ),
-              projectId: selectedProjectId,
-            });
-            // Update excluded columns map
-            setExcludedColumns(prev => {
-              const next = new Map(prev);
-              const tableExcluded = new Set(next.get(selectedTable.id) || []);
-              tableExcluded.add(columnExclusionModal.column!.name);
-              next.set(selectedTable.id, tableExcluded);
-              return next;
-            });
-            toast.success(`"${columnExclusionModal.column.name}" excluded from modeling`);
-          }}
-          onInclude={() => {
-            if (!selectedTable || !columnExclusionModal.column || !selectedProjectId) return;
-            const target = {
-              database: selectedTable.database,
-              schema: selectedTable.schema,
-              table: selectedTable.table,
-            };
-            addEvent({
-              ...createColumnExclusionEvent(
-                target,
-                columnExclusionModal.column.name,
-                false
-              ),
-              projectId: selectedProjectId,
-            });
-            // Update excluded columns map
-            setExcludedColumns(prev => {
-              const next = new Map(prev);
-              const tableExcluded = new Set(next.get(selectedTable.id) || []);
-              tableExcluded.delete(columnExclusionModal.column!.name);
-              next.set(selectedTable.id, tableExcluded);
-              return next;
-            });
-            toast.success(`"${columnExclusionModal.column.name}" included in modeling`);
-          }}
-        />
-      )}
-
-      {/* Table Preview Modal */}
-      {selectedTable && (
-        <TablePreviewModal
-          isOpen={false && tablePreviewModal}
-          onClose={() => setTablePreviewModal(false)}
-          projectId={selectedProjectId ?? ''}
-          database={selectedTable.database}
-          schema={selectedTable.schema}
-          table={selectedTable.table}
-        />
-      )}
-
-      {/* Table Profile Modal */}
-      {selectedTable && (
-        <TableProfileModal
-          isOpen={false && tableProfileModal}
-          onClose={() => setTableProfileModal(false)}
-          projectId={selectedProjectId ?? ''}
-          database={selectedTable.database}
-          schema={selectedTable.schema}
-          table={selectedTable.table}
-          onAcceptSuggestion={(evt) => {
-            if (!selectedTable) return;
-            const suggestion = evt.suggestion.toUpperCase();
-            if (suggestion.startsWith('CHANGE TO') || suggestion.startsWith('RESIZE')) {
-              const newType = evt.suggestion.replace(/^change to\s+/i, '').replace(/^resize to\s+/i, '').trim();
-              addEvent({
-                type: 'COLUMN_TYPE_CHANGED',
-                projectId: selectedProjectId ?? undefined,
-                target: {
-                  database: selectedTable.database,
-                  schema: selectedTable.schema,
-                  table: selectedTable.table,
-                  column: evt.column,
-                },
-                payload: {
-                  oldType: evt.currentType,
-                  newType,
-                  source: 'ai_optimization',
-                  aiClass: evt.aiClass,
-                },
-              });
-            } else if (suggestion.includes('MASKING') || evt.aiClass === 'PII_CANDIDATE') {
-              addEvent({
-                type: 'MASKING_POLICY_APPLIED',
-                projectId: selectedProjectId ?? undefined,
-                target: {
-                  database: selectedTable.database,
-                  schema: selectedTable.schema,
-                  table: selectedTable.table,
-                  column: evt.column,
-                },
-                payload: {
-                  policyName: 'pii_mask',
-                  columns: [evt.column],
-                  source: 'ai_optimization',
-                  aiClass: evt.aiClass,
-                },
-              });
-            }
-          }}
-        />
-      )}
 
       {/* Create Table Modal - Creates in user's chosen DWH target schema */}
       {/* Note: Modal only opens if selectedProjectId is set (checked in onClick handler) */}
@@ -5082,15 +4827,6 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Audit Trail Panel (modal overlay) */}
-      {showAuditTrail && selectedProjectId && (
-        <Modal isOpen={false && showAuditTrail} onClose={() => setShowAuditTrail(false)} size="xl">
-          <div className="p-4">
-            <AuditTrailPanel projectId={selectedProjectId} />
-          </div>
-        </Modal>
-      )}
-
       {/* Conflict Resolution Modal */}
       <ConflictResolutionModal
         isOpen={showConflictModal}
@@ -5163,17 +4899,36 @@ export default function ExploreDesignPage() {
 
       {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}
 
-      {/* Modeling Ingestion Config Panel */}
+      {/* Modeling Ingestion Config — right-side panel (non-blocking) */}
       {showModelingIngestionPanel && selectedTable && (
-        <Modal isOpen={false} onClose={() => setShowModelingIngestionPanel(false)} size="xl">
-          <IngestionConfigPanel
-            table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
-            projectId={selectedProjectId ?? undefined}
-            columns={tableColumns}
-            ingestionMode={modelingIngestionMode}
-            onModeChange={setModelingIngestionMode}
-          />
-        </Modal>
+        <div
+          role="dialog"
+          aria-label="Ingestion configuration"
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
+            <h3 className="flex items-center gap-2 text-base font-bold text-slate-900 dark:text-white">
+              <Upload className="h-4 w-4 text-blue-500" />
+              Ingestion Config — {selectedTable.table}
+            </h3>
+            <button
+              aria-label="Close ingestion config panel"
+              onClick={() => setShowModelingIngestionPanel(false)}
+              className="rounded-lg p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto p-5">
+            <IngestionConfigPanel
+              table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
+              projectId={selectedProjectId ?? undefined}
+              columns={tableColumns}
+              ingestionMode={modelingIngestionMode}
+              onModeChange={setModelingIngestionMode}
+            />
+          </div>
+        </div>
       )}
 
       {/* Data Engineering Objects Modal */}
@@ -5335,110 +5090,6 @@ export default function ExploreDesignPage() {
           )}
         </div>
       </Modal>
-      {/* Rename Table Modal */}
-      <Modal isOpen={false && renameTableModal.open} onClose={() => setRenameTableModal({ open: false, currentName: '' })}>
-        <div className="p-6 max-w-sm">
-          <h3 className="text-lg font-bold mb-4">Rename Table</h3>
-          <Input
-            label="New table name"
-            defaultValue={renameTableModal.currentName}
-            placeholder="Enter new table name"
-            autoFocus
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Enter') {
-                const newName = (e.target as HTMLInputElement).value.trim();
-                if (newName && newName !== renameTableModal.currentName && selectedTable) {
-                  handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
-                  setRenameTableModal({ open: false, currentName: '' });
-                }
-              }
-            }}
-          />
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setRenameTableModal({ open: false, currentName: '' })}>Cancel</Button>
-            <Button onClick={() => {
-              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new table name"]');
-              const newName = input?.value?.trim();
-              if (newName && newName !== renameTableModal.currentName && selectedTable) {
-                handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
-                setRenameTableModal({ open: false, currentName: '' });
-              }
-            }}>Rename</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Rename Column Modal */}
-      <Modal isOpen={false && renameColumnModal.open} onClose={() => setRenameColumnModal({ open: false, currentName: '' })}>
-        <div className="p-6 max-w-sm">
-          <h3 className="text-lg font-bold mb-1">Rename Column</h3>
-          <p className="text-sm text-slate-500 mb-4">Rename &quot;{renameColumnModal.currentName}&quot;</p>
-          <Input
-            label="New column name"
-            defaultValue={renameColumnModal.currentName}
-            placeholder="Enter new column name"
-            autoFocus
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === 'Enter') {
-                const newName = (e.target as HTMLInputElement).value.trim();
-                if (newName && newName !== renameColumnModal.currentName && selectedTable) {
-                  handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
-                  setRenameColumnModal({ open: false, currentName: '' });
-                }
-              }
-            }}
-          />
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => setRenameColumnModal({ open: false, currentName: '' })}>Cancel</Button>
-            <Button onClick={() => {
-              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new column name"]');
-              const newName = input?.value?.trim();
-              if (newName && newName !== renameColumnModal.currentName && selectedTable) {
-                handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
-                setRenameColumnModal({ open: false, currentName: '' });
-              }
-            }}>Rename</Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Add Column Modal */}
-      {/* Add Column modal removed — now inline in right rail */}
-
-      {/* Primary Key Modal */}
-      <Modal isOpen={false && primaryKeyModal} onClose={() => setPrimaryKeyModal(false)}>
-        <div className="p-6 max-w-sm">
-          <h3 className="text-lg font-bold mb-1">Set Primary Key</h3>
-          <p className="text-sm text-slate-500 mb-4">Select columns for the primary key</p>
-          <div className="space-y-1.5 max-h-60 overflow-auto mb-4">
-            {tableColumns.map((col) => (
-              <label key={col.name} className="flex items-center gap-2 px-3 py-2 rounded-lg border dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
-                <input
-                  type="checkbox"
-                  defaultChecked={col.isPrimaryKey}
-                  value={col.name}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                  data-pk-checkbox
-                />
-                <span className="text-sm font-mono">{col.name}</span>
-                <span className="text-xs text-slate-400 ml-auto">{col.dataType}</span>
-              </label>
-            ))}
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setPrimaryKeyModal(false)}>Cancel</Button>
-            <Button onClick={() => {
-              const checkboxes = document.querySelectorAll<HTMLInputElement>('[data-pk-checkbox]:checked');
-              const columns = Array.from(checkboxes).map(cb => cb.value);
-              if (columns.length === 0) { toast.error('Select at least one column'); return; }
-              if (!selectedTable) return;
-              handleAddPrimaryKey(selectedTable.database, selectedTable.schema, selectedTable.table, columns);
-              setPrimaryKeyModal(false);
-            }}>Set Primary Key</Button>
-          </div>
-        </div>
-      </Modal>
-
       {/* Cross-module links */}
       <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>

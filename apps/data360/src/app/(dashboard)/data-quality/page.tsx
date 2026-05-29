@@ -5,17 +5,14 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { dqThresholdSchema, type DQThresholdFormValues } from '@/validators/dq-threshold.schema';
-import { Badge, Button, Input, Tooltip, Modal, Select } from 'rizzui';
+import { Badge, Button, Input, Tooltip } from 'rizzui';
 import {
   CheckCircle2, AlertTriangle, Database, Clock,
   Shield, DollarSign, FileSearch, BarChart3,
   RefreshCw, Upload, Table2, Tag, Fingerprint,
-  Activity, TrendingUp, Search, X, Filter,
+  Activity, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
-  ArrowRight, Info, Play, Settings, Download,
+  Info, Play, Download,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -23,9 +20,9 @@ import {
   AreaChart, Area,
 } from 'recharts';
 import { cn } from '@/lib/utils';
-import toast from 'react-hot-toast';
 import { motion, LayoutGroup } from 'framer-motion';
 import apiClient from '@/lib/api-client';
+import { runQualityCheck } from '@/app/services/data-quality';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 
@@ -272,7 +269,21 @@ function DataTypeChip({ type, quality }: { type?: string; quality?: 'good' | 'wa
 
 // ── Recommendation Card ──
 
-function RecommendationCard({ rec, onApply }: { rec: Recommendation; onApply?: (rec: Recommendation) => void }) {
+// Map a recommendation category to the module that can act on it. Recommendations
+// are diagnostic only — remediation happens in the owning module, so each card
+// deep-links there rather than fake-applying an action in place.
+const REC_CATEGORY_LINK: Record<string, { href: string; label: string }> = {
+  Completeness: { href: '/explore-design', label: 'Open in Catalog' },
+  Freshness: { href: '/observability', label: 'Open in Observability' },
+  Uniqueness: { href: '/explore-design', label: 'Open in Catalog' },
+  Ingestion: { href: '/observability', label: 'Open in Observability' },
+  Schema: { href: '/explore-design', label: 'Open in Catalog' },
+  Documentation: { href: '/explore-design', label: 'Open in Catalog' },
+  DMF: { href: '/governance', label: 'Open in Governance' },
+  Classification: { href: '/governance', label: 'Open in Governance' },
+};
+
+function RecommendationCard({ rec }: { rec: Recommendation }) {
   const severityConfig = {
     critical: { color: 'danger' as const, icon: AlertTriangle, bg: 'bg-red-50 dark:bg-red-900/10 border-red-200 dark:border-red-800' },
     warning: { color: 'warning' as const, icon: AlertTriangle, bg: 'bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800' },
@@ -280,6 +291,7 @@ function RecommendationCard({ rec, onApply }: { rec: Recommendation; onApply?: (
   };
   const cfg = severityConfig[rec.severity];
   const Icon = cfg.icon;
+  const link = REC_CATEGORY_LINK[rec.category];
 
   return (
     <div className={cn('rounded-lg border p-3 flex items-start gap-3', cfg.bg)}>
@@ -296,16 +308,13 @@ function RecommendationCard({ rec, onApply }: { rec: Recommendation; onApply?: (
           <span className="text-xs text-gray-500 dark:text-gray-400 font-mono">{rec.table}{rec.column ? `.${rec.column}` : ''}</span>
         )}
       </div>
-      {onApply && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="text-xs h-7 px-2 flex-shrink-0"
-          onClick={() => onApply(rec)}
+      {link && (
+        <a
+          href={link.href}
+          className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded h-7 px-2 flex-shrink-0 border border-blue-200 dark:border-blue-800 transition-colors"
         >
-          <ArrowRight className="h-3 w-3 mr-1" />
-          {rec.action}
-        </Button>
+          {link.label}
+        </a>
       )}
     </div>
   );
@@ -519,7 +528,6 @@ function AuditTable({
                 {col.label}
               </th>
             ))}
-            <th className="px-2.5 py-2 text-left font-semibold text-gray-500 dark:text-gray-400 whitespace-nowrap uppercase tracking-wider">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -530,14 +538,6 @@ function AuditTable({
                   {col.format ? col.format(row[col.key], row) : String(row[col.key] ?? '—')}
                 </td>
               ))}
-              <td className="px-2.5 py-1.5 whitespace-nowrap">
-                <button
-                  onClick={() => toast.success(`Profiling ${row.TABLE_NAME || row.COLUMN_NAME || 'item'}...`)}
-                  className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
-                >
-                  <BarChart3 className="h-3 w-3" /> Profile
-                </button>
-              </td>
             </tr>
           ))}
         </tbody>
@@ -994,6 +994,7 @@ export default function DataQualityPage() {
   const [tabData, setTabData] = useState<Record<string, MetricRow[]>>({});
   const [summary, setSummary] = useState<QualitySummary | null>(null);
   const [trendData, setTrendData] = useState<MetricRow[]>([]);
+  const [trendError, setTrendError] = useState<string | null>(null);
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
 
   // Filter state
@@ -1012,47 +1013,36 @@ export default function DataQualityPage() {
   // Charts panel
   const [showCharts, setShowCharts] = useState(true);
 
-  // NL Filter
-  const [nlQuery, setNlQuery] = useState('');
+  // Per-tab error state — a failed fetch must render an inline error for that
+  // tab, never an empty state (which is indistinguishable from "no data").
+  const [tabErrors, setTabErrors] = useState<Record<string, string | null>>({});
 
-  // Threshold modal
-  const [showThresholdModal, setShowThresholdModal] = useState(false);
-  const [thresholdForm, setThresholdForm] = useState({ table_name: '', metric: 'completeness', threshold: 90, alert_on_breach: true });
+  // Action state
   const [runningCheck, setRunningCheck] = useState(false);
+  const [runCheckError, setRunCheckError] = useState<string | null>(null);
   const [piiScanning, setPiiScanning] = useState(false);
   const [autoProtecting, setAutoProtecting] = useState(false);
-
-  // react-hook-form for threshold form
-  const {
-    register: registerThreshold,
-    handleSubmit: handleThresholdSubmit,
-    formState: { errors: thresholdErrors },
-    reset: resetThresholdForm,
-  } = useForm<DQThresholdFormValues>({
-    resolver: zodResolver(dqThresholdSchema),
-    defaultValues: {
-      table_name: '',
-      metric: 'completeness',
-      threshold: 90,
-    },
-  });
+  const [piiActionError, setPiiActionError] = useState<string | null>(null);
+  const [piiActionNotice, setPiiActionNotice] = useState<string | null>(null);
 
   const loadSummary = useCallback(async (force = false) => {
     try {
       const data = await fetchQualityData('quality-summary', force);
       if (data) setSummary(data?.data || data);
       setError(null);
-    } catch (err: any) {
-      toast.error(`Failed to load summary: ${err.message}`);
-      setError(err.message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load summary');
     }
   }, []);
 
   const loadTabData = useCallback(async (tab: string, force = false, pg?: number, ps?: number) => {
     const currentPage = pg ?? page;
     const currentSize = ps ?? pageSize;
-    if (!force && !pg && !ps && tabData[tab] !== undefined) return;
+    // Skip refetch only when we already hold data for the tab AND it isn't in an
+    // error state — otherwise a tab that previously failed could never retry.
+    if (!force && !pg && !ps && tabData[tab] !== undefined && !tabErrors[tab]) return;
     setTabLoading(true);
+    setTabErrors((prev) => ({ ...prev, [tab]: null }));
     try {
       const endpoint = TAB_ENDPOINTS[tab] || tab;
       const params: Record<string, string | number> = {};
@@ -1073,95 +1063,61 @@ export default function DataQualityPage() {
         loadedAt: Date.now(),
         fromCache: !force,
       });
-    } catch (err: any) {
-      toast.error(`Failed to load ${tab}: ${err.message}`);
-      setTabData((prev) => ({ ...prev, [tab]: [] }));
+    } catch (err) {
+      // Surface the failure as an inline per-tab error rather than swallowing it
+      // into an empty state. Leave any previously loaded rows untouched.
+      setTabErrors((prev) => ({
+        ...prev,
+        [tab]: err instanceof Error ? err.message : `Failed to load ${tab}`,
+      }));
     } finally {
       setTabLoading(false);
     }
-  }, [tabData, page, pageSize]);
+  }, [tabData, tabErrors, page, pageSize]);
 
   const loadTrend = useCallback(async (force = false) => {
+    setTrendError(null);
     try {
       const data = await fetchQualityData('trend-analysis', force);
       const rawTrend = data?.data || data || [];
       setTrendData(Array.isArray(rawTrend) ? (rawTrend as MetricRow[]) : []);
-    } catch {
-      // Trend is optional, don't show error
+    } catch (err) {
+      // Trend is a supplementary chart, so its failure doesn't block the page —
+      // but we surface it inline in the charts area rather than swallowing it.
+      setTrendData([]);
+      setTrendError(err instanceof Error ? err.message : 'Failed to load quality trend');
     }
   }, []);
-
-  const loadAllTabsForRecs = useCallback(async (force = false) => {
-    const tabs = ['completeness', 'freshness', 'schema', 'dmf', 'uniqueness', 'ingestion'];
-    const results: Record<string, MetricRow[]> = {};
-    await Promise.allSettled(
-      tabs.map(async (tab) => {
-        if (!force && tabData[tab] !== undefined) {
-          results[tab] = tabData[tab];
-          return;
-        }
-        try {
-          const data = await fetchQualityData(TAB_ENDPOINTS[tab], force);
-          const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
-          results[tab] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
-        } catch {
-          results[tab] = [];
-        }
-      })
-    );
-    setTabData((prev) => ({ ...prev, ...results }));
-    return results;
-  }, [tabData]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
-    const refreshToast = toast.loading('Refreshing quality data…');
     try {
       await Promise.all([
         loadSummary(true),
         loadTrend(true),
       ]);
-      // Force reload all tabs for recommendations
-      const allData: Record<string, MetricRow[]> = {};
-      let succeeded = 0;
-      let failed = 0;
+      // Force reload every dimension so the KPI bar, charts and recommendations
+      // all reflect fresh data. Per-tab failures land in tabErrors so the
+      // affected tab renders an inline error instead of a misleading empty state.
+      const nextData: Record<string, MetricRow[]> = {};
+      const nextErrors: Record<string, string | null> = {};
       await Promise.allSettled(
         TAB_IDS.map(async (tab) => {
           try {
             const data = await fetchQualityData(TAB_ENDPOINTS[tab], true);
             const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
-            allData[tab] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
-            succeeded++;
-          } catch {
-            allData[tab] = [];
-            failed++;
+            nextData[tab] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
+            nextErrors[tab] = null;
+          } catch (err) {
+            nextErrors[tab] = err instanceof Error ? err.message : `Failed to load ${tab}`;
           }
         })
       );
-      setTabData(allData);
+      // Merge so tabs that failed retain any previously loaded rows.
+      setTabData((prev) => ({ ...prev, ...nextData }));
+      setTabErrors((prev) => ({ ...prev, ...nextErrors }));
       setCacheInfo({ loadedAt: Date.now(), fromCache: false });
-      // Count tables touched across all dimensions for user-visible feedback.
-      const tablesScanned = new Set<string>();
-      for (const rows of Object.values(allData)) {
-        for (const row of rows) {
-          const name = String(row.TABLE_NAME || row.table_name || row.NAME || '');
-          if (name) tablesScanned.add(name);
-        }
-      }
-      if (failed === 0) {
-        toast.success(
-          `Refresh complete — ${tablesScanned.size} table${tablesScanned.size === 1 ? '' : 's'} re-scanned`,
-          { id: refreshToast }
-        );
-      } else {
-        toast.success(
-          `Refresh complete — ${succeeded}/${TAB_IDS.length} dimensions, ${tablesScanned.size} tables (${failed} failed)`,
-          { id: refreshToast }
-        );
-      }
-    } catch {
-      toast.error('Some data failed to refresh', { id: refreshToast });
     } finally {
       setRefreshing(false);
     }
@@ -1197,14 +1153,14 @@ export default function DataQualityPage() {
       (async () => {
         try {
           const snap = await fetchQualityData('snapshot');
-          const payload = snap?.data || {};
+          const payload: Record<string, unknown> = snap?.data || {};
           // Map snapshot keys → tabData keys
           const next: Record<string, MetricRow[]> = {};
           for (const [key, value] of Object.entries(payload)) {
-            const v = value as any;
-            const rows = v?.rows || v?.data || v?.results || (Array.isArray(v) ? v : []);
+            const v = (value ?? {}) as { rows?: unknown; data?: unknown; results?: unknown };
+            const rows = v.rows || v.data || v.results || (Array.isArray(value) ? value : []);
             if (key === 'quality_summary') {
-              setSummary(v?.data || v);
+              setSummary((v.data || value) as QualitySummary);
             } else {
               next[key] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
             }
@@ -1213,9 +1169,9 @@ export default function DataQualityPage() {
           setCacheInfo({ loadedAt: Date.now(), fromCache: false });
           // Trend is not yet part of snapshot — fetch separately, non-blocking.
           loadTrend();
-        } catch (err: any) {
-          toast.error(`Snapshot load failed: ${err.message}`);
-          // Fallback to legacy lazy path so the page is still usable.
+        } catch {
+          // Snapshot is an optional optimization; on failure fall back to the
+          // legacy lazy path, which surfaces its own inline errors per section.
           await Promise.all([loadSummary(), loadTrend(), loadTabData(activeTab)]);
         } finally {
           setLoading(false);
@@ -1301,10 +1257,6 @@ export default function DataQualityPage() {
     return generateRecommendations(tabData, summary);
   }, [tabData, summary]);
 
-  const handleRecApply = (rec: Recommendation) => {
-    toast.success(`Action "${rec.action}" noted for ${rec.table || 'system'}. Navigate to relevant module to apply.`);
-  };
-
   // KPI bar — health score color: green >80, amber 50-80, red <50
   const healthColor = summary
     ? summary.health_score > 80
@@ -1341,13 +1293,16 @@ export default function DataQualityPage() {
           <Button
             onClick={async () => {
               setRunningCheck(true);
-              const toastId = toast.loading('Running quality checks on all tables...');
+              setRunCheckError(null);
               try {
-                await apiClient.post('/data-quality/run-check', { database: 'CP_DATA360' });
-                toast.success('Quality check started', { id: toastId });
+                await runQualityCheck('CP_DATA360');
+                // The sweep runs async on the backend; pull fresh summary shortly after.
                 setTimeout(() => loadSummary(true), 3000);
-              } catch { toast.error('Check failed', { id: toastId }); }
-              finally { setRunningCheck(false); }
+              } catch (err) {
+                setRunCheckError(err instanceof Error ? err.message : 'Quality check failed');
+              } finally {
+                setRunningCheck(false);
+              }
             }}
             disabled={runningCheck}
             size="sm"
@@ -1355,14 +1310,6 @@ export default function DataQualityPage() {
           >
             <Play className={cn('h-3.5 w-3.5', runningCheck && 'animate-pulse')} />
             {runningCheck ? 'Running...' : 'Run Check'}
-          </Button>
-          <Button
-            onClick={() => setShowThresholdModal(true)}
-            size="sm"
-            className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
-          >
-            <Settings className="h-3.5 w-3.5" />
-            Set Thresholds
           </Button>
           <Button
             onClick={handleRefresh}
@@ -1382,67 +1329,41 @@ export default function DataQualityPage() {
         {refreshing ? 'Refreshing data quality scores...' : ''}
       </div>
 
-      {/* ── Inline Threshold Form (react-hook-form validated) ── */}
-      {showThresholdModal && (
-        <form
-          onSubmit={handleThresholdSubmit((data) => {
-            toast.success(`Threshold set: ${data.metric} >= ${data.threshold}%${data.table_name ? ` for ${data.table_name}` : ''}`);
-            setShowThresholdModal(false);
-            resetThresholdForm();
-          })}
-          noValidate
-          className="bg-white dark:bg-gray-900 border border-blue-200 dark:border-blue-800 rounded-xl p-4 space-y-3"
-        >
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <Settings className="h-4 w-4 text-blue-500" /> Set Quality Threshold
-            </h3>
-            <button type="button" aria-label="Close threshold settings" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }} className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700">
-              <X className="h-4 w-4 text-gray-500" />
-            </button>
+      {/* Inline error for the quality summary fetch (drives the KPI bar) */}
+      {error && !loading && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-red-700 dark:text-red-400">Couldn&apos;t load quality summary</p>
+            <p className="text-xs text-red-600 dark:text-red-400 break-words">{error}</p>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <Input
-                size="sm"
-                placeholder="Table name (optional)"
-                {...registerThreshold('table_name')}
-                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-                aria-label="Table name"
-              />
-            </div>
-            <div>
-              <select
-                {...registerThreshold('metric')}
-                className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300 w-full"
-                aria-label="Quality metric"
-              >
-                <option value="completeness">Completeness</option>
-                <option value="uniqueness">Uniqueness</option>
-                <option value="freshness">Freshness</option>
-                <option value="schema">Schema</option>
-              </select>
-            </div>
-            <div>
-              <Input
-                size="sm"
-                type="number"
-                placeholder="Threshold %"
-                {...registerThreshold('threshold', { valueAsNumber: true })}
-                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-                aria-invalid={!!thresholdErrors.threshold}
-                aria-label="Threshold percentage"
-              />
-              {thresholdErrors.threshold && (
-                <p className="text-[10px] text-red-500 mt-0.5" role="alert">{thresholdErrors.threshold.message}</p>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm" type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-xs">Apply</Button>
-              <Button size="sm" variant="outline" className="text-xs" type="button" onClick={() => { setShowThresholdModal(false); resetThresholdForm(); }}>Cancel</Button>
-            </div>
+          <Button
+            onClick={() => loadSummary(true)}
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-700 text-white text-xs h-7"
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* Inline error for the Run Check action — shows the exact backend detail */}
+      {runCheckError && (
+        <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+          <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-red-700 dark:text-red-400">Quality check failed</p>
+            <p className="text-xs text-red-600 dark:text-red-400 break-words">{runCheckError}</p>
           </div>
-        </form>
+          <button
+            type="button"
+            aria-label="Dismiss error"
+            onClick={() => setRunCheckError(null)}
+            className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+          >
+            <X className="h-3.5 w-3.5 text-red-500" />
+          </button>
+        </div>
       )}
 
       {/* ── Compact KPI Bar ── */}
@@ -1499,6 +1420,12 @@ export default function DataQualityPage() {
                 <QualityScoreDistribution tabData={tabData} />
                 <FreshnessHeatmap tabData={tabData} />
                 {trendData.length > 0 && <TrendChart trendData={trendData} />}
+                {trendError && (
+                  <div role="alert" className="flex items-center gap-2 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 p-4 text-xs text-red-600 dark:text-red-400">
+                    <AlertTriangle className="h-4 w-4 flex-shrink-0 text-red-500" />
+                    <span className="break-words">Quality trend unavailable — {trendError}</span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1540,7 +1467,7 @@ export default function DataQualityPage() {
             ) : (
               <div className="space-y-2 mt-3 max-h-[300px] overflow-y-auto">
                 {recommendations.slice(0, 15).map((rec) => (
-                  <RecommendationCard key={rec.id} rec={rec} onApply={handleRecApply} />
+                  <RecommendationCard key={rec.id} rec={rec} />
                 ))}
                 {recommendations.length > 15 && (
                   <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-1">
@@ -1555,40 +1482,8 @@ export default function DataQualityPage() {
 
       {/* ── Search & Filters + Tab Navigation + Data Table ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-        {/* NL Filter + Search + Filters Bar */}
+        {/* Search + Filters Bar */}
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
-          {/* Natural Language Filter */}
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1 max-w-lg">
-              <Lightbulb className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-amber-500" />
-              <Input
-                type="text"
-                aria-label="Natural language quality filter"
-                placeholder="Ask in natural language: e.g. 'show tables with null rate above 20%'"
-                value={nlQuery}
-                onChange={(e) => {
-                  setNlQuery(e.target.value);
-                  // Simple NL parsing: apply as search query for matching
-                  const q = e.target.value.toLowerCase();
-                  if (q.includes('fail')) setStatusFilter('FAIL');
-                  else if (q.includes('pass')) setStatusFilter('PASS');
-                  else if (q.includes('warning')) setStatusFilter('WARNING');
-                  // Also pass as search
-                  if (q.length > 3) {
-                    const terms = q.replace(/show|tables|with|above|below|rate|null/gi, '').trim();
-                    if (terms) setSearchQuery(terms);
-                  }
-                }}
-                className="pl-8 h-8 text-xs"
-                inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white"
-              />
-              {nlQuery && (
-                <button aria-label="Clear natural language filter" onClick={() => { setNlQuery(''); setSearchQuery(''); setStatusFilter(null); }} className="absolute right-2 top-1/2 -translate-y-1/2">
-                  <X className="h-3.5 w-3.5 text-gray-500 dark:text-gray-400 hover:text-gray-600" />
-                </button>
-              )}
-            </div>
-          </div>
           <div className="flex items-center gap-3">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500 dark:text-gray-400" />
@@ -1743,13 +1638,16 @@ export default function DataQualityPage() {
                   className="gap-1.5 text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
                   onClick={async () => {
                     setPiiScanning(true);
+                    setPiiActionError(null);
+                    setPiiActionNotice(null);
                     try {
+                      // Classification is a cross-module (governance) action; the
+                      // PII tab refreshes once the backend finishes tagging.
                       await apiClient.post('/gouvernance/classification/classify', { table_name: 'CP_DATA360.PUBLIC.*' });
-                      toast.success('PII scan triggered — refreshing results');
-                      // Reload PII tab data after scan
                       setTimeout(() => loadTabData('pii', true, 1, pageSize), 2000);
-                    } catch (err: any) {
-                      toast.error(err?.response?.data?.detail || 'PII scan failed');
+                    } catch (err) {
+                      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                      setPiiActionError(detail || (err instanceof Error ? err.message : 'PII scan failed'));
                     } finally {
                       setPiiScanning(false);
                     }
@@ -1765,29 +1663,37 @@ export default function DataQualityPage() {
                   disabled={autoProtecting}
                   onClick={async () => {
                     if (autoProtecting) return;
+                    setPiiActionError(null);
+                    setPiiActionNotice(null);
                     const piiRows = tabData.pii || [];
-                    const exposedCols = piiRows.filter((r: any) => !r.POLICY_APPLIED || r.POLICY_APPLIED === 'false' || r.POLICY_APPLIED === 'NO');
+                    const exposedCols = piiRows.filter((r) => {
+                      const applied = r.POLICY_APPLIED;
+                      return !(applied === true || applied === 'true' || applied === 'YES');
+                    });
                     if (exposedCols.length === 0) {
-                      toast.success('All PII columns are already protected');
+                      setPiiActionNotice('All flagged PII columns are already protected.');
                       return;
                     }
                     setAutoProtecting(true);
-                    toast.loading(`Applying masking to ${exposedCols.length} exposed columns...`, { id: 'auto-protect' });
-                    try {
-                      for (const col of exposedCols.slice(0, 10)) {
+                    const batch = exposedCols.slice(0, 10);
+                    const failures: string[] = [];
+                    for (const col of batch) {
+                      try {
                         await apiClient.post('/gouvernance/masking-policies/apply', {
                           table_name: col.TABLE_NAME,
                           column_name: col.COLUMN_NAME,
                           policy_type: 'auto',
-                        }).catch(() => {});
+                        });
+                      } catch (err) {
+                        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+                        failures.push(`${String(col.TABLE_NAME ?? '?')}.${String(col.COLUMN_NAME ?? '?')}: ${detail || (err instanceof Error ? err.message : 'failed')}`);
                       }
-                      toast.success(`Masking applied to ${Math.min(exposedCols.length, 10)} columns`, { id: 'auto-protect' });
-                      loadTabData('pii', true, 1, pageSize);
-                    } catch {
-                      toast.error('Auto-protect failed', { id: 'auto-protect' });
-                    } finally {
-                      setAutoProtecting(false);
                     }
+                    if (failures.length > 0) {
+                      setPiiActionError(`Masking failed for ${failures.length}/${batch.length} columns — ${failures[0]}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`);
+                    }
+                    loadTabData('pii', true, 1, pageSize);
+                    setAutoProtecting(false);
                   }}
                 >
                   <Shield className="h-3.5 w-3.5" />
@@ -1795,12 +1701,40 @@ export default function DataQualityPage() {
                 </Button>
               </div>
             </div>
+            {piiActionError && (
+              <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+                <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{piiActionError}</p>
+                <button
+                  type="button"
+                  aria-label="Dismiss PII action error"
+                  onClick={() => setPiiActionError(null)}
+                  className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                >
+                  <X className="h-3.5 w-3.5 text-red-500" />
+                </button>
+              </div>
+            )}
+            {piiActionNotice && !piiActionError && (
+              <div role="status" className="mt-3 flex items-start gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 px-3 py-2">
+                <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+                <p className="flex-1 min-w-0 text-xs text-green-700 dark:text-green-400 break-words">{piiActionNotice}</p>
+                <button
+                  type="button"
+                  aria-label="Dismiss notice"
+                  onClick={() => setPiiActionNotice(null)}
+                  className="p-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/30"
+                >
+                  <X className="h-3.5 w-3.5 text-green-500" />
+                </button>
+              </div>
+            )}
             <div className="mt-3 grid grid-cols-4 gap-3">
               {(() => {
                 const piiRows = tabData.pii || [];
-                const types = new Set(piiRows.map((r: any) => r.PII_TYPE)).size;
+                const types = new Set(piiRows.map((r) => r.PII_TYPE)).size;
                 const flagged = piiRows.length;
-                const protectedCount = piiRows.filter((r: any) => r.POLICY_APPLIED === true || r.POLICY_APPLIED === 'true' || r.POLICY_APPLIED === 'YES').length;
+                const protectedCount = piiRows.filter((r) => r.POLICY_APPLIED === true || r.POLICY_APPLIED === 'true' || r.POLICY_APPLIED === 'YES').length;
                 const exposed = flagged - protectedCount;
                 return (
                   <>
@@ -1827,22 +1761,23 @@ export default function DataQualityPage() {
           </div>
         )}
 
-        {/* Tab Content */}
+        {/* Tab Content — loading / inline error / empty / data, in that order */}
         <div className="min-h-[300px]">
-          {error && !loading ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <AlertTriangle className="h-8 w-8 text-amber-500" />
-              <p className="text-sm text-gray-600 dark:text-gray-400">{error}</p>
+          {loading || tabLoading ? (
+            <TableSkeleton rows={8} />
+          ) : tabErrors[activeTab] ? (
+            <div role="alert" className="flex flex-col items-center justify-center py-16 gap-3">
+              <AlertTriangle className="h-8 w-8 text-red-500" />
+              <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Failed to load {TAB_LABELS[activeTab]}</p>
+              <p className="max-w-md text-center text-xs text-red-600 dark:text-red-400 break-words">{tabErrors[activeTab]}</p>
               <Button
-                onClick={handleRefresh}
+                onClick={() => loadTabData(activeTab, true, page, pageSize)}
                 size="sm"
                 className="bg-blue-600 hover:bg-blue-700 text-white text-xs"
               >
                 Retry
               </Button>
             </div>
-          ) : loading || tabLoading ? (
-            <TableSkeleton rows={8} />
           ) : (
             <div className="p-3">
               <AuditTable
@@ -1862,38 +1797,6 @@ export default function DataQualityPage() {
                   onPageSizeChange={handlePageSizeChange}
                 />
               )}
-
-              {/* Column Distribution Histogram for numeric columns */}
-              {(activeTab === 'completeness' || activeTab === 'schema') &&
-                tabData?.completeness && Array.isArray(tabData.completeness) && tabData.completeness
-                  .filter((c: MetricRow) => {
-                    const dtype = String(c.DATA_TYPE || c.COLUMN_TYPE || '').toUpperCase();
-                    return ['NUMBER', 'FLOAT', 'DECIMAL', 'INT', 'INTEGER', 'BIGINT', 'NUMERIC'].some(t => dtype.includes(t));
-                  })
-                  .slice(0, 3)
-                  .map((col: MetricRow) => (
-                    <div key={String(col.COLUMN_NAME)} className="mt-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        {String(col.COLUMN_NAME)} Distribution
-                      </h4>
-                      <ResponsiveContainer width="100%" height={150}>
-                        <BarChart data={[
-                          { range: 'Min-P25', count: Number(col.NULL_COUNT || 0) },
-                          { range: 'P25-P50', count: Number(col.DISTINCT_COUNT || col.TOTAL_ROWS || 0) },
-                          { range: 'P50-P75', count: Math.floor(Number(col.DISTINCT_COUNT || col.TOTAL_ROWS || 0) * 0.7) },
-                          { range: 'P75-Max', count: Math.floor(Number(col.DISTINCT_COUNT || col.TOTAL_ROWS || 0) * 0.3) },
-                        ]}>
-                          <Bar dataKey="count" fill="#3B82F6" radius={[4, 4, 0, 0]} />
-                          <XAxis dataKey="range" tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-                          <YAxis tick={{ fontSize: 10, fill: '#9CA3AF' }} />
-                          <RechartsTooltip
-                            contentStyle={DARK_TOOLTIP_STYLE}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ))
-              }
             </div>
           )}
         </div>

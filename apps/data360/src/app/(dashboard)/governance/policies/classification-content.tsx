@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Input, Loader, Modal } from 'rizzui';
+import { Button, Input, Loader } from 'rizzui';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import toast from 'react-hot-toast';
 import {
   PiTag,
@@ -349,9 +350,11 @@ export default function ClassificationContent() {
   const [classifierDb, setClassifierDb] = useState('');
   const [classifierSchema, setClassifierSchema] = useState('');
   const [creatingClassifier, setCreatingClassifier] = useState(false);
+  const [classifierError, setClassifierError] = useState<string | null>(null);
 
   // Add Regex
   const [showAddRegex, setShowAddRegex] = useState(false);
+  const [regexError, setRegexError] = useState<string | null>(null);
   const [regexForm, setRegexForm] = useState({
     classifier_name: '',
     semantic_category: '',
@@ -369,12 +372,6 @@ export default function ClassificationContent() {
     try {
       const result = await classifyTable({ table_name: tbl });
       const payload = result.data || result;
-      // eslint-disable-next-line no-console
-      console.log('[Classify] Raw backend response:', result);
-      // eslint-disable-next-line no-console
-      console.log('[Classify] Payload used by UI:', payload);
-      // eslint-disable-next-line no-console
-      console.log('[Classify] Normalized rows for table:', normalizeColumns(payload));
       setClassifyResult(payload);
       toast.success('Classification complete');
     } catch (err: any) {
@@ -392,12 +389,6 @@ export default function ClassificationContent() {
     try {
       const result = await extractSemanticCategories({ table_name: tbl });
       const payload = result.data || result;
-      // eslint-disable-next-line no-console
-      console.log('[Extract] Raw backend response:', result);
-      // eslint-disable-next-line no-console
-      console.log('[Extract] Payload used by UI:', payload);
-      // eslint-disable-next-line no-console
-      console.log('[Extract] Normalized rows for table:', normalizeColumns(payload));
       setExtractResult(payload);
       toast.success('Categories extracted');
     } catch (err: any) {
@@ -422,7 +413,8 @@ export default function ClassificationContent() {
   };
 
   const handleCreateClassifier = async () => {
-    if (!classifierName) { toast.error('Name is required'); return; }
+    if (!classifierName) { setClassifierError('Name is required.'); return; }
+    setClassifierError(null);
     setCreatingClassifier(true);
     try {
       await createCustomClassifier({
@@ -436,7 +428,7 @@ export default function ClassificationContent() {
       setClassifierDb('');
       setClassifierSchema('');
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to create classifier'));
+      setClassifierError(errorMessage(err, 'Failed to create classifier'));
     } finally {
       setCreatingClassifier(false);
     }
@@ -444,9 +436,10 @@ export default function ClassificationContent() {
 
   const handleAddRegex = async () => {
     if (!regexForm.classifier_name || !regexForm.semantic_category || !regexForm.privacy_category || !regexForm.value_regex) {
-      toast.error('All required fields must be filled');
+      setRegexError('All required fields must be filled.');
       return;
     }
+    setRegexError(null);
     try {
       await addClassifierRegex(regexForm.classifier_name, {
         semantic_category: regexForm.semantic_category,
@@ -459,7 +452,7 @@ export default function ClassificationContent() {
       setShowAddRegex(false);
       setRegexForm({ classifier_name: '', semantic_category: '', privacy_category: '', value_regex: '', col_name_regex: '', threshold: 0.8 });
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to add regex'));
+      setRegexError(errorMessage(err, 'Failed to add regex'));
     }
   };
 
@@ -649,10 +642,10 @@ export default function ClassificationContent() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowAddRegex(true)} className="gap-2">
+              <Button variant="outline" onClick={() => { setRegexError(null); setShowAddRegex(true); }} className="gap-2">
                 <PiPlus className="w-4 h-4" /> Add Regex Rule
               </Button>
-              <Button onClick={() => setShowCreateClassifier(true)} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
+              <Button onClick={() => { setClassifierError(null); setShowCreateClassifier(true); }} className="gap-2 bg-amber-600 text-white hover:bg-amber-700">
                 <PiPlus className="w-4 h-4" /> New Classifier
               </Button>
             </div>
@@ -664,10 +657,22 @@ export default function ClassificationContent() {
         </div>
       )}
 
-      {/* Create Classifier Modal */}
-      <Modal isOpen={showCreateClassifier} onClose={() => setShowCreateClassifier(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Create Custom Classifier</h3>
+      {/* Create Classifier Panel */}
+      <PolicyFormPanel
+        isOpen={showCreateClassifier}
+        onClose={() => setShowCreateClassifier(false)}
+        title="Create Custom Classifier"
+        description="Define a custom classifier with regex patterns for domain-specific PII"
+        accentClassName="bg-amber-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreateClassifier(false)}>Cancel</Button>
+            <Button onClick={handleCreateClassifier} disabled={creatingClassifier} className="bg-amber-600 text-white hover:bg-amber-700">
+              {creatingClassifier ? <Loader variant="spinner" size="sm" /> : 'Create'}
+            </Button>
+          </>
+        }
+      >
           <Input
             label="Classifier Name"
             placeholder="e.g. my_pii_classifier"
@@ -693,31 +698,38 @@ export default function ClassificationContent() {
           <p className="text-xs text-slate-500">
             Leave database/schema empty to use the governance default location.
           </p>
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowCreateClassifier(false)}>Cancel</Button>
-            <Button onClick={handleCreateClassifier} disabled={creatingClassifier} className="bg-amber-600 text-white hover:bg-amber-700">
-              {creatingClassifier ? <Loader variant="spinner" size="sm" /> : 'Create'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {classifierError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {classifierError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Add Regex Modal */}
-      <Modal isOpen={showAddRegex} onClose={() => setShowAddRegex(false)}>
-        <div className="p-6 space-y-4">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Add Regex Rule to Classifier</h3>
+      {/* Add Regex Panel */}
+      <PolicyFormPanel
+        isOpen={showAddRegex}
+        onClose={() => setShowAddRegex(false)}
+        title="Add Regex Rule to Classifier"
+        accentClassName="bg-amber-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowAddRegex(false)}>Cancel</Button>
+            <Button onClick={handleAddRegex} className="bg-amber-600 text-white hover:bg-amber-700">Add Rule</Button>
+          </>
+        }
+      >
           <Input label="Classifier Name" placeholder="my_pii_classifier" value={regexForm.classifier_name} onChange={(e) => setRegexForm({ ...regexForm, classifier_name: e.target.value })} />
           <Input label="Semantic Category" placeholder="e.g. US_SSN" value={regexForm.semantic_category} onChange={(e) => setRegexForm({ ...regexForm, semantic_category: e.target.value })} />
           <Input label="Privacy Category" placeholder="e.g. IDENTIFIER" value={regexForm.privacy_category} onChange={(e) => setRegexForm({ ...regexForm, privacy_category: e.target.value })} />
           <Input label="Regex Pattern" placeholder="e.g. \\d{3}-\\d{2}-\\d{4}" value={regexForm.value_regex} onChange={(e) => setRegexForm({ ...regexForm, value_regex: e.target.value })} />
           <Input label="Column Name Regex (optional)" placeholder="e.g. .*ssn.*" value={regexForm.col_name_regex} onChange={(e) => setRegexForm({ ...regexForm, col_name_regex: e.target.value })} />
           <Input label="Threshold" type="number" placeholder="0.8" value={String(regexForm.threshold)} onChange={(e) => setRegexForm({ ...regexForm, threshold: parseFloat(e.target.value) || 0.8 })} />
-          <div className="flex justify-end gap-3 pt-2">
-            <Button variant="outline" onClick={() => setShowAddRegex(false)}>Cancel</Button>
-            <Button onClick={handleAddRegex} className="bg-amber-600 text-white hover:bg-amber-700">Add Rule</Button>
-          </div>
-        </div>
-      </Modal>
+          {regexError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {regexError}
+            </p>
+          )}
+      </PolicyFormPanel>
     </div>
   );
 }

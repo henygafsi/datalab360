@@ -1,21 +1,36 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Textarea, Input, Loader, Badge } from 'rizzui';
+import { Button, Textarea, Loader, Badge } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   PiRobotDuotone,
   PiSmileyDuotone,
   PiTranslateDuotone,
   PiTextAlignLeftDuotone,
-  PiMagnifyingGlassDuotone,
-  PiDatabaseDuotone,
   PiCopySimple,
   PiArrowsLeftRightBold,
   PiSparkle,
   PiLightningDuotone,
   PiShieldCheckDuotone,
+  PiWarningCircle,
 } from 'react-icons/pi';
+
+// ── Shared inline error display — replaces error toasts so the failed state
+// stays visible next to the action that produced it. ──
+function InlineError({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+      <PiWarningCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+      <p className="flex-1 text-sm text-red-700 dark:text-red-300">{message}</p>
+      {onRetry && (
+        <Button variant="text" size="sm" className="shrink-0" onClick={onRetry}>
+          Retry
+        </Button>
+      )}
+    </div>
+  );
+}
 import {
   generateCompletion,
   analyzeSentiment,
@@ -104,21 +119,23 @@ function AIAssistantTab() {
   const [response, setResponse] = useState('');
   const [model, setModel] = useState<LLMModel>('mistral-7b');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [guardrails, setGuardrails] = useState(false);
   const trackCharge = useTrackAiCharge();
   const estimate = useAiCostEstimate('cortex_complete', { prompt_chars: prompt.length, model });
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     if (!prompt.trim()) return;
 
     setLoading(true);
+    setError(null);
     try {
       const result = await generateCompletion({ prompt, model, guardrails });
       setResponse(result.response);
       trackCharge('cortex_complete', estimate.credits, model);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to generate response');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate response');
     } finally {
       setLoading(false);
     }
@@ -138,36 +155,6 @@ function AIAssistantTab() {
         <div>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">AI Assistant</h3>
           <p className="text-sm text-slate-500">Ask questions, generate content, and more</p>
-        </div>
-      </div>
-
-      {/* Quick Demo Presets */}
-      <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Quick Demo
-        </label>
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
-          {[
-            { label: 'Explain Schema', text: 'Explain the schema of CP_DATA360.RETAIL_DW', icon: PiDatabaseDuotone },
-            { label: 'Top Customers Query', text: 'Write a query to find top 10 customers by revenue', icon: PiMagnifyingGlassDuotone },
-            { label: 'DQ Checks', text: 'Suggest data quality checks for FACT_TRANSACTIONS', icon: PiShieldCheckDuotone },
-          ].map((preset) => {
-            const PresetIcon = preset.icon;
-            return (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => setPrompt(preset.text)}
-                className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-left transition-all hover:border-purple-400 hover:bg-purple-50 dark:border-slate-600 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
-              >
-                <PresetIcon className="h-5 w-5 flex-shrink-0 text-purple-500 dark:text-purple-400" />
-                <div>
-                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">{preset.label}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{preset.text}</div>
-                </div>
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -261,6 +248,8 @@ function AIAssistantTab() {
         </div>
       </form>
 
+      {error && <InlineError message={error} onRetry={() => handleSubmit()} />}
+
       {/* Response */}
       {response && (
         <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-900/20">
@@ -290,6 +279,7 @@ function SentimentTab() {
   const [input, setInput] = useState('');
   const [results, setResults] = useState<SentimentResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const trackCharge = useTrackAiCharge();
   const rowCount = input.split('\n').filter((t) => t.trim()).length;
   const estimate = useAiCostEstimate('cortex_sentiment', { rows: rowCount });
@@ -301,12 +291,13 @@ function SentimentTab() {
     if (texts.length === 0) return;
 
     setLoading(true);
+    setError(null);
     try {
       const sentiments = await analyzeSentiment(texts);
       setResults(sentiments);
       trackCharge('cortex_sentiment', estimate.credits);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to analyze sentiment');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to analyze sentiment');
     } finally {
       setLoading(false);
     }
@@ -336,13 +327,6 @@ function SentimentTab() {
           <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
             Enter text to analyze (one per line for batch analysis)
           </label>
-          <button
-            onClick={() => setInput("I love this product! The quality is amazing and delivery was super fast.\nTerrible experience. The item arrived broken and customer service was unhelpful.\nIt's okay, nothing special but it works as expected.\nBest purchase I've made this year! Highly recommended.\nDisappointing quality for the price. Would not buy again.")}
-            className="text-xs font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1"
-          >
-            <PiSparkle className="h-3 w-3" />
-            Try Sample
-          </button>
         </div>
         <Textarea
           value={input}
@@ -378,6 +362,8 @@ function SentimentTab() {
           showSource
         />
       </div>
+
+      {error && <InlineError message={error} onRetry={handleAnalyze} />}
 
       {/* Results */}
       {results.length > 0 && (
@@ -442,6 +428,7 @@ function TranslatorTab() {
   const [fromLang, setFromLang] = useState<LanguageCode>('en');
   const [toLang, setToLang] = useState<LanguageCode>('fr');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const trackCharge = useTrackAiCharge();
   const estimate = useAiCostEstimate('cortex_translate', { prompt_chars: sourceText.length });
 
@@ -449,6 +436,7 @@ function TranslatorTab() {
     if (!sourceText.trim()) return;
 
     setLoading(true);
+    setError(null);
     try {
       const result = await translateText({
         text: sourceText,
@@ -457,8 +445,8 @@ function TranslatorTab() {
       });
       setTranslatedText(result.translated);
       trackCharge('cortex_translate', estimate.credits);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to translate');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to translate');
     } finally {
       setLoading(false);
     }
@@ -539,13 +527,6 @@ function TranslatorTab() {
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
               Source Text
             </label>
-            <button
-              onClick={() => setSourceText("Data360 is the all-in-one AI and Data ERP platform that connects, models, transforms, governs, and analyzes enterprise data in a single unified experience.")}
-              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1"
-            >
-              <PiSparkle className="h-3 w-3" />
-              Try Sample
-            </button>
           </div>
           <Textarea
             value={sourceText}
@@ -608,6 +589,8 @@ function TranslatorTab() {
           showSource
         />
       </div>
+
+      {error && <InlineError message={error} onRetry={handleTranslate} />}
     </div>
   );
 }
@@ -621,22 +604,24 @@ function SummarizerTab() {
   const [maxLength, setMaxLength] = useState(150);
   const [summary, setSummary] = useState<{ text: string; compression: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const trackCharge = useTrackAiCharge();
   const estimate = useAiCostEstimate('cortex_summarize', { prompt_chars: inputText.length });
 
   async function handleSummarize() {
     if (!inputText.trim() || inputText.length < 100) {
-      toast.error('Please enter at least 100 characters');
+      setError('Please enter at least 100 characters');
       return;
     }
 
     setLoading(true);
+    setError(null);
     try {
       const result = await summarizeText({ text: inputText, max_length: maxLength });
       setSummary({ text: result.summary, compression: result.compression_ratio || '0' });
       trackCharge('cortex_summarize', estimate.credits);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to summarize');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to summarize');
     } finally {
       setLoading(false);
     }
@@ -686,13 +671,6 @@ function SummarizerTab() {
         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
           Original Text
         </label>
-        <button
-          onClick={() => setInputText("Data governance is the process of managing the availability, usability, integrity, and security of data in enterprise systems. It includes establishing policies, standards, and procedures that ensure data quality and compliance with regulations such as GDPR and SOC 2. Effective data governance requires collaboration between data stewards, engineers, analysts, and business stakeholders. Modern platforms like Data360 automate governance through AI-powered classification, masking policies, row-level security, and real-time compliance monitoring across all data assets.")}
-          className="text-xs font-medium text-orange-600 dark:text-orange-400 hover:text-orange-700 flex items-center gap-1 mb-1"
-        >
-          <PiSparkle className="h-3 w-3" />
-          Try Sample Text
-        </button>
         <Textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -733,6 +711,8 @@ function SummarizerTab() {
           showSource
         />
       </div>
+
+      {error && <InlineError message={error} onRetry={handleSummarize} />}
 
       {/* Summary Result */}
       {summary && (

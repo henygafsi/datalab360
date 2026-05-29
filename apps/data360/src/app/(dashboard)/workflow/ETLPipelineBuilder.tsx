@@ -60,12 +60,6 @@ import RunApprovalStatusHero from './components/RunApprovalStatusHero';
 import RollbackVersionDialog from './components/RollbackVersionDialog';
 import { validateGraph } from './components/etl-catalog-grounding';
 import CustomConnectionLine from './components/CustomConnectionLine';
-import {
-  Dialog as UiDialog,
-  DialogContent as UiDialogContent,
-  DialogHeader as UiDialogHeader,
-  DialogTitle as UiDialogTitle,
-} from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 // Workflow API services
@@ -542,10 +536,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   }>(null);
   const lastLoadedUpdatedAtRef = useRef<number>(0);
 
-  // Header action modals — schedule popover + rollback dialog.
-  // Kept here so the four new CTAs (Suspend/Resume/Schedule/Rollback) are
-  // wired without touching the right panel or other modules.
-  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  // Header action surfaces — schedule (inline right-panel tab) + rollback dialog.
+  // Rollback stays a dialog (destructive, diff-confirm gate). The schedule
+  // editor is NOT a modal: the header Schedule button reveals the existing
+  // non-blocking `schedules` tab in the right panel, which already mounts
+  // ScheduleManager — the page stays visible while editing.
   const [showRollbackDialog, setShowRollbackDialog] = useState(false);
   const [confirmDeletePipeline, setConfirmDeletePipeline] = useState(false);
   const [isSuspendingTask, setIsSuspendingTask] = useState(false);
@@ -1022,6 +1017,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       return 'runs';
     });
   }, [nodes.length, lastExecution]);
+
+  // Reveal the schedule editor inline (non-blocking): open the right panel
+  // and switch to its existing `schedules` tab instead of a centered modal.
+  const openSchedulePanel = useCallback(() => {
+    setShowRightPanel(true);
+    setActiveTab('schedules');
+  }, []);
 
   const handleNodeSave = useCallback(
     (nodeId: string, data: any) => {
@@ -2619,7 +2621,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </motion.button>
             )}
 
-            {/* ── Schedule — opens ScheduleManager in a popover ──
+            {/* ── Schedule — reveals the inline `schedules` tab in the right
+                panel (ScheduleManager). Non-blocking: the canvas stays visible.
                 Two visual states driven by useScheduleState:
                   • no schedule → "Schedule" with calendar icon
                   • has schedule → pill showing the cron summary */}
@@ -2627,7 +2630,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               <motion.button
                 whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
                 whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
-                onClick={() => setShowScheduleDialog(true)}
+                onClick={openSchedulePanel}
                 disabled={isReadOnly || !activeWorkflowId}
                 className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
                 title={isReadOnly ? 'View-only access' : `Edit schedule — ${scheduleState.cronSummary || 'open editor'}`}
@@ -2646,7 +2649,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               <motion.button
                 whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
                 whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
-                onClick={() => setShowScheduleDialog(true)}
+                onClick={openSchedulePanel}
                 disabled={isReadOnly || !activeWorkflowId}
                 className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-indigo-500/40 transition-shadow hover:shadow-md hover:shadow-indigo-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
                 title={!activeWorkflowId ? 'Save the workflow first' : isReadOnly ? 'View-only access' : 'Create a schedule for this workflow'}
@@ -3195,6 +3198,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   compact
                   isReadOnly={isReadOnly}
                   className="-mx-4 -mt-4"
+                  onScheduleChange={refetchHeaderSchedules}
                 />
               </>
             )}
@@ -3450,34 +3454,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         }}
       />
 
-      {/* Schedule popover — reuses the existing ScheduleManager so the
-          create/edit/suspend flow stays in one place. Triggered from the
-          Schedule / "Scheduled · edit" button in the header. */}
-      <UiDialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
-        <UiDialogContent className="max-w-lg bg-white p-0 dark:bg-slate-900">
-          <UiDialogHeader className="border-b border-slate-200 px-4 py-3 dark:border-slate-700">
-            <UiDialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
-              <Calendar className="h-4 w-4 text-blue-500" />
-              Schedule — {activeWorkflowName || pipelineName}
-            </UiDialogTitle>
-          </UiDialogHeader>
-          {activeWorkflowId ? (
-            <ScheduleManager
-              pipelineId={activeWorkflowId}
-              pipelineName={activeWorkflowName}
-              isReadOnly={isReadOnly}
-              compact
-              onScheduleChange={() => {
-                refetchHeaderSchedules();
-              }}
-            />
-          ) : (
-            <div className="p-6 text-center text-sm text-slate-500">
-              Save the workflow first to manage schedules.
-            </div>
-          )}
-        </UiDialogContent>
-      </UiDialog>
+      {/* Schedule editing happens inline in the right panel's `schedules`
+          tab (ScheduleManager), revealed by the header Schedule button via
+          openSchedulePanel — no centered modal. */}
 
       {/* Local-draft restore prompt — soft confirm. Shown only when a draft
           newer than the loaded workflow exists in localStorage. */}

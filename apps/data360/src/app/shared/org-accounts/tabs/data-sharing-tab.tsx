@@ -7,13 +7,14 @@ import {
   PiShareNetworkDuotone,
   PiUsersDuotone,
   PiCloudArrowUpDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import {
   getReaderAccounts,
   getShares,
   getReplication,
 } from '@/app/services/org-accounts/hooks';
-import { formatDate, formatBytes, formatCredits } from '@/app/services/org-accounts/utils';
+import { formatDate, formatBytes, formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   ReaderAccount,
   Share,
@@ -39,20 +40,26 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
   const [shares, setShares] = useState<Share[]>([]);
   const [replication, setReplication] = useState<ReplicationEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load data sharing'); return null; });
 
     Promise.all([
-      getReaderAccounts().catch(() => null),
-      getShares().catch(() => null),
-      getReplication(days).catch(() => null),
+      guard(getReaderAccounts()),
+      guard(getShares()),
+      guard(getReplication(days)),
     ]).then(([readerData, sharesData, replData]) => {
       if (readerData) setReaderAccounts(Array.isArray(readerData.reader_accounts) ? readerData.reader_accounts : []);
       if (sharesData) setShares(Array.isArray(sharesData.shares) ? sharesData.shares : []);
       if (replData) setReplication(Array.isArray(replData.replication) ? replData.replication : []);
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -67,6 +74,15 @@ export default function DataSharingTab({ refreshKey }: DataSharingTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some data sharing info could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

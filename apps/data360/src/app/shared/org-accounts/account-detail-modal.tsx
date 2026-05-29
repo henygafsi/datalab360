@@ -311,7 +311,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Credits (30d)</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.credits?.total_credits?.toFixed(2) ?? '0'}
+                    {detail?.credits?.total_credits != null ? detail.credits.total_credits.toFixed(2) : '—'}
                   </Text>
                 </div>
                 <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -320,7 +320,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Storage</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.storage?.total_tb?.toFixed(2) ?? '0'} TB
+                    {detail?.storage?.total_tb != null ? `${detail.storage.total_tb.toFixed(2)} TB` : '—'}
                   </Text>
                 </div>
                 <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -329,7 +329,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Active Users</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.logins?.unique_users ?? '0'}
+                    {detail?.logins?.unique_users ?? '—'}
                   </Text>
                 </div>
                 <div className="p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
@@ -338,7 +338,7 @@ export default function AccountDetailModal({
                     <Text className="text-xs text-gray-500">Queries (7d)</Text>
                   </div>
                   <Text className="text-xl font-bold text-gray-900 dark:text-white">
-                    {detail?.queries?.query_count?.toLocaleString() ?? '0'}
+                    {detail?.queries?.query_count != null ? detail.queries.query_count.toLocaleString() : '—'}
                   </Text>
                 </div>
               </div>
@@ -377,7 +377,7 @@ export default function AccountDetailModal({
                                     {data.warehouse_name}
                                   </Text>
                                   <Text className="text-xs text-gray-600">
-                                    Credits: {data.total_credits?.toFixed(2) ?? '0'}
+                                    Credits: {data.total_credits != null ? data.total_credits.toFixed(2) : '—'}
                                   </Text>
                                 </div>
                               );

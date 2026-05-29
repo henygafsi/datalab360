@@ -4,7 +4,7 @@ import { createColumnHelper } from '@tanstack/react-table';
 import { Badge, Button } from 'rizzui';
 import { Trash2 } from 'lucide-react';
 import EditableCell from './editable-cell';
-import type { EnterpriseUser } from '@/app/services/governance/security_matrix';
+import type { EnterpriseUser, EnterpriseUserUpdate } from '@/app/services/governance/security_matrix';
 
 const columnHelper = createColumnHelper<EnterpriseUser>();
 
@@ -39,7 +39,7 @@ function formatTimestamp(ts?: string | null): string {
 
 export function getEnterpriseUsersColumns(
   dirtyRows: Set<string>,
-  onCellChange: (username: string, field: string, value: string | null) => void,
+  onCellChange: (username: string, field: keyof EnterpriseUserUpdate, value: string | null) => void,
   onDelete: (user: EnterpriseUser) => void,
 ) {
   return [

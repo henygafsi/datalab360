@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Modal, Button, Badge } from 'rizzui';
+import { Button, Badge } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlineShieldCheck, HiOutlineXMark } from 'react-icons/hi2';
+import { HiOutlineShieldCheck } from 'react-icons/hi2';
 import { PolicyGrant } from './table';
 import { getRoles } from '@/app/services/governance/fetch_roles';
 import { assignPolicyToRoles } from '@/app/services/governance/policies';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 
 interface AssignPolicyModalProps {
   policy: PolicyGrant | null;
@@ -39,11 +40,15 @@ export default function AssignPolicyModal({
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [rolesError, setRolesError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   // Fetch available roles
   useEffect(() => {
     if (policy) {
       setLoading(true);
+      setRolesError(null);
+      setSaveError(null);
       getRoles()
         .then((roles) => {
           setAvailableRoles(roles.map((r) => r.role));
@@ -51,8 +56,7 @@ export default function AssignPolicyModal({
           setSelectedRoles([...policy.granted_roles]);
         })
         .catch((error) => {
-          // console.error('Failed to fetch roles:', error);
-          toast.error('Failed to load roles');
+          setRolesError(error instanceof Error ? error.message : 'Failed to load roles');
         })
         .finally(() => {
           setLoading(false);
@@ -74,32 +78,24 @@ export default function AssignPolicyModal({
     if (!policy) return;
 
     setSaving(true);
+    setSaveError(null);
     try {
       // Use just the policy name - backend endpoint expects policy name only
       // The endpoint format is: PUT /gouvernance/policies/{policy_type}/{policy_name}/roles
-      const policyName = policy.policy_name;
-
-      // console.log('[Policy Grants] Assigning policy:', policyName);
-      // console.log('[Policy Grants] Policy type:', policy.policy_type);
-      // console.log('[Policy Grants] Selected roles:', selectedRoles);
-
-      const response = await assignPolicyToRoles(
-        policyName,
+      await assignPolicyToRoles(
+        policy.policy_name,
         policy.policy_type,
         selectedRoles
       );
 
-      // console.log('[Policy Grants] Assignment response:', response);
-
       toast.success(
-        `✅ Policy ${policy.policy_name} assigned to ${selectedRoles.length} role(s)`
+        `Policy ${policy.policy_name} assigned to ${selectedRoles.length} role(s)`
       );
 
       onSuccess(selectedRoles);
       onClose();
     } catch (error: any) {
-      // console.error('[Policy Grants] Failed to assign policy:', error);
-      toast.error(error.message || 'Failed to assign policy');
+      setSaveError(error?.message || 'Failed to assign policy');
     } finally {
       setSaving(false);
     }
@@ -108,37 +104,41 @@ export default function AssignPolicyModal({
   if (!policy) return null;
 
   return (
-    <Modal isOpen={!!policy} onClose={onClose} containerClassName="max-w-2xl">
-      <div className="p-6">
-        {/* Header */}
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              Manage Policy Grants
-            </h2>
-            <div className="flex items-center gap-2 mb-3">
-              <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
-                <HiOutlineShieldCheck className="w-3 h-3 mr-1 inline" />
-                {POLICY_TYPE_LABELS[policy.policy_type]}
-              </Badge>
-              <span className="text-lg font-medium text-gray-700 dark:text-gray-300">
-                {policy.policy_name}
-              </span>
-            </div>
-            {policy.description && (
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                {policy.description}
-              </p>
-            )}
-          </div>
-          <button
-            aria-label="Close dialog"
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+    <PolicyFormPanel
+      isOpen={!!policy}
+      onClose={onClose}
+      title="Manage Policy Grants"
+      accentClassName="bg-blue-500"
+      footer={
+        <>
+          <Button onClick={onClose} variant="outline" disabled={saving}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="bg-gradient-to-r from-violet-500 to-purple-600 text-white"
           >
-            <HiOutlineXMark className="h-5 w-5" />
-          </button>
+            {saving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </>
+      }
+    >
+        {/* Policy summary */}
+        <div className="flex items-center gap-2">
+          <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+            <HiOutlineShieldCheck className="w-3 h-3 mr-1 inline" />
+            {POLICY_TYPE_LABELS[policy.policy_type]}
+          </Badge>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {policy.policy_name}
+          </span>
         </div>
+        {policy.description && (
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {policy.description}
+          </p>
+        )}
 
         {/* Policy Details */}
         {policy.table_name && (
@@ -160,6 +160,10 @@ export default function AssignPolicyModal({
 
           {loading ? (
             <div className="py-8 text-center text-slate-500">Loading roles...</div>
+          ) : rolesError ? (
+            <div role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-3 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {rolesError}
+            </div>
           ) : (
             <div className="space-y-2 max-h-96 overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-lg p-3">
               {availableRoles.map((role) => {
@@ -198,36 +202,26 @@ export default function AssignPolicyModal({
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-200 dark:border-slate-700">
-          <div className="text-sm text-slate-600 dark:text-slate-400">
-            {selectedRoles.length > 0 ? (
-              <span>
-                This policy will be assigned to{' '}
-                <span className="font-medium text-blue-600 dark:text-blue-400">
-                  {selectedRoles.length}
-                </span>{' '}
-                role(s)
-              </span>
-            ) : (
-              <span>Select roles to assign this policy</span>
-            )}
-          </div>
-
-          <div className="flex gap-3">
-            <Button onClick={onClose} variant="outline" disabled={saving}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={saving || loading}
-              className="bg-gradient-to-r from-violet-500 to-purple-600 text-white"
-            >
-              {saving ? 'Saving...' : 'Save Changes'}
-            </Button>
-          </div>
+        {/* Selection summary */}
+        <div className="text-sm text-slate-600 dark:text-slate-400">
+          {selectedRoles.length > 0 ? (
+            <span>
+              This policy will be assigned to{' '}
+              <span className="font-medium text-blue-600 dark:text-blue-400">
+                {selectedRoles.length}
+              </span>{' '}
+              role(s)
+            </span>
+          ) : (
+            <span>Select roles to assign this policy</span>
+          )}
         </div>
-      </div>
-    </Modal>
+
+        {saveError && (
+          <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+            {saveError}
+          </p>
+        )}
+    </PolicyFormPanel>
   );
 }

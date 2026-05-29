@@ -46,10 +46,10 @@ interface AzureIntegrationDetailsResponse {
 
 /** Extract error message from an Axios error response */
 function extractErrorMessage(error: unknown, fallback: string): string {
-    if (error instanceof AxiosError && error.response?.data) {
-        const errorData = error.response.data as any;
+    if (error instanceof AxiosError && error.response?.data && typeof error.response.data === 'object') {
+        const errorData = error.response.data as { detail?: unknown; message?: unknown };
         if (typeof errorData.detail === 'string') return errorData.detail;
-        if (errorData.message) return errorData.message;
+        if (typeof errorData.message === 'string') return errorData.message;
     }
     if (error instanceof Error) return error.message;
     return fallback;
