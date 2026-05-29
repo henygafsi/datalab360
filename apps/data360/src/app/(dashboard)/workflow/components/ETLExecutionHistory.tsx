@@ -186,6 +186,8 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   // Polling is paused once it runs continuously past MAX_POLL_AGE_MS for the
   // same set of running runs — guards against runs stuck in `running` forever.
   const [pollingPaused, setPollingPaused] = useState(false);
+  // 1s re-render tick so running-row elapsed labels recompute (value unused).
+  const [, setNow] = useState(0);
   const pollStartedAtRef = useRef<number | null>(null);
   const runningSetKeyRef = useRef<string>('');
 

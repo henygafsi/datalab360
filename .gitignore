@@ -17,6 +17,10 @@ test-results/
 playwright-report/
 playwright/.cache/
 **/e2e/screenshots/
+# UX-audit workspace: captured auth session (live cookie) + login scripts (hardcoded creds) — never commit
+e2e/.auth/
+e2e/ux-audit/
+e2e/results/
 
 # next.js
 .next/

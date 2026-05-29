@@ -88,9 +88,6 @@ export default function OrgAccountsDashboard() {
     }
   };
 
-  // EMPTY: overview finished loading, no top-level error, and zero accounts.
-  const isEmpty = !overviewLoading && !overviewError && accounts.length === 0;
-
   return (
     <div className="@container">
       {/* Header */}

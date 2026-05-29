@@ -15,7 +15,7 @@ import { API_CONFIG } from '@/config/database.config';
  *     apiClient.post(API.workflow.execute(id), body)
  *
  * Every path below is verified against the live FastAPI routers
- * (app/modules/**/router*.py + app/main.py). Grouped by domain.
+ * (app/modules/<module>/router*.py + app/main.py). Grouped by domain.
  *
  * NOTE: the legacy `API_CONTRACTS` object further down returns ABSOLUTE urls
  * via getUrl() and is kept for back-compat with a few fetch()/axios call-sites.
