@@ -88,11 +88,11 @@ export default function OnboardingTour() {
   const tooltipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const hasSeenTour = localStorage.getItem('data360_tour_completed');
-    if (!hasSeenTour) {
-      const timer = setTimeout(() => setIsVisible(true), 2000);
-      return () => clearTimeout(timer);
-    }
+    // Onboarding tour no longer auto-pops. It opens only when explicitly triggered
+    // via the `data360:start-tour` window event (wire to a "Take a tour" button).
+    const startTour = () => setIsVisible(true);
+    window.addEventListener('data360:start-tour', startTour);
+    return () => window.removeEventListener('data360:start-tour', startTour);
   }, []);
 
   // Find and highlight the target element for current step
