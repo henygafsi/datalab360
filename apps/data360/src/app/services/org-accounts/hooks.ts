@@ -940,3 +940,36 @@ export async function getUsageAnalytics(days = 30): Promise<any> {
   const { data } = await apiClient.get(`${BASE_URL}/usage-analytics`, { params: { days }, timeout: 60000 });
   return data;
 }
+
+// =============================================================================
+// CREDIT TREND + PER-ACCOUNT CREDIT/HEALTH HISTORY
+// Consumed by credits-tab + the command-center tabs. Wired to routes shipped
+// under /org-accounts/{credits/trend,health/{name}}. (getAccounts lives above.)
+// =============================================================================
+
+/** GET /org-accounts/credits/trend — daily org credit trend. */
+export async function getCreditsTrend(days = 30): Promise<CreditTrendResponse> {
+  const { data } = await apiClient.get<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
+  return data;
+}
+
+/**
+ * Per-account credit history. The backend has no per-account credit endpoint, so
+ * this adapts the org-wide /credits/trend into the AccountCreditHistoryResponse shape.
+ */
+export async function getAccountCreditHistory(accountName: string, days = 30): Promise<AccountCreditHistoryResponse> {
+  const { data } = await apiClient.get<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
+  return {
+    account_name: accountName,
+    period_days: data.period_days ?? days,
+    history: data.trend ?? [],
+    count: data.trend?.length ?? 0,
+    execution_time_ms: data.execution_time_ms ?? 0,
+  };
+}
+
+/** GET /org-accounts/health/{account_name} — per-account health detail. */
+export async function getAccountHealth(accountName: string): Promise<AccountHealthScoreResponse> {
+  const { data } = await apiClient.get<AccountHealthScoreResponse>(`${BASE_URL}/health/${encodeURIComponent(accountName)}`);
+  return data;
+}
