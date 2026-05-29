@@ -327,8 +327,7 @@ export async function getCredits(days = 30): Promise<CreditsResponse> {
  * Top credit consuming accounts.
  */
 export async function getTopConsumers(days = 30, limit = 10): Promise<TopConsumersResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer credits-tab.tsx re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<TopConsumersResponse>(
     `${BASE_URL}/credits/top?days=${days}&limit=${limit}`
   );
@@ -353,8 +352,7 @@ export async function getStorage(): Promise<StorageResponse> {
  * Daily storage trend.
  */
 export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<StorageTrendResponse>(`${BASE_URL}/storage/trend?days=${days}`);
   return data;
 }
@@ -363,8 +361,7 @@ export async function getStorageTrend(days = 30): Promise<StorageTrendResponse> 
  * Database-level storage breakdown (yesterday's snapshot).
  */
 export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<DatabaseStorageResponse>(`${BASE_URL}/storage/databases`, {
     timeout: 60000,
   });
@@ -375,8 +372,7 @@ export async function getStorageDatabases(): Promise<DatabaseStorageResponse> {
  * Stage storage per account (yesterday's snapshot).
  */
 export async function getStorageStages(): Promise<StageStorageResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer storage-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<StageStorageResponse>(`${BASE_URL}/storage/stages`, {
     timeout: 60000,
   });
@@ -493,8 +489,7 @@ export async function getBalance(): Promise<BalanceResponse> {
  * Contract items.
  */
 export async function getContract(): Promise<ContractResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<ContractResponse>(`${BASE_URL}/contract`);
   return data;
 }
@@ -505,8 +500,7 @@ export async function getContract(): Promise<ContractResponse> {
  * Uses extended timeout (60s) — Snowflake USAGE_IN_CURRENCY_DAILY can be slow.
  */
 export async function getOrganizationCosts(days = 30): Promise<any> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get(`${BASE_URL}/organization/costs`, { params: { days }, timeout: 60000 });
   return data;
 }
@@ -515,8 +509,7 @@ export async function getOrganizationCosts(days = 30): Promise<any> {
  * Current pricing rates per account.
  */
 export async function getRateSheet(): Promise<RateSheetResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer billing-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
   return data;
 }
@@ -537,8 +530,7 @@ export async function getMetering(days = 30): Promise<MeteringResponse> {
  * Daily metering trend.
  */
 export async function getMeteringTrend(days = 30): Promise<MeteringTrendResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<MeteringTrendResponse>(`${BASE_URL}/metering/trend?days=${days}`);
   return data;
 }
@@ -570,8 +562,7 @@ export async function getAlerts(days = 7): Promise<AlertsResponse> {
  * Uses extended timeout (60s) since it queries SHOW RESOURCE MONITORS.
  */
 export async function getResourceMonitors(): Promise<{ monitors: any[]; count: number }> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): one consumer (resource-monitors tab) re-swallows with .catch(()=>null); overview-tab logs via .catch
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<{ monitors: any[]; count: number }>(
     `${BASE_URL}/resource-monitors`, { timeout: 60000 }
   );
@@ -586,8 +577,7 @@ export async function getResourceMonitors(): Promise<{ monitors: any[]; count: n
  * Auto-clustering credits per account.
  */
 export async function getServicesClustering(days = 30): Promise<ClusteringResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<ClusteringResponse>(`${BASE_URL}/services/clustering?days=${days}`);
   return data;
 }
@@ -596,8 +586,7 @@ export async function getServicesClustering(days = 30): Promise<ClusteringRespon
  * Materialized view refresh credits per account.
  */
 export async function getServicesMaterializedViews(days = 30): Promise<MaterializedViewResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<MaterializedViewResponse>(`${BASE_URL}/services/materialized-views?days=${days}`);
   return data;
 }
@@ -606,8 +595,7 @@ export async function getServicesMaterializedViews(days = 30): Promise<Materiali
  * Snowpipe usage per account.
  */
 export async function getServicesPipes(days = 30): Promise<PipeResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<PipeResponse>(`${BASE_URL}/services/pipes?days=${days}`);
   return data;
 }
@@ -616,8 +604,7 @@ export async function getServicesPipes(days = 30): Promise<PipeResponse> {
  * Search optimization credits per account.
  */
 export async function getServicesSearchOptimization(days = 30): Promise<SearchOptimizationResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<SearchOptimizationResponse>(`${BASE_URL}/services/search-optimization?days=${days}`);
   return data;
 }
@@ -626,8 +613,7 @@ export async function getServicesSearchOptimization(days = 30): Promise<SearchOp
  * Query acceleration credits per account.
  */
 export async function getServicesQueryAcceleration(days = 30): Promise<QueryAccelerationResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<QueryAccelerationResponse>(`${BASE_URL}/services/query-acceleration?days=${days}`);
   return data;
 }
@@ -640,8 +626,7 @@ export async function getServicesQueryAcceleration(days = 30): Promise<QueryAcce
  * Replication usage per account.
  */
 export async function getReplication(days = 30): Promise<ReplicationResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer services tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<ReplicationResponse>(`${BASE_URL}/replication?days=${days}`);
   return data;
 }
@@ -650,8 +635,7 @@ export async function getReplication(days = 30): Promise<ReplicationResponse> {
  * Cost anomalies detected.
  */
 export async function getAnomalies(days = 30): Promise<AnomalyResponse> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer anomalies tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<AnomalyResponse>(`${BASE_URL}/anomalies?days=${days}`);
   return data;
 }
@@ -891,8 +875,7 @@ export async function getLoginAuditHistory(
  * Backend param is `days_back`, not `days`.
  */
 export async function getCreditForecast(days = 90): Promise<any> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get(`${BASE_URL}/credit-forecast`, {
     params: { days_back: days },
     timeout: 60000,
@@ -905,8 +888,7 @@ export async function getCreditForecast(days = 90): Promise<any> {
  * Returns warehouses (rows with UPPERCASE Snowflake keys) and total (row count).
  */
 export async function getWarehouseCredits(days = 30): Promise<any> {
-  // surfaced error (was silently swallowed)
-  // TODO(ux): consumer credits-tab re-swallows with .catch(()=>null); surface there
+  // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get(`${BASE_URL}/organization/warehouse-credits`, {
     params: { days },
     timeout: 60000,

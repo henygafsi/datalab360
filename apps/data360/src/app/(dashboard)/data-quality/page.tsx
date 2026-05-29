@@ -1643,7 +1643,7 @@ export default function DataQualityPage() {
                     try {
                       // Classification is a cross-module (governance) action; the
                       // PII tab refreshes once the backend finishes tagging.
-                      await apiClient.post('/gouvernance/classification/classify', { table_name: 'CP_DATA360.PUBLIC.*' });
+                      await apiClient.post('/gouvernance/policies/classification/classify', { table_name: 'CP_DATA360.PUBLIC.*' });
                       setTimeout(() => loadTabData('pii', true, 1, pageSize), 2000);
                     } catch (err) {
                       const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
@@ -1679,7 +1679,11 @@ export default function DataQualityPage() {
                     const failures: string[] = [];
                     for (const col of batch) {
                       try {
-                        await apiClient.post('/gouvernance/masking-policies/apply', {
+                        // TODO(contract): backend POST /gouvernance/policies/masking/apply expects
+                        // QUERY params (policy_name, database, schema, table, column) and has no
+                        // `policy_type: 'auto'` mode — Auto-Protect needs a chosen masking policy +
+                        // parsed DB/schema/table before this will succeed end-to-end.
+                        await apiClient.post('/gouvernance/policies/masking/apply', {
                           table_name: col.TABLE_NAME,
                           column_name: col.COLUMN_NAME,
                           policy_type: 'auto',

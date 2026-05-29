@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Badge, Button, Loader } from 'rizzui';
+import { Badge, Button } from 'rizzui';
 import {
   HiOutlineKey,
   HiOutlineCog6Tooth,
@@ -16,6 +16,8 @@ import PolicyGrantsTable from '@/app/shared/governance/policy-grants/table';
 import StageGrantsTable from '@/app/shared/governance/stage-grants/table';
 import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import EmptyState from '@/components/ui/EmptyState';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 import { HiOutlineCube } from 'react-icons/hi2';
 import apiClient from '@/lib/api-client';
 
@@ -88,7 +90,10 @@ function SourceProductGrantsPanel() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <TableSkeleton rows={5} columns={2} />
+          <TableSkeleton rows={5} columns={2} />
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Sources */}
@@ -100,7 +105,12 @@ function SourceProductGrantsPanel() {
             </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-80 overflow-y-auto">
               {sources.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-gray-400">No sources — run catalog refresh first</p>
+                <EmptyState
+                  compact
+                  icon={HiOutlineKey}
+                  title="No sources"
+                  description="Run a catalog refresh to populate sources."
+                />
               ) : sources.map((s: any, i: number) => (
                 <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800">
                   <div>
@@ -122,7 +132,12 @@ function SourceProductGrantsPanel() {
             </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-80 overflow-y-auto">
               {products.length === 0 ? (
-                <p className="px-4 py-8 text-center text-sm text-gray-400">No products — create one in Catalog</p>
+                <EmptyState
+                  compact
+                  icon={HiOutlineCube}
+                  title="No data products"
+                  description="Create a data product in the Catalog to manage its access here."
+                />
               ) : products.map((p: any, i: number) => (
                 <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800">
                   <div>
@@ -402,9 +417,7 @@ export default function GrantsManagementPage() {
               <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
             </div>
             {d360RolesLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <Loader variant="spinner" size="lg" />
-              </div>
+              <TableSkeleton rows={5} columns={5} />
             ) : (
               <div className="space-y-4">
                 {/* Templates row */}
@@ -433,9 +446,12 @@ export default function GrantsManagementPage() {
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                       {d360Roles.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
-                            <HiOutlineCog6Tooth className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                            No D360 roles defined yet. Create one or apply a standard template.
+                          <td colSpan={5} className="px-4 py-2">
+                            <EmptyState
+                              icon={HiOutlineCog6Tooth}
+                              title="No D360 roles defined yet"
+                              description="Create one or apply a standard template to get started."
+                            />
                           </td>
                         </tr>
                       ) : (

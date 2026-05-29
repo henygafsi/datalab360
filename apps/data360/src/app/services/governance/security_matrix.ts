@@ -3,6 +3,10 @@
  * Unified service for security matrix entries, axes, enterprise user directory, and sync.
  */
 import apiClient from '@/lib/api-client';
+import {
+  applyRLSPolicy as applyRLSPolicyCanonical,
+  removeRLSPolicy as removeRLSPolicyCanonical,
+} from './policies';
 
 // ============= TYPES =============
 
@@ -234,11 +238,12 @@ export interface RLSPolicy {
 }
 
 /**
- * GET /gouvernance/rls-policies exists in backend.
- * NOTE: createRLSPolicy, applyRLSPolicy, removeRLSPolicy below use
- * endpoints that do NOT exist in the backend. The canonical RLS service
- * is in policies.ts (/gouvernance/policies/row-access/*).
- * These are kept for backward compatibility and wrapped in try/catch.
+ * GET /gouvernance/rls-policies exists in backend (list).
+ * applyRLSPolicy / removeRLSPolicy delegate to the canonical RLS service in
+ * policies.ts (POST /gouvernance/policies/row-access/{apply,remove}) — those are
+ * the routes the backend actually serves (query-param based).
+ * NOTE: createRLSPolicy below still posts to /gouvernance/rls-policies, which the
+ * backend exposes only as GET; the canonical create lives in policies.ts.
  */
 export async function getRLSPolicies(): Promise<RLSPolicy[]> {
   try {
@@ -260,29 +265,25 @@ export async function createRLSPolicy(policy: Omit<RLSPolicy, 'active'>): Promis
   }
 }
 
-export async function applyRLSPolicy(policyName: string, tableName: string, database: string, schema: string): Promise<void> {
-  try {
-    await apiClient.post('/gouvernance/rls-policies/apply', {
-      policy_name: policyName,
-      table_name: tableName,
-      database,
-      schema,
-    });
-  } catch (error: any) {
-    console.error('applyRLSPolicy: POST /gouvernance/rls-policies/apply not available — use policies.ts applyRLSPolicy instead', error);
-    throw error;
-  }
+export async function applyRLSPolicy(
+  policyName: string,
+  tableName: string,
+  database: string,
+  schema: string,
+  // TODO(contract): the backend route POST /gouvernance/policies/row-access/apply
+  // requires `policy_column` (the column the policy evaluates on). Positional callers
+  // that don't yet collect a column pass it empty; surface a column picker upstream.
+  policyColumn = '',
+): Promise<void> {
+  await applyRLSPolicyCanonical({
+    policy_name: policyName,
+    table_name: tableName,
+    database,
+    schema,
+    policy_column: policyColumn,
+  });
 }
 
 export async function removeRLSPolicy(tableName: string, database: string, schema: string): Promise<void> {
-  try {
-    await apiClient.post('/gouvernance/rls-policies/remove', {
-      table_name: tableName,
-      database,
-      schema,
-    });
-  } catch (error: any) {
-    console.error('removeRLSPolicy: POST /gouvernance/rls-policies/remove not available — use policies.ts removeRLSPolicy instead', error);
-    throw error;
-  }
+  await removeRLSPolicyCanonical(tableName, database, schema);
 }

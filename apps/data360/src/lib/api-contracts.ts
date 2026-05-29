@@ -201,6 +201,8 @@ export const API = {
     usersWithRoles: () => '/gouvernance/users-with-roles',
     addUser: () => '/gouvernance/add-user',
     dropUser: () => '/gouvernance/drop-user',
+    // TODO(contract): no backend route for batch user-drop — only DELETE /gouvernance/drop-user
+    // exists (gouvernance.py:1280). Loop drop-user client-side or add a backend batch route.
     dropUsersBatch: () => '/gouvernance/drop-users-batch',
     enableUser: () => '/gouvernance/enable_user',
     disableUser: () => '/gouvernance/disable_user',
@@ -210,9 +212,11 @@ export const API = {
     dropRolesBatch: () => '/gouvernance/drop-roles-batch',
     assignRole: () => '/gouvernance/assign-role',
     unassignRole: () => '/gouvernance/unassign-role',
-    userRoles: (username: string) => `/gouvernance/${enc(username)}/roles`,
+    /** GET|PUT /gouvernance/users/{username}/roles (backend: gouvernance.py:1520,1567). */
+    userRoles: (username: string) => `/gouvernance/users/${enc(username)}/roles`,
     grants: () => '/gouvernance/grants',
-    grantsForRole: () => '/gouvernance/grants-for-role',
+    /** GET /gouvernance/grants-for-role/{role_name} (backend: gouvernance.py:2321 — role_name is required). */
+    grantsForRole: (roleName: string) => `/gouvernance/grants-for-role/${enc(roleName)}`,
     updateGrants: () => '/gouvernance/update-grants',
     securityMatrix: () => '/gouvernance/security-matrix',
     policies: () => '/gouvernance/policies',

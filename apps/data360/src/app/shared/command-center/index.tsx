@@ -116,7 +116,7 @@ import {
   approveDeployment,
   rejectDeployment,
 } from '@/app/services/api/projectsApi';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 
 // Lazy-loaded new tabs
@@ -1681,7 +1681,15 @@ function CommandCenterDashboardInner() {
           start_date: filters.start_date,
           end_date: filters.end_date,
         }),
-        getCortexCosts(filters.days, filters).catch(() => null),
+        // Cortex spend is a secondary overlay on the FinOps tab — if it fails
+        // the primary cost breakdown still renders. Surface the failure as a
+        // non-blocking toast (instead of silently swallowing) then degrade to
+        // null so the tab stays usable.
+        getCortexCosts(filters.days, filters).catch((e) => {
+          console.warn('[CommandCenter] cortex-costs failed:', e);
+          toast.error(getApiErrorMessage(e) || 'Could not load Cortex cost overlay');
+          return null;
+        }),
       ]);
       if (isApiError(cost)) {
         console.warn('[CommandCenter] cost-breakdown returned error:', cost);

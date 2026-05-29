@@ -1377,7 +1377,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         // the header tags chip strip and the draft-restore comparison.
         const [stepsResponse, workflowMeta] = await Promise.all([
           workflowApi.listSteps(wf.id),
-          workflowApi.getWorkflow(wf.id).catch(() => null),
+          // Metadata (tags / created_at) is non-critical — the pipeline still
+          // loads from steps if it fails. Surface the failure as a non-blocking
+          // toast instead of silently swallowing it, then degrade to null.
+          workflowApi.getWorkflow(wf.id).catch((e) => {
+            console.warn('Failed to load workflow metadata (tags/created_at):', e);
+            toast.error(getApiErrorMessage(e) || 'Could not load workflow tags');
+            return null;
+          }),
         ]);
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
@@ -1421,7 +1428,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         toast.success(`Loaded workflow: ${wf.name}`);
       } catch (error) {
         console.error('Failed to load workflow:', error);
-        toast.error('Failed to load workflow');
+        toast.error(getApiErrorMessage(error) || 'Failed to load workflow');
       } finally {
         setIsPipelineLoading(false);
       }

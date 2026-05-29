@@ -16,6 +16,7 @@
  * See: Screens/Account-overview/05-org-accounts/_features.md
  */
 import { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   BarChart3,
   Building2,
@@ -52,6 +53,7 @@ import {
   getReaderAccounts,
   getShares,
 } from '@/app/services/org-accounts/hooks';
+import { getApiErrorMessage } from '@/lib/api-client';
 import type {
   AccountsListResponse,
   ClientAccount,
@@ -129,47 +131,71 @@ export default function OrgAccountsTab() {
 
   const fetchAll = async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
-    try {
-      const [overviewRaw, accountsRaw, trendsRaw, readerRes, shareRes] = await Promise.all([
-        getDashboardOverview().catch(() => null),
-        getAccounts().catch(() => null),
-        getDashboardTrends(30).catch(() => null),
-        getReaderAccounts().catch(() => ({ reader_accounts: [] as any[] })),
-        getShares().catch(() => ({ shares: [] as any[] })),
+    // Settle all calls so one failure never blanks the others. Crucially we
+    // DISTINGUISH the two failure modes that used to be silently swallowed:
+    //   • a rejected promise = a genuine network/HTTP error → surface it
+    //     (error banner + toast) so the user knows the data is stale/missing;
+    //   • a fulfilled 200-OK error envelope = the Snowflake role can't read
+    //     ORGANIZATION_USAGE.* → not an error, degrade to the friendly
+    //     "not a Snowflake Organization account" state (handled downstream).
+    const [overviewR, accountsR, trendsR, readerR, shareR] =
+      await Promise.allSettled([
+        getDashboardOverview(),
+        getAccounts(),
+        getDashboardTrends(30),
+        getReaderAccounts(),
+        getShares(),
       ]);
-      // Treat error-envelope 200s (role can't read org views) as "no data" so
-      // the UI shows the friendly not-an-org state instead of a wall of zeros.
-      const overview = isApiError(overviewRaw) ? null : overviewRaw;
-      const accounts = isApiError(accountsRaw) ? null : accountsRaw;
-      const trends = isApiError(trendsRaw) ? null : trendsRaw;
-      const readerList = (readerRes?.reader_accounts ?? []) as Array<{
-        name: string;
-        cloud?: string;
-        region?: string;
-      }>;
-      const shareList = (shareRes?.shares ?? []) as Array<{
-        name: string;
-        database_name?: string;
-        kind?: string;
-      }>;
-      setState({
-        overview,
-        accounts,
-        trends,
-        readers: readerList.length,
-        shares: shareList.length,
-        readerList,
-        shareList,
-        loading: false,
-        error: null,
-      });
-    } catch (e) {
-      setState((s) => ({
-        ...s,
-        loading: false,
-        error: e instanceof Error ? e.message : String(e),
-      }));
-    }
+
+    const val = <T,>(r: PromiseSettledResult<T>): T | null =>
+      r.status === 'fulfilled' ? r.value : null;
+
+    // A core org-level call that REJECTED (vs. returned an error envelope) is a
+    // real failure worth surfacing. Reader/shares are footnote panels, so we
+    // don't promote their failure to a page-level error.
+    const coreRejection = [overviewR, accountsR, trendsR].find(
+      (r): r is PromiseRejectedResult => r.status === 'rejected',
+    );
+
+    const overviewRaw = val(overviewR);
+    const accountsRaw = val(accountsR);
+    const trendsRaw = val(trendsR);
+    const readerRes = val(readerR);
+    const shareRes = val(shareR);
+
+    // Treat error-envelope 200s (role can't read org views) as "no data" so
+    // the UI shows the friendly not-an-org state instead of a wall of zeros.
+    const overview = isApiError(overviewRaw) ? null : overviewRaw;
+    const accounts = isApiError(accountsRaw) ? null : accountsRaw;
+    const trends = isApiError(trendsRaw) ? null : trendsRaw;
+    const readerList = (readerRes?.reader_accounts ?? []) as Array<{
+      name: string;
+      cloud?: string;
+      region?: string;
+    }>;
+    const shareList = (shareRes?.shares ?? []) as Array<{
+      name: string;
+      database_name?: string;
+      kind?: string;
+    }>;
+
+    const errorMsg = coreRejection
+      ? getApiErrorMessage(coreRejection.reason) ||
+        'Failed to load organization accounts'
+      : null;
+    if (errorMsg) toast.error(errorMsg);
+
+    setState({
+      overview,
+      accounts,
+      trends,
+      readers: readerList.length,
+      shares: shareList.length,
+      readerList,
+      shareList,
+      loading: false,
+      error: errorMsg,
+    });
   };
 
   useEffect(() => {
