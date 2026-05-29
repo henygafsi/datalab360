@@ -174,6 +174,8 @@ const POLICY_TYPE_LABELS: Record<PolicyType, string> = {
 export default function PolicyGrantsTable() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Per-source failures from the parallel fetch — surfaced inline instead of swallowed.
+  const [partialErrors, setPartialErrors] = useState<string[]>([]);
   const [tableData, setTableData] = useState<PolicyGrant[]>([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyGrant | null>(null);
@@ -183,34 +185,44 @@ export default function PolicyGrantsTable() {
     setLoading(true);
     setError(null);
 
-    try {
-      console.log('[Policy Grants] Fetching all policy types...');
+    setPartialErrors([]);
 
-      // Fetch all available policy types in parallel
+    try {
+      // Fetch all available policy types in parallel. Each source can fail
+      // independently — we keep what loaded and surface the failures inline
+      // instead of silently swallowing them.
       const [
-        rlsPolicies,
-        networkPolicies,
-        maskingPolicies,
-        passwordPolicies,
-        sessionPolicies,
-        aggregationPolicies,
-      ] = await Promise.all([
-        getRLSPolicies().catch(err => { console.warn('RLS fetch failed:', err); return []; }),
-        getNetworkPolicies().catch(err => { console.warn('Network fetch failed:', err); return []; }),
-        getMaskingPolicies().catch(err => { console.warn('Masking fetch failed:', err); return []; }),
-        getPasswordPolicies().catch(err => { console.warn('Password fetch failed:', err); return []; }),
-        getSessionPolicies().catch(err => { console.warn('Session fetch failed:', err); return []; }),
-        getAggregationPolicies().catch(err => { console.warn('Aggregation fetch failed:', err); return []; }),
+        rlsRes,
+        networkRes,
+        maskingRes,
+        passwordRes,
+        sessionRes,
+        aggregationRes,
+      ] = await Promise.allSettled([
+        getRLSPolicies(),
+        getNetworkPolicies(),
+        getMaskingPolicies(),
+        getPasswordPolicies(),
+        getSessionPolicies(),
+        getAggregationPolicies(),
       ]);
 
-      console.log('[Policy Grants] Fetched counts:', {
-        rls: rlsPolicies.length,
-        network: networkPolicies.length,
-        masking: maskingPolicies.length,
-        password: passwordPolicies.length,
-        session: sessionPolicies.length,
-        aggregation: aggregationPolicies.length,
-      });
+      const failures: string[] = [];
+      const unwrap = <T,>(label: string, res: PromiseSettledResult<T[]>): T[] => {
+        if (res.status === 'fulfilled') return res.value;
+        const msg = res.reason instanceof Error ? res.reason.message : String(res.reason);
+        failures.push(`${label}: ${msg}`);
+        return [];
+      };
+
+      const rlsPolicies = unwrap('Row access', rlsRes);
+      const networkPolicies = unwrap('Network', networkRes);
+      const maskingPolicies = unwrap('Masking', maskingRes);
+      const passwordPolicies = unwrap('Password', passwordRes);
+      const sessionPolicies = unwrap('Session', sessionRes);
+      const aggregationPolicies = unwrap('Aggregation', aggregationRes);
+
+      setPartialErrors(failures);
 
       // Transform to unified format
       const policies: PolicyGrant[] = [
@@ -513,6 +525,29 @@ export default function PolicyGrantsTable() {
           Assign Policy
         </Button>
       </div>
+
+      {/* Partial-load errors — some policy sources failed but we still show what loaded */}
+      {partialErrors.length > 0 && (
+        <div
+          role="alert"
+          className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-700/60 dark:bg-amber-900/20"
+        >
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            {partialErrors.length} policy source{partialErrors.length > 1 ? 's' : ''} failed to load — showing partial results.
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-700 dark:text-amber-400">
+            {partialErrors.map((msg) => (
+              <li key={msg}>{msg}</li>
+            ))}
+          </ul>
+          <button
+            onClick={fetchPolicies}
+            className="mt-2 text-xs font-semibold text-amber-800 underline hover:text-amber-900 dark:text-amber-300"
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Policy Type Tabs */}
       <div className="flex items-center gap-2 overflow-x-auto pb-2">

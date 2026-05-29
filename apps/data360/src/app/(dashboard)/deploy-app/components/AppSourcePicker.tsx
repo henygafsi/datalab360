@@ -444,24 +444,11 @@ function TablePeek({
     };
   }, [database, schema, table]);
 
-  const columns = useMemo<string[]>(() => {
-    if (!data) return [];
-    const cols = (data as unknown as { columns?: { name: string }[] | string[] }).columns;
-    if (!cols) return [];
-    return cols.map((c) =>
-      typeof c === 'string' ? c : (c as { name: string }).name,
-    );
-  }, [data]);
+  const columns = useMemo<string[]>(() => data?.columns ?? [], [data]);
 
   const rows = useMemo<unknown[][]>(() => {
-    if (!data) return [];
-    const raw = (data as unknown as { rows?: unknown[][] | Record<string, unknown>[] })
-      .rows;
-    if (!raw) return [];
-    if (Array.isArray(raw[0])) return raw as unknown[][];
-    return (raw as Record<string, unknown>[]).map((r) =>
-      columns.map((c) => r[c]),
-    );
+    if (!data?.rows) return [];
+    return data.rows.map((r) => columns.map((c) => r[c]));
   }, [data, columns]);
 
   return (

@@ -13,9 +13,9 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { PiWarehouseDuotone } from 'react-icons/pi';
+import { PiWarehouseDuotone, PiWarningCircleDuotone } from 'react-icons/pi';
 import { getWarehouses } from '@/app/services/org-accounts/hooks';
-import { formatCredits } from '@/app/services/org-accounts/utils';
+import { formatCredits, extractApiError } from '@/app/services/org-accounts/utils';
 import type { Warehouse, DateRange } from '@/app/services/org-accounts/types';
 
 interface WarehousesTabProps {
@@ -36,14 +36,16 @@ function SkeletonCard() {
 export default function WarehousesTab({ refreshKey }: WarehousesTabProps) {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
     getWarehouses(days)
       .then((data) => setWarehouses(Array.isArray(data.warehouses) ? data.warehouses : []))
-      .catch((e) => console.error('Failed to fetch warehouses:', e))
+      .catch((e) => setError(extractApiError(e, 'Failed to load warehouses')))
       .finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -83,6 +85,15 @@ export default function WarehousesTab({ refreshKey }: WarehousesTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Warehouse data could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

@@ -150,11 +150,19 @@ export default function SnowflakeAccountsTab() {
     const accountName = state.selected;
     let cancelled = false;
     setState((s) => ({ ...s, loadingDetail: true, error: null }));
+    // Capture the first failure instead of swallowing each call to null —
+    // otherwise a failed detail fetch renders an empty panel with no error.
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e: unknown) => {
+        firstError = firstError ?? (e instanceof Error ? e.message : String(e));
+        return null;
+      });
     Promise.all([
-      getAccountDetail(accountName).catch(() => null),
-      getAccountCreditHistory(accountName, 30).catch(() => null),
-      getAccountWarehouses(accountName, 30).catch(() => null),
-      getAccountLoginHistory(accountName, 30).catch(() => null),
+      guard(getAccountDetail(accountName)),
+      guard(getAccountCreditHistory(accountName, 30)),
+      guard(getAccountWarehouses(accountName, 30)),
+      guard(getAccountLoginHistory(accountName, 30)),
     ])
       .then(([detail, creditsHistory, warehouses, logins]) => {
         if (cancelled) return;
@@ -165,14 +173,10 @@ export default function SnowflakeAccountsTab() {
           warehouses,
           logins,
           loadingDetail: false,
-        }));
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setState((s) => ({
-          ...s,
-          loadingDetail: false,
-          error: e instanceof Error ? e.message : String(e),
+          // Only surface an error when the primary detail call failed AND we
+          // have nothing to show; partial sub-section failures still render
+          // what loaded.
+          error: detail == null && firstError ? firstError : null,
         }));
       });
     return () => {

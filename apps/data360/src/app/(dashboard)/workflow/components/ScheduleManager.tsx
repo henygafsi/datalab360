@@ -18,6 +18,7 @@ import {
   History,
   ChevronDown,
   Globe,
+  AlertTriangle,
 } from 'lucide-react';
 
 import * as workflowApi from '@/app/services/api/workflowApi';
@@ -355,7 +356,7 @@ const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }
     [workflowId]
   );
 
-  const { data: historyData, loading: isLoading } = useCacheAwareQuery(
+  const { data: historyData, loading: isLoading, error, refetch } = useCacheAwareQuery(
     fetchHistoryFn,
     { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
   );
@@ -382,7 +383,20 @@ const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }
         </button>
       </div>
 
-      {history.length === 0 ? (
+      {error ? (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {getApiErrorMessage(error) || 'Failed to load execution history.'}
+          </p>
+          <button
+            onClick={() => { void refetch(); }}
+            className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+          >
+            Retry
+          </button>
+        </div>
+      ) : history.length === 0 ? (
         <p className="text-sm text-slate-500 text-center py-4">No execution history</p>
       ) : (
         history.map((entry) => (
@@ -404,8 +418,8 @@ const ScheduleHistory: React.FC<ScheduleHistoryProps> = ({ workflowId, onClose }
               </span>
             </div>
             <div className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-              <div>Duration: {entry.duration_seconds ? formatDuration(entry.duration_seconds) : '-'}</div>
-              <div>Steps: {entry.steps_executed || 0}/{entry.steps_total || 0}</div>
+              <div>Duration: {entry.duration_seconds ? formatDuration(entry.duration_seconds) : '—'}</div>
+              <div>Steps: {entry.steps_total > 0 ? `${entry.steps_executed}/${entry.steps_total}` : '—'}</div>
               {entry.error_log && (
                 <div className="text-red-500 mt-1">{typeof entry.error_log === 'string' ? entry.error_log : JSON.stringify(entry.error_log)}</div>
               )}

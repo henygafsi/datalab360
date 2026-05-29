@@ -11,10 +11,12 @@ export interface CortexQueryRequest {
 }
 
 export interface CortexQueryResult {
-  type: 'text' | 'sql';
+  type: 'text' | 'sql' | 'suggestions';
   text?: string;
   query?: string;
   data?: any[];
+  /** Follow-up suggestion chips returned for some Cortex Analyst responses. */
+  suggestions?: string[];
 }
 
 export interface CortexQueryResponse {

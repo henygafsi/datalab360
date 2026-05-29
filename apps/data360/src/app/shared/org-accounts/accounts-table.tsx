@@ -213,8 +213,8 @@ export default function AccountsTable({
       a.edition || '',
       a.is_active ? 'Active' : 'Inactive',
       a.created_on ? new Date(a.created_on).toLocaleDateString() : '',
-      (creditUsage[a.account_name] || 0).toFixed(2),
-      (storageUsage[a.account_name] || 0).toFixed(2),
+      creditUsage[a.account_name] != null ? creditUsage[a.account_name].toFixed(2) : '',
+      storageUsage[a.account_name] != null ? storageUsage[a.account_name].toFixed(2) : '',
     ]);
 
     const csvContent = [headers, ...rows].map((row) => row.join(',')).join('\n');
@@ -426,8 +426,11 @@ export default function AccountsTable({
             ) : (
               filteredAccounts.map((account) => {
                 const health = healthScoreMap.get(account.account_name);
-                const credits = creditUsage[account.account_name] || 0;
-                const storage = storageUsage[account.account_name] || 0;
+                // Distinguish "not loaded / no data" (render —) from a real 0.
+                const creditsVal = creditUsage[account.account_name];
+                const storageVal = storageUsage[account.account_name];
+                const hasCredits = creditsVal != null;
+                const hasStorage = storageVal != null;
 
                 return (
                   <tr
@@ -507,12 +510,12 @@ export default function AccountsTable({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">
-                        {credits.toFixed(2)}
+                        {hasCredits ? creditsVal.toFixed(2) : '—'}
                       </Text>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <Text className="text-sm font-medium text-gray-900 dark:text-white">
-                        {storage.toFixed(2)} TB
+                        {hasStorage ? `${storageVal.toFixed(2)} TB` : '—'}
                       </Text>
                     </td>
                     <td className="px-4 py-3">

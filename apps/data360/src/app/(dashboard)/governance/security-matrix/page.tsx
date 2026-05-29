@@ -2,7 +2,7 @@
 
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Button, Badge, Input, Select, Modal, Tab } from 'rizzui';
+import { Button, Badge, Input, Select, Tab, type SelectOption } from 'rizzui';
 import {
   HiOutlineShieldCheck,
   HiOutlinePlus,
@@ -47,15 +47,24 @@ import {
   type SecurityMatrixEntryRow,
   type SecurityMatrixResponse,
   type EnterpriseUser,
+  type EnterpriseUserUpdate,
 } from '@/app/services/governance/security_matrix';
 import { getMatrixColumns } from '@/app/shared/governance/security-matrix/columns';
 import { getEnterpriseUsersColumns } from '@/app/shared/governance/security-matrix/enterprise-users-columns';
 import SecurityMatrixFilters from '@/app/shared/governance/security-matrix/filters';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import { formatApiDetail } from '@/lib/utils';
 
 // ============= SHARED UI COMPONENTS =============
+
+const AXIS_TYPE_OPTIONS: { label: string; value: SecurityAxis['type'] }[] = [
+  { label: 'Region', value: 'region' },
+  { label: 'Store', value: 'store' },
+  { label: 'Department', value: 'department' },
+  { label: 'Custom', value: 'custom' },
+];
 
 const ModernCard = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <div className={`bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shadow-lg shadow-slate-200/20 dark:shadow-slate-900/20 ${className}`}>
@@ -121,6 +130,7 @@ export default function SecurityMatrixPage() {
   const [accessLevelFilter, setAccessLevelFilter] = useState('');
   const [dirtyMatrixRows, setDirtyMatrixRows] = useState<Map<number, Record<string, string | null>>>(new Map());
   const [showAddMatrixModal, setShowAddMatrixModal] = useState(false);
+  const [matrixFormError, setMatrixFormError] = useState<string | null>(null);
   const [matrixForm, setMatrixForm] = useState({
     role_name: '',
     region_id: '' as string | null,
@@ -139,7 +149,7 @@ export default function SecurityMatrixPage() {
   const [userSearch, setUserSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [idpFilter, setIdpFilter] = useState('');
-  const [dirtyUserRows, setDirtyUserRows] = useState<Map<string, Record<string, string | null>>>(new Map());
+  const [dirtyUserRows, setDirtyUserRows] = useState<Map<string, Partial<Record<keyof EnterpriseUserUpdate, string | null>>>>(new Map());
   const [syncing, setSyncing] = useState(false);
 
   // Axes state
@@ -148,7 +158,8 @@ export default function SecurityMatrixPage() {
   const [axesError, setAxesError] = useState<string | null>(null);
   const [showAddAxisModal, setShowAddAxisModal] = useState(false);
   const [editingAxis, setEditingAxis] = useState<SecurityAxis | null>(null);
-  const [axisForm, setAxisForm] = useState({ name: '', type: 'region' as string, description: '', values: '' });
+  const [axisFormError, setAxisFormError] = useState<string | null>(null);
+  const [axisForm, setAxisForm] = useState<{ name: string; type: SecurityAxis['type']; description: string; values: string }>({ name: '', type: 'region', description: '', values: '' });
 
   // Inline confirmation state (replaces native confirm() popups)
   const [confirmAction, setConfirmAction] = useState<{ type: 'deleteMatrix' | 'deleteUser' | 'deleteAxis'; id: number | string } | null>(null);
@@ -270,6 +281,7 @@ export default function SecurityMatrixPage() {
   };
 
   const handleAddMatrixEntry = async () => {
+    setMatrixFormError(null);
     try {
       await createSecurityMatrixEntry({
         role_name: matrixForm.role_name.trim(),
@@ -287,13 +299,13 @@ export default function SecurityMatrixPage() {
       setMatrixForm({ role_name: '', region_id: '', store_id: '', department_id: '', product_category: '', customer_segment: '', access_level: 'READ' });
       loadMatrix(true);
     } catch (err: any) {
-      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to add entry');
+      setMatrixFormError(formatApiDetail(err?.response?.data?.detail) || 'Failed to add entry');
     }
   };
 
   // ============= ENTERPRISE USERS EDITING =============
 
-  const handleUserCellChange = useCallback((username: string, field: string, value: string | null) => {
+  const handleUserCellChange = useCallback((username: string, field: keyof EnterpriseUserUpdate, value: string | null) => {
     setDirtyUserRows((prev) => {
       const next = new Map(prev);
       const existing = next.get(username) || {};
@@ -310,7 +322,12 @@ export default function SecurityMatrixPage() {
     let saved = 0;
     for (const [username, changes] of dirtyUserRows) {
       try {
-        await updateEnterpriseUser(username, changes as any);
+        // Drop nulls (cleared cells) into empty strings so the backend resets them.
+        const update: EnterpriseUserUpdate = {};
+        (Object.keys(changes) as (keyof EnterpriseUserUpdate)[]).forEach((field) => {
+          update[field] = changes[field] ?? '';
+        });
+        await updateEnterpriseUser(username, update);
         saved++;
       } catch (err: any) {
         toast.error(`Failed to update ${username}: ${formatApiDetail(err?.response?.data?.detail) || err.message}`);
@@ -356,20 +373,22 @@ export default function SecurityMatrixPage() {
   // ============= AXES CRUD =============
 
   const handleAddAxis = async () => {
+    setAxisFormError(null);
     try {
       const values = axisForm.values.split(',').map((v) => v.trim()).filter(Boolean);
-      await createSecurityAxis({ name: axisForm.name, type: axisForm.type as any, description: axisForm.description, values });
+      await createSecurityAxis({ name: axisForm.name, type: axisForm.type, description: axisForm.description, values });
       toast.success('Axis created');
       setShowAddAxisModal(false);
       resetAxisForm();
       loadAxes(true);
     } catch (err: any) {
-      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to create axis');
+      setAxisFormError(formatApiDetail(err?.response?.data?.detail) || 'Failed to create axis');
     }
   };
 
   const handleUpdateAxis = async () => {
     if (!editingAxis) return;
+    setAxisFormError(null);
     try {
       const values = axisForm.values.split(',').map((v) => v.trim()).filter(Boolean);
       await updateSecurityAxis(editingAxis.id, { name: axisForm.name, description: axisForm.description, values });
@@ -378,7 +397,7 @@ export default function SecurityMatrixPage() {
       resetAxisForm();
       loadAxes(true);
     } catch (err: any) {
-      toast.error(formatApiDetail(err?.response?.data?.detail) || 'Failed to update axis');
+      setAxisFormError(formatApiDetail(err?.response?.data?.detail) || 'Failed to update axis');
     }
   };
 
@@ -397,7 +416,7 @@ export default function SecurityMatrixPage() {
     }
   };
 
-  const resetAxisForm = () => setAxisForm({ name: '', type: 'region', description: '', values: '' });
+  const resetAxisForm = () => { setAxisForm({ name: '', type: 'region', description: '', values: '' }); setAxisFormError(null); };
 
   // ============= FILTERED DATA =============
 
@@ -526,7 +545,7 @@ export default function SecurityMatrixPage() {
               mode="matrix"
             />
             <Button
-              onClick={() => setShowAddMatrixModal(true)}
+              onClick={() => { setMatrixFormError(null); setShowAddMatrixModal(true); }}
               className="bg-gradient-to-r from-emerald-500 to-teal-600 text-white"
             >
               <HiOutlinePlus className="w-4 h-4 mr-2" />
@@ -542,7 +561,7 @@ export default function SecurityMatrixPage() {
             <ModernCard className="p-12 text-center">
               <HiOutlineTableCells className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-slate-500 dark:text-slate-400">No matrix entries found</p>
-              <Button onClick={() => setShowAddMatrixModal(true)} className="mt-4 bg-emerald-600 text-white">
+              <Button onClick={() => { setMatrixFormError(null); setShowAddMatrixModal(true); }} className="mt-4 bg-emerald-600 text-white">
                 Add First Entry
               </Button>
             </ModernCard>
@@ -821,7 +840,7 @@ export default function SecurityMatrixPage() {
           </div>
 
           <div className="flex justify-end">
-            <Button onClick={() => setShowAddAxisModal(true)} className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
+            <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} className="bg-gradient-to-r from-violet-500 to-purple-600 text-white">
               <HiOutlinePlus className="w-4 h-4 mr-2" />
               Add Security Axis
             </Button>
@@ -836,7 +855,7 @@ export default function SecurityMatrixPage() {
             <ModernCard className="p-12 text-center">
               <HiOutlineShieldCheck className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
               <p className="text-slate-500 dark:text-slate-400">No security axes found</p>
-              <Button onClick={() => setShowAddAxisModal(true)} className="mt-4 bg-violet-600 text-white">
+              <Button onClick={() => { setAxisFormError(null); setShowAddAxisModal(true); }} className="mt-4 bg-violet-600 text-white">
                 Create First Axis
               </Button>
             </ModernCard>
@@ -862,6 +881,7 @@ export default function SecurityMatrixPage() {
                           size="sm"
                           variant="outline"
                           onClick={() => {
+                            setAxisFormError(null);
                             setEditingAxis(axis);
                             setAxisForm({ name: axis.name, type: axis.type, description: axis.description || '', values: axis.values.join(', ') });
                           }}
@@ -915,18 +935,22 @@ export default function SecurityMatrixPage() {
         </div>
       )}
 
-      {/* Add Matrix Entry Modal */}
-      <Modal isOpen={showAddMatrixModal} onClose={() => setShowAddMatrixModal(false)}>
-        <div className="p-6 space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center">
-              <HiOutlineTableCells className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-slate-900 dark:text-white">New Matrix Entry</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Role and axis access mapping</p>
-            </div>
-          </div>
+      {/* Add Matrix Entry Panel */}
+      <PolicyFormPanel
+        isOpen={showAddMatrixModal}
+        onClose={() => setShowAddMatrixModal(false)}
+        title="New Matrix Entry"
+        description="Role and axis access mapping"
+        accentClassName="bg-emerald-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowAddMatrixModal(false)}>Cancel</Button>
+            <Button onClick={handleAddMatrixEntry} disabled={!matrixForm.role_name.trim()} className="bg-emerald-600 text-white">
+              Add Entry
+            </Button>
+          </>
+        }
+      >
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Role</label>
@@ -977,26 +1001,28 @@ export default function SecurityMatrixPage() {
               <Input value={matrixForm.customer_segment ?? ''} onChange={(e) => setMatrixForm((f) => ({ ...f, customer_segment: e.target.value || null }))} placeholder="optional" className="w-full" />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setShowAddMatrixModal(false)}>Cancel</Button>
-            <Button onClick={handleAddMatrixEntry} disabled={!matrixForm.role_name.trim()} className="bg-emerald-600 text-white">
-              Add Entry
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {matrixFormError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {matrixFormError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Add/Edit Axis Modal */}
-      <Modal isOpen={showAddAxisModal || !!editingAxis} onClose={() => { setShowAddAxisModal(false); setEditingAxis(null); resetAxisForm(); }}>
-        <div className="p-6 space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
-              <HiOutlinePlus className="w-5 h-5 text-white" />
-            </div>
-            <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-              {editingAxis ? 'Edit Security Axis' : 'Create Security Axis'}
-            </h2>
-          </div>
+      {/* Add/Edit Axis Panel */}
+      <PolicyFormPanel
+        isOpen={showAddAxisModal || !!editingAxis}
+        onClose={() => { setShowAddAxisModal(false); setEditingAxis(null); resetAxisForm(); }}
+        title={editingAxis ? 'Edit Security Axis' : 'Create Security Axis'}
+        accentClassName="bg-violet-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowAddAxisModal(false); setEditingAxis(null); resetAxisForm(); }}>Cancel</Button>
+            <Button onClick={editingAxis ? handleUpdateAxis : handleAddAxis} className="bg-violet-600 text-white">
+              {editingAxis ? 'Update' : 'Create'}
+            </Button>
+          </>
+        }
+      >
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Name</label>
@@ -1005,9 +1031,12 @@ export default function SecurityMatrixPage() {
             <div>
               <label className="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Type</label>
               <Select
-                options={[{ label: 'Region', value: 'region' }, { label: 'Store', value: 'store' }, { label: 'Department', value: 'department' }, { label: 'Custom', value: 'custom' }]}
+                options={AXIS_TYPE_OPTIONS}
                 value={axisForm.type}
-                onChange={(v: any) => setAxisForm({ ...axisForm, type: v?.value || 'region' })}
+                onChange={(option: SelectOption | string) => {
+                  const next = typeof option === 'string' ? option : option?.value;
+                  setAxisForm({ ...axisForm, type: (next as SecurityAxis['type']) ?? 'region' });
+                }}
                 disabled={!!editingAxis}
                 className="w-full"
               />
@@ -1026,15 +1055,13 @@ export default function SecurityMatrixPage() {
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-900 dark:text-white text-sm"
               />
             </div>
+            {axisFormError && (
+              <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+                {axisFormError}
+              </p>
+            )}
           </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => { setShowAddAxisModal(false); setEditingAxis(null); resetAxisForm(); }}>Cancel</Button>
-            <Button onClick={editingAxis ? handleUpdateAxis : handleAddAxis} className="bg-violet-600 text-white">
-              {editingAxis ? 'Update' : 'Create'}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
     </ErrorBoundary>
   );

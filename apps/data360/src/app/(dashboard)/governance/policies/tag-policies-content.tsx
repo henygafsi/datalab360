@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal, Select } from 'rizzui';
+import { Button, Input, Select, type SelectOption } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -19,7 +19,19 @@ import {
 } from '@/app/services/governance/policies';
 import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
+import ErrorDisplay from '@/components/ui/ErrorDisplay';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 import { DEFAULTS } from '@/config/database.config';
+
+interface TagDetails {
+  tag_name?: string;
+  allowed_values?: string;
+  comment?: string;
+  schema?: string;
+  owner?: string;
+  details?: { allowed_values?: string; comment?: string; owner?: string };
+}
 
 function tagToEnriched(tag: Tag): EnrichedPolicy {
   return {
@@ -42,12 +54,15 @@ const OBJECT_TYPES = [
 ];
 
 export default function TagPoliciesContent() {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showApplyModal, setShowApplyModal] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const [showApplyPanel, setShowApplyPanel] = useState(false);
+  const [showDetailsPanel, setShowDetailsPanel] = useState(false);
   const [selectedTag, setSelectedTag] = useState<Tag | null>(null);
-  const [tagDetails, setTagDetails] = useState<any>(null);
+  const [tagDetails, setTagDetails] = useState<TagDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   // Form state for creating tag
   const [tagName, setTagName] = useState('');
@@ -71,17 +86,20 @@ export default function TagPoliciesContent() {
 
   const handleViewDetails = async (tag: Tag) => {
     setSelectedTag(tag);
-    setShowDetailsModal(true);
+    setShowDetailsPanel(true);
     setLoadingDetails(true);
     setTagDetails(null);
+    setDetailsError(null);
 
     try {
-      const details = await getTagDetails(tag.tag_name);
-      // console.log('Tag details:', details);
-      setTagDetails(details);
-    } catch (error: any) {
-      console.error('Error loading tag details:', error);
-      toast.error('Failed to load tag details');
+      const details: TagDetails | null = await getTagDetails(tag.tag_name);
+      if (!details) {
+        setDetailsError('No details returned for this tag.');
+      } else {
+        setTagDetails(details);
+      }
+    } catch (error) {
+      setDetailsError(formatPolicyError(error, 'Failed to load tag details'));
     } finally {
       setLoadingDetails(false);
     }
@@ -89,10 +107,11 @@ export default function TagPoliciesContent() {
 
   const handleCreate = async () => {
     if (!tagName) {
-      toast.error('Please provide a tag name');
+      setCreateError('Please provide a tag name.');
       return;
     }
 
+    setCreateError(null);
     try {
       await createTag({
         tag_name: tagName,
@@ -101,39 +120,39 @@ export default function TagPoliciesContent() {
         schema: DEFAULTS.GOVERNANCE_FQN,
       });
       toast.success('Tag created successfully!');
-      setShowCreateModal(false);
+      setShowCreatePanel(false);
       resetCreateForm();
       refetch();
-    } catch (error: any) {
-      console.error('Create tag error:', error.response?.data || error);
-      toast.error(formatPolicyError(error,'Failed to create tag'));
+    } catch (error) {
+      setCreateError(formatPolicyError(error, 'Failed to create tag'));
     }
   };
 
   const handleApply = async () => {
     if (!selectedTag || !tagValue) {
-      toast.error('Please provide a tag value');
+      setApplyError('Please provide a tag value.');
       return;
     }
 
     // Validate required object selections based on object type
     if (objectType === 'DATABASE' && !database) {
-      toast.error('Please select a database');
+      setApplyError('Please select a database.');
       return;
     }
     if (objectType === 'SCHEMA' && (!database || !schema)) {
-      toast.error('Please select database and schema');
+      setApplyError('Please select database and schema.');
       return;
     }
     if (objectType === 'TABLE' && (!database || !schema || !table)) {
-      toast.error('Please select database, schema, and table');
+      setApplyError('Please select database, schema, and table.');
       return;
     }
     if (objectType === 'COLUMN' && (!database || !schema || !table || !column)) {
-      toast.error('Please select database, schema, table, and column');
+      setApplyError('Please select database, schema, table, and column.');
       return;
     }
 
+    setApplyError(null);
     try {
       await applyTag({
         tag_name: selectedTag.tag_name,
@@ -152,13 +171,12 @@ export default function TagPoliciesContent() {
         : `${database}.${schema}.${table}.${column}`;
 
       toast.success(`Tag applied to ${objectPath}`);
-      setShowApplyModal(false);
+      setShowApplyPanel(false);
       setSelectedTag(null);
       resetApplyForm();
       refetch();
-    } catch (error: any) {
-      console.error('Apply tag error:', error.response?.data || error);
-      toast.error(formatPolicyError(error,'Failed to apply tag'));
+    } catch (error) {
+      setApplyError(formatPolicyError(error, 'Failed to apply tag'));
     }
   };
 
@@ -170,6 +188,7 @@ export default function TagPoliciesContent() {
     setTagName('');
     setAllowedValues('');
     setComment('');
+    setCreateError(null);
   };
 
   const resetApplyForm = () => {
@@ -179,12 +198,13 @@ export default function TagPoliciesContent() {
     setTable('');
     setColumn('');
     setTagValue('');
+    setApplyError(null);
   };
 
   // Reset object selections when object type changes
-  const handleObjectTypeChange = (newType: any) => {
+  const handleObjectTypeChange = (newType: SelectOption | string) => {
     const extractedValue = typeof newType === 'object' ? newType?.value : newType;
-    setObjectType(extractedValue || 'TABLE');
+    setObjectType(String(extractedValue || 'TABLE'));
     setDatabase('');
     setSchema('');
     setTable('');
@@ -210,7 +230,7 @@ export default function TagPoliciesContent() {
           </p>
         </div>
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
           className="bg-green-600 hover:bg-green-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -220,7 +240,9 @@ export default function TagPoliciesContent() {
 
       {/* Tags List */}
       {loading ? (
-        <div className="text-center py-12">Loading...</div>
+        <TableSkeleton rows={4} columns={3} showHeader={false} />
+      ) : error ? (
+        <ErrorDisplay error={error.message} onRetry={() => refetch()} context="general" />
       ) : !tags || tags.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           No tags found. Create one to get started.
@@ -236,7 +258,8 @@ export default function TagPoliciesContent() {
               onViewDetails={() => handleViewDetails(tag)}
               onApply={() => {
                 setSelectedTag(tag);
-                setShowApplyModal(true);
+                setApplyError(null);
+                setShowApplyPanel(true);
               }}
               onDelete={handleDeletePolicy}
               onRefresh={refetch}
@@ -256,11 +279,20 @@ export default function TagPoliciesContent() {
         </div>
       )}
 
-      {/* Create Tag Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">Create Tag</h2>
-
+      {/* Create Tag Panel */}
+      <PolicyFormPanel
+        isOpen={showCreatePanel}
+        onClose={() => setShowCreatePanel(false)}
+        title="Create Tag"
+        description="Define a governance tag for databases, tables, and columns"
+        accentClassName="bg-green-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
+            <Button onClick={handleCreate} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
+          </>
+        }
+      >
           <Input
             label="Tag Name"
             placeholder="PII_LEVEL"
@@ -291,28 +323,27 @@ export default function TagPoliciesContent() {
             onChange={(e) => setComment(e.target.value)}
           />
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleCreate} className="bg-green-600 hover:bg-green-700">
-              Create Tag
-            </Button>
-          </div>
-        </div>
-      </Modal>
+          {createError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {createError}
+            </p>
+          )}
+      </PolicyFormPanel>
 
-      {/* Apply Tag Modal */}
-      <Modal isOpen={showApplyModal} onClose={() => setShowApplyModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Apply Tag: {selectedTag?.tag_name}
-          </h2>
-
-          <p className="text-sm text-slate-600 dark:text-slate-400">
-            Select the object to apply this tag to:
-          </p>
-
+      {/* Apply Tag Panel */}
+      <PolicyFormPanel
+        isOpen={showApplyPanel}
+        onClose={() => { setShowApplyPanel(false); setSelectedTag(null); resetApplyForm(); }}
+        title={`Apply Tag: ${selectedTag?.tag_name ?? ''}`}
+        description="Select the object to apply this tag to"
+        accentClassName="bg-green-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedTag(null); resetApplyForm(); }}>Cancel</Button>
+            <Button onClick={handleApply} disabled={!database || !tagValue} className="bg-green-600 hover:bg-green-700">Apply Tag</Button>
+          </>
+        }
+      >
           <Select
             label="Object Type"
             value={objectType}
@@ -383,33 +414,38 @@ export default function TagPoliciesContent() {
             </div>
           )}
 
-          <div className="flex gap-3 justify-end">
-            <Button variant="outline" onClick={() => setShowApplyModal(false)}>
-              Cancel
-            </Button>
+          {applyError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {applyError}
+            </p>
+          )}
+      </PolicyFormPanel>
+
+      {/* Tag Details Panel */}
+      <PolicyFormPanel
+        isOpen={showDetailsPanel}
+        onClose={() => setShowDetailsPanel(false)}
+        title={`Tag Details: ${selectedTag?.tag_name ?? ''}`}
+        accentClassName="bg-green-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowDetailsPanel(false)}>Close</Button>
             <Button
-              onClick={handleApply}
-              disabled={!database || !tagValue}
               className="bg-green-600 hover:bg-green-700"
+              onClick={() => { setShowDetailsPanel(false); setApplyError(null); setShowApplyPanel(true); }}
             >
               Apply Tag
             </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Tag Details Modal */}
-      <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
-        <div className="p-6 space-y-4">
-          <h2 className="text-xl font-bold">
-            Tag Details: {selectedTag?.tag_name}
-          </h2>
-
+          </>
+        }
+      >
           {loadingDetails ? (
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
               <p className="mt-2 text-slate-500">Loading details...</p>
             </div>
+          ) : detailsError ? (
+            <ErrorDisplay error={detailsError} onRetry={() => selectedTag && handleViewDetails(selectedTag)} context="general" />
           ) : tagDetails ? (
             <div className="space-y-4">
               <div>
@@ -417,7 +453,7 @@ export default function TagPoliciesContent() {
                   Tag Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {tagDetails.tag_name || selectedTag?.tag_name || 'N/A'}
+                  {tagDetails.tag_name || selectedTag?.tag_name || '—'}
                 </code>
               </div>
 
@@ -444,13 +480,13 @@ export default function TagPoliciesContent() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Schema
                   </label>
-                  <p className="text-sm">{tagDetails.schema || selectedTag?.schema || 'N/A'}</p>
+                  <p className="text-sm">{tagDetails.schema || selectedTag?.schema || '—'}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Owner
                   </label>
-                  <p className="text-sm">{tagDetails.details?.owner || tagDetails.owner || 'N/A'}</p>
+                  <p className="text-sm">{tagDetails.details?.owner || tagDetails.owner || '—'}</p>
                 </div>
               </div>
             </div>
@@ -459,23 +495,7 @@ export default function TagPoliciesContent() {
               No details available
             </div>
           )}
-
-          <div className="flex gap-3 justify-end pt-4">
-            <Button variant="outline" onClick={() => setShowDetailsModal(false)}>
-              Close
-            </Button>
-            <Button
-              className="bg-green-600 hover:bg-green-700"
-              onClick={() => {
-                setShowDetailsModal(false);
-                setShowApplyModal(true);
-              }}
-            >
-              Apply Tag
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
   );
 }

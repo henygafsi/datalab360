@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 /**
  * User registration data
@@ -25,11 +25,25 @@ export const registerUser = async (userData: userData) => {
         },
       });
       return response.data;
-    } catch (error: any) {
-      const axiosError = error as any;
+    } catch (error) {
+      const axiosError = error as AxiosError<{
+        detail?: string | Array<{ msg?: string }>;
+        message?: string;
+      }>;
 
-      if (axiosError.response?.data?.detail) {
-        throw new Error(`Registration failed: ${axiosError.response.data.detail}`);
+      const data = axiosError.response?.data;
+      if (data?.message && typeof data.message === 'string') {
+        throw new Error(`Registration failed: ${data.message}`);
+      }
+      if (data?.detail) {
+        const detail = data.detail;
+        if (Array.isArray(detail)) {
+          const errorMessages = detail.map((e) => e.msg ?? '').filter(Boolean).join(', ');
+          throw new Error(`Registration failed: ${errorMessages}`);
+        }
+        if (typeof detail === 'string') {
+          throw new Error(`Registration failed: ${detail}`);
+        }
       }
 
       throw new Error('Registration error: An unexpected issue occurred.');

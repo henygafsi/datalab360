@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-import { Button, Badge, Input, Modal, Select } from 'rizzui';
+import { Button, Badge, Input, Select } from 'rizzui';
+import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import {
   HiOutlineLockClosed,
   HiOutlinePlus,
@@ -46,6 +47,8 @@ export default function RLSPoliciesPage() {
   const [applyElapsedMs, setApplyElapsedMs] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
 
   const [confirmRemovePolicy, setConfirmRemovePolicy] = useState<string | null>(null);
@@ -138,6 +141,7 @@ export default function RLSPoliciesPage() {
   };
 
   const handleCreate = async () => {
+    setCreateError(null);
     try {
       await createRLSPolicy({
         policy_name: formData.policy_name,
@@ -152,12 +156,13 @@ export default function RLSPoliciesPage() {
       resetForm();
       loadPolicies();
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to create RLS policy');
+      setCreateError(extractError(error, 'Failed to create RLS policy'));
     }
   };
 
   const handleApply = async () => {
     if (!selectedPolicy) return;
+    setApplyError(null);
     setIsApplying(true);
     setApplyElapsedMs(0);
     const startedAt = Date.now();
@@ -176,7 +181,7 @@ export default function RLSPoliciesPage() {
       resetApplyForm();
       loadPolicies();
     } catch (err: any) {
-      toast.error(extractError(err, 'Failed to apply RLS policy'));
+      setApplyError(extractError(err, 'Failed to apply RLS policy'));
     } finally {
       clearInterval(timer);
       setIsApplying(false);
@@ -203,6 +208,7 @@ export default function RLSPoliciesPage() {
       filter_expression: '',
       description: '',
     });
+    setCreateError(null);
   };
 
   const resetApplyForm = () => {
@@ -211,6 +217,7 @@ export default function RLSPoliciesPage() {
       schema: '',
       table_name: '',
     });
+    setApplyError(null);
   };
 
   const Breadcrumb = () => {
@@ -255,7 +262,7 @@ export default function RLSPoliciesPage() {
         </div>
 
         <Button
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => { setCreateError(null); setShowCreateModal(true); }}
           className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white shadow-lg shadow-indigo-500/30"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -329,7 +336,7 @@ export default function RLSPoliciesPage() {
           <div className="text-center py-12">
             <HiOutlineLockClosed className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
             <p className="text-slate-600 dark:text-slate-400">No RLS policies created yet</p>
-            <Button onClick={() => setShowCreateModal(true)} className="mt-4">
+            <Button onClick={() => { setCreateError(null); setShowCreateModal(true); }} className="mt-4">
               Create your first policy
             </Button>
           </div>
@@ -383,6 +390,7 @@ export default function RLSPoliciesPage() {
                       variant="outline"
                       onClick={() => {
                         setSelectedPolicy(policy);
+                        setApplyError(null);
                         setShowApplyModal(true);
                       }}
                       className="text-blue-600 hover:bg-blue-50"
@@ -424,19 +432,26 @@ export default function RLSPoliciesPage() {
         )}
       </ModernCard>
 
-      {/* Create Modal */}
-      <Modal isOpen={showCreateModal} onClose={() => { setShowCreateModal(false); resetForm(); }}>
-        <div className="p-6 space-y-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center">
-              <HiOutlinePlus className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Create RLS Policy</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">Define row-level security filter</p>
-            </div>
-          </div>
-
+      {/* Create Panel */}
+      <PolicyFormPanel
+        isOpen={showCreateModal}
+        onClose={() => { setShowCreateModal(false); resetForm(); }}
+        title="Create RLS Policy"
+        description="Define a row-level security filter"
+        accentClassName="bg-indigo-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => { setShowCreateModal(false); resetForm(); }}>Cancel</Button>
+            <Button
+              onClick={handleCreate}
+              disabled={!formData.policy_name || !formData.filter_expression || !formData.table_name}
+              className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white"
+            >
+              Create Policy
+            </Button>
+          </>
+        }
+      >
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Policy Name</label>
@@ -509,38 +524,39 @@ export default function RLSPoliciesPage() {
                 placeholder="Optional description"
               />
             </div>
-          </div>
 
-          <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={() => { setShowCreateModal(false); resetForm(); }}>
+            {createError && (
+              <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+                {createError}
+              </p>
+            )}
+          </div>
+      </PolicyFormPanel>
+
+      {/* Apply Panel */}
+      <PolicyFormPanel
+        isOpen={showApplyModal}
+        onClose={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}
+        title="Apply RLS Policy"
+        description={selectedPolicy ? `Apply "${selectedPolicy.policy_name}" to a table` : undefined}
+        accentClassName="bg-green-500"
+        footer={
+          <>
+            <Button variant="outline" disabled={isApplying} onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
               Cancel
             </Button>
             <Button
-              onClick={handleCreate}
-              disabled={!formData.policy_name || !formData.filter_expression || !formData.table_name}
-              className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-600 hover:to-blue-700 text-white"
+              onClick={handleApply}
+              disabled={!applyForm.table_name || isApplying}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white disabled:opacity-60"
             >
-              Create Policy
+              {isApplying
+                ? `Applying on Snowflake... ${(applyElapsedMs / 1000).toFixed(1)}s`
+                : 'Apply Policy'}
             </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Apply Modal */}
-      <Modal isOpen={showApplyModal} onClose={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
-        <div className="p-6 space-y-6">
-          <div className="flex items-center space-x-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
-              <HiOutlinePlay className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Apply RLS Policy</h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Apply "{selectedPolicy?.policy_name}" to a table
-              </p>
-            </div>
-          </div>
-
+          </>
+        }
+      >
           <div className="space-y-4">
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -581,24 +597,14 @@ export default function RLSPoliciesPage() {
                 />
               </div>
             </div>
-          </div>
 
-          <div className="flex justify-end space-x-3">
-            <Button variant="outline" disabled={isApplying} onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleApply}
-              disabled={!applyForm.table_name || isApplying}
-              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white disabled:opacity-60"
-            >
-              {isApplying
-                ? `Applying on Snowflake... ${(applyElapsedMs / 1000).toFixed(1)}s`
-                : 'Apply Policy'}
-            </Button>
+            {applyError && (
+              <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+                {applyError}
+              </p>
+            )}
           </div>
-        </div>
-      </Modal>
+      </PolicyFormPanel>
     </div>
     </ErrorBoundary>
   );

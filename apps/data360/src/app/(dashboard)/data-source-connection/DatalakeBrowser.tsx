@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Button, Text, Badge, Modal } from 'rizzui';
+import { Button, Text, Badge } from 'rizzui';
 import {
   HiOutlineDocument,
   HiOutlineArrowLeft,
@@ -48,6 +48,16 @@ interface StageItem {
   database_name?: string;
 }
 
+// SHOW GRANTS rows — Snowflake returns upper-case keys; some proxies lower-case them.
+interface StageGrant {
+  PRIVILEGE?: string;
+  privilege?: string;
+  GRANTED_TO?: string;
+  granted_to?: string;
+  GRANTEE_NAME?: string;
+  grantee_name?: string;
+}
+
 export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserProps) {
   const [loading, setLoading] = useState(false);
   const [currentStage, setCurrentStage] = useState<string | null>(null);
@@ -66,8 +76,9 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const [previewPage, setPreviewPage] = useState(0);
   const [previewPageSize, setPreviewPageSize] = useState(100);
   const [grantsOpen, setGrantsOpen] = useState(false);
-  const [grants, setGrants] = useState<any[]>([]);
+  const [grants, setGrants] = useState<StageGrant[]>([]);
   const [grantsLoading, setGrantsLoading] = useState(false);
+  const [grantsError, setGrantsError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     type: 'delete' | 'bulk-delete' | 'overwrite';
     file?: StageItem;
@@ -166,6 +177,18 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     if (currentStage) loadStageFiles(currentStage);
   }, [currentStage, loadStageFiles]);
 
+  // Escape closes the non-blocking side panels (preview / grants).
+  useEffect(() => {
+    if (!previewOpen && !grantsOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (previewOpen) setPreviewOpen(false);
+      if (grantsOpen) setGrantsOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [previewOpen, grantsOpen]);
+
   const handleStageChange = (newStageName: string) => {
     setCurrentStage(newStageName);
     setSearchQuery('');
@@ -174,8 +197,10 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
 
   const fetchPreview = useCallback(async (stageName: string, fileName: string, limit: number, offset: number) => {
     const response = await previewStageFile(stageName, fileName, limit, offset);
-    if (response && (response as any).error) {
-      throw new Error((response as any).message || 'Preview failed');
+    // The endpoint can return an { error, message } payload instead of preview data.
+    const errPayload = response as unknown as { error?: unknown; message?: unknown };
+    if (errPayload && errPayload.error) {
+      throw new Error(typeof errPayload.message === 'string' ? errPayload.message : 'Preview failed');
     }
     setPreviewData(response);
   }, []);
@@ -211,12 +236,13 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     if (!currentStage) return;
     setGrantsOpen(true);
     setGrantsLoading(true);
+    setGrantsError(null);
+    setGrants([]);
     try {
-      const res = await getStageGrants(currentStage);
+      const res = await getStageGrants(currentStage) as { grants?: StageGrant[] };
       setGrants(Array.isArray(res?.grants) ? res.grants : []);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to load grants');
-      setGrants([]);
+    } catch (e) {
+      setGrantsError(e instanceof Error ? e.message : 'Failed to load grants');
     } finally {
       setGrantsLoading(false);
     }
@@ -1036,10 +1062,15 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
         )}
       </div>
 
-      {/* File Preview Modal */}
-      <Modal isOpen={previewOpen} onClose={() => setPreviewOpen(false)} size="xl">
-        <div className="flex flex-col h-[80vh]">
-          {/* Modal Header */}
+      {/* File Preview — non-blocking right-side panel (read-only viewer) */}
+      {previewOpen && (
+      <aside
+        role="dialog"
+        aria-label="File preview"
+        className="fixed right-0 top-0 z-40 flex h-full w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      >
+        <div className="flex flex-col h-full">
+          {/* Panel Header */}
           <div className="flex-shrink-0 px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex-shrink-0 p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
@@ -1075,7 +1106,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             </button>
           </div>
 
-          {/* Modal Body - Scrollable Table */}
+          {/* Panel Body - Scrollable Table */}
           <div className="flex-1 overflow-auto [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-300 [&::-webkit-scrollbar-thumb]:rounded-full dark:[&::-webkit-scrollbar-thumb]:bg-slate-600 [&::-webkit-scrollbar-thumb]:hover:bg-slate-400 dark:[&::-webkit-scrollbar-thumb]:hover:bg-slate-500">
             {previewLoading && !previewData ? (
               <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -1103,13 +1134,16 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
                         <td className="px-4 py-2 text-xs text-slate-400 dark:text-slate-500 font-mono">
                           {idx + 1}
                         </td>
-                        {(previewData.columns || []).map((col) => (
-                          <td key={col} className="px-4 py-2 text-slate-700 dark:text-slate-300 max-w-[300px] truncate font-mono text-xs" title={String((row as any)[col] ?? '')}>
-                            {(row as any)[col] !== null && (row as any)[col] !== undefined ? String((row as any)[col]) : (
-                              <span className="text-slate-400 dark:text-slate-500 italic">null</span>
-                            )}
-                          </td>
-                        ))}
+                        {(previewData.columns || []).map((col) => {
+                          const cell = row[col];
+                          return (
+                            <td key={col} className="px-4 py-2 text-slate-700 dark:text-slate-300 max-w-[300px] truncate font-mono text-xs" title={String(cell ?? '')}>
+                              {cell !== null && cell !== undefined ? String(cell) : (
+                                <span className="text-slate-400 dark:text-slate-500 italic">null</span>
+                              )}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -1118,7 +1152,7 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             ) : null}
           </div>
 
-          {/* Modal Footer - Pagination */}
+          {/* Panel Footer - Pagination */}
           <div className="flex-shrink-0 px-6 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50/50 dark:bg-slate-800/50">
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
               <span>Rows per page</span>
@@ -1161,10 +1195,16 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             </div>
           </div>
         </div>
-      </Modal>
+      </aside>
+      )}
 
-      {/* Stage grants modal */}
-      <Modal isOpen={grantsOpen} onClose={() => setGrantsOpen(false)} size="md">
+      {/* Stage grants — non-blocking right-side panel (read-only viewer) */}
+      {grantsOpen && (
+      <aside
+        role="dialog"
+        aria-label="Stage permissions"
+        className="fixed right-0 top-0 z-40 flex h-full w-full max-w-md flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+      >
         <div className="p-4 border-b dark:border-slate-700 flex items-center justify-between">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white truncate pr-4">
             Permissions &mdash; {currentStage ? allStages.find(s => s.name === currentStage)?.shortName || currentStage : ''}
@@ -1177,10 +1217,16 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             <HiXMark className="h-5 w-5" />
           </button>
         </div>
-        <div className="p-4 max-h-96 overflow-auto">
+        <div className="p-4 flex-1 overflow-auto">
           {grantsLoading ? (
             <div className="flex justify-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-blue-600 border-t-transparent" />
+            </div>
+          ) : grantsError ? (
+            <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-3 dark:border-rose-800 dark:bg-rose-950/30">
+              <p className="text-sm font-medium text-rose-800 dark:text-rose-300">Failed to load grants</p>
+              <p className="mt-0.5 text-xs text-rose-700 dark:text-rose-400 break-words">{grantsError}</p>
+              <button onClick={handleGrantsClick} className="mt-2 text-xs font-medium text-rose-700 hover:underline dark:text-rose-300">Retry</button>
             </div>
           ) : grants.length === 0 ? (
             <Text className="text-slate-500 dark:text-slate-400">No grants returned for this stage.</Text>
@@ -1205,7 +1251,8 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
             </table>
           )}
         </div>
-      </Modal>
+      </aside>
+      )}
 
       {/* Footer - Fixed */}
       <div className="flex-shrink-0 bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 px-6 py-3">

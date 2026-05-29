@@ -4,10 +4,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Loader } from 'rizzui';
 import {
   Database, ChevronRight, ChevronDown, Table2, Layers,
-  Search, PanelLeftClose, PanelLeft,
+  Search, PanelLeftClose, PanelLeft, AlertTriangle, RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 interface SourceTreeProps {
   onSelectTable: (database: string, schema: string, table: string) => void;
@@ -24,23 +25,29 @@ interface TreeNode {
   children?: TreeNode[];
   loaded?: boolean;
   loading?: boolean;
+  error?: string;
 }
 
 export default function SourceTree({ onSelectTable, selectedTable, collapsed, onToggleCollapse }: SourceTreeProps) {
   const [databases, setDatabases] = useState<TreeNode[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const dbs = await getDatabases();
-        setDatabases(dbs.map((name) => ({ type: 'database' as const, name, children: [], loaded: false })));
-      } catch { /* silently fail */ }
-      setLoading(false);
-    })();
+  const loadDatabases = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const dbs = await getDatabases();
+      setDatabases(dbs.map((name) => ({ type: 'database' as const, name, children: [], loaded: false })));
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => { loadDatabases(); }, [loadDatabases]);
 
   const toggleExpand = useCallback(async (key: string, node: TreeNode) => {
     const next = new Set(expanded);
@@ -67,6 +74,7 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
                   ...db,
                   loading: false,
                   loaded: true,
+                  error: undefined,
                   children: schemas.map((s) => ({
                     type: 'schema' as const,
                     name: s,
@@ -78,9 +86,10 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
               : db
           )
         );
-      } catch {
+      } catch (err) {
+        const msg = getApiErrorMessage(err);
         setDatabases((prev) =>
-          prev.map((db) => (db.name === node.name ? { ...db, loading: false } : db))
+          prev.map((db) => (db.name === node.name ? { ...db, loading: false, error: msg } : db))
         );
       }
     }
@@ -112,6 +121,7 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
                           ...s,
                           loading: false,
                           loaded: true,
+                          error: undefined,
                           children: tables.map((t) => ({
                             type: 'table' as const,
                             name: t,
@@ -125,14 +135,15 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
               : db
           )
         );
-      } catch {
+      } catch (err) {
+        const msg = getApiErrorMessage(err);
         setDatabases((prev) =>
           prev.map((db) =>
             db.name === dbName
               ? {
                   ...db,
                   children: db.children?.map((s) =>
-                    s.name === node.name ? { ...s, loading: false } : s
+                    s.name === node.name ? { ...s, loading: false, error: msg } : s
                   ),
                 }
               : db
@@ -197,6 +208,19 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
           <div className="flex items-center justify-center py-8">
             <Loader size="sm" />
           </div>
+        ) : error ? (
+          <div role="alert" className="m-1 rounded-lg border border-rose-300 bg-rose-50 p-3 dark:border-rose-800 dark:bg-rose-950/30">
+            <div className="flex items-start gap-1.5">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-rose-600 dark:text-rose-400" />
+              <p className="text-[11px] text-rose-700 dark:text-rose-400">{error}</p>
+            </div>
+            <button
+              onClick={loadDatabases}
+              className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-rose-700 hover:underline dark:text-rose-300"
+            >
+              <RefreshCw className="h-3 w-3" />Retry
+            </button>
+          </div>
         ) : visible.length === 0 ? (
           <p className="text-xs text-gray-400 text-center py-8">No sources found</p>
         ) : (
@@ -207,13 +231,19 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
               <div key={dbKey}>
                 <button
                   onClick={() => toggleExpand(dbKey, db)}
+                  aria-expanded={isDbExpanded}
                   className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                 >
                   {isDbExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                   <Database className="h-3.5 w-3.5 text-blue-500" />
                   <span className="truncate">{db.name}</span>
                   {db.loading && <Loader size="sm" className="ml-auto h-3 w-3" />}
+                  {db.error && <AlertTriangle className="ml-auto h-3 w-3 text-rose-500" />}
                 </button>
+
+                {isDbExpanded && db.error && (
+                  <p role="alert" className="ml-6 px-2 py-1 text-[10px] text-rose-600 dark:text-rose-400">{db.error}</p>
+                )}
 
                 {isDbExpanded && db.children?.map((schemaNode) => {
                   const schemaKey = `${db.name}.${schemaNode.name}`;
@@ -222,13 +252,23 @@ export default function SourceTree({ onSelectTable, selectedTable, collapsed, on
                     <div key={schemaKey} className="ml-4">
                       <button
                         onClick={() => toggleExpand(schemaKey, schemaNode)}
+                        aria-expanded={isSchemaExpanded}
                         className="w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-xs text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
                       >
                         {isSchemaExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                         <Layers className="h-3 w-3 text-purple-500" />
                         <span className="truncate">{schemaNode.name}</span>
                         {schemaNode.loading && <Loader size="sm" className="ml-auto h-3 w-3" />}
+                        {schemaNode.error && <AlertTriangle className="ml-auto h-3 w-3 text-rose-500" />}
                       </button>
+
+                      {isSchemaExpanded && schemaNode.error && (
+                        <p role="alert" className="ml-6 px-2 py-1 text-[10px] text-rose-600 dark:text-rose-400">{schemaNode.error}</p>
+                      )}
+
+                      {isSchemaExpanded && !schemaNode.error && schemaNode.loaded && schemaNode.children?.length === 0 && (
+                        <p className="ml-8 px-2 py-1 text-[10px] text-gray-400">No tables</p>
+                      )}
 
                       {isSchemaExpanded && schemaNode.children?.map((tableNode) => {
                         const tableFqn = `${db.name}.${schemaNode.name}.${tableNode.name}`;

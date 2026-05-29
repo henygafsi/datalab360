@@ -1,7 +1,6 @@
 'use client';
 
-import Image from 'next/image';
-import { Button, Title, Text } from 'rizzui';
+import { Button, Title, Text, Avatar } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { useLayout } from '@/layouts/use-layout';
 import { LAYOUT_OPTIONS } from '@/config/enums';
@@ -13,12 +12,19 @@ import { routes } from '@/config/routes';
 
 export default function ProfileHeader() {
   const { data: session } = useSession();
-  const { profile } = useProfile();
+  const { profile, loading } = useProfile();
   const { layout } = useLayout();
   const { expandedLeft } = useBerylliumSidebars();
 
-  const username = session?.user?.username || '';
-  const displayName = profile?.display_name || session?.user?.name || username || 'User';
+  const username = profile?.username || session?.user?.username || '';
+  const displayName =
+    profile?.display_name ||
+    [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') ||
+    session?.user?.name ||
+    username ||
+    'User';
+
+  const showSkeleton = loading && !profile;
 
   return (
     <div
@@ -41,30 +47,37 @@ export default function ProfileHeader() {
         <div className="flex h-auto gap-4 @5xl:gap-6">
           <div>
             <div className="relative -top-1/3 aspect-square w-[110px] overflow-hidden rounded-full border-4 border-white bg-white shadow-profilePic @2xl:w-[130px] @5xl:-top-2/3 @5xl:w-[150px] md:border-[6px] 3xl:w-[200px]">
-              <Image
-                src="https://isomorphic-furyroad.s3.amazonaws.com/public/profile-image.webp"
-                alt="profile-pic"
-                fill
-                priority
-                sizes="(max-width: 768px) 100vw"
-                className="aspect-auto"
+              <Avatar
+                name={displayName}
+                className="h-full w-full bg-gray-100 text-2xl font-semibold text-gray-700 3xl:text-4xl"
               />
             </div>
           </div>
           <div className="pt-2.5">
-            <Title
-              as="h1"
-              className="text-lg font-bold capitalize leading-normal text-gray-900 @3xl:!text-xl 3xl:text-2xl"
-            >
-              {displayName}
-            </Title>
-            <Text className="text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
-              @{username}
-            </Text>
-            {profile?.email && (
-              <Text className="mt-1 text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
-                {profile.email}
-              </Text>
+            {showSkeleton ? (
+              <>
+                <span className="block h-6 w-40 animate-pulse rounded bg-gray-100" />
+                <span className="mt-2 block h-3 w-24 animate-pulse rounded bg-gray-100" />
+              </>
+            ) : (
+              <>
+                <Title
+                  as="h1"
+                  className="text-lg font-bold capitalize leading-normal text-gray-900 @3xl:!text-xl 3xl:text-2xl"
+                >
+                  {displayName}
+                </Title>
+                {username && (
+                  <Text className="text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
+                    @{username}
+                  </Text>
+                )}
+                {profile?.email && (
+                  <Text className="mt-1 text-xs text-gray-500 @3xl:text-sm 3xl:text-base">
+                    {profile.email}
+                  </Text>
+                )}
+              </>
             )}
           </div>
         </div>

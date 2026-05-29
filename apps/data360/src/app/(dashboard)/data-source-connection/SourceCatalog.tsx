@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Badge, Loader, Tooltip } from 'rizzui';
 import {
   Database, Cloud, Building2, TrendingUp, Shield, Zap, GitBranch,
   RefreshCw, Timer, ExternalLink, Upload, Activity, Clock, HardDrive,
   Layers, Search, Filter, ChevronDown, ChevronRight, BarChart3,
 } from 'lucide-react';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 
 // ============================================
 // TYPES
@@ -310,33 +310,35 @@ export default function SourceCatalog() {
           const defaultDb = dbs.find((d: string) => d.toUpperCase().includes('DATA360')) || dbs[0];
           setSelectedDb(defaultDb);
         }
-      } catch {
+      } catch (err) {
         setDatabases([]);
+        setError(getApiErrorMessage(err));
       }
     };
     loadDatabases();
   }, []);
 
-  // Load catalog when database changes
-  useEffect(() => {
+  // Load catalog for the selected database (also used by the inline Retry button).
+  const loadCatalog = useCallback(async () => {
     if (!selectedDb) return;
-    const loadCatalog = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await apiClient.get('/connect/source-catalog', { params: { database: selectedDb } });
-        setCatalog(res.data);
-        // Auto-expand first 3 domains
-        const first3 = (res.data?.domains || []).slice(0, 3).map((d: DomainSummary) => d.domain);
-        setExpandedDomains(new Set(first3));
-      } catch (err: any) {
-        setError(err?.response?.data?.detail || err?.message || 'Failed to load source catalog');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadCatalog();
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiClient.get('/connect/source-catalog', { params: { database: selectedDb } });
+      setCatalog(res.data);
+      // Auto-expand first 3 domains
+      const first3 = (res.data?.domains || []).slice(0, 3).map((d: DomainSummary) => d.domain);
+      setExpandedDomains(new Set(first3));
+    } catch (err) {
+      setError(getApiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
   }, [selectedDb]);
+
+  useEffect(() => {
+    loadCatalog();
+  }, [loadCatalog]);
 
   // Filter tables by domain and ingestion type
   const filteredTablesByDomain = useMemo(() => {
@@ -479,7 +481,7 @@ export default function SourceCatalog() {
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center">
           <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
           <button
-            onClick={() => setSelectedDb(selectedDb)}
+            onClick={loadCatalog}
             className="mt-3 text-sm text-blue-600 dark:text-blue-400 hover:underline"
           >
             Retry

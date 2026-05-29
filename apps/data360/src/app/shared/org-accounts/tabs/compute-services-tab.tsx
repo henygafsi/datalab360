@@ -10,6 +10,7 @@ import {
   PiMagnifyingGlassDuotone,
   PiLightningDuotone,
   PiTreeStructureDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import {
   getServicesClustering,
@@ -18,7 +19,7 @@ import {
   getServicesSearchOptimization,
   getServicesQueryAcceleration,
 } from '@/app/services/org-accounts/hooks';
-import { formatCredits, formatBytes } from '@/app/services/org-accounts/utils';
+import { formatCredits, formatBytes, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   ClusteringEntry,
   MaterializedViewEntry,
@@ -69,24 +70,30 @@ export default function ComputeServicesTab({ refreshKey }: ComputeServicesTabPro
   const [searchOpt, setSearchOpt] = useState<SearchOptimizationEntry[]>([]);
   const [queryAccel, setQueryAccel] = useState<QueryAccelerationEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load compute services'); return null; });
 
     Promise.all([
-      getServicesClustering(days).catch(() => null),
-      getServicesMaterializedViews(days).catch(() => null),
-      getServicesPipes(days).catch(() => null),
-      getServicesSearchOptimization(days).catch(() => null),
-      getServicesQueryAcceleration(days).catch(() => null),
+      guard(getServicesClustering(days)),
+      guard(getServicesMaterializedViews(days)),
+      guard(getServicesPipes(days)),
+      guard(getServicesSearchOptimization(days)),
+      guard(getServicesQueryAcceleration(days)),
     ]).then(([clusterData, mvData, pipeData, soData, qaData]) => {
       if (clusterData) setClustering(Array.isArray(clusterData.clustering) ? clusterData.clustering : []);
       if (mvData) setMaterializedViews(Array.isArray(mvData.materialized_views) ? mvData.materialized_views : []);
       if (pipeData) setPipes(Array.isArray(pipeData.pipes) ? pipeData.pipes : []);
       if (soData) setSearchOpt(Array.isArray(soData.search_optimization) ? soData.search_optimization : []);
       if (qaData) setQueryAccel(Array.isArray(qaData.query_acceleration) ? qaData.query_acceleration : []);
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -108,6 +115,15 @@ export default function ComputeServicesTab({ refreshKey }: ComputeServicesTabPro
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some compute services data could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">

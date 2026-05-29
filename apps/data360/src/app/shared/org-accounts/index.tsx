@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Text, Title, Button } from 'rizzui';
 import cn from '@core/utils/class-names';
-import toast from 'react-hot-toast';
 import {
   PiArrowClockwiseBold,
   PiBuildingsDuotone,
@@ -15,8 +14,10 @@ import {
   PiCpuDuotone,
   PiHeartbeatDuotone,
   PiShareNetworkDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import { getDashboardOverview } from '@/app/services/org-accounts/hooks';
+import { extractApiError } from '@/app/services/org-accounts/utils';
 
 // Tab components (lazy per-tab data fetching)
 import OverviewTab from './tabs/overview-tab';
@@ -48,22 +49,38 @@ export default function OrgAccountsDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   // Elapsed seconds while a refresh is RUNNING (drives "Refreshing… 4s" affordance)
   const [refreshElapsed, setRefreshElapsed] = useState(0);
-  // Top-level error (only set when the primary overview call fails — secondary
-  // calls degrade silently into empty arrays, see fetchSecondaryData)
+  // Header-level error — set only when the org overview lookup fails. Each tab
+  // owns and surfaces its own per-section inline errors below the header.
   const [overviewError, setOverviewError] = useState<string | null>(null);
 
-  // Fetch org name on mount
+  // Fetch org name on mount. A failure here is not fatal (tabs fetch their
+  // own data and surface their own errors) but we record it for the header.
   useEffect(() => {
+    let cancelled = false;
     getDashboardOverview()
-      .then((data) => setOrgName(data.overview.organization_name ?? ''))
-      .catch(() => {});
-  }, []);
+      .then((data) => { if (!cancelled) setOrgName(data.overview.organization_name ?? ''); })
+      .catch((e) => { if (!cancelled) setOverviewError(extractApiError(e, 'Failed to load organization')); });
+    return () => { cancelled = true; };
+  }, [refreshKey]);
 
+  // Drive the "Refreshing… Ns" affordance with a real elapsed counter.
+  const refreshTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
+    setRefreshElapsed(0);
     setRefreshKey((k) => k + 1);
-    setTimeout(() => setRefreshing(false), 1000);
+    if (refreshTimer.current) clearInterval(refreshTimer.current);
+    refreshTimer.current = setInterval(() => setRefreshElapsed((s) => s + 1), 1000);
+    setTimeout(() => {
+      setRefreshing(false);
+      if (refreshTimer.current) {
+        clearInterval(refreshTimer.current);
+        refreshTimer.current = null;
+      }
+    }, 1000);
   }, []);
+
+  useEffect(() => () => { if (refreshTimer.current) clearInterval(refreshTimer.current); }, []);
 
   const renderTabContent = () => {
     switch (activeTab) {
@@ -109,16 +126,6 @@ export default function OrgAccountsDashboard() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              toast.success(`Exported ${activeTab} data as CSV`);
-            }}
-          >
-            <PiChartLineUpDuotone className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
             onClick={handleRefresh}
             disabled={refreshing}
           >
@@ -127,6 +134,18 @@ export default function OrgAccountsDashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Header-level error (org overview failed to load). Per-tab data
+          surfaces its own inline errors below. */}
+      {overviewError && (
+        <div role="alert" className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Could not load organization details</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{overviewError}</Text>
+          </div>
+        </div>
+      )}
 
       {/* Tab Navigation */}
       <div className="mb-6 border-b border-gray-200 dark:border-gray-700 overflow-x-auto">

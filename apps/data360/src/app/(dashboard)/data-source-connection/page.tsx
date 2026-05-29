@@ -269,6 +269,32 @@ type StageConnection = {
     connector_type?: string | null;
 };
 
+// Snowflake integration property keys surfaced by getIntegrationDetails(). The
+// backend may return them either at the top level or nested under `properties`
+// depending on the cloud provider, so we normalise both shapes here without
+// resorting to `as any`.
+type IntegrationProps = {
+    STORAGE_AWS_IAM_USER_ARN?: string;
+    STORAGE_AWS_EXTERNAL_ID?: string;
+    STORAGE_GCP_SERVICE_ACCOUNT?: string;
+};
+
+function integrationProps(details: unknown): IntegrationProps {
+    if (details && typeof details === 'object') {
+        const obj = details as Record<string, unknown>;
+        const nested = obj.properties;
+        const src = (nested && typeof nested === 'object' ? nested : obj) as Record<string, unknown>;
+        const pick = (k: keyof IntegrationProps): string | undefined =>
+            typeof src[k] === 'string' ? (src[k] as string) : undefined;
+        return {
+            STORAGE_AWS_IAM_USER_ARN: pick('STORAGE_AWS_IAM_USER_ARN'),
+            STORAGE_AWS_EXTERNAL_ID: pick('STORAGE_AWS_EXTERNAL_ID'),
+            STORAGE_GCP_SERVICE_ACCOUNT: pick('STORAGE_GCP_SERVICE_ACCOUNT'),
+        };
+    }
+    return {};
+}
+
 export default function DataSourceConnectionPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
@@ -1524,9 +1550,9 @@ export default function DataSourceConnectionPage() {
                                                       setLoading(true);
                                                       try {
                                                           const details = await getIntegrationDetails(awsFormData.integration_name);
-                                                          const props = (details as any)?.properties ?? details;
-                                                          const arn = props?.STORAGE_AWS_IAM_USER_ARN ?? '';
-                                                          const extId = props?.STORAGE_AWS_EXTERNAL_ID ?? '';
+                                                          const props = integrationProps(details);
+                                                          const arn = props.STORAGE_AWS_IAM_USER_ARN ?? '';
+                                                          const extId = props.STORAGE_AWS_EXTERNAL_ID ?? '';
                                                           if (arn) {
                                                               setAwsIamUserArn(arn);
                                                               if (extId) setAwsExternalId(extId);
@@ -1836,8 +1862,8 @@ export default function DataSourceConnectionPage() {
                                                       setLoading(true);
                                                       try {
                                                           const details = await getIntegrationDetails(gcsFormData.integration_name);
-                                                          const props = (details as any)?.properties ?? details;
-                                                          const sa = props?.STORAGE_GCP_SERVICE_ACCOUNT ?? '';
+                                                          const props = integrationProps(details);
+                                                          const sa = props.STORAGE_GCP_SERVICE_ACCOUNT ?? '';
                                                           if (sa) {
                                                               setGcsServiceAccount(sa);
                                                               toast.success('Service account retrieved!');
@@ -2563,7 +2589,7 @@ export default function DataSourceConnectionPage() {
                       <div className="col-span-2">
                           <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Mode</label>
                           <select value={oracleFormData.connection_mode}
-                              onChange={(e) => setOracleFormData((p) => ({ ...p, connection_mode: e.target.value as any }))}
+                              onChange={(e) => setOracleFormData((p) => ({ ...p, connection_mode: e.target.value as 'standard' | 'tls' | 'wallet' }))}
                               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-700 dark:text-white"
                               disabled={loading}>
                               <option value="tls">TLS (Autonomous DB)</option>

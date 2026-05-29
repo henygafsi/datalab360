@@ -38,7 +38,8 @@ export default function DependenciesCard() {
         direction,
         days: parseInt(days) || 30,
       });
-      setDependencies(result.data || result.dependencies || result || []);
+      const deps = result.dependencies ?? result.data ?? result;
+      setDependencies(Array.isArray(deps) ? deps : []);
     } catch (err: any) {
       toast.error(err.message || 'Failed to load dependencies');
     } finally {

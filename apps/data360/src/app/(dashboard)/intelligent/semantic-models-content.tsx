@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Button, Input, Modal, Badge, Loader, Select } from 'rizzui';
+import { Button, Input, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   HiOutlinePlus,
@@ -15,6 +15,7 @@ import {
   HiOutlineCalendar,
   HiOutlineDocumentDuplicate,
   HiOutlineArrowPath,
+  HiOutlineExclamationTriangle,
 } from 'react-icons/hi2';
 import {
   PiDatabase,
@@ -47,6 +48,22 @@ interface SelectOption {
   label: string;
 }
 
+// ── Inline error display — keeps the failure visible in-flow instead of a
+// transient toast that disappears before the user can act on it. ──
+function InlineError({ message, onDismiss }: { message: string; onDismiss?: () => void }) {
+  return (
+    <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+      <HiOutlineExclamationTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 dark:text-red-400" />
+      <p className="flex-1 text-sm text-red-700 dark:text-red-300">{message}</p>
+      {onDismiss && (
+        <button type="button" onClick={onDismiss} aria-label="Dismiss error" className="shrink-0 text-xs font-medium text-red-500 hover:text-red-700 dark:hover:text-red-300">
+          Dismiss
+        </button>
+      )}
+    </div>
+  );
+}
+
 function SemanticModelsContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
@@ -58,6 +75,13 @@ function SemanticModelsContent() {
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmDeleteModel, setConfirmDeleteModel] = useState<string | null>(null);
+
+  // Inline error state (replaces error toasts)
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [viewError, setViewError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   // Form state for creating model
   const [modelName, setModelName] = useState('');
@@ -79,19 +103,20 @@ function SemanticModelsContent() {
     const data = await listSemanticModels();
     return Array.isArray(data) ? data : [];
   }, []);
-  const { data: models, loading, refetch: loadModels } = useCacheAwareQuery<SemanticModel[]>(
+  const { data: models, loading, error: modelsErrorObj, refetch: loadModels } = useCacheAwareQuery<SemanticModel[]>(
     fetchModels,
     { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], initialData: [] }
   );
+  const modelsError = modelsErrorObj?.message ?? null;
 
   // Load databases when modal opens
   useEffect(() => {
     if (showCreateModal && dbOptions.length === 0) {
       getDatabases()
         .then((dbs) => setDbOptions(dbs.map((d) => ({ value: d, label: d }))))
-        .catch(() => {});
+        .catch((err) => setCreateError(err instanceof Error ? `Could not load databases: ${err.message}` : 'Could not load databases'));
     }
-  }, [showCreateModal]);
+  }, [showCreateModal, dbOptions.length]);
 
   // Load schemas when database changes
   useEffect(() => {
@@ -101,7 +126,7 @@ function SemanticModelsContent() {
     }
     getSchemas(database)
       .then((schemas) => setSchemaOptions(schemas.map((s) => ({ value: s, label: s }))))
-      .catch(() => setSchemaOptions([]));
+      .catch((err) => { setSchemaOptions([]); setCreateError(err instanceof Error ? `Could not load schemas: ${err.message}` : 'Could not load schemas'); });
   }, [database]);
 
   // Load tables when schema changes
@@ -112,7 +137,7 @@ function SemanticModelsContent() {
     }
     getTables(database, schema)
       .then((tables) => setTableOptions((Array.isArray(tables) ? tables : []).map((t) => ({ value: t, label: t }))))
-      .catch(() => setTableOptions([]));
+      .catch((err) => { setTableOptions([]); setCreateError(err instanceof Error ? `Could not load tables: ${err.message}` : 'Could not load tables'); });
   }, [database, schema]);
 
   const handleViewModel = async (model: SemanticModel) => {
@@ -120,13 +145,14 @@ function SemanticModelsContent() {
     setShowViewModal(true);
     setLoadingContent(true);
     setModelContent(null);
+    setViewError(null);
+    setEditError(null);
 
     try {
       const content = await getSemanticModelContent(model.name.replace('.yaml', ''));
       setModelContent(content);
-    } catch (error: any) {
-      console.error('Error loading model content:', error);
-      toast.error(error.message || 'Failed to load model content');
+    } catch (error) {
+      setViewError(error instanceof Error ? error.message : 'Failed to load model content');
     } finally {
       setLoadingContent(false);
     }
@@ -134,23 +160,24 @@ function SemanticModelsContent() {
 
   const handleCreate = async () => {
     if (!modelName.trim()) {
-      toast.error('Please provide a model name');
+      setCreateError('Please provide a model name');
       return;
     }
 
     if (!yamlContent.trim()) {
-      toast.error('Please provide YAML content');
+      setCreateError('Please provide YAML content');
       return;
     }
 
     // Validate YAML content
     const validation = validateSemanticModelYaml(yamlContent);
     if (!validation.valid) {
-      toast.error(validation.error || 'Invalid YAML content');
+      setCreateError(validation.error || 'Invalid YAML content');
       return;
     }
 
     setCreating(true);
+    setCreateError(null);
     try {
       await createSemanticModel({
         name: modelName.endsWith('.yaml') ? modelName : `${modelName}.yaml`,
@@ -161,32 +188,32 @@ function SemanticModelsContent() {
       setShowCreateModal(false);
       resetCreateForm();
       loadModels();
-    } catch (error: any) {
-      console.error('Error creating semantic model:', error);
-      toast.error(error.message || 'Failed to create semantic model');
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to create semantic model');
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (model: SemanticModel) => {
+    setDeleteError(null);
     try {
       await deleteSemanticModel(model.name.replace('.yaml', ''));
       toast.success('Model deleted successfully');
       setConfirmDeleteModel(null);
       loadModels();
-    } catch (error: any) {
-      console.error('Error deleting semantic model:', error);
-      toast.error(error.message || 'Failed to delete model');
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete model');
     }
   };
 
   const handleGenerate = async () => {
     if (!database || !schema) {
-      toast.error('Please select a database and schema first');
+      setCreateError('Please select a database and schema first');
       return;
     }
     setGenerating(true);
+    setCreateError(null);
     try {
       const result = await generateSemanticModel({
         database,
@@ -201,8 +228,8 @@ function SemanticModelsContent() {
       }
       toast.success(`Generated from ${result.tables_count} table(s)`);
       setCreateStep(2); // Move to review step
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to generate semantic model');
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to generate semantic model');
     } finally {
       setGenerating(false);
     }
@@ -210,10 +237,11 @@ function SemanticModelsContent() {
 
   const handleGenerateAndSave = async () => {
     if (!database || !schema) {
-      toast.error('Please select a database and schema first');
+      setCreateError('Please select a database and schema first');
       return;
     }
     setGenerating(true);
+    setCreateError(null);
     try {
       const result = await generateAndSaveSemanticModel({
         database,
@@ -229,8 +257,8 @@ function SemanticModelsContent() {
       toast.success(`Model "${result.model_name}" generated and saved to stage (${result.tables_count} tables)`);
       setCreateStep(3); // Move to done step
       loadModels();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to generate and save model');
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : 'Failed to generate and save model');
     } finally {
       setGenerating(false);
     }
@@ -252,21 +280,22 @@ function SemanticModelsContent() {
     if (!selectedModel || !editContent.trim()) return;
     const validation = validateSemanticModelYaml(editContent);
     if (!validation.valid) {
-      toast.error(validation.error || 'Invalid YAML');
+      setEditError(validation.error || 'Invalid YAML');
       return;
     }
     setSaving(true);
+    setEditError(null);
     try {
-      const modelName = selectedModel.name.replace('.yaml', '');
-      await updateSemanticModel(modelName, editContent);
+      const name = selectedModel.name.replace('.yaml', '');
+      await updateSemanticModel(name, editContent);
       toast.success('Semantic model updated successfully!');
       setEditing(false);
       // Refresh content
-      const content = await getSemanticModelContent(modelName);
+      const content = await getSemanticModelContent(name);
       setModelContent(content);
       loadModels();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to update model');
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Failed to update model');
     } finally {
       setSaving(false);
     }
@@ -287,25 +316,6 @@ function SemanticModelsContent() {
     setSchemaOptions([]);
     setTableOptions([]);
     setCreateStep(1);
-  };
-
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      } else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-    if (error.message) {
-      return error.message;
-    }
-    return defaultMessage;
   };
 
   return (
@@ -331,7 +341,7 @@ function SemanticModelsContent() {
             Refresh
           </Button>
           <Button
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => { setCreateError(null); setShowCreateModal(true); }}
             className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25"
           >
             <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -339,6 +349,10 @@ function SemanticModelsContent() {
           </Button>
         </div>
       </div>
+
+      {/* List-level errors (delete / download / fetch) surfaced inline */}
+      {deleteError && <InlineError message={deleteError} onDismiss={() => setDeleteError(null)} />}
+      {downloadError && <InlineError message={downloadError} onDismiss={() => setDownloadError(null)} />}
 
       {/* Models List */}
       {loading ? (
@@ -350,6 +364,15 @@ function SemanticModelsContent() {
             </div>
           </div>
           <p className="mt-4 text-slate-600 dark:text-slate-400">Loading semantic models...</p>
+        </div>
+      ) : modelsError ? (
+        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-8 text-center">
+          <HiOutlineExclamationTriangle className="w-10 h-10 mx-auto mb-3 text-red-500 dark:text-red-400" />
+          <p className="text-sm text-red-700 dark:text-red-300 mb-4">{modelsError}</p>
+          <Button variant="outline" onClick={loadModels} className="border-red-200 dark:border-red-800">
+            <HiOutlineArrowPath className="w-4 h-4 mr-2" />
+            Retry
+          </Button>
         </div>
       ) : (models ?? []).length === 0 ? (
         <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 text-center">
@@ -366,7 +389,7 @@ function SemanticModelsContent() {
               Models define your data structure, relationships, and business terminology.
             </p>
             <Button
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => { setCreateError(null); setShowCreateModal(true); }}
               className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
             >
               <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -470,6 +493,7 @@ function SemanticModelsContent() {
                     variant="outline"
                     className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
                     onClick={async () => {
+                      setDownloadError(null);
                       try {
                         const content = await getSemanticModelContent(model.name.replace('.yaml', ''));
                         if (content?.content) {
@@ -481,7 +505,9 @@ function SemanticModelsContent() {
                           a.click();
                           URL.revokeObjectURL(url);
                         }
-                      } catch { toast.error('Failed to download'); }
+                      } catch (err) {
+                        setDownloadError(err instanceof Error ? `Failed to download ${model.name}: ${err.message}` : 'Failed to download');
+                      }
                     }}
                     title="Download YAML"
                   >
@@ -494,11 +520,13 @@ function SemanticModelsContent() {
         </div>
       )}
 
-      {/* Create Model Modal */}
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        size="xl"
+      {/* Create Model — non-blocking right-side panel (was a centered modal) */}
+      {showCreateModal && (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-label="Create Semantic Model"
+        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 overflow-y-auto"
       >
         <div className="p-6 space-y-6">
           {/* Stepper Header */}
@@ -705,6 +733,8 @@ tables:
             </div>
           </div>
 
+          {createError && <InlineError message={createError} onDismiss={() => setCreateError(null)} />}
+
           {/* Actions */}
           <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
             <Button
@@ -748,13 +778,16 @@ tables:
             )}
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
 
-      {/* View Model Modal */}
-      <Modal
-        isOpen={showViewModal}
-        onClose={() => { setShowViewModal(false); setEditing(false); }}
-        size="xl"
+      {/* View / Edit Model — non-blocking right-side panel (was a centered modal) */}
+      {showViewModal && (
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-label="Semantic Model Definition"
+        className="fixed inset-y-0 right-0 z-40 flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 overflow-y-auto"
       >
         <div className="p-6 space-y-6">
           {/* Modal Header */}
@@ -873,6 +906,11 @@ tables:
                   </pre>
                 )}
               </div>
+              {editError && <InlineError message={editError} onDismiss={() => setEditError(null)} />}
+            </div>
+          ) : viewError ? (
+            <div className="py-8">
+              <InlineError message={viewError} onDismiss={() => setViewError(null)} />
             </div>
           ) : (
             <div className="text-center py-16 text-slate-500">
@@ -883,12 +921,13 @@ tables:
 
           {/* Actions */}
           <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
-            <Button variant="outline" onClick={() => setShowViewModal(false)}>
+            <Button variant="outline" onClick={() => { setShowViewModal(false); setEditing(false); }}>
               Close
             </Button>
           </div>
         </div>
-      </Modal>
+      </div>
+      )}
     </div>
   );
 }

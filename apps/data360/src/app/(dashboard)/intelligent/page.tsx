@@ -36,6 +36,44 @@ import SnowparkServicesContent from './snowpark-services-content';
 
 type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search';
 
+// ── Response shapes for the inline Cortex tabs (no dedicated service types
+// exist for these read-only listing endpoints, so they are declared here). ──
+interface CortexAgent {
+  name?: string;
+  AGENT_NAME?: string;
+  description?: string;
+  comment?: string;
+  status?: string;
+}
+
+interface CortexSemanticView {
+  name?: string;
+  VIEW_NAME?: string;
+  table_count?: number;
+  TABLES?: number;
+  measure_count?: number;
+  MEASURES?: number;
+  status?: string;
+  STATUS?: string;
+  updated_at?: string;
+  LAST_ALTERED?: string;
+}
+
+interface CortexVectorColumn {
+  table_name?: string;
+  TABLE_NAME?: string;
+  column_name?: string;
+  COLUMN_NAME?: string;
+  dimensions?: number;
+  DIMENSIONS?: number;
+  model?: string;
+  EMBEDDING_MODEL?: string;
+  source_column?: string;
+  SOURCE_COLUMN?: string;
+  row_count?: number;
+  ROW_COUNT?: number;
+}
+
 const TABS = [
   {
     id: 'semantic-models' as TabType,
@@ -149,33 +187,36 @@ export default function IntelligentPage() {
 
   // ── Cortex Agents via useCacheAwareQuery ──
   const fetchAgents = useCallback(async () => {
-    const res = await apiClient.get('/cortex/agents?database=CP_DATA360');
+    const res = await apiClient.get<{ agents?: CortexAgent[] }>('/cortex/agents?database=CP_DATA360');
     return res.data?.agents ?? [];
   }, []);
-  const { data: agents, loading: agentsLoading } = useCacheAwareQuery<any[]>(
+  const { data: agents, loading: agentsLoading, error: agentsErrorObj, refetch: loadAgents } = useCacheAwareQuery<CortexAgent[]>(
     fetchAgents,
     { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'cortex-agents', initialData: [] }
   );
+  const agentsError = agentsErrorObj?.message ?? null;
 
   // ── Semantic Views via useCacheAwareQuery ──
   const fetchSemanticViews = useCallback(async () => {
-    const res = await apiClient.get('/cortex/semantic-views?database=CP_DATA360');
+    const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>('/cortex/semantic-views?database=CP_DATA360');
     return res.data?.semantic_views ?? [];
   }, []);
-  const { data: semanticViews, loading: semanticViewsLoading } = useCacheAwareQuery<any[]>(
+  const { data: semanticViews, loading: semanticViewsLoading, error: semanticViewsErrorObj, refetch: loadSemanticViews } = useCacheAwareQuery<CortexSemanticView[]>(
     fetchSemanticViews,
     { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], enabled: activeTab === 'semantic-views', initialData: [] }
   );
+  const semanticViewsError = semanticViewsErrorObj?.message ?? null;
 
   // ── Vector Columns via useCacheAwareQuery ──
   const fetchVectorColumns = useCallback(async () => {
-    const res = await apiClient.get('/cortex/vectors/columns?database=CP_DATA360');
+    const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>('/cortex/vectors/columns?database=CP_DATA360');
     return res.data?.vector_columns ?? [];
   }, []);
-  const { data: vectorColumns, loading: vectorColumnsLoading } = useCacheAwareQuery<any[]>(
+  const { data: vectorColumns, loading: vectorColumnsLoading, error: vectorColumnsErrorObj, refetch: loadVectorColumns } = useCacheAwareQuery<CortexVectorColumn[]>(
     fetchVectorColumns,
     { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'vector-search', initialData: [] }
   );
+  const vectorColumnsError = vectorColumnsErrorObj?.message ?? null;
 
   return (
     <ErrorBoundary>
@@ -307,11 +348,24 @@ export default function IntelligentPage() {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Cortex AI Agents</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Build autonomous AI agents that combine structured data (Cortex Analyst), unstructured data (Cortex Search), and custom tools.</p>
                 </div>
-                <Button className="gap-2 bg-indigo-600 hover:bg-indigo-700 text-white">
-                  <PiRobotDuotone className="w-4 h-4" />
-                  Create Agent
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={loadAgents}
+                  disabled={agentsLoading}
+                >
+                  <HiOutlineRefresh className={`w-4 h-4 ${agentsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
                 </Button>
               </div>
+
+              {agentsError && !agentsLoading && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+                  <p className="text-sm text-red-700 dark:text-red-300">{agentsError}</p>
+                  <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadAgents}>Retry</Button>
+                </div>
+              )}
 
               {/* Agent capabilities overview */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -343,11 +397,11 @@ export default function IntelligentPage() {
                 <div className="flex items-center justify-center py-12">
                   <Loader variant="spinner" size="lg" />
                 </div>
-              ) : (agents ?? []).length === 0 ? (
+              ) : agentsError ? null : (agents ?? []).length === 0 ? (
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center border border-gray-200 dark:border-gray-700">
                   <PiRobotDuotone className="h-12 w-12 mx-auto text-indigo-400 mb-3" />
                   <p className="text-gray-600 dark:text-gray-400 font-medium">No agents configured yet</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Create your first agent to orchestrate AI workflows across structured and unstructured data</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Agents combining Cortex Analyst, Cortex Search, and custom tools will appear here once configured.</p>
                 </div>
               ) : (
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -356,7 +410,7 @@ export default function IntelligentPage() {
                     <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 text-xs">{(agents ?? []).length}</Badge>
                   </div>
                   <div className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {(agents ?? []).map((agent: any, i: number) => (
+                    {(agents ?? []).map((agent, i) => (
                       <div key={agent.name || i} className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                         <div className="w-8 h-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center shrink-0">
                           <PiRobotDuotone className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
@@ -373,20 +427,6 @@ export default function IntelligentPage() {
                   </div>
                 </div>
               )}
-
-              {/* Agent chat section */}
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white">Agent Chat</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Run an agent interactively — it will pick the right tool (Analyst, Search, or custom) automatically</p>
-                </div>
-                <div className="p-4 min-h-[200px] flex items-center justify-center">
-                  <div className="text-center">
-                    <PiChatCircleDots className="h-8 w-8 mx-auto text-gray-300 dark:text-gray-600 mb-2" />
-                    <p className="text-sm text-gray-400 dark:text-gray-500">Select an agent above to start a conversation</p>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
@@ -398,11 +438,24 @@ export default function IntelligentPage() {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Semantic Views</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly views with dimensions, measures, time grains, and synonyms for Cortex Analyst.</p>
                 </div>
-                <Button className="gap-2 bg-teal-600 hover:bg-teal-700 text-white">
-                  <PiDatabase className="w-4 h-4" />
-                  Create Semantic View
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={loadSemanticViews}
+                  disabled={semanticViewsLoading}
+                >
+                  <HiOutlineRefresh className={`w-4 h-4 ${semanticViewsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
                 </Button>
               </div>
+
+              {semanticViewsError && !semanticViewsLoading && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+                  <p className="text-sm text-red-700 dark:text-red-300">{semanticViewsError}</p>
+                  <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadSemanticViews}>Retry</Button>
+                </div>
+              )}
 
               {/* View builder info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -441,19 +494,18 @@ export default function IntelligentPage() {
                         <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Measures</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
                         <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Last Updated</th>
-                        <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {(semanticViews ?? []).length === 0 ? (
+                      {semanticViewsLoading || semanticViewsError ? null : (semanticViews ?? []).length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
+                          <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
                             <PiDatabase className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                            No semantic views defined yet. Create one to power Cortex Analyst.
+                            No semantic views defined yet. Semantic views deployed for Cortex Analyst will appear here.
                           </td>
                         </tr>
                       ) : (
-                        (semanticViews ?? []).map((view: any, i: number) => (
+                        (semanticViews ?? []).map((view, i) => (
                           <tr key={view.name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{view.name || view.VIEW_NAME || '—'}</td>
                             <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{view.table_count ?? view.TABLES ?? '—'}</td>
@@ -464,9 +516,6 @@ export default function IntelligentPage() {
                               </Badge>
                             </td>
                             <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{view.updated_at || view.LAST_ALTERED || '—'}</td>
-                            <td className="px-4 py-3 text-right">
-                              <Button size="sm" variant="outline" className="text-xs h-7 px-2">Edit</Button>
-                            </td>
                           </tr>
                         ))
                       )}
@@ -485,11 +534,24 @@ export default function IntelligentPage() {
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Vector Search</h3>
                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Create embeddings, manage vector columns, and perform similarity search across your data.</p>
                 </div>
-                <Button className="gap-2 bg-rose-600 hover:bg-rose-700 text-white">
-                  <PiSparkle className="w-4 h-4" />
-                  Create Embedding
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  onClick={loadVectorColumns}
+                  disabled={vectorColumnsLoading}
+                >
+                  <HiOutlineRefresh className={`w-4 h-4 ${vectorColumnsLoading ? 'animate-spin' : ''}`} />
+                  Refresh
                 </Button>
               </div>
+
+              {vectorColumnsError && !vectorColumnsLoading && (
+                <div className="flex items-center gap-3 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                  <PiLightning className="w-5 h-5 text-red-600 dark:text-red-400 shrink-0" />
+                  <p className="text-sm text-red-700 dark:text-red-300">{vectorColumnsError}</p>
+                  <Button variant="text" size="sm" className="ml-auto shrink-0" onClick={loadVectorColumns}>Retry</Button>
+                </div>
+              )}
 
               {/* Vector capabilities */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -538,54 +600,31 @@ export default function IntelligentPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {(vectorColumns ?? []).length === 0 ? (
+                      {vectorColumnsLoading || vectorColumnsError ? null : (vectorColumns ?? []).length === 0 ? (
                         <tr>
                           <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
                             <PiSparkle className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                            No vector columns found. Create embeddings to enable similarity search.
+                            No vector columns found. Columns embedded for similarity search will appear here.
                           </td>
                         </tr>
                       ) : (
-                        (vectorColumns ?? []).map((col: any, i: number) => (
-                          <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                            <td className="px-4 py-2.5 text-gray-900 dark:text-white font-mono text-xs">{col.table_name || col.TABLE_NAME || '—'}.{col.column_name || col.COLUMN_NAME || '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.dimensions || col.DIMENSIONS || '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.model || col.EMBEDDING_MODEL || '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.source_column || col.SOURCE_COLUMN || '—'}</td>
-                            <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{(col.row_count ?? col.ROW_COUNT ?? '—').toLocaleString?.() || col.row_count || col.ROW_COUNT || '—'}</td>
-                          </tr>
-                        ))
+                        (vectorColumns ?? []).map((col, i) => {
+                          const rowCount = col.row_count ?? col.ROW_COUNT;
+                          return (
+                            <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                              <td className="px-4 py-2.5 text-gray-900 dark:text-white font-mono text-xs">{col.table_name || col.TABLE_NAME || '—'}.{col.column_name || col.COLUMN_NAME || '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.dimensions ?? col.DIMENSIONS ?? '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.model || col.EMBEDDING_MODEL || '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{col.source_column || col.SOURCE_COLUMN || '—'}</td>
+                              <td className="px-4 py-2.5 text-gray-600 dark:text-gray-400">{rowCount != null ? rowCount.toLocaleString() : '—'}</td>
+                            </tr>
+                          );
+                        })
                       )}
                     </tbody>
                   </table>
                 </div>
               )}
-
-              {/* Search playground */}
-              <div className="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
-                  <h4 className="text-sm font-medium text-gray-900 dark:text-white">Search Playground</h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Test similarity search against your vector columns</p>
-                </div>
-                <div className="p-4 space-y-3">
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      placeholder="Enter search query (e.g., 'customer complaints about billing')"
-                      className="flex-1 px-3 py-2 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500 focus:ring-2 focus:ring-rose-500 focus:border-transparent"
-                    />
-                    <Button className="gap-2 bg-rose-600 hover:bg-rose-700 text-white px-4">
-                      <PiSparkle className="w-4 h-4" />
-                      Search
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-                    <span>Distance: Cosine</span>
-                    <span>Top K: 10</span>
-                    <span>Threshold: 0.7</span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
         </div>

@@ -206,4 +206,23 @@ export interface ThresholdConfig {
   threshold: number;
 }
 
+// =============================================================================
+// ACTIONS
+// =============================================================================
+
+export interface RunCheckResponse {
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Trigger a quality check sweep across a database's tables.
+ * POST /data-quality/run-check
+ */
+export async function runQualityCheck(database: string): Promise<RunCheckResponse> {
+  const { data } = await apiClient.post(`${PREFIX}/run-check`, { database });
+  return data?.data || data;
+}
+
 // Local report service removed (reports-local.ts deleted — was unused)

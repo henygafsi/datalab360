@@ -17,8 +17,9 @@
  * forget — telemetry never blocks the user flow).
  *
  * Matches the shell rhythm of GuidedAiWorkflowWizard.tsx: full-screen
- * backdrop, framer-motion spring entry, AnimatePresence step transitions,
- * Cancel via ConfirmDialog (soft tier).
+ * backdrop, framer-motion spring entry, AnimatePresence step transitions.
+ * Closing is non-destructive (the draft is always persisted + resumable from
+ * the Deploy App home) so there is no discard-confirm dialog.
  */
 import {
   useCallback,
@@ -32,6 +33,7 @@ import {
   motion,
 } from 'framer-motion';
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   Check,
@@ -42,7 +44,6 @@ import {
 import toast from 'react-hot-toast';
 
 import { cn } from '@/lib/utils';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   FALLBACK_MODELS,
   FALLBACK_RECOMMENDATIONS,
@@ -301,7 +302,7 @@ export default function DeployAppWizard({
     resumeSnapshot ?? emptySnapshot(initialKind),
   );
   const [busy, setBusy] = useState(false);
-  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
   const [audit, setAudit] = useState<AuditEntry[]>([]);
   const bodyRef = useRef<HTMLDivElement | null>(null);
 
@@ -406,13 +407,14 @@ export default function DeployAppWizard({
   const runGenerate = useCallback(
     async (isReroll: boolean) => {
       if (!snap.kind) {
-        toast.error('Pick an app kind first.');
+        setGenError('Pick an app kind first.');
         return;
       }
       if (!snap.prompt.trim()) {
-        toast.error('Describe what your app should do.');
+        setGenError('Describe what your app should do.');
         return;
       }
+      setGenError(null);
       setBusy(true);
       const tid = toast.loading(isReroll ? 'Re-rolling…' : 'Generating code…');
       try {
@@ -448,7 +450,8 @@ export default function DeployAppWizard({
         });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : 'Generation failed';
-        toast.error(msg, { id: tid });
+        setGenError(msg);
+        toast.dismiss(tid);
       } finally {
         setBusy(false);
       }
@@ -505,18 +508,10 @@ export default function DeployAppWizard({
   /* ── Modal exit ──────────────────────────────────────────────────── */
 
   const handleRequestClose = useCallback(() => {
-    // If the user has not produced anything, close immediately.
-    if (snap.step === 1 && !snap.kind && !snap.prompt) {
-      clearWizard();
-      onClose();
-      return;
-    }
-    setConfirmCancel(true);
-  }, [snap, onClose]);
-
-  const handleConfirmCancel = useCallback(() => {
+    // Closing is non-destructive: every change is already persisted to the
+    // drafts list (upsertDraft) and resumable from the Deploy App home, so we
+    // clear only the resume-in-place snapshot and close — no confirm needed.
     clearWizard();
-    setConfirmCancel(false);
     onClose();
   }, [onClose]);
 
@@ -650,7 +645,11 @@ export default function DeployAppWizard({
                     snap={snap}
                     models={safeModels}
                     recsCode={safeRecs.code}
-                    onPromptChange={(v) => update('prompt', v)}
+                    error={genError}
+                    onPromptChange={(v) => {
+                      update('prompt', v);
+                      if (genError) setGenError(null);
+                    }}
                     onModelChange={(v) => update('modelId', v)}
                     onGenerate={() => void runGenerate(false)}
                     busy={busy}
@@ -660,6 +659,7 @@ export default function DeployAppWizard({
                   <AppCodeReview
                     snap={snap}
                     models={safeModels}
+                    error={genError}
                     onModelChange={(v) => update('modelId', v)}
                     onReroll={() => void runGenerate(true)}
                     onToggleAutoStop={(v) => update('autoStop', v)}
@@ -722,17 +722,6 @@ export default function DeployAppWizard({
           </div>
         </motion.div>
       </motion.div>
-
-      <ConfirmDialog
-        open={confirmCancel}
-        onOpenChange={setConfirmCancel}
-        variant="warning"
-        title="Discard wizard?"
-        body="Your draft is saved locally and can be resumed from the Deploy App home. Close anyway?"
-        confirmLabel="Close & save draft"
-        cancelLabel="Keep editing"
-        onConfirm={handleConfirmCancel}
-      />
     </AnimatePresence>
   );
 }
@@ -745,6 +734,7 @@ interface Step3Props {
   snap: WizardSnapshot;
   models: { id: string; label?: string }[];
   recsCode?: string;
+  error: string | null;
   onPromptChange: (v: string) => void;
   onModelChange: (v: string) => void;
   onGenerate: () => void;
@@ -755,6 +745,7 @@ function Step3Describe({
   snap,
   models,
   recsCode,
+  error,
   onPromptChange,
   onModelChange,
   onGenerate,
@@ -822,6 +813,16 @@ function Step3Describe({
             {snap.generatedCode ? 'Re-generate' : 'Generate code'}
           </button>
         </div>
+
+        {error && (
+          <div
+            role="alert"
+            className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
+          >
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
       </div>
 
       {snap.generatedCode && (

@@ -287,24 +287,34 @@ export default function AccountLifecycleMenu({
   const [open, setOpen] = React.useState(false);
   const [busyKey, setBusyKey] = React.useState<ItemKey | null>(null);
 
-  // Confirm dialog state
+  // Confirm dialog state (kept as <Dialog> — destructive / pure yes-no confirms)
   const [confirmDrop, setConfirmDrop] = React.useState(false);
   const [confirmRotate, setConfirmRotate] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [confirmToggle, setConfirmToggle] = React.useState(false);
 
-  // Edit modal state
-  const [editOpen, setEditOpen] = React.useState(false);
+  // Quick-action popover (edit / transfer / mfa) — anchored to the kebab,
+  // replaces the former centered modal forms with a non-blocking popover.
+  type FormPanel = 'edit' | 'transfer' | 'mfa';
+  const [formPanel, setFormPanel] = React.useState<FormPanel | null>(null);
+
+  // Edit form state
   const [editName, setEditName] = React.useState(account.account_name);
   const [editComment, setEditComment] = React.useState(account.comment ?? '');
 
-  // Transfer modal state
-  const [transferOpen, setTransferOpen] = React.useState(false);
+  // Transfer form state
   const [transferTarget, setTransferTarget] = React.useState('');
 
-  // MFA modal state
-  const [mfaOpen, setMfaOpen] = React.useState(false);
+  // MFA form state
   const [mfaEnforced, setMfaEnforced] = React.useState(true);
+
+  // Inline error for the quick-action popover (shown in-panel, not a toast).
+  const [formError, setFormError] = React.useState<string | null>(null);
+
+  function closeFormPanel() {
+    setFormPanel(null);
+    setFormError(null);
+  }
 
   const isOwnAccount = Boolean(
     currentUsername && account.account_name &&
@@ -318,15 +328,27 @@ export default function AccountLifecycleMenu({
 
   const menuRef = React.useRef<HTMLDivElement | null>(null);
   React.useEffect(() => {
-    if (!open) return;
+    // Bind while EITHER the kebab menu or a quick-action popover is open.
+    if (!open && !formPanel) return;
     function onClickOutside(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setOpen(false);
+        closeFormPanel();
       }
     }
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [open]);
+  }, [open, formPanel]);
+
+  // Close the quick-action popover on Escape.
+  React.useEffect(() => {
+    if (!formPanel) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') closeFormPanel();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [formPanel]);
 
   /* ----------------------------- Handlers ----------------------------- */
 
@@ -352,6 +374,41 @@ export default function AccountLifecycleMenu({
       } else {
         const detail = e?.response?.data?.detail;
         toast.error(detail ? `${errMessage}: ${detail}` : errMessage);
+      }
+      return null;
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  /**
+   * Like runWithToast but surfaces failures INLINE in the open popover
+   * (success still toasts + closes the panel). Used by the edit / transfer /
+   * mfa quick-action forms so the exact error stays attached to the form.
+   */
+  async function runWithInlineError<T>(
+    key: ItemKey,
+    fn: () => Promise<T>,
+    okMessage: string,
+    errMessage: string,
+  ): Promise<T | null> {
+    setBusyKey(key);
+    setFormError(null);
+    try {
+      const out = await fn();
+      toast.success(okMessage);
+      onChanged?.();
+      return out;
+    } catch (err: unknown) {
+      const e = err as { response?: { status?: number; data?: { detail?: string } } };
+      const status = e?.response?.status;
+      if (status === 404 || status === 405) {
+        setFormError(
+          `${errMessage} — this endpoint is not yet available on the backend (received ${status}).`,
+        );
+      } else {
+        const detail = e?.response?.data?.detail;
+        setFormError(detail ? `${errMessage}: ${detail}` : errMessage);
       }
       return null;
     } finally {
@@ -386,7 +443,7 @@ export default function AccountLifecycleMenu({
       case 'edit':
         setEditName(account.account_name);
         setEditComment(account.comment ?? '');
-        setEditOpen(true);
+        setFormPanel('edit');
         return;
       case 'reset':
         setConfirmReset(true);
@@ -398,11 +455,11 @@ export default function AccountLifecycleMenu({
         setConfirmToggle(true);
         return;
       case 'mfa':
-        setMfaOpen(true);
+        setFormPanel('mfa');
         return;
       case 'transfer':
         setTransferTarget('');
-        setTransferOpen(true);
+        setFormPanel('transfer');
         return;
       case 'export':
         handleExport();
@@ -614,142 +671,201 @@ export default function AccountLifecycleMenu({
         }}
       />
 
-      {/* ---------- Edit account ---------- */}
-      <ConfirmDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        title="Edit account"
-        body={
-          <div className="space-y-3 text-left">
-            <div className="space-y-1.5">
-              <label
-                htmlFor={`edit-name-${account.account_name}`}
-                className="block text-xs text-slate-600 dark:text-slate-400"
-              >
-                Account name
-              </label>
-              <input
-                id={`edit-name-${account.account_name}`}
-                value={editName}
-                onChange={(e) => setEditName(e.target.value.toUpperCase())}
-                className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label
-                htmlFor={`edit-comment-${account.account_name}`}
-                className="block text-xs text-slate-600 dark:text-slate-400"
-              >
-                Comment
-              </label>
-              <textarea
-                id={`edit-comment-${account.account_name}`}
-                rows={2}
-                value={editComment}
-                onChange={(e) => setEditComment(e.target.value)}
-                className="block w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              />
-            </div>
-          </div>
-        }
-        confirmLabel="Save changes"
-        loading={busyKey === 'edit'}
-        onConfirm={async () => {
-          await runWithToast(
-            'edit',
-            () =>
-              updateAccount(account.account_name, {
-                new_name: editName !== account.account_name ? editName : undefined,
-                comment: editComment !== (account.comment ?? '') ? editComment : undefined,
-              }),
-            'Account updated',
-            'Failed to update account',
-          );
-          setEditOpen(false);
-        }}
-      />
-
-      {/* ---------- MFA toggle ---------- */}
-      <ConfirmDialog
-        open={mfaOpen}
-        onOpenChange={setMfaOpen}
-        title="MFA enforcement"
-        body={
-          <div className="space-y-3 text-left">
-            <p>
-              Require all users on <strong>{account.account_name}</strong> to
-              enrol in MFA.
-            </p>
-            <label className="inline-flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={mfaEnforced}
-                onChange={(e) => setMfaEnforced(e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
-              />
-              <span className="text-sm">Enforce MFA</span>
-            </label>
-          </div>
-        }
-        confirmLabel="Apply"
-        loading={busyKey === 'mfa'}
-        onConfirm={async () => {
-          await runWithToast(
-            'mfa',
-            () => setAccountMfaEnforcement(account.account_name, mfaEnforced),
-            mfaEnforced ? 'MFA enforcement enabled' : 'MFA enforcement disabled',
-            'Failed to update MFA enforcement',
-          );
-          setMfaOpen(false);
-        }}
-      />
-
-      {/* ---------- Transfer ownership ---------- */}
-      <ConfirmDialog
-        open={transferOpen}
-        onOpenChange={setTransferOpen}
-        variant="warning"
-        title="Transfer account ownership"
-        body={
-          <div className="space-y-3 text-left">
-            <p>
-              Hand control of <strong>{account.account_name}</strong> to a new
-              orgadmin. You will lose the orgadmin role on this account.
-            </p>
-            <div className="space-y-1.5">
-              <label
-                htmlFor={`transfer-target-${account.account_name}`}
-                className="block text-xs text-slate-600 dark:text-slate-400"
-              >
-                New owner username
-              </label>
-              <input
-                id={`transfer-target-${account.account_name}`}
-                value={transferTarget}
-                onChange={(e) => setTransferTarget(e.target.value)}
-                placeholder="user_to_promote"
-                className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
-              />
-            </div>
-          </div>
-        }
-        confirmLabel="Transfer"
-        loading={busyKey === 'transfer'}
-        onConfirm={async () => {
-          if (!transferTarget.trim()) {
-            toast.error('New owner username is required');
-            return;
+      {/* ---------- Quick-action popover (edit / transfer / mfa) ---------- */}
+      {/* Anchored to the kebab, non-blocking — replaces the former centered    */}
+      {/* modal forms. Errors surface inline; the page stays visible.           */}
+      {formPanel && (
+        <div
+          role="dialog"
+          aria-label={
+            formPanel === 'edit'
+              ? 'Edit account'
+              : formPanel === 'transfer'
+                ? 'Transfer account ownership'
+                : 'MFA enforcement'
           }
-          await runWithToast(
-            'transfer',
-            () =>
-              transferAccountOwnership(account.account_name, transferTarget.trim()),
-            'Ownership transferred',
-            'Failed to transfer ownership',
-          );
-          setTransferOpen(false);
-        }}
-      />
+          className="absolute right-0 z-40 mt-1 w-80 origin-top-right rounded-md border border-slate-200 bg-white p-4 shadow-lg ring-1 ring-black/5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {formPanel === 'edit' && (
+            <div className="space-y-3 text-left">
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Edit account</h4>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor={`edit-name-${account.account_name}`}
+                  className="block text-xs text-slate-600 dark:text-slate-400"
+                >
+                  Account name
+                </label>
+                <input
+                  id={`edit-name-${account.account_name}`}
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value.toUpperCase())}
+                  className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor={`edit-comment-${account.account_name}`}
+                  className="block text-xs text-slate-600 dark:text-slate-400"
+                >
+                  Comment
+                </label>
+                <textarea
+                  id={`edit-comment-${account.account_name}`}
+                  rows={2}
+                  value={editComment}
+                  onChange={(e) => setEditComment(e.target.value)}
+                  className="block w-full resize-none rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </div>
+              {formError && <FormErrorNote message={formError} />}
+              <FormActions
+                confirmLabel="Save changes"
+                busy={busyKey === 'edit'}
+                onCancel={closeFormPanel}
+                onConfirm={async () => {
+                  const ok = await runWithInlineError(
+                    'edit',
+                    () =>
+                      updateAccount(account.account_name, {
+                        new_name: editName !== account.account_name ? editName : undefined,
+                        comment: editComment !== (account.comment ?? '') ? editComment : undefined,
+                      }),
+                    'Account updated',
+                    'Failed to update account',
+                  );
+                  if (ok) closeFormPanel();
+                }}
+              />
+            </div>
+          )}
+
+          {formPanel === 'mfa' && (
+            <div className="space-y-3 text-left">
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-white">MFA enforcement</h4>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Require all users on <strong>{account.account_name}</strong> to enrol in MFA.
+              </p>
+              <label className="inline-flex cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={mfaEnforced}
+                  onChange={(e) => setMfaEnforced(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                />
+                <span className="text-sm text-slate-700 dark:text-slate-200">Enforce MFA</span>
+              </label>
+              {formError && <FormErrorNote message={formError} />}
+              <FormActions
+                confirmLabel="Apply"
+                busy={busyKey === 'mfa'}
+                onCancel={closeFormPanel}
+                onConfirm={async () => {
+                  const ok = await runWithInlineError(
+                    'mfa',
+                    () => setAccountMfaEnforcement(account.account_name, mfaEnforced),
+                    mfaEnforced ? 'MFA enforcement enabled' : 'MFA enforcement disabled',
+                    'Failed to update MFA enforcement',
+                  );
+                  if (ok) closeFormPanel();
+                }}
+              />
+            </div>
+          )}
+
+          {formPanel === 'transfer' && (
+            <div className="space-y-3 text-left">
+              <h4 className="text-sm font-semibold text-slate-900 dark:text-white">Transfer ownership</h4>
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                Hand control of <strong>{account.account_name}</strong> to a new orgadmin. You will
+                lose the orgadmin role on this account.
+              </p>
+              <div className="space-y-1.5">
+                <label
+                  htmlFor={`transfer-target-${account.account_name}`}
+                  className="block text-xs text-slate-600 dark:text-slate-400"
+                >
+                  New owner username
+                </label>
+                <input
+                  id={`transfer-target-${account.account_name}`}
+                  value={transferTarget}
+                  onChange={(e) => setTransferTarget(e.target.value)}
+                  placeholder="user_to_promote"
+                  className="block w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-slate-700 dark:bg-slate-950 dark:text-white"
+                />
+              </div>
+              {formError && <FormErrorNote message={formError} />}
+              <FormActions
+                confirmLabel="Transfer"
+                busy={busyKey === 'transfer'}
+                disabled={!transferTarget.trim()}
+                onCancel={closeFormPanel}
+                onConfirm={async () => {
+                  if (!transferTarget.trim()) {
+                    setFormError('New owner username is required');
+                    return;
+                  }
+                  const ok = await runWithInlineError(
+                    'transfer',
+                    () => transferAccountOwnership(account.account_name, transferTarget.trim()),
+                    'Ownership transferred',
+                    'Failed to transfer ownership',
+                  );
+                  if (ok) closeFormPanel();
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quick-action popover sub-components                                */
+/* ------------------------------------------------------------------ */
+
+function FormErrorNote({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-950/40 dark:text-red-300"
+    >
+      <span>{message}</span>
+    </div>
+  );
+}
+
+interface FormActionsProps {
+  confirmLabel: string;
+  busy: boolean;
+  disabled?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function FormActions({ confirmLabel, busy, disabled, onCancel, onConfirm }: FormActionsProps) {
+  return (
+    <div className="flex items-center justify-end gap-2 pt-1">
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={busy}
+        className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50 dark:text-slate-300 dark:hover:bg-slate-800"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={onConfirm}
+        disabled={busy || disabled}
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+      >
+        {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+        {confirmLabel}
+      </button>
     </div>
   );
 }

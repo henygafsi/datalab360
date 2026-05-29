@@ -57,7 +57,7 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
     } else {
       throw new Error('Invalid response from server');
     }
-  } catch (error: any) {
+  } catch (error) {
     const axiosError = error as AxiosError<{
       detail?: string | { detail?: string; error_code?: string; message?: string } | Array<{ msg?: string }>;
       message?: string;
@@ -71,7 +71,7 @@ export const login = async (loginData: LoginData): Promise<LoginResponse> => {
     if (data?.detail) {
       const detail = data.detail;
       if (Array.isArray(detail)) {
-        const errorMessages = detail.map((e: any) => e.msg || e).join(', ');
+        const errorMessages = detail.map((e) => e.msg ?? '').filter(Boolean).join(', ');
         throw new Error(errorMessages);
       }
       if (typeof detail === 'string') {

@@ -4,7 +4,10 @@
  * AccountCreationWizard
  * =====================
  *
- * 3-step modal for provisioning a new Snowflake client account.
+ * 3-step right-side panel for provisioning a new Snowflake client account.
+ * Non-blocking: the accounts table stays visible behind a dimmed backdrop
+ * (mirrors the explore-design ContextRightBar pattern) rather than a
+ * centered modal.
  *
  * Persona served
  * --------------
@@ -40,13 +43,6 @@ import {
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   createAccount,
@@ -395,35 +391,59 @@ export default function AccountCreationWizard({
   const baseBtn =
     'inline-flex h-9 items-center justify-center gap-2 rounded-md px-4 text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50';
 
+  // Close on Escape (the panel keeps its own dirty-discard flow via handleClose).
+  React.useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') handleClose();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // handleClose reads `submitting`/`dirty` from latest render; effect re-binds each render is fine.
+  });
+
+  if (!open) return null;
+
   return (
     <>
-      <Dialog
-        open={open}
-        onOpenChange={(next) => {
-          if (!next) handleClose();
-          else onOpenChange(next);
-        }}
+      {/* Right-side panel — non-blocking, the accounts table stays visible
+          behind a dimmed backdrop. Outside-click runs the discard flow. */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 transition-opacity"
+        aria-hidden="true"
+        onClick={handleClose}
+      />
+      <div
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="account-wizard-title"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden bg-white shadow-xl dark:bg-slate-900"
       >
-        <DialogContent
-          className="max-w-2xl bg-white dark:bg-slate-900"
-          // Prevent close on outside click — wizard has its own discard flow.
-          onPointerDownOutside={(e) => e.preventDefault()}
-        >
-          <DialogHeader>
+        <div className="flex flex-1 flex-col overflow-y-auto p-6">
+          <div className="flex items-start justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
                 <UserPlus className="h-5 w-5" />
               </div>
-              <DialogTitle className="text-slate-900 dark:text-white">
-                Create new client account
-              </DialogTitle>
-            </div>
-            <DialogDescription asChild>
-              <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-                Provision a new Snowflake account under this organisation.
+              <div>
+                <h2 id="account-wizard-title" className="text-lg font-semibold text-slate-900 dark:text-white">
+                  Create new client account
+                </h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                  Provision a new Snowflake account under this organisation.
+                </p>
               </div>
-            </DialogDescription>
-          </DialogHeader>
+            </div>
+            <button
+              type="button"
+              onClick={handleClose}
+              disabled={submitting}
+              aria-label="Close panel"
+              className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
           {/* Progress bar */}
           <ol className="my-3 flex items-center justify-between gap-2" aria-label="Wizard steps">
@@ -957,8 +977,8 @@ export default function AccountCreationWizard({
               )}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      </div>
 
       <ConfirmDialog
         open={confirmDiscard}

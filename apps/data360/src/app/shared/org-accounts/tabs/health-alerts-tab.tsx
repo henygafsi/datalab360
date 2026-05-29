@@ -9,6 +9,7 @@ import {
   PiShieldCheckDuotone,
   PiGaugeDuotone,
   PiLockKeyDuotone,
+  PiWarningCircleDuotone,
 } from 'react-icons/pi';
 import {
   getHealth,
@@ -18,7 +19,7 @@ import {
   getFailedLogins,
   getAccountHealthScore,
 } from '@/app/services/org-accounts/hooks';
-import { formatCredits, formatDate } from '@/app/services/org-accounts/utils';
+import { formatCredits, formatDate, extractApiError } from '@/app/services/org-accounts/utils';
 import type {
   HealthScore,
   Alert,
@@ -106,19 +107,24 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
   const [failedLogins, setFailedLogins] = useState<FailedLogin[]>([]);
   const [compositeHealth, setCompositeHealth] = useState<AccountHealthScoreResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange>('30d');
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     const days = dateRange === '7d' ? 7 : dateRange === '90d' ? 90 : 30;
+    let firstError: string | null = null;
+    const guard = <T,>(p: Promise<T>): Promise<T | null> =>
+      p.catch((e) => { firstError = firstError ?? extractApiError(e, 'Failed to load health & alerts'); return null; });
 
     Promise.all([
-      getHealth().catch(() => null),
-      getAlerts(days).catch(() => null),
-      getAnomalies(days).catch(() => null),
-      getResourceMonitors().catch(() => null),
-      getFailedLogins(days).catch(() => null),
-      getAccountHealthScore().catch(() => null),
+      guard(getHealth()),
+      guard(getAlerts(days)),
+      guard(getAnomalies(days)),
+      guard(getResourceMonitors()),
+      guard(getFailedLogins(days)),
+      guard(getAccountHealthScore()),
     ]).then(([healthData, alertsData, anomalyData, monitorData, failedData, healthScoreData]) => {
       if (healthData) setHealthScores(Array.isArray(healthData.health_scores) ? healthData.health_scores : []);
       if (alertsData) setAlerts(Array.isArray(alertsData.alerts) ? alertsData.alerts : []);
@@ -126,6 +132,7 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
       if (monitorData) setResourceMonitors(Array.isArray(monitorData.monitors) ? (monitorData.monitors as ResourceMonitor[]) : []);
       if (failedData) setFailedLogins(Array.isArray(failedData.failed_logins) ? failedData.failed_logins : []);
       if (healthScoreData && typeof healthScoreData.health_score === 'number') setCompositeHealth(healthScoreData);
+      setError(firstError);
     }).finally(() => setLoading(false));
   }, [refreshKey, dateRange]);
 
@@ -143,6 +150,15 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div role="alert" className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/40 dark:bg-red-950/30">
+          <PiWarningCircleDuotone className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+          <div>
+            <Text className="text-sm font-medium text-red-700 dark:text-red-300">Some health &amp; alerts data could not be loaded</Text>
+            <Text className="text-xs text-red-600 dark:text-red-400">{error}</Text>
+          </div>
+        </div>
+      )}
       {/* Date Range Selector */}
       <div className="flex items-center justify-end">
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">

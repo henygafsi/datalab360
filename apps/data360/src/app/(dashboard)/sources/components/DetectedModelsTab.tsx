@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import Link from 'next/link';
 import { Badge, Button, Loader } from 'rizzui';
 import {
-  Brain, Sparkles, Table2, GitBranch, ArrowRight, Boxes, Star,
-  Plus, CheckCircle, Eye, RefreshCw, Layers, Zap, Target,
-  TrendingUp, ShieldCheck, BarChart3, FolderPlus, Package,
+  Brain, Sparkles, Table2, GitBranch, Boxes,
+  RefreshCw, Layers, Zap, Target,
+  TrendingUp, BarChart3, FolderPlus, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getCatalogRecommendations, getCatalogProducts, getCatalogScores, type Recommendation, type CatalogProduct } from '@/app/services/catalog';
 import { discoverRelationships, getSchemaHealth } from '@/app/services/explore-design';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 interface DetectedModel {
   id: string;
@@ -28,6 +29,15 @@ interface DetectedModelsTabProps {
   sourceTables?: Array<{ database: string; schema: string; table: string }>;
 }
 
+/** Subset of the explore-design schema-health response actually rendered here. */
+interface SchemaHealth {
+  overall_score?: number;
+  health_score?: number;
+  relations_count?: number;
+  coverage?: number;
+  issues_count?: number;
+}
+
 const MODEL_TYPE_STYLES: Record<string, { bg: string; text: string; icon: React.ReactNode }> = {
   fact: { bg: 'bg-blue-50 dark:bg-blue-900/20', text: 'text-blue-700 dark:text-blue-400', icon: <BarChart3 className="h-3.5 w-3.5" /> },
   dimension: { bg: 'bg-purple-50 dark:bg-purple-900/20', text: 'text-purple-700 dark:text-purple-400', icon: <Layers className="h-3.5 w-3.5" /> },
@@ -41,25 +51,31 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
   const [models, setModels] = useState<DetectedModel[]>([]);
   const [loading, setLoading] = useState(false);
   const [detected, setDetected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [health, setHealth] = useState<any>(null);
+  const [health, setHealth] = useState<SchemaHealth | null>(null);
 
   const runDetection = useCallback(async () => {
     if (!projectId || !sourceTables?.length) return;
     setLoading(true);
-    try {
-      const [relResult, healthResult] = await Promise.allSettled([
-        discoverRelationships(projectId, { tables: sourceTables }),
-        getSchemaHealth(projectId),
-      ]);
+    setError(null);
+    const [relResult, healthResult] = await Promise.allSettled([
+      discoverRelationships(projectId, { tables: sourceTables }),
+      getSchemaHealth(projectId),
+    ]);
 
-      const relationships = relResult.status === 'fulfilled' ? relResult.value : null;
-      if (healthResult.status === 'fulfilled') setHealth(healthResult.value);
+    // Relationship discovery is the primary signal — if it fails, surface the error.
+    if (relResult.status === 'rejected') {
+      setError(getApiErrorMessage(relResult.reason));
+      setLoading(false);
+      return;
+    }
 
-      const detected = inferModelsFromRelationships(relationships, sourceTables);
-      setModels(detected);
-      setDetected(true);
-    } catch { /* handled */ }
+    setHealth(healthResult.status === 'fulfilled' ? (healthResult.value as SchemaHealth) : null);
+
+    const inferred = inferModelsFromRelationships(relResult.value, sourceTables);
+    setModels(inferred);
+    setDetected(true);
     setLoading(false);
   }, [projectId, sourceTables]);
 
@@ -107,6 +123,18 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           {loading ? <Loader size="sm" /> : <Brain className="h-4 w-4" />}
           Detect Models
         </Button>
+        {!sourceTables?.length && (
+          <p className="mt-3 text-xs text-gray-400">Select source tables in the Sources tab first.</p>
+        )}
+        {error && (
+          <div role="alert" className="mx-auto mt-4 flex max-w-md items-start gap-2 rounded-lg border border-rose-300 bg-rose-50 p-3 text-left dark:border-rose-800 dark:bg-rose-950/30">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600 dark:text-rose-400" />
+            <div>
+              <p className="text-sm font-medium text-rose-800 dark:text-rose-300">Detection failed</p>
+              <p className="text-xs text-rose-700 dark:text-rose-400">{error}</p>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -153,9 +181,11 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
           <Button size="sm" variant="outline" onClick={runDetection} className="gap-1.5">
             <RefreshCw className="h-3 w-3" />Re-detect
           </Button>
-          <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
-            <FolderPlus className="h-3 w-3" />Create Project from Models
-          </Button>
+          <Link href={`/explore-design?project=${encodeURIComponent(projectId)}`}>
+            <Button size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white">
+              <FolderPlus className="h-3 w-3" />Open in Modeler
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -261,14 +291,6 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
                       </div>
                     </div>
                   )}
-                  <div className="flex gap-2 mt-2">
-                    <Button size="sm" variant="outline" className="gap-1 text-xs flex-1">
-                      <Eye className="h-3 w-3" />View Details
-                    </Button>
-                    <Button size="sm" className="gap-1 text-xs flex-1 bg-blue-600 hover:bg-blue-700 text-white">
-                      <Package className="h-3 w-3" />Create as Product
-                    </Button>
-                  </div>
                 </div>
               )}
             </button>
@@ -283,15 +305,28 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
 // Helpers: infer models from relationship discovery results
 // ---------------------------------------------------------------------------
 
+// The relationship-discovery endpoint is loosely typed (returns `any` from the
+// shared service). These optional fields cover the variants the backend emits.
+interface DiscoveredRelationship {
+  from_table?: string;
+  source_table?: string;
+  to_table?: string;
+  target_table?: string;
+  relationship_type?: string;
+  type?: string;
+  confidence?: number;
+}
+
 function inferModelsFromRelationships(
-  relResult: any,
+  relResult: unknown,
   sourceTables: Array<{ database: string; schema: string; table: string }>,
 ): DetectedModel[] {
   const models: DetectedModel[] = [];
-  const relationships = relResult?.relationships || relResult?.discovered || [];
+  const root = (relResult ?? {}) as { relationships?: DiscoveredRelationship[]; discovered?: DiscoveredRelationship[] };
+  const relationships: DiscoveredRelationship[] = root.relationships || root.discovered || [];
 
   const tableNames = sourceTables.map((t) => `${t.database}.${t.schema}.${t.table}`);
-  const relMap = new Map<string, any[]>();
+  const relMap = new Map<string, DiscoveredRelationship[]>();
 
   for (const rel of relationships) {
     const from = rel.from_table || rel.source_table || '';
