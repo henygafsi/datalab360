@@ -654,10 +654,10 @@ function repairMultiInputEdges(
 ): { edges: EdgePreview[]; dropped: number } {
   // Group edges by target, preserving stable order (insertion + source asc
   // as a tiebreak so the same input deterministically lands on input1).
-  const byTarget = new Map<string, EdgePreview[]>();
+  const byTarget = new Map<string, (EdgePreview & { __idx: number })[]>();
   edges.forEach((e, idx) => {
     if (!byTarget.has(e.to)) byTarget.set(e.to, []);
-    byTarget.get(e.to)!.push({ ...e, __idx: idx } as EdgePreview & { __idx: number });
+    byTarget.get(e.to)!.push({ ...e, __idx: idx });
   });
 
   let dropped = 0;

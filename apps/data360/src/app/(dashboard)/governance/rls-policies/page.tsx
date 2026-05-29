@@ -39,10 +39,16 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 export default function RLSPoliciesPage() {
   const [policies, setPolicies] = useState<RLSPolicy[]>([]);
   const [loading, setLoading] = useState(true);
+  // Explicit error state so a failed list load is surfaced instead of an empty list.
+  const [error, setError] = useState<string | null>(null);
+  // Apply runs `ALTER TABLE ... ADD ROW ACCESS POLICY` on Snowflake — track RUNNING + elapsed.
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyElapsedMs, setApplyElapsedMs] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
 
+  const [confirmRemovePolicy, setConfirmRemovePolicy] = useState<string | null>(null);
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [tables, setTables] = useState<string[]>([]);
@@ -106,13 +112,26 @@ export default function RLSPoliciesPage() {
     }
   };
 
+  // Extract the most useful message from the centralized error envelope
+  // ({ error: { message }, detail, snowflake{...} }) or a plain Error.
+  const extractError = (err: any, fallback: string): string =>
+    err?.response?.data?.error?.message ||
+    err?.response?.data?.detail ||
+    err?.response?.data?.message ||
+    err?.message ||
+    fallback;
+
   const loadPolicies = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getRLSPolicies();
       setPolicies(data);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load RLS policies');
+    } catch (err: any) {
+      const message = extractError(err, 'Failed to load RLS policies');
+      setError(message);
+      setPolicies([]);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -139,6 +158,11 @@ export default function RLSPoliciesPage() {
 
   const handleApply = async () => {
     if (!selectedPolicy) return;
+    setIsApplying(true);
+    setApplyElapsedMs(0);
+    const startedAt = Date.now();
+    // Tick elapsed time while Snowflake executes the ALTER TABLE ... ADD ROW ACCESS POLICY DDL.
+    const timer = setInterval(() => setApplyElapsedMs(Date.now() - startedAt), 200);
     try {
       await applyRLSPolicy(
         selectedPolicy.policy_name,
@@ -151,13 +175,16 @@ export default function RLSPoliciesPage() {
       setSelectedPolicy(null);
       resetApplyForm();
       loadPolicies();
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to apply RLS policy');
+    } catch (err: any) {
+      toast.error(extractError(err, 'Failed to apply RLS policy'));
+    } finally {
+      clearInterval(timer);
+      setIsApplying(false);
     }
   };
 
   const handleRemove = async (policy: RLSPolicy) => {
-    if (!confirm(`Remove RLS policy from ${policy.table_name}?`)) return;
+    setConfirmRemovePolicy(null);
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
@@ -289,6 +316,15 @@ export default function RLSPoliciesPage() {
             <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
             <p className="mt-4 text-slate-600 dark:text-slate-400">Loading RLS policies...</p>
           </div>
+        ) : error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center dark:border-red-800 dark:bg-red-900/20">
+            <HiOutlineXCircle className="mx-auto mb-3 h-12 w-12 text-red-500" />
+            <p className="font-semibold text-red-800 dark:text-red-300">Failed to load RLS policies</p>
+            <p className="mt-1 text-sm text-red-700 dark:text-red-400 break-words">{error}</p>
+            <Button onClick={loadPolicies} variant="outline" className="mt-4 border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300">
+              Retry
+            </Button>
+          </div>
         ) : policies.length === 0 ? (
           <div className="text-center py-12">
             <HiOutlineLockClosed className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
@@ -354,14 +390,32 @@ export default function RLSPoliciesPage() {
                       <HiOutlinePlay className="w-4 h-4 mr-1" />
                       Apply
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleRemove(policy)}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      <HiOutlineTrash className="w-4 h-4" />
-                    </Button>
+                    {confirmRemovePolicy === policy.policy_name ? (
+                      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 rounded-lg p-2">
+                        <span className="text-xs text-red-700 dark:text-red-400 whitespace-nowrap">Remove from {policy.table_name}?</span>
+                        <button
+                          className="text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+                          onClick={() => handleRemove(policy)}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                          onClick={() => setConfirmRemovePolicy(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmRemovePolicy(policy.policy_name)}
+                        className="text-red-600 hover:bg-red-50"
+                      >
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -530,15 +584,17 @@ export default function RLSPoliciesPage() {
           </div>
 
           <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
+            <Button variant="outline" disabled={isApplying} onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
               Cancel
             </Button>
             <Button
               onClick={handleApply}
-              disabled={!applyForm.table_name}
-              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
+              disabled={!applyForm.table_name || isApplying}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white disabled:opacity-60"
             >
-              Apply Policy
+              {isApplying
+                ? `Applying on Snowflake... ${(applyElapsedMs / 1000).toFixed(1)}s`
+                : 'Apply Policy'}
             </Button>
           </div>
         </div>

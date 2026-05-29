@@ -46,11 +46,16 @@ export default function OrgAccountsDashboard() {
   const [orgName, setOrgName] = useState<string>('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  // Elapsed seconds while a refresh is RUNNING (drives "Refreshing… 4s" affordance)
+  const [refreshElapsed, setRefreshElapsed] = useState(0);
+  // Top-level error (only set when the primary overview call fails — secondary
+  // calls degrade silently into empty arrays, see fetchSecondaryData)
+  const [overviewError, setOverviewError] = useState<string | null>(null);
 
   // Fetch org name on mount
   useEffect(() => {
     getDashboardOverview()
-      .then((data) => setOrgName(data.overview.organization_name))
+      .then((data) => setOrgName(data.overview.organization_name ?? ''))
       .catch(() => {});
   }, []);
 
@@ -118,7 +123,7 @@ export default function OrgAccountsDashboard() {
             disabled={refreshing}
           >
             <PiArrowClockwiseBold className={cn('h-4 w-4 mr-2', refreshing && 'animate-spin')} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshing ? `Refreshing… ${refreshElapsed}s` : 'Refresh'}
           </Button>
         </div>
       </div>

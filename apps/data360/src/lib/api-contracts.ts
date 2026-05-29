@@ -3,6 +3,269 @@
 import { API_CONFIG } from '@/config/database.config';
 
 /**
+ * ============================================================================
+ *  API — single typed source of truth for every backend endpoint the FE calls.
+ * ============================================================================
+ *
+ * Each entry is `{ method, path(args) }` where `path` returns a **relative**
+ * URL (no host). Call through `apiClient`, which prepends `API_CONFIG.BASE_URL`
+ * and attaches auth headers:
+ *
+ *     apiClient.get(API.common.tables(db, schema))
+ *     apiClient.post(API.workflow.execute(id), body)
+ *
+ * Every path below is verified against the live FastAPI routers
+ * (app/modules/<module>/router*.py + app/main.py). Grouped by domain.
+ *
+ * NOTE: the legacy `API_CONTRACTS` object further down returns ABSOLUTE urls
+ * via getUrl() and is kept for back-compat with a few fetch()/axios call-sites.
+ * Prefer `API` + `apiClient` for new code.
+ */
+const enc = encodeURIComponent;
+
+type ProjectTypeFilter = 'explore_design' | 'workflow' | 'bi_dashboard' | 'WORKFLOW';
+
+function qs(params?: Record<string, string | number | boolean | undefined | null>): string {
+  if (!params) return '';
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
+  });
+  const s = sp.toString();
+  return s ? `?${s}` : '';
+}
+
+export const API = {
+  /** Auth & user — backend: /signin, /user/* (app/main.py + modules/auth/router.py). */
+  auth: {
+    /** POST /user/login/ (alias of POST /signin). body: { account_name, username, password } */
+    login: () => '/user/login/',
+    /** POST /signin — login alias returning access_token. */
+    signin: () => '/signin',
+    /** POST /user/register/ */
+    register: () => '/user/register/',
+    /** POST /user/bootstrap-account/ */
+    bootstrapAccount: () => '/user/bootstrap-account/',
+    /** GET /user/me/modules — modules the signed-in user can access. */
+    myModules: () => '/user/me/modules',
+  },
+
+  /** Connectors — backend: /connect/* (modules/connectors/router.py). */
+  connect: {
+    createInternalStage: () => '/connect/stages/internal',
+    listStages: () => '/connect/stages',
+    createAwsStage: () => '/connect/aws/stage',
+    createGcsStage: () => '/connect/gcs/stage',
+    /** POST /connect/stages/{stage}/upload (multipart). */
+    uploadToStage: (stage: string, overwrite?: boolean) =>
+      `/connect/stages/${enc(stage)}/upload${qs({ overwrite })}`,
+    /** GET /connect/stages/{stage}/files */
+    listStageFiles: (stage: string, params?: { path?: string; sort?: string }) =>
+      `/connect/stages/${enc(stage)}/files${qs(params)}`,
+    /** DELETE /connect/stages/{stage}/files/{file_path} */
+    deleteStageFile: (stage: string, filePath: string) =>
+      `/connect/stages/${enc(stage)}/files/${filePath}`,
+    /** POST /connect/snowflake_lake/datalake/connect */
+    datalakeConnect: () => '/connect/snowflake_lake/datalake/connect',
+  },
+
+  /**
+   * Common metadata wizard — backend: /common/* (modules/common/router.py).
+   * (Frontend historically called these under /explore-design/guided/*, which no
+   * longer exists — the real routes are /common/*.)
+   */
+  common: {
+    /** GET /common/databases */
+    databases: () => '/common/databases',
+    /** GET /common/schemas/{database_name} */
+    schemas: (database: string) => `/common/schemas/${enc(database)}`,
+    /** GET /common/tables/{database_name}/{schema_name} */
+    tables: (database: string, schema: string) =>
+      `/common/tables/${enc(database)}/${enc(schema)}`,
+    /** GET /common/get_table_columns?database_name&schema_name&table_name */
+    tableColumns: (database: string, schema: string, table: string) =>
+      `/common/get_table_columns${qs({ database_name: database, schema_name: schema, table_name: table })}`,
+  },
+
+  /**
+   * Unified projects — backend: /projects/* (modules/projects/router.py).
+   * The cross-module project registry. Workflow/Explore lists come from here
+   * via ?project_type=.
+   */
+  projects: {
+    /** GET /projects?project_type&status&mine_only&limit&offset */
+    list: (params?: {
+      project_type?: ProjectTypeFilter;
+      status?: string;
+      mine_only?: boolean;
+      limit?: number;
+      offset?: number;
+    }) => `/projects${qs(params)}`,
+    /** GET /projects/{id} */
+    get: (id: string) => `/projects/${enc(id)}`,
+    /** PATCH-equivalent: PUT /projects/{id} (update name/metadata/status). */
+    update: (id: string) => `/projects/${enc(id)}`,
+    /** DELETE /projects/{id} (soft delete). */
+    remove: (id: string) => `/projects/${enc(id)}`,
+    /** GET /projects/{id}/events ; POST to add an event. */
+    events: (id: string, params?: { status?: string; event_type?: string; limit?: number }) =>
+      `/projects/${enc(id)}/events${qs(params)}`,
+    /** PATCH /projects/{id}/events/bulk-update */
+    bulkUpdateEvents: (id: string) => `/projects/${enc(id)}/events/bulk-update`,
+    contributors: (id: string) => `/projects/${enc(id)}/contributors`,
+    runs: (id: string) => `/projects/${enc(id)}/runs`,
+    deployments: (id: string) => `/projects/${enc(id)}/deployments`,
+    deployment: (id: string, deploymentId: string) =>
+      `/projects/${enc(id)}/deployments/${enc(deploymentId)}`,
+    approveDeployment: (id: string, deploymentId: string) =>
+      `/projects/${enc(id)}/deployments/${enc(deploymentId)}/approve`,
+    rejectDeployment: (id: string, deploymentId: string) =>
+      `/projects/${enc(id)}/deployments/${enc(deploymentId)}/reject`,
+    executeDeployment: (id: string, deploymentId: string) =>
+      `/projects/${enc(id)}/deployments/${enc(deploymentId)}/execute`,
+    rollback: (id: string) => `/projects/${enc(id)}/rollback`,
+    lastUsed: () => '/projects/last-used',
+    unified: () => '/projects/unified',
+  },
+
+  /**
+   * Explore & Design — backend: /explore-design/* (modules/projects/explore_design/router.py).
+   * Project create is POST /explore-design (empty path on the prefixed router);
+   * everything else is project-scoped (/explore-design/{project_id}/...).
+   */
+  exploreDesign: {
+    /** POST /explore-design — create an explore-design project. */
+    createProject: () => '/explore-design',
+    /** GET /explore-design/recent-deployment-errors */
+    recentDeploymentErrors: (limit?: number) =>
+      `/explore-design/recent-deployment-errors${qs({ limit })}`,
+    ddlActions: (projectId: string) => `/explore-design/${enc(projectId)}/ddl-actions`,
+    executeDdlActions: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/ddl-actions/execute`,
+    versions: (projectId: string) => `/explore-design/${enc(projectId)}/versions`,
+    /** POST /explore-design/{project_id}/deployments — request a deployment. */
+    requestDeployment: (projectId: string) => `/explore-design/${enc(projectId)}/deployments`,
+    listDeployments: (projectId: string) => `/explore-design/${enc(projectId)}/deployments`,
+    approveDeployment: (projectId: string, deploymentId: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/approve`,
+    rejectDeployment: (projectId: string, deploymentId: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/reject`,
+    executeDeployment: (projectId: string, deploymentId: string) =>
+      `/explore-design/${enc(projectId)}/deployments/${enc(deploymentId)}/execute`,
+    scheduleIngestion: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/ingestion/schedule`,
+    executeIngestion: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/ingestion/execute`,
+    ingestionRuns: (projectId: string) => `/explore-design/${enc(projectId)}/ingestion/runs`,
+  },
+
+  /**
+   * Workflow (low-code ETL) — backend: /workflow/* (modules/projects/workflow/router.py).
+   * Nested REST keyed by workflow_id. The workflow LIST is the unified project
+   * list filtered by type: GET /projects?project_type=WORKFLOW.
+   */
+  workflow: {
+    /** GET /projects?project_type=WORKFLOW — list workflows (unified registry). */
+    list: () => `/projects${qs({ project_type: 'WORKFLOW' })}`,
+    /** POST /workflow — create a workflow. */
+    create: () => '/workflow',
+    capabilities: () => '/workflow/capabilities',
+    steps: (id: string) => `/workflow/${enc(id)}/steps`,
+    step: (id: string, stepId: string) => `/workflow/${enc(id)}/steps/${enc(stepId)}`,
+    /** POST /workflow/{id}/execute */
+    execute: (id: string) => `/workflow/${enc(id)}/execute`,
+    compile: (id: string) => `/workflow/${enc(id)}/compile`,
+    validate: (id: string) => `/workflow/${enc(id)}/validate`,
+    runs: (id: string) => `/workflow/${enc(id)}/runs`,
+    analyzeRun: (id: string, runId: string) => `/workflow/${enc(id)}/runs/${enc(runId)}/analyze`,
+    versions: (id: string) => `/workflow/${enc(id)}/versions`,
+    /** POST /workflow/{id}/schedule — schedule as a Snowflake task. */
+    schedule: (id: string) => `/workflow/${enc(id)}/schedule`,
+    /** POST /workflow/{id}/schedule/pause — suspend the scheduled task. */
+    schedulePause: (id: string) => `/workflow/${enc(id)}/schedule/pause`,
+    /** POST /workflow/{id}/schedule/resume — resume the scheduled task. */
+    scheduleResume: (id: string) => `/workflow/${enc(id)}/schedule/resume`,
+    /** DELETE /workflow/{id}/schedule */
+    scheduleDelete: (id: string) => `/workflow/${enc(id)}/schedule`,
+    schedules: () => '/workflow/schedules',
+    taskStatus: (id: string) => `/workflow/${enc(id)}/task-status`,
+    contributors: (id: string) => `/workflow/${enc(id)}/contributors`,
+    contributor: (id: string, contributorId: string) =>
+      `/workflow/${enc(id)}/contributors/${enc(contributorId)}`,
+  },
+
+  /** Gouvernance — backend: /gouvernance/* (modules/gouvernance + gui_permissions). */
+  gouvernance: {
+    clientDashboard: () => '/gouvernance/client/dashboard',
+    users: () => '/gouvernance/users',
+    usersWithRoles: () => '/gouvernance/users-with-roles',
+    addUser: () => '/gouvernance/add-user',
+    dropUser: () => '/gouvernance/drop-user',
+    dropUsersBatch: () => '/gouvernance/drop-users-batch',
+    enableUser: () => '/gouvernance/enable_user',
+    disableUser: () => '/gouvernance/disable_user',
+    roles: () => '/gouvernance/roles',
+    addRole: () => '/gouvernance/add-role',
+    dropRole: () => '/gouvernance/drop-role',
+    dropRolesBatch: () => '/gouvernance/drop-roles-batch',
+    assignRole: () => '/gouvernance/assign-role',
+    unassignRole: () => '/gouvernance/unassign-role',
+    userRoles: (username: string) => `/gouvernance/${enc(username)}/roles`,
+    grants: () => '/gouvernance/grants',
+    grantsForRole: () => '/gouvernance/grants-for-role',
+    updateGrants: () => '/gouvernance/update-grants',
+    securityMatrix: () => '/gouvernance/security-matrix',
+    policies: () => '/gouvernance/policies',
+  },
+
+  /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
+  cortex: {
+    query: () => '/cortex/query',
+  },
+
+  /** Observability — backend: /observability/* (mounted with prefix in main.py). */
+  observability: {
+    base: () => '/observability',
+  },
+
+  /** Org accounts — backend: /org-accounts/* (modules/org_accounts/router.py). */
+  orgAccounts: {
+    dashboardOverview: () => '/org-accounts/dashboard/overview',
+    events: () => '/org-accounts/events',
+  },
+
+  /** Data quality — backend: /data-quality/* (modules/data_quality). */
+  dataQuality: {
+    base: () => '/data-quality',
+  },
+
+  /** Catalog — backend: /catalog/* (modules/catalog/router.py). */
+  catalog: {
+    events: () => '/catalog/events',
+  },
+
+  /** Account-overview Snowflake explorer — backend: /api/snowflake/explorer/*. */
+  accountOverview: {
+    explorer: (path: string) => `/api/snowflake/explorer/${path.replace(/^\//, '')}`,
+  },
+
+  /** Deployment tracking — backend: /deployments/* (modules/deployment_tracking). */
+  deployments: {
+    base: () => '/deployments',
+  },
+
+  /** Platform API — backend: /api/* (keep-rule endpoints). */
+  platform: {
+    path: (p: string) => `/api/${p.replace(/^\//, '')}`,
+  },
+} as const;
+
+/** Build an absolute URL from a relative API path (for fetch()/axios callers). */
+export function apiUrl(relativePath: string): string {
+  return `${API_CONFIG.BASE_URL}${relativePath}`;
+}
+
+/**
  * API Contract definitions matching backend flow_contracts.yaml
  */
 export const API_CONTRACTS = {

@@ -362,6 +362,7 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   const [formData, setFormData] = useState<any>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmDeleteNode, setConfirmDeleteNode] = useState(false);
 
   // Memoize column options to avoid recreating 41 identical arrays per render
   const columnOptions = useMemo(
@@ -374,6 +375,7 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       setFormData(node.data || {});
       setErrors({});
       setHasChanges(false);
+      setConfirmDeleteNode(false);
     }
   }, [node]);
 
@@ -767,9 +769,13 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
 
   const handleDelete = useCallback(() => {
     if (!node) return;
-    if (confirm('Are you sure you want to delete this node?')) {
-      onDelete(node.id);
-    }
+    setConfirmDeleteNode(true);
+  }, [node]);
+
+  const executeDeleteNode = useCallback(() => {
+    if (!node) return;
+    setConfirmDeleteNode(false);
+    onDelete(node.id);
   }, [node, onDelete]);
 
   if (!node || !node.type) return null;
@@ -1035,13 +1041,31 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
           Save Configuration
         </button>
 
-        <button
-          onClick={handleDelete}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete Node
-        </button>
+        {!confirmDeleteNode ? (
+          <button
+            onClick={handleDelete}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete Node
+          </button>
+        ) : (
+          <div className="w-full flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+            <span className="text-sm text-red-700 dark:text-red-300">Delete this node?</span>
+            <button
+              onClick={executeDeleteNode}
+              className="px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDeleteNode(false)}
+              className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

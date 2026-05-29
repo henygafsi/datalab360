@@ -220,6 +220,22 @@ export async function listVersions(
   return data;
 }
 
+/**
+ * Rollback a workflow to a previous version.
+ * Backed by POST /projects/{project_id}/rollback (workflow_id === project_id
+ * in the unified projects model).
+ */
+export async function rollbackVersion(
+  workflowId: string,
+  body: { target_version_id: string; reason?: string },
+) {
+  const { data } = await apiClient.post<Record<string, unknown>>(
+    `/projects/${workflowId}/rollback`,
+    body,
+  );
+  return data;
+}
+
 // ============================================================================
 // Deployments
 // ============================================================================

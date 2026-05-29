@@ -907,6 +907,9 @@ export interface CreateExploreDeploymentRequest {
   scheduled_time?: string;
   warehouse?: string;
   config?: Record<string, unknown>;
+  // Approval flow: approver roles + optional note sent for `with_approval` deployments.
+  approvers?: string[];
+  note?: string;
 }
 
 export interface ExploreDeployment {
@@ -1710,6 +1713,10 @@ export interface FullDryRunRequest {
   warehouse?: string;
   sample_rows?: number;
   ingestions?: FullDryRunIngestionInput[];
+  // Optional scoping + DDL actions passed by the deployment pipeline UI.
+  database?: string;
+  schema?: string;
+  actions?: unknown[];
 }
 
 export interface FullDryRunIngestionResult {
@@ -2080,6 +2087,9 @@ export type PreDeployCheckType =
 export interface PreDeployChecksRequest {
   warehouse?: string;
   check_types?: PreDeployCheckType[];
+  // Optional scoping passed by the deployment pipeline UI.
+  database?: string;
+  schema?: string;
 }
 
 export interface PreDeployCheckItem {

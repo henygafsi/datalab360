@@ -213,6 +213,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                         table_name: g.target.table,
                         columns: cols.map(col => ({ name: col.name, type: col.type, default: '', comment: '' })),
                     };
+                    // TODO(backend): POST /explore-design/guided/add-columns — endpoint not in API; wire it or remove this call
                     const addColumnsResponse = await axios.post(
                         `${API_BASE_URL}/explore-design/guided/add-columns`,
                         addColumnsPayload,
@@ -245,6 +246,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                     })),
                 };
 
+                // TODO(backend): POST /explore-design/guided/add-columns — endpoint not in API; wire it or remove this call
                 const addColumnsResponse = await axios.post(
                     `${API_BASE_URL}/explore-design/guided/add-columns`,
                     addColumnsPayload,

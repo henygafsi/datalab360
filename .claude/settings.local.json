@@ -25,7 +25,8 @@
       "Bash(findstr:*)",
       "Bash(pushd:*)",
       "Bash(pnpm --filter data360 exec tsc:*)",
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(ssh -i ~/.ssh/id_ed25519 root@167.172.162.172:*)"
     ]
   }
 }

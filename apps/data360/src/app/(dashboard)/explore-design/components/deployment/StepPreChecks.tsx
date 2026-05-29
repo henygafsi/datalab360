@@ -105,7 +105,11 @@ export default function StepPreChecks() {
   }, [projectId, events, isAiEnabled, setResults]);
 
   const handlePreChecksComplete = useCallback((result: PreDeployChecksResult) => {
-    const allPassed = result.checks?.every((c: any) => c.status === 'PASS') ?? false;
+    // Only a hard FAIL blocks the wizard. WARN is advisory (e.g. "large change
+    // surface", "table has no PK") — it must not gate deployment, otherwise
+    // every non-fatal warning strands the user on the Pre-Checks step.
+    const hasBlockingFailure = result.checks?.some((c: any) => c.status === 'FAIL') ?? false;
+    const allPassed = !hasBlockingFailure;
     setResults(prev => ({ ...prev, preChecksResult: result, preChecksAllPassed: allPassed }));
     // Auto-run risk scoring after pre-checks
     runRiskScoring();

@@ -109,8 +109,6 @@ export default function CustomConnectionLine({
       {label && (
         <foreignObject x={toX + 12} y={toY - 28} width={160} height={24} style={{ overflow: 'visible' }}>
           <div
-            // eslint-disable-next-line react/no-unknown-property
-            xmlns="http://www.w3.org/1999/xhtml"
             style={{
               display: 'inline-flex',
               alignItems: 'center',

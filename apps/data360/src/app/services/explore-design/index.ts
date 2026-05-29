@@ -318,18 +318,6 @@ export async function getProjectEvents(
     return response.data;
   }
 }
-
-/**
- * Get a single event by project and event id (from project events list).
- */
-export async function getEvent(
-  projectId: string,
-  eventId: string
-): Promise<DesignEvent | null> {
-  const { events } = await getProjectEvents(projectId);
-  return events?.find((e: DesignEvent) => (e as any).event_id === eventId || (e as any).id === eventId) ?? null;
-}
-
 /**
  * Delete an event (backend may not implement; prefer filtering in UI).
  */
@@ -2309,17 +2297,6 @@ export function generateEventSQL(event: DesignEvent): string {
       return `-- ${event_type}: ${JSON.stringify(payload)}`;
   }
 }
-
-/**
- * Batch generate SQL for multiple events
- */
-export function generateBatchSQL(events: DesignEvent[]): string {
-  return events
-    .filter(e => e.status === 'pending' || e.status === 'validated')
-    .map(e => generateEventSQL(e))
-    .join('\n\n');
-}
-
 // ============================================
 // PROJECT MANAGEMENT HELPERS
 // ============================================
@@ -3543,25 +3520,6 @@ export async function addForeignKey(
     COLUMN_REF: refColumn,
   });
 }
-
-/**
- * Add comment to a column
- */
-export async function addColumnComment(
-  database: string,
-  schema: string,
-  tableName: string,
-  columnName: string,
-  comment: string
-): Promise<any> {
-  return manageTable({
-    SOURCE_TABLE: `${database}.${schema}.${tableName}`,
-    CONSTRAINT_TYPE: 'COMMENT_ON_COLUMN',
-    COLUMN_NAME: columnName,
-    COLUMN_COMMENT: comment,
-  });
-}
-
 // ============= EVENT EXECUTION SERVICE =============
 
 // Local event format (from frontend event store)
@@ -3678,60 +3636,6 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
     };
   }
 }
-
-/**
- * Execute all pending events for a project
- * Returns summary of executed/failed events
- */
-export async function executePendingEvents(
-  projectId: string,
-  events: LocalDesignEvent[]
-): Promise<{
-  total: number;
-  success: number;
-  failed: number;
-  results: Array<{
-    eventId: string;
-    type: string;
-    success: boolean;
-    message: string;
-    error?: string;
-  }>;
-}> {
-  const results: Array<{
-    eventId: string;
-    type: string;
-    success: boolean;
-    message: string;
-    error?: string;
-  }> = [];
-
-  let successCount = 0;
-  let failedCount = 0;
-
-  for (const event of events) {
-    const result = await executeEventAction(event, projectId);
-    results.push({
-      eventId: event.id || event.backendId || 'unknown',
-      type: event.type,
-      ...result,
-    });
-
-    if (result.success) {
-      successCount++;
-    } else {
-      failedCount++;
-    }
-  }
-
-  return {
-    total: events.length,
-    success: successCount,
-    failed: failedCount,
-    results,
-  };
-}
-
 // ============================================
 // TABLE RELATIONSHIPS APIs
 // ============================================

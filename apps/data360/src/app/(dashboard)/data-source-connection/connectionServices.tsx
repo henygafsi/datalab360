@@ -7,6 +7,22 @@ interface ApiResponse {
     message: string;
 }
 
+/**
+ * Normalize an apiClient (axios) error into the same `Error(message)` contract
+ * the raw-fetch helpers used to throw, so callers' `catch (e) { e.message }`
+ * keep working unchanged. apiClient already injects auth + X-Account-Name +
+ * X-Username and rejects on non-2xx (see lib/api-client.ts).
+ */
+function toApiError(err: unknown, fallback: string): Error {
+    const detail = (err as { response?: { data?: { detail?: unknown; message?: unknown } } })?.response?.data;
+    if (detail) {
+        if (typeof detail.detail === 'string') return new Error(detail.detail);
+        if (typeof detail.message === 'string') return new Error(detail.message);
+    }
+    if (err instanceof Error && err.message) return new Error(err.message);
+    return new Error(fallback);
+}
+
 /** Response from Azure storage integration creation: may include consent URL for wait flow */
 export interface AzureStorageIntegrationResponse extends ApiResponse {
     requires_consent?: boolean;

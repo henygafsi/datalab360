@@ -68,6 +68,11 @@ const WorkflowHomePage: React.FC = () => {
   const [activeEdges, setActiveEdges] = useState<ReactFlowEdge[]>([]);
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
+  // Save / execute status states (drive the "Saving…" / "Running… Ns" affordances).
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  const [executeStartedAt, setExecuteStartedAt] = useState<number | null>(null);
+  const [executeElapsed, setExecuteElapsed] = useState<number>(0);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const initialLoadDoneRef = useRef(false);
 
@@ -171,6 +176,15 @@ const WorkflowHomePage: React.FC = () => {
     const workflow = (workflows ?? []).find(w => w.workflow_name === activeWorkflowName);
     return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
   }, [workflows, activeWorkflowName]);
+
+  // Elapsed-time ticker while a workflow execution is in flight (RUNNING on Snowflake).
+  useEffect(() => {
+    if (!isExecuting || executeStartedAt == null) return;
+    const tick = setInterval(() => {
+      setExecuteElapsed(Math.max(0, Math.round((Date.now() - executeStartedAt) / 1000)));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [isExecuting, executeStartedAt]);
 
   const convertBackendToReactFlow = useCallback((backendSteps: BackendStep[]): { nodes: ReactFlowNode[]; edges: ReactFlowEdge[] } => {
     const newNodes: ReactFlowNode[] = [];
@@ -572,6 +586,7 @@ const WorkflowHomePage: React.FC = () => {
     // Check if workflow already exists (update) or is new (create)
     const existingWorkflow = workflows.find(w => w.workflow_name === activeWorkflowName);
 
+    setIsSaving(true);
     try {
       if (existingWorkflow?.workflow_id) {
         // Update existing workflow: clear old steps, then add new ones
@@ -611,6 +626,8 @@ const WorkflowHomePage: React.FC = () => {
       console.error('Error saving workflow:', err);
       toast.error(`Failed to save workflow: ${getApiErrorMessage(err)}`);
       setIsWorkflowSaved(false);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -623,12 +640,20 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
+    setIsExecuting(true);
+    setExecuteStartedAt(Date.now());
+    setExecuteElapsed(0);
     try {
       const result = await workflowApi.executeWorkflow(activeWorkflowId, { trigger_type: 'manual' });
       toast.success(`Workflow execution initiated: ${result.run_id}`);
     } catch (err: any) {
       console.error('Error executing workflow:', err);
       toast.error(`Failed to execute workflow: ${getApiErrorMessage(err)}`);
+    } finally {
+      // Execution is initiated async on Snowflake; stop the local ticker once the
+      // initiate call returns (run status is tracked in the runs panel).
+      setIsExecuting(false);
+      setExecuteStartedAt(null);
     }
   };
 
@@ -723,25 +748,28 @@ const WorkflowHomePage: React.FC = () => {
               onClick={saveWorkflow}
               className={cn(
                 "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
-                activeWorkflowName
+                activeWorkflowName && !isSaving
                   ? "bg-indigo-600 text-white hover:bg-indigo-700"
                   : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
               )}
-              disabled={!activeWorkflowName}
+              disabled={!activeWorkflowName || isSaving}
             >
-              {workflows.some(w => w.workflow_name === activeWorkflowName) ? 'Update' : 'Save'}
+              {isSaving
+                ? 'Saving…'
+                : workflows.some(w => w.workflow_name === activeWorkflowName) ? 'Update' : 'Save'}
             </button>
             <button
               onClick={executeWorkflow}
               className={cn(
                 "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
-                isWorkflowSaved && activeWorkflowName
+                isWorkflowSaved && activeWorkflowName && !isExecuting
                   ? "bg-green-600 text-white hover:bg-green-700"
                   : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
               )}
-              disabled={!isWorkflowSaved || !activeWorkflowName}
+              disabled={!isWorkflowSaved || !activeWorkflowName || isExecuting}
+              title={isExecuting ? 'Running on Snowflake…' : undefined}
             >
-              Execute
+              {isExecuting ? `Running… ${executeElapsed}s` : 'Execute'}
             </button>
           </div>
 

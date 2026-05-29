@@ -125,6 +125,7 @@ const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
+import ServerlessFinOpsCards from './serverless-finops-cards';
 import type {
   SecurityOverviewResponse,
   PerformanceOverviewResponse,
@@ -4136,6 +4137,11 @@ const CostTab = memo(function CostTab({
           )}
         </SectionCard>
       </div>
+
+      {/* P0 surfacing — FinOps/governance KPIs the backend already computes but
+          the UI never showed (cost-by-warehouse/service, clustering, pipe,
+          MV refresh, tasks, role hierarchy). Self-contained, fetches on mount. */}
+      <ServerlessFinOpsCards days={30} />
 
       {/* Category Pie + Top Warehouses */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

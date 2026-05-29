@@ -422,3 +422,34 @@ export async function checkDataFreshness(
   );
   return data;
 }
+
+// =============================================================================
+// Generic KPI tables — previously-unused command_center endpoints that compute
+// rich FinOps / governance data but were never surfaced in the FE.
+// All return { data: Array<Record<string, any>>, count, days } with UPPERCASE keys.
+// =============================================================================
+
+export interface KpiTableResponse {
+  data: Array<Record<string, any>>;
+  count: number;
+  days?: number;
+}
+
+async function _kpiTable(path: string, days?: number): Promise<KpiTableResponse> {
+  try {
+    const params = days != null ? { days } : undefined;
+    const { data } = await apiClient.get<KpiTableResponse>(`${PREFIX}${path}`, { params });
+    return data && Array.isArray(data.data) ? data : { data: [], count: 0, days };
+  } catch {
+    return { data: [], count: 0, days };
+  }
+}
+
+export const getCostByWarehouse = (days = 30) => _kpiTable('/cost-by-warehouse', days);
+export const getCostByService = (days = 30) => _kpiTable('/cost-by-service', days);
+export const getClusteringCosts = (days = 30) => _kpiTable('/clustering-costs', days);
+export const getPipeUsage = (days = 30) => _kpiTable('/pipe-usage', days);
+export const getMvRefreshCosts = (days = 30) => _kpiTable('/mv-refresh-costs', days);
+export const getTaskHistory = (days = 30) => _kpiTable('/task-history', days);
+export const getTableStorage = (days = 30) => _kpiTable('/table-storage', days);
+export const getRoleHierarchy = () => _kpiTable('/role-hierarchy');

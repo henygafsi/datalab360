@@ -123,7 +123,7 @@ export default function HealthAlertsTab({ refreshKey }: HealthAlertsTabProps) {
       if (healthData) setHealthScores(Array.isArray(healthData.health_scores) ? healthData.health_scores : []);
       if (alertsData) setAlerts(Array.isArray(alertsData.alerts) ? alertsData.alerts : []);
       if (anomalyData) setAnomalies(Array.isArray(anomalyData.anomalies) ? anomalyData.anomalies : []);
-      if (monitorData) setResourceMonitors(Array.isArray(monitorData.monitors) ? monitorData.monitors : []);
+      if (monitorData) setResourceMonitors(Array.isArray(monitorData.monitors) ? (monitorData.monitors as ResourceMonitor[]) : []);
       if (failedData) setFailedLogins(Array.isArray(failedData.failed_logins) ? failedData.failed_logins : []);
       if (healthScoreData && typeof healthScoreData.health_score === 'number') setCompositeHealth(healthScoreData);
     }).finally(() => setLoading(false));

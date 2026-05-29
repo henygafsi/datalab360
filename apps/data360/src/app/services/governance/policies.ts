@@ -651,25 +651,6 @@ export async function removeMaskingPolicy(
     throw error;
   }
 }
-
-export async function getMaskedColumns(
-  database?: string,
-  schema?: string
-): Promise<MaskedColumn[]> {
-  // Backend spec: GET /gouvernance/policies/masking/columns/list
-  const params: Record<string, string> = {};
-  if (database) params.database = database;
-  if (schema) params.schema = schema;
-
-  const response = await apiClient.get<StandardResponse<{ columns: MaskedColumn[] }>>(
-    `${POLICIES_API}/masking/columns/list`,
-    { params }
-  );
-  // Defensive check: ensure we always return an array
-  const columns = response.data.data?.columns;
-  return Array.isArray(columns) ? columns : [];
-}
-
 export async function deleteMaskingPolicy(
   policy_name: string
 ): Promise<any> {
@@ -1646,59 +1627,6 @@ export async function unapplyPolicyFromAll(
     };
   }
 }
-
-/**
- * Safe delete - checks references first, unapplies if needed, then deletes
- * Returns detailed result of the operation
- */
-export async function safeDeletePolicy(
-  policyType: string,
-  policyName: string
-): Promise<{
-  success: boolean;
-  removedRefs?: number;
-  error?: string;
-}> {
-  try {
-    // 1. Check references
-    const refs = await getPolicyReferences(policyType, policyName);
-
-    if (!refs.can_delete && refs.references.length > 0) {
-      // 2. Unapply from all references first
-      const unapplyResult = await unapplyPolicyFromAll(policyType, policyName);
-
-      if (unapplyResult.errors.length > 0) {
-        return {
-          success: false,
-          error: `Could not remove policy from: ${unapplyResult.errors.map(e => e.table).join(', ')}`
-        };
-      }
-    }
-
-    // 3. Now delete the policy
-    const backendType = policyType.toUpperCase().replace('-', '_');
-
-    // Network uses specific endpoint
-    if (backendType === 'NETWORK') {
-      await deleteNetworkPolicy(policyName);
-    } else {
-      // Generic delete for other types
-      const url = `${POLICIES_API}/${backendType}/${policyName}`;
-      await apiClient.delete(url);
-    }
-
-    return {
-      success: true,
-      removedRefs: refs.references.length
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      error: error.response?.data?.detail || error.response?.data?.message || error.message
-    };
-  }
-}
-
 // ============= TABLE/OBJECT POLICIES =============
 
 /**

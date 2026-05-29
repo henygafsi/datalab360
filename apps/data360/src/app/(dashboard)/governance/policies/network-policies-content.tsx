@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal, Badge } from 'rizzui';
+import { Button, Input, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
+import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -13,8 +13,27 @@ import {
   createNetworkPolicy,
   setNetworkPolicyAsDefault,
   deleteNetworkPolicy,
+  formatPolicyError,
   type NetworkPolicy,
+  type EnrichedPolicy,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
+
+/** Map a raw NetworkPolicy to the EnrichedPolicy shape expected by PolicyCard. */
+function networkToEnriched(p: NetworkPolicy): EnrichedPolicy {
+  return {
+    name: p.policy_name || p.name || '',
+    database_name: '',
+    schema_name: '',
+    created_on: p.created_at || null,
+    comment: p.comment || p.description || null,
+    granted_roles: p.granted_roles || [],
+    granted_objects: [],
+    granted_objects_count: 0,
+    expiration_date: p.expiration_date || null,
+  };
+}
+
 export default function NetworkPoliciesContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
@@ -36,15 +55,16 @@ export default function NetworkPoliciesContent() {
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
-  const handleViewDetails = async (policy: NetworkPolicy) => {
-    setSelectedPolicy(policy);
+  const handleViewDetails = async (policy: EnrichedPolicy) => {
+    // Find the raw NetworkPolicy to keep raw fields for the details modal
+    const raw = policies?.find(p => (p.policy_name || p.name) === policy.name) ?? null;
+    setSelectedPolicy(raw);
     setShowDetailsModal(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
 
     try {
-      const details = await getNetworkPolicyDetails(policy.policy_name);
-      // console.log('Network policy details:', details);
+      const details = await getNetworkPolicyDetails(policy.name);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -52,33 +72,6 @@ export default function NetworkPoliciesContent() {
     } finally {
       setLoadingDetails(false);
     }
-  };
-
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -100,10 +93,8 @@ export default function NetworkPoliciesContent() {
         comment: comment.trim() || undefined,
         expiration_date: expirationDate || undefined,
       };
-      // console.log('[Network Create] Sending request:', requestData);
 
-      const result = await createNetworkPolicy(requestData);
-      // console.log('[Network Create] Response:', result);
+      await createNetworkPolicy(requestData);
 
       toast.success('Network policy created successfully!');
       setShowCreateModal(false);
@@ -111,34 +102,23 @@ export default function NetworkPoliciesContent() {
       refetch();
     } catch (error: any) {
       console.error('[Network Create] Error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create policy'));
+      toast.error(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
   const handleSetAsDefault = async (policy: NetworkPolicy) => {
-    if (!confirm(`Set "${policy.policy_name}" as account default network policy?`)) return;
-
     try {
-      await setNetworkPolicyAsDefault(policy.policy_name);
+      await setNetworkPolicyAsDefault(policy.name);
       toast.success('Network policy set as account default');
       refetch();
     } catch (error: any) {
       console.error('Set network policy as default error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to set as default'));
+      toast.error(formatPolicyError(error, 'Failed to set as default'));
     }
   };
 
-  const handleDelete = async (policy: NetworkPolicy) => {
-    if (!confirm(`Delete network policy "${policy.policy_name}"?`)) return;
-
-    try {
-      await deleteNetworkPolicy(policy.policy_name);
-      toast.success('Policy deleted successfully');
-      refetch();
-    } catch (error: any) {
-      console.error('Delete network policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
-    }
+  const handleDeletePolicy = async (enriched: EnrichedPolicy) => {
+    await deleteNetworkPolicy(enriched.name);
   };
 
   const resetForm = () => {
@@ -185,78 +165,60 @@ export default function NetworkPoliciesContent() {
         </div>
       ) : (
         <div className="grid gap-4">
-          {policies.map((policy) => (
-            <div
-              key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-blue-300 transition-colors"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div
-                  className="flex-1 cursor-pointer"
-                  onClick={() => handleViewDetails(policy)}
-                >
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-lg text-blue-600 hover:text-blue-700">
-                      {String(policy.policy_name || '')}
-                    </h3>
-                    {policy.is_default && (
-                      <Badge variant="flat" className="bg-blue-100 text-blue-700">
-                        Default
-                      </Badge>
-                    )}
-                  </div>
-                  {policy.comment && (
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      {String(policy.comment)}
-                    </p>
+          {policies.map((policy) => {
+            const enriched = networkToEnriched(policy);
+            return (
+              <PolicyCard
+                key={policy.name}
+                policy={enriched}
+                accentColor="blue"
+                policyType="network"
+                onViewDetails={handleViewDetails}
+                onDelete={handleDeletePolicy}
+                onRefresh={refetch}
+                entityLabel="object(s)"
+              >
+                {/* IP lists */}
+                <div className="grid grid-cols-2 gap-4 mt-2">
+                  {policy.allowed_ip_list && (
+                    <div>
+                      <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">
+                        Allowed IPs:
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                        {String(policy.allowed_ip_list)}
+                      </p>
+                    </div>
+                  )}
+                  {policy.blocked_ip_list && (
+                    <div>
+                      <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">
+                        Blocked IPs:
+                      </p>
+                      <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
+                        {String(policy.blocked_ip_list)}
+                      </p>
+                    </div>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  {!policy.is_default && (
+
+                {/* Set as Default action */}
+                {!policy.is_default && (
+                  <div className="mt-2">
                     <Button
                       size="sm"
                       variant="outline"
                       onClick={() => handleSetAsDefault(policy)}
+                      className="gap-1"
                     >
-                      <HiCheckCircle className="w-4 h-4 mr-1" />
+                      <HiCheckCircle className="w-4 h-4" />
                       Set as Default
                     </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    color="danger"
-                    onClick={() => handleDelete(policy)}
-                  >
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </Button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                {policy.allowed_ip_list && (
-                  <div>
-                    <p className="text-xs font-medium text-green-600 dark:text-green-400 mb-1">
-                      Allowed IPs:
-                    </p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                      {String(policy.allowed_ip_list)}
-                    </p>
                   </div>
                 )}
-                {policy.blocked_ip_list && (
-                  <div>
-                    <p className="text-xs font-medium text-red-600 dark:text-red-400 mb-1">
-                      Blocked IPs:
-                    </p>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                      {String(policy.blocked_ip_list)}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
+              </PolicyCard>
+            );
+          })}
         </div>
       )}
 
@@ -345,7 +307,7 @@ export default function NetworkPoliciesContent() {
       <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
         <div className="p-6 space-y-4">
           <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.policy_name}
+            Policy Details: {selectedPolicy?.name}
           </h2>
 
           {loadingDetails ? (
@@ -360,7 +322,7 @@ export default function NetworkPoliciesContent() {
                   Policy Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                  {policyDetails.policy_name || selectedPolicy?.name || 'N/A'}
                 </code>
               </div>
 

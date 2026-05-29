@@ -39,7 +39,13 @@ export default function StepImpact() {
   useEffect(() => {
     if (results.enhancedImpactResult || !projectId) return;
 
-    const firstDdl = ddlEvents[0];
+    // Guard: the endpoint 422s on empty database/schema/table. Pick the first
+    // DDL event whose target is fully qualified instead of blindly using
+    // ddlEvents[0] (whose target may be partially populated) — otherwise the
+    // request fails silently and the panel just shows nothing.
+    const firstDdl = ddlEvents.find(
+      e => e.target?.database && e.target?.schema && e.target?.table,
+    );
     if (!firstDdl) return;
 
     setIsLoading(true);

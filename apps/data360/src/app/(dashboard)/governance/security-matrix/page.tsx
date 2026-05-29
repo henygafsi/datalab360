@@ -150,6 +150,9 @@ export default function SecurityMatrixPage() {
   const [editingAxis, setEditingAxis] = useState<SecurityAxis | null>(null);
   const [axisForm, setAxisForm] = useState({ name: '', type: 'region' as string, description: '', values: '' });
 
+  // Inline confirmation state (replaces native confirm() popups)
+  const [confirmAction, setConfirmAction] = useState<{ type: 'deleteMatrix' | 'deleteUser' | 'deleteAxis'; id: number | string } | null>(null);
+
   // ============= DATA LOADING =============
 
   const loadMatrix = useCallback(async (bustCache = false) => {
@@ -251,7 +254,11 @@ export default function SecurityMatrixPage() {
   };
 
   const handleDeleteMatrixRow = async (row: SecurityMatrixEntryRow) => {
-    if (!confirm(`Delete matrix entry for role "${row.role_name}"?`)) return;
+    if (confirmAction?.type !== 'deleteMatrix' || confirmAction.id !== row.id) {
+      setConfirmAction({ type: 'deleteMatrix', id: row.id });
+      return;
+    }
+    setConfirmAction(null);
     try {
       await deleteSecurityMatrixEntry(row.id);
       toast.success('Entry deleted');
@@ -317,7 +324,11 @@ export default function SecurityMatrixPage() {
   };
 
   const handleDeleteUser = async (user: EnterpriseUser) => {
-    if (!confirm(`Remove "${user.USERNAME}" from enterprise directory?`)) return;
+    if (confirmAction?.type !== 'deleteUser' || confirmAction.id !== user.USERNAME) {
+      setConfirmAction({ type: 'deleteUser', id: user.USERNAME });
+      return;
+    }
+    setConfirmAction(null);
     try {
       await deleteEnterpriseUser(user.USERNAME);
       toast.success('User removed from directory');
@@ -372,7 +383,11 @@ export default function SecurityMatrixPage() {
   };
 
   const handleDeleteAxis = async (id: number) => {
-    if (!confirm('Delete this security axis?')) return;
+    if (confirmAction?.type !== 'deleteAxis' || confirmAction.id !== id) {
+      setConfirmAction({ type: 'deleteAxis', id });
+      return;
+    }
+    setConfirmAction(null);
     try {
       await deleteSecurityAxis(id);
       toast.success('Axis deleted');
@@ -548,6 +563,7 @@ export default function SecurityMatrixPage() {
                   </thead>
                   <tbody>
                     {matrixTable.getRowModel().rows.map((row) => (
+                      <>
                       <tr
                         key={row.id}
                         className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
@@ -560,6 +576,30 @@ export default function SecurityMatrixPage() {
                           </td>
                         ))}
                       </tr>
+                      {confirmAction?.type === 'deleteMatrix' && confirmAction.id === row.original.id && (
+                        <tr key={`${row.id}-confirm`}>
+                          <td colSpan={row.getVisibleCells().length}>
+                            <div className="flex items-center justify-between px-4 py-2 bg-red-50 dark:bg-red-900/20 rounded mx-2 my-1">
+                              <span className="text-xs text-red-700 dark:text-red-400">Delete entry for role &quot;{row.original.role_name}&quot;?</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  className="text-xs px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                                  onClick={() => handleDeleteMatrixRow(row.original)}
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  className="text-xs px-3 py-1 rounded bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600"
+                                  onClick={() => setConfirmAction(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </>
                     ))}
                   </tbody>
                 </table>
@@ -674,6 +714,7 @@ export default function SecurityMatrixPage() {
                   </thead>
                   <tbody>
                     {usersTable.getRowModel().rows.map((row) => (
+                      <>
                       <tr
                         key={row.id}
                         className={`border-b border-slate-100 dark:border-slate-700/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors ${
@@ -686,6 +727,30 @@ export default function SecurityMatrixPage() {
                           </td>
                         ))}
                       </tr>
+                      {confirmAction?.type === 'deleteUser' && confirmAction.id === row.original.USERNAME && (
+                        <tr key={`${row.id}-confirm`}>
+                          <td colSpan={row.getVisibleCells().length}>
+                            <div className="flex items-center justify-between px-4 py-2 bg-red-50 dark:bg-red-900/20 rounded mx-2 my-1">
+                              <span className="text-xs text-red-700 dark:text-red-400">Remove &quot;{row.original.USERNAME}&quot; from enterprise directory?</span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  className="text-xs px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                                  onClick={() => handleDeleteUser(row.original)}
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  className="text-xs px-3 py-1 rounded bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600"
+                                  onClick={() => setConfirmAction(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </>
                     ))}
                   </tbody>
                 </table>
@@ -809,6 +874,25 @@ export default function SecurityMatrixPage() {
                         </Button>
                       </div>
                     </div>
+                    {confirmAction?.type === 'deleteAxis' && confirmAction.id === axis.id && (
+                      <div className="flex items-center justify-between px-4 py-2 bg-red-50 dark:bg-red-900/20 rounded mb-4">
+                        <span className="text-xs text-red-700 dark:text-red-400">Delete this security axis?</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            className="text-xs px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
+                            onClick={() => handleDeleteAxis(axis.id)}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            className="text-xs px-3 py-1 rounded bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-600"
+                            onClick={() => setConfirmAction(null)}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {axis.description && <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{axis.description}</p>}
                     <div>
                       <p className="text-xs font-semibold text-slate-400 uppercase mb-2">Values ({axis.values.length})</p>

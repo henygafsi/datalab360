@@ -1340,13 +1340,13 @@ export default function DataQualityPage() {
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={async () => {
-              if (!window.confirm('Run quality checks on all tables? This may take a few minutes and consume Snowflake credits.')) return;
               setRunningCheck(true);
+              const toastId = toast.loading('Running quality checks on all tables...');
               try {
                 await apiClient.post('/data-quality/run-check', { database: 'CP_DATA360' });
-                toast.success('Quality check started');
+                toast.success('Quality check started', { id: toastId });
                 setTimeout(() => loadSummary(true), 3000);
-              } catch { toast.error('Check failed'); }
+              } catch { toast.error('Check failed', { id: toastId }); }
               finally { setRunningCheck(false); }
             }}
             disabled={runningCheck}

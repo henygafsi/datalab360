@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Fragment, useMemo } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Button, Input, Loader, Badge, Modal, Textarea, Select } from 'rizzui';
 import { ObjectSelector } from './components/ObjectSelector';
 import { getColumns } from '@/app/services/governance/policies';
@@ -15,7 +15,6 @@ import {
   PiArrowsClockwise,
   PiChartLineUp,
   PiTable,
-  PiMagnifyingGlass,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
 
@@ -147,6 +146,8 @@ export default function DMFContent() {
   const [showAssociate, setShowAssociate] = useState(false);
   const [assocTarget, setAssocTarget] = useState({ database: '', schema: '', table: '' });
   const [assocDmfName, setAssocDmfName] = useState('');
+  const [assocDmfDb, setAssocDmfDb] = useState('');
+  const [assocDmfSchema, setAssocDmfSchema] = useState('');
   const [assocColumns, setAssocColumns] = useState<string[]>([]);
   const [assocColumnOptions, setAssocColumnOptions] = useState<string[]>([]);
   const [loadingAssocColumns, setLoadingAssocColumns] = useState(false);
@@ -158,9 +159,11 @@ export default function DMFContent() {
   const [schedForm, setSchedForm] = useState({ table_fqn: '', schedule: '' });
 
   // References
-  const [showRefs, setShowRefs] = useState(false);
   const [refs, setRefs] = useState<any[]>([]);
-  const [refsLoading, setRefsLoading] = useState(false);
+
+  // Inline confirmations (no popups)
+  const [confirmDeleteDmf, setConfirmDeleteDmf] = useState<string | null>(null);
+  const [confirmDisassociate, setConfirmDisassociate] = useState<{ fqn: string; dmf: string; cols: string[] } | null>(null);
 
   // Detail
   const [showDetail, setShowDetail] = useState(false);
@@ -198,7 +201,22 @@ export default function DMFContent() {
     }
   }, [database, schema]);
 
-  useEffect(() => { loadItems(); }, [loadItems]);
+  const loadRefs = useCallback(async () => {
+    try {
+      const result = await getAllDMFReferences();
+      const raw = result?.data || result?.references || result;
+      const arr = Array.isArray(raw) ? raw : [];
+      setRefs(arr);
+      const counts: Record<string, number> = {};
+      arr.forEach((r: any) => {
+        const name = (r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '').split('.').pop() || '';
+        if (name) counts[name] = (counts[name] || 0) + 1;
+      });
+      setDmfTableCounts(counts);
+    } catch { /* silent — refs are auxiliary */ }
+  }, []);
+
+  useEffect(() => { loadItems(); loadRefs(); }, [loadItems, loadRefs]);
 
   // Load columns for the Associate modal whenever the target table changes.
   useEffect(() => {
@@ -226,6 +244,23 @@ export default function DMFContent() {
       toast.error('Name, table args, and expression are required');
       return;
     }
+    // Validate table_args format: must contain TABLE keyword
+    const argsUpper = createForm.table_args.toUpperCase().trim();
+    if (!argsUpper.includes('TABLE(') && !argsUpper.includes('TABLE (')) {
+      toast.error('Table arguments must use Snowflake syntax: ARG_NAME TABLE(col_name TYPE). You wrote a table name instead of TABLE keyword.');
+      return;
+    }
+    // Validate name: alphanumeric + underscore only
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(createForm.name.trim())) {
+      toast.error('DMF name must be alphanumeric with underscores (e.g. null_count_check)');
+      return;
+    }
+    // Validate expression references the arg name
+    const argName = createForm.table_args.trim().split(/\s+/)[0];
+    if (argName && !createForm.expression.toUpperCase().includes(argName.toUpperCase())) {
+      toast.error(`Expression must reference table arg "${argName}" (e.g. SELECT ... FROM ${argName})`);
+      return;
+    }
     setCreating(true);
     try {
       await createDMF({ ...createForm, database: database || undefined, schema: schema || undefined });
@@ -234,18 +269,25 @@ export default function DMFContent() {
       setCreateForm({ name: '', table_args: '', expression: '', comment: '' });
       loadItems();
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to create DMF'));
+      const msg = errorMessage(err, 'Failed to create DMF');
+      // Show SQL hint if compilation error
+      if (msg.includes('syntax error') || msg.includes('SQL compilation')) {
+        toast.error(`SQL Error: ${msg}\n\nExpected format:\n  Args: ARG TABLE(col_name TYPE)\n  Expr: SELECT COUNT_IF(col_name IS NULL) FROM ARG`, { duration: 8000 });
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setCreating(false);
     }
   };
 
-  const handleDelete = async (name: string) => {
-    if (!confirm(`Drop Data Metric Function "${name}"?`)) return;
+  const executeDeleteDmf = async (name: string) => {
     try {
       await deleteDMF(name, database || undefined, schema || undefined);
       toast.success(`DMF "${name}" dropped`);
+      setConfirmDeleteDmf(null);
       loadItems();
+      loadRefs();
     } catch (err: any) {
       toast.error(errorMessage(err, 'Failed to drop DMF'));
     }
@@ -277,15 +319,16 @@ export default function DMFContent() {
     }
   };
 
-  const handleDisassociate = async (tableFqn: string, dmfName: string, columns: string[]) => {
-    if (!confirm(`Disassociate DMF "${dmfName}" from ${tableFqn}?`)) return;
+  const executeDisassociate = async (tableFqn: string, dmfName: string, columns: string[]) => {
     setDisassociating(true);
     try {
       await disassociateDMF({ table_fqn: tableFqn, dmf_name: dmfName, columns });
       toast.success(`DMF "${dmfName}" disassociated`);
+      setConfirmDisassociate(null);
       const result = await getTableDMFs(tableFqn);
       const raw = result?.data || result?.references || result;
       setTableDmfs(Array.isArray(raw) ? raw : []);
+      loadRefs();
     } catch (err: any) {
       toast.error(errorMessage(err, 'Failed to disassociate DMF'));
     } finally {
@@ -313,16 +356,26 @@ export default function DMFContent() {
         table_fqn: `${db}.${sc}.${tb}`,
         dmf_name: assocDmfName,
         columns: assocColumns,
-        database: database || undefined,
-        schema: schema || undefined,
+        database: assocDmfDb || database || undefined,
+        schema: assocDmfSchema || schema || undefined,
       });
-      toast.success(`DMF "${assocDmfName}" associated with ${db}.${sc}.${tb}`);
+      toast.success(`DMF associated with ${db}.${sc}.${tb} on columns: ${assocColumns.join(', ')}`);
       setShowAssociate(false);
       setAssocTarget({ database: '', schema: '', table: '' });
       setAssocDmfName('');
+      setAssocDmfDb('');
+      setAssocDmfSchema('');
       setAssocColumns([]);
+      loadRefs();
     } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to associate DMF'));
+      const msg = errorMessage(err, 'Failed to associate DMF');
+      if (msg.includes('does not exist')) {
+        toast.error(`${msg}\n\nHint: The DMF name must be fully qualified (DB.SCHEMA.NAME). Check the function exists in Snowflake.`, { duration: 8000 });
+      } else if (msg.includes('SQL compilation')) {
+        toast.error(`SQL Error: ${msg}`, { duration: 8000 });
+      } else {
+        toast.error(msg);
+      }
     } finally {
       setAssociating(false);
     }
@@ -349,23 +402,6 @@ export default function DMFContent() {
       setSchedForm({ table_fqn: '', schedule: '' });
     } catch (err: any) {
       toast.error(errorMessage(err, 'Failed to set schedule'));
-    }
-  };
-
-  // References state for table picker
-  const [refTarget, setRefTarget] = useState({ database: '', schema: '', table: '' });
-
-  const handleViewRefs = async () => {
-    setRefsLoading(true);
-    setShowRefs(true);
-    try {
-      const result = await getAllDMFReferences();
-      const raw = result?.data || result?.references || result;
-      setRefs(Array.isArray(raw) ? raw : []);
-    } catch (err: any) {
-      toast.error(errorMessage(err, 'Failed to load all references'));
-    } finally {
-      setRefsLoading(false);
     }
   };
 
@@ -400,75 +436,55 @@ export default function DMFContent() {
         </div>
       </div>
 
-      {/* References lookup */}
-      <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-4">
-        <div className="flex items-center gap-3">
-          <PiChartLineUp className="w-5 h-5 text-teal-600" />
-          <span className="font-medium text-slate-900 dark:text-white">DMF References</span>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <ObjectSelector
-            level="database"
-            value={refTarget.database}
-            onSelect={(db) => setRefTarget({ database: db, schema: '', table: '' })}
-            label="Database"
-          />
-          <ObjectSelector
-            level="schema"
-            database={refTarget.database}
-            value={refTarget.schema}
-            onSelect={(sc) => setRefTarget((t) => ({ ...t, schema: sc, table: '' }))}
-            label="Schema"
-            disabled={!refTarget.database}
-          />
-          <ObjectSelector
-            level="table"
-            database={refTarget.database}
-            schema={refTarget.schema}
-            value={refTarget.table}
-            onSelect={(tb) => setRefTarget((t) => ({ ...t, table: tb }))}
-            label="Table"
-            disabled={!refTarget.database || !refTarget.schema}
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => handleViewRefs()} disabled={refsLoading || !refTarget.table} className="gap-2">
-            {refsLoading ? <Loader variant="spinner" size="sm" /> : <PiInfo className="w-4 h-4" />} View for Table
-          </Button>
-        </div>
-      </div>
-
-      {showRefs && refs.length > 0 && (
-        <div className="space-y-3">
-          {Object.entries(refsByTable).map(([tableName, tableRefs]: [string, any]) => {
-            const refDb = tableRefs[0]?.REF_DATABASE_NAME || tableRefs[0]?.ref_database_name || '';
-            const refSc = tableRefs[0]?.REF_SCHEMA_NAME || tableRefs[0]?.ref_schema_name || '';
-            return (
-              <div key={tableName} className="p-4 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700">
-                <div className="flex items-center justify-between mb-3">
-                  <h4
-                    className="font-semibold text-slate-900 dark:text-white font-mono text-sm cursor-pointer hover:text-teal-600"
+      {/* Active associations — auto-loaded, click table name to manage */}
+      {refs.length > 0 && (
+        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <PiLink className="w-5 h-5 text-teal-600" />
+              <span className="font-medium text-slate-900 dark:text-white">Active Associations</span>
+              <Badge className="bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300">
+                {Object.keys(refsByTable).length} table{Object.keys(refsByTable).length !== 1 ? 's' : ''}
+              </Badge>
+            </div>
+            <Button variant="outline" size="sm" onClick={loadRefs} className="gap-1">
+              <PiArrowsClockwise className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(refsByTable).map(([tableName, tableRefs]: [string, any]) => {
+              const refDb = tableRefs[0]?.REF_DATABASE_NAME || tableRefs[0]?.ref_database_name || '';
+              const refSc = tableRefs[0]?.REF_SCHEMA_NAME || tableRefs[0]?.ref_schema_name || '';
+              return (
+                <div key={tableName} className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 font-mono text-sm font-semibold text-slate-900 dark:text-white hover:text-teal-600 transition-colors"
                     onClick={() => handleOpenTableDmfs(refDb, refSc, tableName.split('.').pop() || tableName)}
                   >
-                    {tableName} <PiTable className="inline w-4 h-4 ml-1" />
-                  </h4>
-                  <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                    {tableRefs.length} DMF{tableRefs.length !== 1 ? 's' : ''}
-                  </Badge>
+                    <PiTable className="w-4 h-4 text-slate-400" />
+                    {tableName}
+                  </button>
+                  <div className="flex items-center gap-2">
+                    {tableRefs.map((r: any, i: number) => {
+                      const dmfName = (r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '-').split('.').pop();
+                      return (
+                        <Badge key={i} className="bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300 text-xs">
+                          {dmfName}
+                        </Badge>
+                      );
+                    })}
+                    <Button variant="outline" size="sm"
+                      onClick={() => handleOpenTableDmfs(refDb, refSc, tableName.split('.').pop() || tableName)}
+                      className="gap-1 text-xs ml-1"
+                    >
+                      <PiLinkBreak className="w-3 h-3" /> Manage
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  {tableRefs.map((r: any, i: number) => {
-                    const dmfName = r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '-';
-                    return (
-                      <Badge key={i} className="bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
-                        {dmfName}
-                      </Badge>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -482,28 +498,67 @@ export default function DMFContent() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((item: any, idx: number) => (
-            <div key={idx} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="font-semibold text-slate-900 dark:text-white">{item.name || item.NAME || 'Unnamed'}</h4>
-                  <p className="text-xs text-slate-500 mt-1">{item.schema_name || item.SCHEMA_NAME || ''}</p>
+          {items.map((item: any, idx: number) => {
+            const name = item.name || item.NAME || 'Unnamed';
+            const tableCount = dmfTableCounts[name] || 0;
+            return (
+              <div key={idx} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-5 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-slate-900 dark:text-white">{name}</h4>
+                    <p className="text-xs text-slate-500 mt-1">{item.schema_name || item.SCHEMA_NAME || ''}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {tableCount > 0 && (
+                      <Badge className="bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 cursor-pointer hover:bg-blue-100"
+                        onClick={() => {
+                          const matchingTables = Object.entries(refsByTable).filter(([, tRefs]) =>
+                            tRefs.some((r: any) => {
+                              const rn = (r.DMF_NAME || r.dmf_name || r.METRIC_NAME || r.metric_name || '').split('.').pop() || '';
+                              return rn === name;
+                            })
+                          );
+                          if (matchingTables.length > 0) {
+                            const [tName, tRefs] = matchingTables[0];
+                            const refDb = tRefs[0]?.REF_DATABASE_NAME || tRefs[0]?.ref_database_name || '';
+                            const refSc = tRefs[0]?.REF_SCHEMA_NAME || tRefs[0]?.ref_schema_name || '';
+                            handleOpenTableDmfs(refDb, refSc, tName.split('.').pop() || tName);
+                          }
+                        }}
+                      >
+                        <PiTable className="w-3 h-3 mr-1 inline" />{tableCount} table{tableCount !== 1 ? 's' : ''}
+                      </Badge>
+                    )}
+                    <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">DMF</Badge>
+                  </div>
                 </div>
-                <Badge className="bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400">DMF</Badge>
+                {(item.comment || item.COMMENT) && (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{item.comment || item.COMMENT}</p>
+                )}
+                {confirmDeleteDmf === name && (
+                  <div className="mt-3 p-2.5 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/40">
+                    <p className="text-xs text-red-800 dark:text-red-200 mb-2">Drop "{name}"? This cannot be undone.</p>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => executeDeleteDmf(name)} className="bg-red-600 text-white hover:bg-red-700 text-xs">
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDeleteDmf(null)} className="text-xs">
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
+                  <Button variant="outline" size="sm" onClick={() => handleDescribe(name)} className="gap-1">
+                    <PiInfo className="w-3.5 h-3.5" /> Details
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setConfirmDeleteDmf(name)} disabled={confirmDeleteDmf === name} className="gap-1 text-red-600 hover:bg-red-50">
+                    <PiTrash className="w-3.5 h-3.5" /> Drop
+                  </Button>
+                </div>
               </div>
-              {(item.comment || item.COMMENT) && (
-                <p className="text-sm text-slate-600 dark:text-slate-400 mb-3">{item.comment || item.COMMENT}</p>
-              )}
-              <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-100 dark:border-slate-700">
-                <Button variant="outline" size="sm" onClick={() => handleDescribe(item.name || item.NAME)} className="gap-1">
-                  <PiInfo className="w-3.5 h-3.5" /> Details
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => handleDelete(item.name || item.NAME)} className="gap-1 text-red-600 hover:bg-red-50">
-                  <PiTrash className="w-3.5 h-3.5" /> Drop
-                </Button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -511,9 +566,32 @@ export default function DMFContent() {
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)}>
         <div className="p-6 space-y-4">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Create Data Metric Function</h3>
+          {/* Template buttons */}
+          <div>
+            <p className="text-[10px] font-medium text-gray-500 mb-1.5">Quick templates:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { label: 'Null count', name: 'null_count_check', args: 'ARG TABLE(COL VARCHAR)', expr: 'SELECT COUNT_IF(COL IS NULL) FROM ARG' },
+                { label: 'Distinct count', name: 'distinct_count', args: 'ARG TABLE(COL VARCHAR)', expr: 'SELECT COUNT(DISTINCT COL) FROM ARG' },
+                { label: 'Row count', name: 'row_count', args: 'ARG TABLE(COL VARCHAR)', expr: 'SELECT COUNT(*) FROM ARG' },
+                { label: 'Freshness (hours)', name: 'freshness_hours', args: 'ARG TABLE(TS TIMESTAMP_LTZ)', expr: 'SELECT TIMESTAMPDIFF(HOUR, MAX(TS), CURRENT_TIMESTAMP()) FROM ARG' },
+                { label: 'Duplicate check', name: 'duplicate_count', args: 'ARG TABLE(COL VARCHAR)', expr: 'SELECT COUNT(*) - COUNT(DISTINCT COL) FROM ARG' },
+              ].map((t) => (
+                <button key={t.label} onClick={() => setCreateForm({ name: t.name, table_args: t.args, expression: t.expr, comment: t.label })}
+                  className="px-2 py-1 rounded-lg text-[10px] font-medium border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                >{t.label}</button>
+              ))}
+            </div>
+          </div>
           <Input label="Name" placeholder="e.g. my_null_check" value={createForm.name} onChange={(e) => setCreateForm({ ...createForm, name: e.target.value })} />
-          <Input label="Table Arguments" placeholder="e.g. TABLE_ARG TABLE(col1 NUMBER)" value={createForm.table_args} onChange={(e) => setCreateForm({ ...createForm, table_args: e.target.value })} />
-          <Textarea label="Expression" placeholder="e.g. SELECT COUNT_IF(col1 IS NULL) FROM TABLE_ARG" value={createForm.expression} onChange={(e) => setCreateForm({ ...createForm, expression: e.target.value })} rows={4} />
+          <div>
+            <Input label="Table Arguments" placeholder="TABLE_ARG TABLE(ID_ITEM NUMBER)" value={createForm.table_args} onChange={(e) => setCreateForm({ ...createForm, table_args: e.target.value })} />
+            <p className="text-[10px] text-gray-400 mt-0.5">Snowflake DMF signature. Use: <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">ARG_NAME TABLE(col_name TYPE, ...)</code></p>
+          </div>
+          <div>
+            <Textarea label="Expression" placeholder="SELECT COUNT_IF(ID_ITEM IS NULL) FROM TABLE_ARG" value={createForm.expression} onChange={(e) => setCreateForm({ ...createForm, expression: e.target.value })} rows={4} />
+            <p className="text-[10px] text-gray-400 mt-0.5">SQL body. Reference columns from the table arg. Must return a NUMBER.</p>
+          </div>
           <Input label="Comment (optional)" placeholder="Description" value={createForm.comment} onChange={(e) => setCreateForm({ ...createForm, comment: e.target.value })} />
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
@@ -571,10 +649,20 @@ export default function DMFContent() {
             <Select
               label="Data Metric Function"
               value={assocDmfName}
-              onChange={(val: any) => setAssocDmfName(typeof val === 'object' ? val?.value || '' : String(val))}
+              onChange={(val: any) => {
+                const v = typeof val === 'object' ? val?.value || '' : String(val);
+                setAssocDmfName(v);
+                const match = items.find((item: any) => (item.name || item.NAME || '') === v);
+                if (match) {
+                  setAssocDmfDb(match.database_name || match.DATABASE_NAME || database || '');
+                  setAssocDmfSchema(match.schema_name || match.SCHEMA_NAME || schema || 'GOUVERNANCE');
+                }
+              }}
               options={items.map((item: any) => {
                 const n = item.name || item.NAME || '';
-                return { label: n, value: n };
+                const db = item.database_name || item.DATABASE_NAME || database || '';
+                const sc = item.schema_name || item.SCHEMA_NAME || schema || 'GOUVERNANCE';
+                return { label: `${n} (${db}.${sc})`, value: n };
               }).filter((o: any) => o.value)}
               placeholder={items.length === 0 ? 'No DMFs available — create one first' : 'Choose a DMF'}
               disabled={items.length === 0}
@@ -757,23 +845,34 @@ export default function DMFContent() {
                 const schedule = r.SCHEDULE || r.schedule || '-';
                 const status = r.SCHEDULE_STATUS || r.schedule_status || '-';
 
+                const thisFqn = `${tableDmfsTarget.database}.${tableDmfsTarget.schema}.${tableDmfsTarget.table}`;
+                const thisCols = columns === '-' ? [] : [columns];
+                const isConfirming = confirmDisassociate?.fqn === thisFqn && confirmDisassociate?.dmf === dmfName;
+
                 return (
                   <div key={idx} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between mb-2">
                       <h4 className="font-semibold text-slate-900 dark:text-white">{dmfName}</h4>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDisassociate(
-                          `${tableDmfsTarget.database}.${tableDmfsTarget.schema}.${tableDmfsTarget.table}`,
-                          dmfName,
-                          columns === '-' ? [] : [columns]
-                        )}
-                        disabled={disassociating}
-                        className="gap-1 text-red-600 hover:bg-red-50"
-                      >
-                        <PiLinkBreak className="w-3.5 h-3.5" /> Disassociate
-                      </Button>
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1.5">
+                          <Button size="sm" onClick={() => executeDisassociate(thisFqn, dmfName, thisCols)}
+                            disabled={disassociating} className="bg-red-600 text-white hover:bg-red-700 text-xs">
+                            {disassociating ? '…' : 'Confirm'}
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => setConfirmDisassociate(null)}
+                            disabled={disassociating} className="text-xs">Cancel</Button>
+                        </div>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setConfirmDisassociate({ fqn: thisFqn, dmf: dmfName, cols: thisCols })}
+                          disabled={disassociating}
+                          className="gap-1 text-red-600 hover:bg-red-50"
+                        >
+                          <PiLinkBreak className="w-3.5 h-3.5" /> Disassociate
+                        </Button>
+                      )}
                     </div>
                     <div className="grid grid-cols-3 gap-3 text-sm">
                       <div>

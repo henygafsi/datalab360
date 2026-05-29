@@ -167,6 +167,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 }
             });
             const payload = { database: table.database, schema: table.schema, table: table.table, new_lengths } as any;
+            // TODO(backend): POST /explore-design/guided/update_column_length/ — endpoint not in API; wire it or remove this call
             await axios.post(`${API_BASE_URL}/explore-design/guided/update_column_length/`, payload, {
                 headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             });
@@ -249,6 +250,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
 
             await Promise.all(
                 changes.map(c =>
+                    // TODO(backend): POST /explore-design/guided/manage_table — endpoint not in API; wire it or remove this call
                     axios.post(
                         `${API_BASE_URL}/explore-design/guided/manage_table`,
                         null,
