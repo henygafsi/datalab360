@@ -1,8 +1,8 @@
-import { Inter, Lexend_Deca } from 'next/font/google';
+type FontVariable = {
+  variable: string;
+};
 
-export const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
-
-export const lexendDeca = Lexend_Deca({
-  subsets: ['latin'],
-  variable: '--font-lexend',
-});
+// Keep typography classes stable in local/offline development without relying
+// on build-time fetches from Google Fonts.
+export const inter: FontVariable = { variable: '' };
+export const lexendDeca: FontVariable = { variable: '' };

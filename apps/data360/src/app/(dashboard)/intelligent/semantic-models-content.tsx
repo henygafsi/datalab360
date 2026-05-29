@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Button, Input, Modal, Badge, Loader } from 'rizzui';
+import { useState, useEffect, useCallback, memo } from 'react';
+import { Button, Input, Modal, Badge, Loader, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
   HiOutlinePlus,
@@ -27,52 +27,93 @@ import {
   getSemanticModelContent,
   createSemanticModel,
   deleteSemanticModel,
-  generateSampleModelYaml,
+  updateSemanticModel,
+  generateSemanticModel,
+  generateAndSaveSemanticModel,
   formatFileSize,
   formatDate,
   validateSemanticModelYaml,
   type SemanticModel,
   type SemanticModelContent,
 } from '@/app/services/cortex/semantic-models';
+import { getDatabases } from '@/app/services/mapping/getDatabases';
+import { getSchemas } from '@/app/services/mapping/getSchema';
+import { getTables } from '@/app/services/mapping/getTables';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
-export default function SemanticModelsContent() {
-  const [models, setModels] = useState<SemanticModel[]>([]);
-  const [loading, setLoading] = useState(true);
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+function SemanticModelsContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedModel, setSelectedModel] = useState<SemanticModel | null>(null);
   const [modelContent, setModelContent] = useState<SemanticModelContent | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [confirmDeleteModel, setConfirmDeleteModel] = useState<string | null>(null);
 
   // Form state for creating model
   const [modelName, setModelName] = useState('');
   const [modelDescription, setModelDescription] = useState('');
   const [yamlContent, setYamlContent] = useState('');
 
-  useEffect(() => {
-    loadModels();
-  }, []);
+  // Data source picker state
+  const [database, setDatabase] = useState('');
+  const [schema, setSchema] = useState('');
+  const [selectedTables, setSelectedTables] = useState<string[]>([]);
+  const [dbOptions, setDbOptions] = useState<SelectOption[]>([]);
+  const [schemaOptions, setSchemaOptions] = useState<SelectOption[]>([]);
+  const [tableOptions, setTableOptions] = useState<SelectOption[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [createStep, setCreateStep] = useState(1); // Stepper: 1=Source, 2=Review, 3=Done
 
-  const loadModels = async () => {
-    try {
-      setLoading(true);
-      console.log('🔄 Loading semantic models...');
-      const data = await listSemanticModels();
-      console.log('📥 Received models data:', data);
-      console.log('📥 Is array:', Array.isArray(data));
-      console.log('📥 Length:', data?.length);
-      const modelsArray = Array.isArray(data) ? data : [];
-      console.log('📦 Setting models state:', modelsArray);
-      setModels(modelsArray);
-    } catch (error: any) {
-      console.error('❌ Error loading semantic models:', error);
-      toast.error(error.message || 'Failed to load semantic models');
-      setModels([]);
-    } finally {
-      setLoading(false);
+  // ── Models via useCacheAwareQuery ──
+  const fetchModels = useCallback(async () => {
+    const data = await listSemanticModels();
+    return Array.isArray(data) ? data : [];
+  }, []);
+  const { data: models, loading, refetch: loadModels } = useCacheAwareQuery<SemanticModel[]>(
+    fetchModels,
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], initialData: [] }
+  );
+
+  // Load databases when modal opens
+  useEffect(() => {
+    if (showCreateModal && dbOptions.length === 0) {
+      getDatabases()
+        .then((dbs) => setDbOptions(dbs.map((d) => ({ value: d, label: d }))))
+        .catch(() => {});
     }
-  };
+  }, [showCreateModal]);
+
+  // Load schemas when database changes
+  useEffect(() => {
+    if (!database) {
+      setSchemaOptions([]);
+      return;
+    }
+    getSchemas(database)
+      .then((schemas) => setSchemaOptions(schemas.map((s) => ({ value: s, label: s }))))
+      .catch(() => setSchemaOptions([]));
+  }, [database]);
+
+  // Load tables when schema changes
+  useEffect(() => {
+    if (!database || !schema) {
+      setTableOptions([]);
+      return;
+    }
+    getTables(database, schema)
+      .then((tables) => setTableOptions((Array.isArray(tables) ? tables : []).map((t) => ({ value: t, label: t }))))
+      .catch(() => setTableOptions([]));
+  }, [database, schema]);
 
   const handleViewModel = async (model: SemanticModel) => {
     setSelectedModel(model);
@@ -129,11 +170,10 @@ export default function SemanticModelsContent() {
   };
 
   const handleDelete = async (model: SemanticModel) => {
-    if (!confirm(`Delete semantic model "${model.name}"? This action cannot be undone.`)) return;
-
     try {
       await deleteSemanticModel(model.name.replace('.yaml', ''));
       toast.success('Model deleted successfully');
+      setConfirmDeleteModel(null);
       loadModels();
     } catch (error: any) {
       console.error('Error deleting semantic model:', error);
@@ -141,23 +181,112 @@ export default function SemanticModelsContent() {
     }
   };
 
-  const handleGenerateSample = () => {
-    const sample = generateSampleModelYaml(modelName || 'SAMPLE_TABLE');
-    setYamlContent(sample);
-    toast.success('Sample YAML template generated!');
+  const handleGenerate = async () => {
+    if (!database || !schema) {
+      toast.error('Please select a database and schema first');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const result = await generateSemanticModel({
+        database,
+        schema,
+        tables: selectedTables.length > 0 ? selectedTables : undefined,
+        model_name: modelName || undefined,
+        model_description: modelDescription || undefined,
+      });
+      setYamlContent(result.yaml_content);
+      if (!modelName && result.model_name) {
+        setModelName(result.model_name);
+      }
+      toast.success(`Generated from ${result.tables_count} table(s)`);
+      setCreateStep(2); // Move to review step
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to generate semantic model');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleGenerateAndSave = async () => {
+    if (!database || !schema) {
+      toast.error('Please select a database and schema first');
+      return;
+    }
+    setGenerating(true);
+    try {
+      const result = await generateAndSaveSemanticModel({
+        database,
+        schema,
+        tables: selectedTables.length > 0 ? selectedTables : undefined,
+        model_name: modelName || undefined,
+        model_description: modelDescription || undefined,
+      });
+      setYamlContent(result.yaml_content);
+      if (!modelName && result.model_name) {
+        setModelName(result.model_name);
+      }
+      toast.success(`Model "${result.model_name}" generated and saved to stage (${result.tables_count} tables)`);
+      setCreateStep(3); // Move to done step
+      loadModels();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to generate and save model');
+    } finally {
+      setGenerating(false);
+    }
   };
 
   const handleCopyContent = () => {
     if (modelContent?.content) {
-      navigator.clipboard.writeText(modelContent.content);
+      navigator.clipboard.writeText(editing ? editContent : modelContent.content);
       toast.success('YAML content copied to clipboard!');
     }
+  };
+
+  const handleStartEdit = () => {
+    setEditContent(modelContent?.content || '');
+    setEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedModel || !editContent.trim()) return;
+    const validation = validateSemanticModelYaml(editContent);
+    if (!validation.valid) {
+      toast.error(validation.error || 'Invalid YAML');
+      return;
+    }
+    setSaving(true);
+    try {
+      const modelName = selectedModel.name.replace('.yaml', '');
+      await updateSemanticModel(modelName, editContent);
+      toast.success('Semantic model updated successfully!');
+      setEditing(false);
+      // Refresh content
+      const content = await getSemanticModelContent(modelName);
+      setModelContent(content);
+      loadModels();
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to update model');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUseInChat = (model: SemanticModel) => {
+    const modelName = model.name.replace('.yaml', '');
+    window.location.href = `/intelligent?tab=cortex-chat&model=${encodeURIComponent(modelName)}`;
   };
 
   const resetCreateForm = () => {
     setModelName('');
     setModelDescription('');
     setYamlContent('');
+    setDatabase('');
+    setSchema('');
+    setSelectedTables([]);
+    setSchemaOptions([]);
+    setTableOptions([]);
+    setCreateStep(1);
   };
 
   // Helper function to format error messages from API responses
@@ -178,9 +307,6 @@ export default function SemanticModelsContent() {
     }
     return defaultMessage;
   };
-
-  // Debug: Log models state on each render
-  console.log('🎨 Rendering SemanticModelsContent - models:', models, 'loading:', loading);
 
   return (
     <div className="space-y-6">
@@ -225,7 +351,7 @@ export default function SemanticModelsContent() {
           </div>
           <p className="mt-4 text-slate-600 dark:text-slate-400">Loading semantic models...</p>
         </div>
-      ) : models.length === 0 ? (
+      ) : (models ?? []).length === 0 ? (
         <div className="relative overflow-hidden rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700 p-12 text-center">
           <div className="absolute inset-0 bg-gradient-to-br from-violet-50/50 to-purple-50/50 dark:from-violet-950/20 dark:to-purple-950/20" />
           <div className="relative z-10">
@@ -250,7 +376,7 @@ export default function SemanticModelsContent() {
         </div>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {models.map((model) => (
+          {(models ?? []).map((model) => (
             <div
               key={model.name}
               className="group relative overflow-hidden rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:border-violet-300 dark:hover:border-violet-600 hover:shadow-lg hover:shadow-violet-500/10 transition-all duration-300"
@@ -282,13 +408,30 @@ export default function SemanticModelsContent() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(model)}
+                    onClick={() => setConfirmDeleteModel(model.name)}
                     className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                     title="Delete model"
                   >
                     <HiOutlineTrash className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Inline delete confirmation */}
+                {confirmDeleteModel === model.name && (
+                  <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 mb-3 flex items-center justify-between gap-2">
+                    <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
+                      Delete &ldquo;{model.name.replace('.yaml', '')}&rdquo;? This cannot be undone.
+                    </span>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleDelete(model)}>
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmDeleteModel(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Metadata */}
                 <div className="space-y-2 mb-4">
@@ -311,7 +454,38 @@ export default function SemanticModelsContent() {
                     onClick={() => handleViewModel(model)}
                   >
                     <HiOutlineEye className="w-4 h-4 mr-1" />
-                    View
+                    View / Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
+                    onClick={() => handleUseInChat(model)}
+                    title="Use in Cortex Chat"
+                  >
+                    <HiOutlineSparkles className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    onClick={async () => {
+                      try {
+                        const content = await getSemanticModelContent(model.name.replace('.yaml', ''));
+                        if (content?.content) {
+                          const blob = new Blob([content.content], { type: 'text/yaml' });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = model.name;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }
+                      } catch { toast.error('Failed to download'); }
+                    }}
+                    title="Download YAML"
+                  >
+                    <PiDownload className="w-4 h-4" />
                   </Button>
                 </div>
               </div>
@@ -327,18 +501,34 @@ export default function SemanticModelsContent() {
         size="xl"
       >
         <div className="p-6 space-y-6">
-          {/* Modal Header */}
+          {/* Stepper Header */}
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/20">
               <HiOutlineCloudArrowUp className="w-6 h-6 text-white" />
             </div>
-            <div>
+            <div className="flex-1">
               <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                 Create Semantic Model
               </h2>
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Define a YAML-based semantic model for Cortex Analyst
-              </p>
+              <div className="flex items-center gap-2 mt-1">
+                {[
+                  { step: 1, label: 'Select Source' },
+                  { step: 2, label: 'Review YAML' },
+                  { step: 3, label: 'Saved' },
+                ].map((s, idx) => (
+                  <div key={s.step} className="flex items-center gap-1.5">
+                    <div className={`w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${
+                      createStep >= s.step
+                        ? 'bg-violet-600 text-white'
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                    }`}>
+                      {createStep > s.step ? '\u2713' : s.step}
+                    </div>
+                    <span className={`text-xs ${createStep >= s.step ? 'text-violet-600 dark:text-violet-400 font-medium' : 'text-slate-400'}`}>{s.label}</span>
+                    {idx < 2 && <span className="text-slate-300 dark:text-slate-600 mx-1">&rarr;</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -360,23 +550,121 @@ export default function SemanticModelsContent() {
               onChange={(e) => setModelDescription(e.target.value)}
             />
 
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
-                  YAML Content
-                </label>
+            {/* Data Source Pickers */}
+            <div className="bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                <PiDatabase className="w-4 h-4" />
+                Generate from Data Source
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Select
+                  label="Database"
+                  options={dbOptions}
+                  value={database}
+                  onChange={(opt: any) => {
+                    const val = opt?.value || '';
+                    setDatabase(val);
+                    setSchema('');
+                    setSelectedTables([]);
+                  }}
+                  placeholder={dbOptions.length === 0 ? 'Loading...' : 'Select database'}
+                />
+                <Select
+                  label="Schema"
+                  options={schemaOptions}
+                  value={schema}
+                  onChange={(opt: any) => {
+                    setSchema(opt?.value || '');
+                    setSelectedTables([]);
+                  }}
+                  placeholder={!database ? 'Select database first' : schemaOptions.length === 0 ? 'Loading...' : 'Select schema'}
+                  disabled={!database}
+                />
+              </div>
+              {database && schema && tableOptions.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5">
+                    Tables (optional - leave empty to include all)
+                  </label>
+                  <div className="flex flex-wrap gap-2 max-h-28 overflow-y-auto p-2 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800">
+                    {tableOptions.map((t) => {
+                      const isSelected = selectedTables.includes(t.value);
+                      return (
+                        <button
+                          key={t.value}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTables((prev) =>
+                              isSelected
+                                ? prev.filter((v) => v !== t.value)
+                                : [...prev, t.value]
+                            );
+                          }}
+                          className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${
+                            isSelected
+                              ? 'bg-violet-100 dark:bg-violet-900/40 border-violet-300 dark:border-violet-600 text-violet-700 dark:text-violet-300 font-medium'
+                              : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-400 hover:border-violet-200 dark:hover:border-violet-700'
+                          }`}
+                        >
+                          {t.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {selectedTables.length > 0 && (
+                    <p className="text-xs text-violet-600 dark:text-violet-400 mt-1">
+                      {selectedTables.length} table(s) selected
+                    </p>
+                  )}
+                </div>
+              )}
+              <div className="flex gap-2">
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={handleGenerateSample}
-                  className="text-violet-600 border-violet-200 hover:bg-violet-50"
+                  onClick={handleGenerate}
+                  disabled={!database || !schema || generating}
+                  className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:opacity-50"
                 >
-                  <PiMagicWand className="w-4 h-4 mr-1" />
-                  Generate Sample
+                  {generating ? (
+                    <>
+                      <Loader className="w-4 h-4 mr-2 animate-spin" />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <PiMagicWand className="w-4 h-4 mr-2" />
+                      Generate YAML
+                    </>
+                  )}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={handleGenerateAndSave}
+                  disabled={!database || !schema || generating}
+                  className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white disabled:opacity-50"
+                >
+                  {generating ? (
+                    <>
+                      <Loader className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <HiOutlineCloudArrowUp className="w-4 h-4 mr-2" />
+                      Generate & Save
+                    </>
+                  )}
                 </Button>
               </div>
+            </div>
+
+            {/* YAML Content */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                YAML Content
+              </label>
               <textarea
-                className="w-full h-80 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
+                className="w-full h-72 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-slate-100 font-mono text-sm focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 value={yamlContent}
                 onChange={(e) => setYamlContent(e.target.value)}
                 placeholder={`name: my_semantic_model
@@ -384,26 +672,17 @@ description: Describe your semantic model
 
 tables:
   - name: MY_TABLE
-    description: Main data table
     base_table:
       database: CP_DATA360
       schema: STAGING
       table: MY_TABLE
-
     dimensions:
       - name: id
-        description: Unique identifier
         expr: ID
-        data_type: NUMBER
-
-    measures:
-      - name: total_count
-        description: Count of records
-        expr: COUNT(*)
         data_type: NUMBER`}
               />
               <p className="text-xs text-slate-500 mt-1">
-                Define tables, dimensions, measures, and relationships for your semantic model
+                Generate from a data source above, or write YAML manually
               </p>
             </div>
 
@@ -430,28 +709,43 @@ tables:
           <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
             <Button
               variant="outline"
-              onClick={() => setShowCreateModal(false)}
+              onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
               disabled={creating}
             >
-              Cancel
+              {createStep === 3 ? 'Close' : 'Cancel'}
             </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={creating || !modelName || !yamlContent}
-              className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
-            >
-              {creating ? (
-                <>
-                  <Loader className="w-4 h-4 mr-2 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <HiOutlineCloudArrowUp className="w-5 h-5 mr-2" />
-                  Create Model
-                </>
-              )}
-            </Button>
+            {createStep === 3 && modelName && (
+              <Button
+                onClick={() => {
+                  setShowCreateModal(false);
+                  resetCreateForm();
+                  window.location.href = `/intelligent?tab=cortex-chat&model=${encodeURIComponent(modelName)}`;
+                }}
+                className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+              >
+                <HiOutlineSparkles className="w-5 h-5 mr-2" />
+                Use in Chat
+              </Button>
+            )}
+            {createStep < 3 && (
+              <Button
+                onClick={handleCreate}
+                disabled={creating || !modelName || !yamlContent}
+                className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+              >
+                {creating ? (
+                  <>
+                    <Loader className="w-4 h-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <HiOutlineCloudArrowUp className="w-5 h-5 mr-2" />
+                    Save to Stage
+                  </>
+                )}
+              </Button>
+            )}
           </div>
         </div>
       </Modal>
@@ -459,7 +753,7 @@ tables:
       {/* View Model Modal */}
       <Modal
         isOpen={showViewModal}
-        onClose={() => setShowViewModal(false)}
+        onClose={() => { setShowViewModal(false); setEditing(false); }}
         size="xl"
       >
         <div className="p-6 space-y-6">
@@ -479,15 +773,49 @@ tables:
               </div>
             </div>
             {modelContent && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCopyContent}
-                className="border-violet-200 text-violet-600 hover:bg-violet-50"
-              >
-                <HiOutlineClipboard className="w-4 h-4 mr-1" />
-                Copy YAML
-              </Button>
+              <div className="flex gap-2">
+                {!editing ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleStartEdit}
+                    className="border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
+                  >
+                    <HiOutlineDocumentDuplicate className="w-4 h-4 mr-1" />
+                    Edit
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={handleSaveEdit}
+                    disabled={saving}
+                    className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
+                  >
+                    {saving ? <Loader className="w-4 h-4 mr-1 animate-spin" /> : <HiOutlineCloudArrowUp className="w-4 h-4 mr-1" />}
+                    Save
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyContent}
+                  className="border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400"
+                >
+                  <HiOutlineClipboard className="w-4 h-4 mr-1" />
+                  Copy
+                </Button>
+                {selectedModel && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleUseInChat(selectedModel)}
+                    className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
+                  >
+                    <HiOutlineSparkles className="w-4 h-4 mr-1" />
+                    Use in Chat
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -526,17 +854,24 @@ tables:
                 </div>
               </div>
 
-              {/* YAML Content */}
+              {/* YAML Content — Editable or Read-only */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                <label className="flex text-sm font-medium text-slate-700 dark:text-slate-300 mb-2 items-center gap-2">
                   YAML Definition
+                  {editing && <Badge className="bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400 text-[10px]">Editing</Badge>}
                 </label>
-                <div className="relative">
+                {editing ? (
+                  <textarea
+                    className="w-full h-96 p-4 border border-violet-300 dark:border-violet-600 rounded-lg bg-slate-900 text-slate-100 font-mono text-sm resize-none focus:ring-2 focus:ring-violet-500 focus:border-transparent"
+                    value={editContent}
+                    onChange={(e) => setEditContent(e.target.value)}
+                    spellCheck={false}
+                  />
+                ) : (
                   <pre className="w-full h-96 p-4 border border-slate-200 dark:border-slate-700 rounded-lg bg-slate-900 text-slate-100 font-mono text-sm overflow-auto">
                     <code>{modelContent.content}</code>
                   </pre>
-                  {/* Syntax highlighting would go here in a real implementation */}
-                </div>
+                )}
               </div>
             </div>
           ) : (
@@ -557,3 +892,5 @@ tables:
     </div>
   );
 }
+
+export default memo(SemanticModelsContent);

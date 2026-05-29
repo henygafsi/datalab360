@@ -1,102 +1,69 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
-import { PiXBold } from 'react-icons/pi';
-import { Badge, Title, Modal, Button } from 'rizzui';
-import cn from '@core/utils/class-names';
-import PostFeed from '@/app/shared/profile/post-feed';
-import FollowerModal from '@/app/shared/profile/follower-modal';
-import { postData, followersData, followingData } from '@/data/profile-data';
-
-const tabs = [
-  { id: 'posts', count: postData.length },
-  { id: 'followers', count: followersData.length },
-  { id: 'following', count: followingData.length },
-];
+import { Title, Text } from 'rizzui';
+import { useProfile } from '@/hooks/useProfile';
+import { useSession } from 'next-auth/react';
 
 export default function ProfileDetails() {
-  const pathname = usePathname();
-  const [open, setOpen] = useState(false);
-  const [modalData, setModalData] = useState({
-    title: 'Followers',
-    data: followersData,
-  });
-  const [active, setActive] = useState(tabs[0].id);
-
-  useEffect(() => {
-    setOpen(() => false);
-  }, [pathname]);
-
-  // handle follower and following modal open
-  function handleTabClick(id: string) {
-    if (id === 'followers') {
-      setModalData({ title: 'Followers', data: followersData });
-    } else if (id === 'following') {
-      setModalData({ title: 'Following', data: followingData });
-    }
-    setOpen(() => true);
-    setActive(() => id);
-  }
+  const { profile } = useProfile();
+  const { data: session } = useSession();
+  
+  const username = session?.user?.username || '';
+  const displayName = profile?.display_name || profile?.first_name || username || 'User';
+  const email = profile?.email;
+  const firstName = profile?.first_name;
+  const lastName = profile?.last_name;
+  const loginName = profile?.login_name;
 
   return (
-    <>
-      <div className="mx-auto mt-10 w-full max-w-[1294px] @2xl:mt-7 @6xl:mt-0">
-        <div className="-mx-4 flex items-center justify-around border-b-2 border-b-gray-200 font-medium sm:mx-0 md:justify-start md:gap-8">
-          {tabs.map((item) => (
-            <button
-              key={item.id}
-              className={cn(
-                'relative pb-4 font-semibold capitalize text-gray-500 focus:outline-none @4xl:pb-5 md:px-4',
-                active === item.id && 'text-gray-1000'
-              )}
-              onClick={() => handleTabClick(item.id)}
-            >
-              <span>{item.id}</span>
-              <Badge
-                variant="flat"
-                className="ms-2 border border-muted bg-gray-200 p-0.5 px-1.5 text-gray-800"
-              >
-                {item.count}
-              </Badge>
-              {active === 'posts' && item.id === 'posts' && (
-                <span className="absolute inset-x-0 -bottom-0.5 z-10 h-0.5 bg-gray-1000"></span>
-              )}
-            </button>
-          ))}
-        </div>
-        <PostFeed />
-      </div>
-
-      <Modal
-        isOpen={open}
-        onClose={() => {
-          setOpen(false);
-          setActive(() => 'posts');
-        }}
-        overlayClassName="dark:bg-opacity-40 dark:backdrop-blur-lg"
-        containerClassName="dark:bg-gray-100 max-w-[460px] rounded-md p-5 lg:p-6"
-      >
-        <div className="flex items-center justify-between pb-2 lg:pb-3">
-          <Title
-            as="h3"
-            className="text-lg font-semibold text-gray-900 xl:text-xl"
-          >
-            {modalData.title}
+    <div className="mx-auto mt-10 w-full max-w-[1294px] @2xl:mt-7 @6xl:mt-0">
+      <div className="grid gap-6">
+        <div className="rounded-lg border border-gray-200 p-6">
+          <Title as="h3" className="text-lg font-semibold text-gray-900 mb-4">
+            Profile Information
           </Title>
-          <Button
-            variant="text"
-            onClick={() => {
-              setOpen(false);
-              setActive(() => 'posts');
-            }}
-            className="h-auto px-1 py-1"
-          >
-            <PiXBold className="h-5 w-5 text-base" />
-          </Button>
+          
+          <div className="grid gap-4">
+            <div>
+              <Text className="text-sm font-medium text-gray-500">Display Name</Text>
+              <Text className="text-gray-900">{displayName || '-'}</Text>
+            </div>
+            
+            <div>
+              <Text className="text-sm font-medium text-gray-500">Username</Text>
+              <Text className="text-gray-900">@{username}</Text>
+            </div>
+
+            {loginName && (
+              <div>
+                <Text className="text-sm font-medium text-gray-500">Login Name</Text>
+                <Text className="text-gray-900">{loginName}</Text>
+              </div>
+            )}
+
+            {firstName && (
+              <div>
+                <Text className="text-sm font-medium text-gray-500">First Name</Text>
+                <Text className="text-gray-900">{firstName}</Text>
+              </div>
+            )}
+
+            {lastName && (
+              <div>
+                <Text className="text-sm font-medium text-gray-500">Last Name</Text>
+                <Text className="text-gray-900">{lastName}</Text>
+              </div>
+            )}
+            
+            {email && (
+              <div>
+                <Text className="text-sm font-medium text-gray-500">Email</Text>
+                <Text className="text-gray-900">{email}</Text>
+              </div>
+            )}
+          </div>
         </div>
-        {modalData && <FollowerModal data={modalData.data} />}
-      </Modal>
-    </>
+      </div>
+    </div>
   );
 }

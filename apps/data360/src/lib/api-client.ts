@@ -8,12 +8,65 @@ import {
   getAuthSession,
   AuthError,
   TokenExpiredError,
+  type SnowflakeSession,
 } from '@/lib/auth';
+
+/**
+ * Cached session promise to avoid hammering /api/auth/session on every request.
+ *
+ * NextAuth's `getSession()` fetches /api/auth/session unconditionally. Without a
+ * cache, every axios request triggers a session fetch → "session storm".
+ *
+ * Strategy:
+ *  - Share a single in-flight promise for a short TTL (30s).
+ *  - If the cached session's `expires` is < 60s away, refresh proactively.
+ *  - Invalidate on 401 responses (handled in the response interceptor below).
+ */
+const SESSION_CACHE_TTL_MS = 30_000;
+const SESSION_EXPIRY_GRACE_MS = 60_000;
+let cachedSessionPromise: Promise<SnowflakeSession | null> | null = null;
+let cachedSessionExpiry = 0;
+
+function invalidateSessionCache(): void {
+  cachedSessionPromise = null;
+  cachedSessionExpiry = 0;
+}
+
+async function getCachedSession(): Promise<SnowflakeSession | null> {
+  const now = Date.now();
+
+  // If we have a resolved cached value, check if it's near expiry and bust if so.
+  if (cachedSessionPromise && now <= cachedSessionExpiry) {
+    try {
+      const cached = await cachedSessionPromise;
+      const expiresIso = cached?.expires;
+      if (expiresIso) {
+        const expiresMs = new Date(expiresIso).getTime();
+        if (!Number.isNaN(expiresMs) && expiresMs - now < SESSION_EXPIRY_GRACE_MS) {
+          invalidateSessionCache();
+        }
+      }
+    } catch {
+      // If the cached promise rejected, drop it and refetch.
+      invalidateSessionCache();
+    }
+  }
+
+  if (!cachedSessionPromise || now > cachedSessionExpiry) {
+    cachedSessionPromise = getAuthSession().catch((err) => {
+      // Don't keep a rejected promise stuck in the cache.
+      invalidateSessionCache();
+      throw err;
+    });
+    cachedSessionExpiry = now + SESSION_CACHE_TTL_MS;
+  }
+  return cachedSessionPromise;
+}
 
 // Create axios instance with base configuration
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_CONFIG.BASE_URL,
-  timeout: 120000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
+  timeout: 600000, // 2 minutes – Snowflake queries (policies, mappings, etc.) can be slow; backend owns SDK
   headers: {
     'Content-Type': 'application/json',
   },
@@ -43,8 +96,8 @@ apiClient.interceptors.request.use(
     _detectRedundantCall(method, fullUrl);
 
     try {
-      // Use unified auth helper that works in both server and client
-      const session = await getAuthSession();
+      // Use cached session helper to avoid /api/auth/session storm on every request.
+      const session = await getCachedSession();
 
       if (session?.user?.access_token) {
         // Check for token expiration
@@ -90,6 +143,8 @@ apiClient.interceptors.response.use(
     // 401 = real auth only (no token, invalid/expired token). Do NOT redirect on endpoint/infra issues.
     // Backend uses 503 for SESSION_NOT_IN_PROCESS so only real auth returns 401 → redirect to sign-in
     if (status === 401) {
+      // Invalidate the cached session so the next request refetches from /api/auth/session.
+      invalidateSessionCache();
       const data = error.response?.data as { error_code?: string; detail?: string } | undefined;
       const errorCode = data?.error_code;
       const isRealAuth = !errorCode || ['NOT_AUTHENTICATED', 'TOKEN_INVALID_OR_EXPIRED', 'SESSION_EXPIRED'].includes(errorCode);
@@ -112,13 +167,19 @@ apiClient.interceptors.response.use(
 
     // Handle 403 Forbidden - Insufficient permissions
     if (status === 403) {
+      const data = error.response?.data as { detail?: string | { detail?: string } } | undefined;
+      const message = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail ?? 'You do not have permission to access this resource.';
       if (process.env.NODE_ENV === 'development') {
-        console.warn('[API Client] 403 Forbidden - Access denied');
+        console.warn('[API Client] 403 Forbidden -', message);
       }
-      return Promise.reject(new AuthorizationError('You do not have permission to access this resource.'));
+      return Promise.reject(new AuthorizationError(message));
     }
 
-    // Handle 404 Not Found - pass through so components can show "not found" message
+    // Handle 404 Not Found - pass through so components can show "not found"
+    // message. Note: in this API, 404 often means "Snowflake schema/table
+    // missing or unauthorized" (per Data360 error contract), NOT "route
+    // doesn't exist." So we do NOT short-circuit future calls — the missing
+    // resource may be created at any time and we want polling to recover.
     if (status === 404) {
       return Promise.reject(error);
     }
@@ -133,6 +194,14 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // 503 - Backend session affinity issue (multi-worker) — do NOT redirect, just reject
+    if (status === 503) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[API Client] 503 Service Unavailable — session may be on another worker:', error.response?.data);
+      }
+      return Promise.reject(error);
+    }
+
     // 500 - Only redirect to signin when detail indicates connection/session failure (no connection)
     if (status === 500) {
       if (process.env.NODE_ENV === 'development') {
@@ -140,6 +209,11 @@ apiClient.interceptors.response.use(
       }
       const data = error.response?.data as { detail?: string | { detail?: string }; error_code?: string } | undefined;
       const detailStr = typeof data?.detail === 'string' ? data.detail : (data?.detail as any)?.detail;
+      const errorCode = typeof data?.detail === 'object' ? (data?.detail as any)?.error_code : data?.error_code;
+      // Don't redirect for session-in-process errors — that's a backend worker issue, not auth
+      if (errorCode === 'SESSION_NOT_IN_PROCESS') {
+        return Promise.reject(error);
+      }
       const suggestsNoConnection = detailStr && typeof detailStr === 'string' && /connection|session\s*expired|not\s*authenticated|cursor\s*closed/i.test(detailStr);
       if (suggestsNoConnection && typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/')) {
         window.location.href = '/signin';
@@ -155,12 +229,9 @@ apiClient.interceptors.response.use(
       return Promise.reject(new TimeoutError('Request took too long. The server may be slow or unavailable.'));
     }
 
-    // Handle network errors (server disconnected) → redirect to sign-in so user can retry when back
+    // Handle network errors (server disconnected) → show error, do NOT redirect
     if (!error.response) {
       console.error('[API Client] Network error (server disconnected?):', error.message);
-      if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/signin') && !window.location.pathname.startsWith('/auth/') && (error.code === 'ERR_NETWORK' || error.message?.includes('Network Error'))) {
-        window.location.href = '/signin';
-      }
       return Promise.reject(new NetworkError('Unable to connect to the server. Please check your connection.'));
     }
 

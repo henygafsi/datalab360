@@ -85,7 +85,7 @@ const Slider: React.FC<SliderProps> = ({ title, total, value }) => {
         <div className="absolute left-0 top-1/2 flex h-0 w-full -translate-y-1/2 items-center">
           <div className="relative w-full">
             <Tooltip
-              className="dark:bg-gray-200 dark:text-gray-900"
+              className="dark:bg-gray-200 dark:text-white"
               placement="top"
               content={<span>{percentage}%</span>}
             >

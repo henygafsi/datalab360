@@ -18,7 +18,15 @@
       "Bash(dir:*)",
       "Bash(npm run lint)",
       "Bash(npx next lint:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(powershell:*)",
+      "Bash(wc:*)",
+      "Bash(npx --no tsc:*)",
+      "Bash(findstr:*)",
+      "Bash(pushd:*)",
+      "Bash(pnpm --filter data360 exec tsc:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(ssh -i ~/.ssh/id_ed25519 root@167.172.162.172:*)"
     ]
   }
 }

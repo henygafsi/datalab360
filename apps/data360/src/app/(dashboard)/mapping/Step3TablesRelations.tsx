@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Loader2, Search, TestTube, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { postMapping } from '@/app/services/mapping/postMapping';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 // --- Interface Definitions ---
 interface TableSelection { database: string; schema: string; table: string; }
@@ -50,8 +51,8 @@ const TableNode: React.FC<{ data: TableNodeData }> = memo(({ data }) => {
     );
 
     return (
-        <Card className="w-96 shadow-xl rounded-lg overflow-hidden border-2 border-slate-300 bg-slate-50">
-            <CardHeader className="p-2 border-b bg-slate-100 flex flex-row items-center justify-between">
+        <Card className="w-96 shadow-xl rounded-lg overflow-hidden border-2 border-slate-300 dark:border-slate-600 bg-slate-50 dark:bg-slate-800">
+            <CardHeader className="p-2 border-b bg-slate-100 dark:bg-slate-700 flex flex-row items-center justify-between">
                 <CardTitle className="text-base font-semibold truncate">
                     <Badge variant={isSource ? "secondary" : "default"}>{isSource ? 'Source' : 'Target'}</Badge> {tableName}
                 </CardTitle>
@@ -72,11 +73,11 @@ const TableNode: React.FC<{ data: TableNodeData }> = memo(({ data }) => {
             <CardContent className="p-1 max-h-96 overflow-y-auto">
                 <ul className="space-y-1 p-1">
                     {filteredColumns.map((col) => (
-                        <li key={col.name} className="relative flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-slate-200/50 transition-colors">
+                        <li key={col.name} className="relative flex items-center justify-between py-1.5 px-2 rounded-md hover:bg-slate-200/50 dark:hover:bg-slate-600/50 transition-colors">
                             {isSource && <Handle type="source" position={Position.Right} id={col.name} className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white !shadow-md hover:!bg-blue-600 !translate-x-1/2" />}
                             {!isSource && <Handle type="target" position={Position.Left} id={col.name} className="!w-3 !h-3 !bg-green-500 !border-2 !border-white !shadow-md hover:!bg-green-600 !-translate-x-1/2" />}
                             <Label className="flex-grow flex items-center justify-between cursor-default">
-                                <span className="font-medium text-slate-800 text-sm truncate">{col.name}</span>
+                                <span className="font-medium text-slate-800 dark:text-slate-200 text-sm truncate">{col.name}</span>
                                 <span className="text-xs text-slate-500 ml-2">({col.data_type})</span>
                             </Label>
                             <div className="flex-shrink-0 ml-2 flex items-center gap-1">
@@ -268,12 +269,12 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
             });
 
         const combinedEdges = [...initialEdges, ...pkAutoEdges];
-        console.log('Step3: Setting edges:', {
-            initialEdges: initialEdges.length,
-            pkAutoEdges: pkAutoEdges.length,
-            combinedEdges: combinedEdges.length,
-            edges: combinedEdges.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
-        });
+        // console.log('Step3: Setting edges:', {
+            // initialEdges: initialEdges.length,
+            // pkAutoEdges: pkAutoEdges.length,
+            // combinedEdges: combinedEdges.length,
+            // edges: combinedEdges.map(e => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle }))
+        // });
         setEdges(combinedEdges);
 
         // Sync auto-added PK mappings back to parent mappingData once
@@ -289,16 +290,16 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
     const onConnect = useCallback((connection: Connection) => {
         const { source, sourceHandle, target, targetHandle } = connection;
-        console.log('Step3: New connection attempt:', { source, sourceHandle, target, targetHandle });
+        // console.log('Step3: New connection attempt:', { source, sourceHandle, target, targetHandle });
         
         if (!source || !sourceHandle || !target || !targetHandle) {
-            console.log('Step3: Connection rejected - missing required fields');
+            // console.log('Step3: Connection rejected - missing required fields');
             return;
         }
 
         const targetColumnInfo = allColumnsDataMap[target]?.[targetHandle];
         if (!targetColumnInfo) {
-            console.log('Step3: Connection rejected - target column not found in allColumnsDataMap');
+            // console.log('Step3: Connection rejected - target column not found in allColumnsDataMap');
             return;
         }
 
@@ -394,7 +395,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
 
             // Process group-based mappings (multiple source tables to one target table)
             if (mappingData.groups && mappingData.groups.length > 0) {
-                console.log('Step3: Processing group-based mappings:', mappingData.groups);
+                // console.log('Step3: Processing group-based mappings:', mappingData.groups);
                 
                 for (const group of mappingData.groups) {
                     if (!group.target || !group.sources || group.sources.length === 0) {
@@ -405,11 +406,11 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                     const targetKey = `${group.target.database}.${group.target.schema}.${group.target.table}`;
                     const targetPkList = mappingData.primary_keys?.source?.[targetKey] || mappingData.primary_keys?.target || [];
                     
-                    console.log('Step3: Processing group target:', {
-                        targetKey,
-                        targetPks: targetPkList,
-                        groupTarget: group.target
-                    });
+                    // console.log('Step3: Processing group target:', {
+                        // targetKey,
+                        // targetPks: targetPkList,
+                        // groupTarget: group.target
+                    // });
                     
                     // Process each source table in this group
                     for (const sourceTable of group.sources) {
@@ -417,11 +418,11 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                         const sourcePkList = mappingData.primary_keys?.source?.[sourceKey] || [];
                         const mappingKey = `${sourceKey}->${targetKey}`;
                         
-                        console.log('Step3: Processing source table:', {
-                            sourceKey,
-                            sourcePks: sourcePkList,
-                            sourceTable
-                        });
+                        // console.log('Step3: Processing source table:', {
+                            // sourceKey,
+                            // sourcePks: sourcePkList,
+                            // sourceTable
+                        // });
                         
                         // Get column mappings for this source->target pair
                         const sourceTargetMappings = mappingData.column_mappings?.filter(mapping => 
@@ -473,18 +474,18 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                             pk_target: [...targetPkList],
                         });
                         
-                        console.log('Step3: Group mapping created:', {
-                            mappingKey,
-                            sourceColumns: validSourceColumns,
-                            targetColumns: validTargetColumns,
-                            sourcePks: sourcePkList,
-                            targetPks: targetPkList
-                        });
+                        // console.log('Step3: Group mapping created:', {
+                        //     mappingKey,
+                        //     sourceColumns: validSourceColumns,
+                        //     targetColumns: validTargetColumns,
+                        //     sourcePks: sourcePkList,
+                        //     targetPks: targetPkList
+                        // });
                     }
                 }
             } else {
                 // Fallback to old individual mapping processing
-                console.log('Step3: Processing individual column mappings (fallback)');
+                // console.log('Step3: Processing individual column mappings (fallback)');
                 
                 for (const mapping of mappingData.column_mappings || []) {
                     const targetTableKey = mapping.target_table_key || 
@@ -586,20 +587,20 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 }))
             };
 
-            console.log('Step3: Available columns for each table:', 
-                Object.keys(allColumnsDataMap).reduce((acc, tableKey) => {
-                    acc[tableKey] = Object.keys(allColumnsDataMap[tableKey] || {});
-                    return acc;
-                }, {} as Record<string, string[]>)
-            );
+            // console.log('Step3: Available columns for each table:',
+            //     Object.keys(allColumnsDataMap).reduce((acc, tableKey) => {
+            //         acc[tableKey] = Object.keys(allColumnsDataMap[tableKey] || {});
+            //         return acc;
+            //     }, {} as Record<string, string[]>)
+            // );
             
-            console.log('Step3: Available PKs from events:', {
-                sourcePks: mappingData.primary_keys?.source,
-                targetPks: mappingData.primary_keys?.target,
-                allPks: mappingData.primary_keys
-            });
+            // console.log('Step3: Available PKs from events:', {
+                // sourcePks: mappingData.primary_keys?.source,
+                // targetPks: mappingData.primary_keys?.target,
+                // allPks: mappingData.primary_keys
+            // });
             
-            console.log('Step3: Final test payload:', JSON.stringify(testPayload, null, 2));
+            // console.log('Step3: Final test payload:', JSON.stringify(testPayload, null, 2));
 
             const result = await postMapping(testPayload);
             
@@ -747,6 +748,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
     }, [mappingData.column_mappings, mappingData.primary_keys, mappingData.project_id, mappingData.target_database, mappingData.target_schema, mappingData.target_table, mappingData.groups, allColumnsDataMap, toast]);
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <CardTitle>Step 4: Interactive Column Mapping</CardTitle>
@@ -862,6 +864,7 @@ const Step3TablesRelations: React.FC<Step3Props> = ({
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

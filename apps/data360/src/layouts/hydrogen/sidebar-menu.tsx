@@ -3,7 +3,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Title, Collapse } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold, PiDatabase, PiChartBar, PiBrain } from 'react-icons/pi';
+import { PiCaretDownBold, PiDatabase, PiBrain, PiFolderDuotone } from 'react-icons/pi';
 import {
   HiOutlineMap,
   HiOutlineCog8Tooth,
@@ -11,11 +11,11 @@ import {
   HiOutlineShieldCheck,
   HiOutlineKey,
   HiOutlineHome,
-  HiOutlineDocumentChartBar,
   HiOutlineSquares2X2,
   HiOutlineSparkles,
   HiOutlineBuildingOffice2,
   HiOutlineChartBarSquare,
+  HiOutlineFingerPrint,
 } from 'react-icons/hi2';
 
 
@@ -26,8 +26,35 @@ const modernMenuItems = [
     icon: <HiOutlineHome className="w-5 h-5" />,
   },
   {
-    name: 'Data Sources',
+    name: 'Sources',
+    href: '/sources',
     icon: <PiDatabase className="w-5 h-5" />,
+    badge: 'NEW',
+  },
+  {
+    name: 'Products / Projects',
+    href: '/data-products',
+    icon: <HiOutlineSquares2X2 className="w-5 h-5" />,
+  },
+  {
+    name: 'Modeling',
+    icon: <HiOutlineMap className="w-5 h-5" />,
+    dropdownItems: [
+      {
+        name: 'Explore & Design',
+        href: '/explore-design',
+        icon: <HiOutlineSparkles className="w-4 h-4" />,
+      },
+      {
+        name: 'Workflow',
+        href: '/workflow',
+        icon: <HiOutlineCog8Tooth className="w-4 h-4" />,
+      }
+    ]
+  },
+  {
+    name: 'Data Sources',
+    icon: <HiOutlineCog8Tooth className="w-5 h-5" />,
     dropdownItems: [
       {
         name: 'Connections',
@@ -40,47 +67,9 @@ const modernMenuItems = [
     ]
   },
   {
-    name: 'Data Processing',
-    icon: <HiOutlineCog8Tooth className="w-5 h-5" />,
-    dropdownItems: [
-      {
-        name: 'Mapping',
-        href: '/explore-design',
-        icon: <HiOutlineMap className="w-4 h-4" />,
-      },
-      {
-        name: 'Explore & Design',
-        href: '/explore-design',
-        icon: <HiOutlineSparkles className="w-4 h-4" />,
-        badge: 'NEW',
-      },
-      {
-        name: 'Workflow',
-        href: '/workflow',
-        icon: <HiOutlineCog8Tooth className="w-4 h-4" />,
-      }
-    ]
-  },
-  {
-    name: 'Analytics',
-    icon: <PiChartBar className="w-5 h-5" />,
-    dropdownItems: [
-      {
-        name: 'BI Reporting',
-        href: '/bi-reporting',
-        icon: <PiChartBar className="w-4 h-4" />,
-      },
-      {
-        name: 'Dashboards',
-        href: '/analytics',
-        icon: <HiOutlineDocumentChartBar className="w-4 h-4" />,
-      },
-      {
-        name: 'Intelligent (Cortex)',
-        href: '/intelligent',
-        icon: <PiBrain className="w-4 h-4" />,
-      },
-    ]
+    name: 'Intelligent',
+    href: '/intelligent',
+    icon: <PiBrain className="w-5 h-5" />,
   },
   {
     name: 'Observability',
@@ -93,28 +82,38 @@ const modernMenuItems = [
     dropdownItems: [
       {
         name: 'Users',
-        href: '/gouvernance/users',
+        href: '/governance/users',
         icon: <HiOutlineUsers className="w-4 h-4" />,
       },
       {
         name: 'Roles',
-        href: '/gouvernance/roles',
+        href: '/governance/roles',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'Grants',
-        href: '/gouvernance/grants',
+        href: '/governance/grants',
         icon: <HiOutlineKey className="w-4 h-4" />,
       },
       {
         name: 'Policies',
-        href: '/gouvernance/policies',
+        href: '/governance/policies',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
       },
       {
         name: 'Masking Policy',
-        href: '/gouvernance/masking',
+        href: '/governance/masking',
         icon: <HiOutlineShieldCheck className="w-4 h-4" />,
+      },
+      {
+        name: 'OAuth & Auth',
+        href: '/governance/oauth',
+        icon: <HiOutlineFingerPrint className="w-4 h-4" />,
+      },
+      {
+        name: 'Projects',
+        href: '/governance/projects',
+        icon: <PiFolderDuotone className="w-4 h-4" />,
       }
     ]
   },
@@ -169,7 +168,7 @@ export function SidebarMenu() {
           };
         }
         // Hide other groups entirely when not connected
-        if (['Data Processing', 'Analytics', 'Observability', 'Governance', 'Client Accounts'].includes(item.name)) {
+        if (['Sources', 'Products / Projects', 'Modeling', 'Data Sources', 'Intelligent', 'Observability', 'Governance', 'Client Accounts'].includes(item.name)) {
           return null as any;
         }
         return item;
@@ -244,6 +243,11 @@ export function SidebarMenu() {
                 <Title as="h6" className="font-medium">
                   {item.name}
                 </Title>
+                {item?.badge && (
+                  <span className="ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             )}
           </Fragment>

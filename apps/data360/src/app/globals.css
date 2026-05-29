@@ -210,7 +210,7 @@
   }
 
   body {
-    @apply flex min-h-full flex-col overflow-x-hidden text-sm text-gray-600 dark:bg-gray-50;
+    @apply flex min-h-full flex-col overflow-x-hidden text-sm text-gray-600 dark:bg-gray-950;
   }
 
   input::-ms-clear,
@@ -238,15 +238,15 @@
   h4,
   h5,
   h6 {
-    @apply font-lexend font-bold text-gray-900 dark:text-gray-700;
+    @apply font-lexend font-bold text-gray-900 dark:text-gray-100;
   }
 
   h1 {
-    @apply text-3xl dark:text-gray-800 2xl:text-[32px] 4xl:text-4xl;
+    @apply text-3xl dark:text-gray-100 2xl:text-[32px] 4xl:text-4xl;
   }
 
   h2 {
-    @apply text-2xl dark:text-gray-800 2xl:text-[26px] 4xl:text-3xl;
+    @apply text-2xl dark:text-gray-100 2xl:text-[26px] 4xl:text-3xl;
   }
 
   h3 {
@@ -268,32 +268,7 @@
   q {
     @apply text-lg;
   }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-  }
+  
 }
 
 @layer utilities {
@@ -853,11 +828,11 @@ select:-webkit-autofill:focus {
 
 /* current month name in header */
 .react-datepicker .react-datepicker-year-header {
-  @apply dark:text-gray-700;
+  @apply dark:text-gray-100;
 }
 
 .react-datepicker .react-datepicker__current-month {
-  @apply mb-3 text-base font-medium dark:text-gray-700;
+  @apply mb-3 text-base font-medium dark:text-gray-100;
 }
 
 /* sun-sat day names in header */
@@ -1972,4 +1947,57 @@ div[style='z-index: 1000001;'],
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* ─── react-grid-layout overrides for BI Dashboard ─── */
+.react-grid-layout {
+  position: relative;
+}
+.react-grid-item {
+  transition: all 200ms ease;
+  transition-property: left, top, width, height;
+}
+.react-grid-item.cssTransforms {
+  transition-property: transform, width, height;
+}
+.react-grid-item.resizing {
+  z-index: 3;
+  will-change: width, height;
+  opacity: 0.9;
+}
+.react-grid-item.react-draggable-dragging {
+  z-index: 4;
+  will-change: transform;
+  opacity: 0.85;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+  border-radius: 0.75rem;
+}
+.react-grid-placeholder {
+  background: rgb(59 130 246 / 0.15);
+  border: 2px dashed rgb(59 130 246 / 0.5);
+  border-radius: 0.75rem;
+}
+/* Resize handle styling */
+.react-grid-item > .react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  cursor: se-resize;
+  z-index: 2;
+}
+.react-grid-item > .react-resizable-handle::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid rgba(100, 116, 139, 0.4);
+  border-bottom: 2px solid rgba(100, 116, 139, 0.4);
+  border-radius: 0 0 2px 0;
+}
+.react-grid-item:hover > .react-resizable-handle::after {
+  border-color: rgb(59 130 246 / 0.7);
 }

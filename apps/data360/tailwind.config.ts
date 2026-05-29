@@ -1,13 +1,24 @@
 import type { Config } from 'tailwindcss';
 import sharedConfig from 'tailwind-config';
 
-const config: Pick<Config, 'prefix' | 'presets' | 'content' | 'darkMode' | 'plugins' | 'theme'> = {
+const moduleColors = ['blue', 'violet', 'cyan', 'green', 'purple', 'rose', 'orange', 'gray'];
+const moduleSafelist = moduleColors.flatMap((c) => [
+  `bg-${c}-100`,
+  `dark:bg-${c}-900/30`,
+  `text-${c}-600`,
+  `dark:text-${c}-400`,
+  `hover:border-${c}-300`,
+  `dark:hover:border-${c}-700`,
+]);
+
+const config: Pick<Config, 'prefix' | 'presets' | 'content' | 'darkMode' | 'plugins' | 'theme' | 'safelist'> = {
     darkMode: ['class'],
     content: [
     './src/**/*.tsx',
     './node_modules/rizzui/dist/*.{js,ts,jsx,tsx}',
     '../../packages/data360-core/src/**/*.{js,ts,jsx,tsx}',
   ],
+  safelist: moduleSafelist,
   presets: [sharedConfig],
     plugins: [require("tailwindcss-animate")],
     theme: {

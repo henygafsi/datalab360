@@ -9,15 +9,15 @@ export type FeatureKey =
   | 'explore-design'
   | 'mapping'
   | 'workflow'
-  | 'gouvernance-users'
-  | 'gouvernance-roles'
-  | 'gouvernance-grants'
-  | 'gouvernance-security-matrix'
-  | 'gouvernance-policies'
+  | 'governance-users'
+  | 'governance-roles'
+  | 'governance-grants'
+  | 'governance-security-matrix'
+  | 'governance-policies'
   | 'data-quality'
   | 'observability'
   | 'intelligent'
-  | 'bi-reporting'
+  | 'bi-dashboard'
   | 'client-accounts'
   | 'auth';
 
@@ -96,7 +96,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'gouvernance-users': {
+  'governance-users': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Utilisateur introuvable.',
@@ -106,7 +106,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'gouvernance-roles': {
+  'governance-roles': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Rôle ou droits introuvables.',
@@ -115,7 +115,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'gouvernance-grants': {
+  'governance-grants': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: NOT_FOUND,
@@ -123,7 +123,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'gouvernance-security-matrix': {
+  'governance-security-matrix': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Matrice de sécurité non initialisée.',
@@ -131,7 +131,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'gouvernance-policies': {
+  'governance-policies': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Politique introuvable.',
@@ -164,7 +164,7 @@ const BY_FEATURE: Partial<Record<FeatureKey, Record<number, string>>> = {
     [-1]: TIMEOUT,
     [-2]: NETWORK,
   },
-  'bi-reporting': {
+  'bi-dashboard': {
     401: SESSION_EXPIRED,
     403: FORBIDDEN,
     404: 'Tableau BI introuvable.',

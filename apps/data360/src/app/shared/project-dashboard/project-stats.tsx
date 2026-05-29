@@ -67,7 +67,7 @@ function StatCard({ className, transaction }: StatCardProps) {
             {title}
           </Text>
         </Box>
-        <span className="flex rounded-lg bg-slate-200 p-2.5 text-gray-900 shadow-sm dark:bg-gray-50">
+        <span className="flex rounded-lg bg-slate-200 p-2.5 text-gray-900 shadow-sm dark:bg-gray-800">
           <Icon className="size-7" strokeWidth={2} />
         </span>
       </Flex>

@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "target": "es5",
     "lib": ["dom", "dom.iterable", "esnext"],
@@ -8,6 +9,7 @@
     "strict": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "module": "esnext",
@@ -15,6 +17,7 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
+    "downlevelIteration": true,
     "paths": {
       "@/*": ["./src/*"],
       "@public/*": ["public/*"],

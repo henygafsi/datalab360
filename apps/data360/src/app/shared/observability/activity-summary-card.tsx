@@ -29,7 +29,7 @@ function formatDuration(seconds: number | undefined | null): string {
 export default function ActivitySummaryCard({ data, isLoading, className }: ActivitySummaryCardProps) {
   if (isLoading) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <div className="animate-pulse">
           <div className="h-6 w-40 rounded bg-gray-200 dark:bg-gray-700" />
           <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -48,7 +48,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
 
   if (!data || (!hasUsers && data.total_users === 0)) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <Title as="h3" className="text-base font-semibold">User Activity Summary</Title>
         <Badge variant="flat" color="secondary" className="mt-2">Last 7 days</Badge>
         <div className="mt-6 flex flex-col items-center justify-center py-8 text-center">
@@ -85,7 +85,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
     }));
 
   return (
-    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
       <div className="flex items-center justify-between">
         <Title as="h3" className="text-base font-semibold">User Activity Summary</Title>
         <Badge variant="flat" color="primary">Last {data.period_days || 7} days</Badge>

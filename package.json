@@ -30,10 +30,14 @@
     "intl:build": "turbo build --filter=intl",
     "intl:start": "turbo start --filter=intl",
     "intl:clean": "turbo clean --filter=intl",
+    "docs:dev": "turbo dev --filter=docs",
+    "docs:build": "turbo build --filter=docs",
+    "docs:fetch-schema": "pnpm --filter docs fetch-schema",
     "gen-icons": "turbo gen-icons --filter=core",
     "prepare": "husky"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "eslint": "8.57.0",
     "husky": "^9.1.6",
     "prettier": "^3.3.3",

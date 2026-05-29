@@ -169,6 +169,7 @@ interface AddColumnModalProps {
   table: TableItem;
   columns: ColumnInfo[];
   onColumnAdd: (column: ComputedColumn) => void;
+  projectId?: string | null;
 }
 
 const AddColumnModal: React.FC<AddColumnModalProps> = ({
@@ -177,6 +178,7 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({
   table,
   columns,
   onColumnAdd,
+  projectId,
 }) => {
   const { addEvent } = useEventStore();
 
@@ -265,9 +267,10 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({
       pythonPackages: computationType === 'python' && pythonPackages.length > 0 ? pythonPackages : undefined,
     };
 
-    // Create event for the design change (using Omit format for addEvent)
+    // Create event for the design change
     const eventData = {
       type: 'ADD_COLUMN' as const,
+      projectId: projectId || undefined,
       target: {
         database: table.database,
         schema: table.schema,
@@ -275,9 +278,13 @@ const AddColumnModal: React.FC<AddColumnModalProps> = ({
         column: computedColumn.name,
       },
       payload: {
-        column: computedColumn,
+        columnName: computedColumn.name,
+        columnType: computedColumn.dataType,
+        isComputed: true,
+        computedExpression: computedColumn.expression,
         computationType,
-        expression: computedColumn.expression,
+        description: computedColumn.description,
+        column: computedColumn,
       },
     };
 

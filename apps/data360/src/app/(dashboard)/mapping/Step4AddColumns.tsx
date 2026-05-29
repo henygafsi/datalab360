@@ -14,6 +14,7 @@ import { getSession } from 'next-auth/react';
 import axios from 'axios';
 // Removed: import { getStepEventData } from './getStepEventData'; // Removed
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
     database: string;
@@ -60,7 +61,7 @@ interface Step4Props {
     username: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 const Step4AddColumns: React.FC<Step4Props> = ({
     onNext,
@@ -285,6 +286,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
 
 
     return (
+        <ErrorBoundary>
         <Card className="p-6">
             <CardHeader>
                 <CardTitle>Step 3: Add Optional Columns</CardTitle>
@@ -477,6 +479,7 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                 )}
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

@@ -3,10 +3,10 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import React, { ElementType, Fragment, useState } from 'react';
-import { carbonMenuItems } from '@/layouts/carbon/carbon-menu-items';
+import { carbonMenuItems, type MenuItemsType } from '@/layouts/carbon/carbon-menu-items';
 import { Text } from 'rizzui';
 import cn from '@core/utils/class-names';
-import { PiCaretDownBold } from 'react-icons/pi';
+import { PiCaretRightBold } from 'react-icons/pi';
 import Menu from '@core/ui/carbon-menu/dropdown/menu';
 import { SortableList } from '@core/components/dnd/dnd-sortable-list';
 import { DragEndEvent } from '@dnd-kit/core';
@@ -14,7 +14,26 @@ import { arrayMove } from '@dnd-kit/sortable';
 import { useDndEnabled } from '@/store/dnd-enable-store';
 import { Tooltip } from 'rizzui';
 
+// Color map for icon badge backgrounds and text
+const COLOR_MAP: Record<string, { bg: string; text: string; activeBg: string; activeText: string; border: string }> = {
+  blue:    { bg: 'bg-blue-50 dark:bg-blue-950/40',       text: 'text-blue-500 dark:text-blue-400',       activeBg: 'bg-blue-500',    activeText: 'text-white', border: 'border-blue-500' },
+  emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-500 dark:text-emerald-400', activeBg: 'bg-emerald-500', activeText: 'text-white', border: 'border-emerald-500' },
+  violet:  { bg: 'bg-violet-50 dark:bg-violet-950/40',   text: 'text-violet-500 dark:text-violet-400',   activeBg: 'bg-violet-500',  activeText: 'text-white', border: 'border-violet-500' },
+  amber:   { bg: 'bg-amber-50 dark:bg-amber-950/40',     text: 'text-amber-500 dark:text-amber-400',     activeBg: 'bg-amber-500',   activeText: 'text-white', border: 'border-amber-500' },
+  rose:    { bg: 'bg-rose-50 dark:bg-rose-950/40',       text: 'text-rose-500 dark:text-rose-400',       activeBg: 'bg-rose-500',    activeText: 'text-white', border: 'border-rose-500' },
+  cyan:    { bg: 'bg-cyan-50 dark:bg-cyan-950/40',       text: 'text-cyan-500 dark:text-cyan-400',       activeBg: 'bg-cyan-500',    activeText: 'text-white', border: 'border-cyan-500' },
+  purple:  { bg: 'bg-purple-50 dark:bg-purple-950/40',   text: 'text-purple-500 dark:text-purple-400',   activeBg: 'bg-purple-500',  activeText: 'text-white', border: 'border-purple-500' },
+  green:   { bg: 'bg-green-50 dark:bg-green-950/40',     text: 'text-green-500 dark:text-green-400',     activeBg: 'bg-green-500',   activeText: 'text-white', border: 'border-green-500' },
+  orange:  { bg: 'bg-orange-50 dark:bg-orange-950/40',   text: 'text-orange-500 dark:text-orange-400',   activeBg: 'bg-orange-500',  activeText: 'text-white', border: 'border-orange-500' },
+};
 
+// Section divider indices (insert divider AFTER these indices)
+// After "Connect Data" (data layer), after "Workflow" (process layer), after "Business Reporting" (output layer)
+const DIVIDER_AFTER_INDICES = [0, 3, 5];
+
+function getColors(color: string) {
+  return COLOR_MAP[color] || COLOR_MAP.blue;
+}
 
 export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedIds: number[]; collapsed?: boolean }) {
   const pathname = usePathname();
@@ -38,9 +57,9 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
       {!collapsed && (
         <Text
           as="span"
-          className="block px-[25px] pt-5 font-lexend text-xs uppercase text-gray-400 dark:text-gray-600"
+          className="block px-6 pb-1 pt-5 text-[10px] font-semibold uppercase tracking-widest text-slate-400 dark:text-slate-500"
         >
-          Menu
+          Navigation
         </Text>
       )}
 
@@ -48,6 +67,7 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
         <SortableList items={items} onChange={handleChange}>
           {items.map((item, index) => {
             const Icon = item.icon;
+            const colors = getColors(item.color);
             const disabled = isDisabled(item.id);
 
             const pathnameExistInDropdowns = item.menuItems?.some(
@@ -64,76 +84,106 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                     <Menu.Trigger>
                       {collapsed ? (
                         <Tooltip content={item.name} placement="right">
-                          <div
+                          <button
+                            type="button"
+                            aria-label={item.name}
+                            aria-expanded={isDropdownOpen}
+                            aria-haspopup="menu"
+                            aria-disabled={disabled || undefined}
                             className={cn(
-                              'group relative mx-auto flex items-center justify-center rounded-lg p-2.5 transition-all lg:my-1 2xl:my-2',
+                              'group relative mx-auto flex flex-col items-center justify-center rounded-xl p-2 transition-all duration-200 lg:my-1 2xl:my-1.5',
                               isDropdownOpen
-                                ? 'bg-primary text-gray-0'
-                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700',
+                                ? 'bg-slate-100 dark:bg-slate-800/60'
+                                : 'hover:bg-slate-50 dark:hover:bg-slate-800/40',
                               disabled && 'pointer-events-none cursor-not-allowed opacity-40'
                             )}
                           >
-                            {Icon && (
-                              <span
-                                className={cn(
-                                  'inline-flex size-6 items-center justify-center rounded-md [&>svg]:size-[22px]',
-                                  isDropdownOpen
-                                    ? 'text-gray-0'
-                                    : 'text-gray-500 dark:text-gray-400 group-hover:text-gray-700 dark:group-hover:text-gray-300'
-                                )}
-                              >
-                                <Icon />
-                              </span>
+                            {/* Colored icon badge */}
+                            <span
+                              aria-hidden="true"
+                              className={cn(
+                                'inline-flex size-8 items-center justify-center rounded-lg transition-all duration-200 [&>svg]:size-[18px]',
+                                isDropdownOpen
+                                  ? cn(colors.activeBg, colors.activeText, 'shadow-sm')
+                                  : cn(colors.bg, colors.text, 'group-hover:shadow-sm')
+                              )}
+                            >
+                              <Icon />
+                            </span>
+                            {/* Active dot indicator */}
+                            {isDropdownOpen && (
+                              <span aria-hidden="true" className={cn('mt-1 h-1 w-1 rounded-full', colors.activeBg)} />
                             )}
-                          </div>
+                          </button>
                         </Tooltip>
                       ) : (
-                        <div
+                        <button
+                          type="button"
+                          aria-label={item.name}
+                          aria-expanded={isDropdownOpen}
+                          aria-haspopup="menu"
+                          aria-disabled={disabled || undefined}
                           className={cn(
-                            'group relative mx-3.5 flex grow items-center justify-between overflow-hidden rounded-md px-3 py-2.5 font-medium transition-all lg:my-1 2xl:my-2 2xl:me-5',
+                            'group relative mx-3 flex grow items-center justify-between rounded-xl px-3 py-2 font-medium transition-all duration-200 lg:my-0.5 2xl:my-0.5 2xl:me-5',
                             isDropdownOpen
-                              ? 'bg-primary text-gray-0'
-                              : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 dark:hover:text-gray-700',
-                            enabled && 'ps-7',
+                              ? 'bg-slate-100/80 dark:bg-slate-800/50'
+                              : 'hover:bg-slate-50 dark:hover:bg-slate-800/30',
+                            enabled && 'ps-8',
                             disabled && 'pointer-events-none cursor-not-allowed opacity-40'
                           )}
                         >
+                          {/* Left accent bar for active state */}
+                          {isDropdownOpen && (
+                            <span aria-hidden="true" className={cn('absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-full', colors.activeBg)} />
+                          )}
+
                           <span className="flex items-center">
                             {enabled && (
                               <SortableList.DragHandle
                                 className={cn(
-                                  'absolute inset-t-0 start-1 me-1 size-5 [&>svg]:size-[20px]',
-                                  isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
+                                  'absolute inset-t-0 start-1.5 me-1 size-4 [&>svg]:size-[16px]',
+                                  isDropdownOpen ? 'text-slate-500' : 'text-slate-400'
                                 )}
                               />
                             )}
+                            {/* Colored icon badge */}
                             {Icon && (
                               <span
+                                aria-hidden="true"
                                 className={cn(
-                                  'me-2 inline-flex size-6 items-center justify-center rounded-md [&>svg]:size-[24px]',
+                                  'me-2.5 inline-flex size-8 items-center justify-center rounded-lg transition-all duration-200 [&>svg]:size-[20px]',
                                   isDropdownOpen
-                                    ? 'text-gray-0'
-                                    : 'text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-700'
+                                    ? cn(colors.activeBg, colors.activeText, 'shadow-sm')
+                                    : cn(colors.bg, colors.text, 'group-hover:shadow-sm')
                                 )}
                               >
                                 <Icon />
                               </span>
                             )}
-                            {item.name}
+                            <span className={cn(
+                              'text-[13px] font-medium transition-colors duration-200',
+                              isDropdownOpen
+                                ? 'text-slate-900 dark:text-slate-100'
+                                : 'text-slate-600 group-hover:text-slate-900 dark:text-slate-400 dark:group-hover:text-slate-200'
+                            )}>
+                              {item.name}
+                            </span>
                           </span>
 
-                          <PiCaretDownBold
-                            strokeWidth={3}
+                          <PiCaretRightBold
+                            aria-hidden="true"
                             className={cn(
-                              'h-3.5 w-3.5 -rotate-90 transition-transform rtl:rotate-90',
-                              isDropdownOpen ? 'text-gray-0' : 'text-gray-900'
+                              'h-3 w-3 transition-all duration-200',
+                              isDropdownOpen
+                                ? 'text-slate-400'
+                                : 'text-slate-300 group-hover:text-slate-400 dark:text-slate-600'
                             )}
                           />
-                        </div>
+                        </button>
                       )}
                     </Menu.Trigger>
 
-                    <Menu.List className="relative w-[280px] !border-transparent !px-2 !py-3 dark:border-gray-300 dark:bg-gray-100">
+                    <Menu.List className="relative w-[260px] !border !border-slate-200/80 !px-1.5 !py-2 shadow-lg shadow-slate-200/50 dark:!border-slate-700/60 dark:bg-slate-900 dark:shadow-black/30">
                       {item.menuItems?.map((dropdownItem, di) => {
                         const isChildActive = pathname === dropdownItem.href;
                         const pathnameExistInChildDropdowns = dropdownItem.subMenuItems?.some(
@@ -146,8 +196,8 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                           <Menu.Item
                             key={`dropdown-${dropdownItem.name}-${di}`}
                             className={cn(
-                              'px-0 py-0 transition-all data-[hover=true]:dark:bg-gray-200',
-                              isChildDropdownOpen && 'bg-gray-100 dark:bg-gray-200'
+                              'px-0 py-0 transition-all data-[hover=true]:dark:bg-slate-800/60',
+                              isChildDropdownOpen && 'bg-slate-50 dark:bg-slate-800/60'
                             )}
                           >
                             {dropdownItem.subMenuItems?.length ? (
@@ -156,21 +206,23 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                                 isChildDropdownOpen={isChildDropdownOpen}
                                 DropdownIcon={DropdownIcon}
                                 pathname={pathname}
+                                itemColor={item.color}
                               />
                             ) : (
                               <MenuLink
                                 item={dropdownItem}
                                 isChildActive={isChildActive}
+                                itemColor={item.color}
                               />
                             )}
                           </Menu.Item>
                         ) : (
                           <li
                             key={`dropdown-disabled-${dropdownItem.name}-${di}`}
-                            className="mx-2 flex items-center rounded-md px-3 py-2.5 font-medium opacity-40 pointer-events-none cursor-not-allowed"
+                            className="mx-1 flex items-center rounded-lg px-3 py-2 text-sm font-medium opacity-40 pointer-events-none cursor-not-allowed"
                           >
                             {DropdownIcon && (
-                              <DropdownIcon className="me-2 h-5 w-5 text-gray-400" />
+                              <DropdownIcon className="me-2.5 h-4 w-4 text-slate-400" />
                             )}
                             {dropdownItem.name}
                           </li>
@@ -179,6 +231,14 @@ export function CarbonSidebarMenu({ allowedIds, collapsed = false }: { allowedId
                     </Menu.List>
                   </Menu>
                 </SortableList.Item>
+
+                {/* Section divider */}
+                {!collapsed && DIVIDER_AFTER_INDICES.includes(index) && (
+                  <li className="mx-6 my-1.5 h-px bg-slate-200/60 dark:bg-slate-700/40 2xl:me-8" />
+                )}
+                {collapsed && DIVIDER_AFTER_INDICES.includes(index) && (
+                  <li className="mx-auto my-1.5 h-px w-6 bg-slate-200/60 dark:bg-slate-700/40" />
+                )}
               </Fragment>
             );
           })}
@@ -193,57 +253,66 @@ function NestedDropdown({
   isChildDropdownOpen,
   DropdownIcon,
   pathname,
+  itemColor,
 }: {
   dropdownItem: any;
   isChildDropdownOpen: boolean;
   DropdownIcon: ElementType;
   pathname: string;
+  itemColor: string;
 }) {
+  const colors = getColors(itemColor);
+
   return (
     <ul className="w-full">
       <Menu trigger="hover" placement="right-start" offset={0} closeDelay={0}>
         <Menu.Trigger>
           <li
             className={cn(
-              'group relative flex cursor-pointer items-center justify-between rounded-md px-3.5 py-2 font-medium',
+              'group relative flex cursor-pointer items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200',
               isChildDropdownOpen
-                ? 'before:top-2/5 rounded-md bg-gray-100 text-primary before:absolute before:start-0 before:block before:h-4/5 before:w-1 before:rounded-ee-md before:rounded-se-md before:bg-primary dark:bg-gray-200'
-                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-700/90 hover:dark:bg-gray-200 dark:hover:text-gray-700'
+                ? cn('bg-slate-50 dark:bg-slate-800/60', `border-l-2 ${colors.border}`)
+                : 'border-l-2 border-transparent text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/40'
             )}
           >
             <span className="flex items-center">
               {DropdownIcon && (
                 <span
+                  aria-hidden="true"
                   className={cn(
-                    'me-2 inline-flex h-5 w-5 items-center justify-center rounded-md',
+                    'me-2.5 inline-flex h-4 w-4 items-center justify-center',
                     isChildDropdownOpen
-                      ? 'text-primary'
-                      : 'text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-700'
+                      ? colors.text
+                      : 'text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300'
                   )}
                 >
                   <DropdownIcon />
                 </span>
               )}
-              {dropdownItem.name}
+              <span className={cn(
+                isChildDropdownOpen ? 'text-slate-900 dark:text-slate-100' : ''
+              )}>
+                {dropdownItem.name}
+              </span>
             </span>
 
-            <PiCaretDownBold
-              strokeWidth={3}
+            <PiCaretRightBold
+              aria-hidden="true"
               className={cn(
-                'h-3.5 w-3.5 -rotate-90 transition-transform rtl:rotate-90',
-                isChildDropdownOpen ? 'text-primary' : 'text-gray-900'
+                'h-3 w-3 transition-colors',
+                isChildDropdownOpen ? 'text-slate-400' : 'text-slate-300 dark:text-slate-600'
               )}
             />
           </li>
         </Menu.Trigger>
 
-        <Menu.List className="!border-transparent dark:border-gray-300 dark:bg-gray-100">
+        <Menu.List className="!border !border-slate-200/80 shadow-lg shadow-slate-200/50 dark:!border-slate-700/60 dark:bg-slate-900 dark:shadow-black/30">
           {dropdownItem.subMenuItems?.map((subMenuItem: any, si: number) => {
             const isSubActive = pathname === subMenuItem.href;
 
             return (
               <Menu.Item key={`sub-menu-${subMenuItem.name}-${si}`} className="px-0 py-0">
-                <MenuLink item={subMenuItem} isChildActive={isSubActive} />
+                <MenuLink item={subMenuItem} isChildActive={isSubActive} itemColor={itemColor} />
               </Menu.Item>
             );
           })}
@@ -253,33 +322,40 @@ function NestedDropdown({
   );
 }
 
-function MenuLink({ item, isChildActive }: { item: any; isChildActive?: boolean }) {
+function MenuLink({ item, isChildActive, itemColor }: { item: any; isChildActive?: boolean; itemColor?: string }) {
   const Icon = item.icon;
+  const colors = itemColor ? getColors(itemColor) : getColors('blue');
 
   return (
     <Link
       href={item.href}
       className={cn(
-        'relative flex w-full items-center justify-between rounded-md px-3.5 py-2 font-medium capitalize',
+        'relative flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium capitalize transition-all duration-200',
         isChildActive
-          ? 'before:top-2/5 bg-gray-100 text-primary before:absolute before:-start-2.5 before:block before:h-4/5 before:w-1 before:rounded-ee-md before:rounded-se-md before:bg-primary dark:bg-gray-200'
-          : 'text-gray-900 transition-colors duration-200 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-700/90 dark:hover:bg-gray-200'
+          ? cn('bg-slate-50 dark:bg-slate-800/60', `border-l-2 ${colors.border}`)
+          : 'border-l-2 border-transparent text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-800/40'
       )}
     >
       <span className="flex items-center truncate">
         {Icon && (
           <span
+            aria-hidden="true"
             className={cn(
-              'me-3 inline-flex h-5 w-5 items-center justify-center rounded-md',
+              'me-2.5 inline-flex h-4 w-4 items-center justify-center',
               isChildActive
-                ? 'text-primary'
-                : 'text-gray-400 dark:text-gray-500 dark:group-hover:text-gray-700'
+                ? colors.text
+                : 'text-slate-400 dark:text-slate-500'
             )}
           >
             <Icon />
           </span>
         )}
-        <span className="truncate">{item.name}</span>
+        <span className={cn(
+          'truncate',
+          isChildActive ? 'text-slate-900 dark:text-slate-100' : ''
+        )}>
+          {item.name}
+        </span>
       </span>
     </Link>
   );

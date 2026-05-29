@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <!-- GCS bucket shape -->
+  <path d="M16 18h32l-4 32H20L16 18z" fill="#AECBFA"/>
+  <path d="M16 18h32v6H16v-6z" fill="#4285F4"/>
+  <path d="M20 50h24l1.33-10.67H18.67L20 50z" fill="#669DF6"/>
+  <!-- Handle -->
+  <path d="M24 18V14a8 8 0 0 1 16 0v4" stroke="#4285F4" stroke-width="3" fill="none" stroke-linecap="round"/>
+  <!-- Google Cloud icon accent -->
+  <circle cx="32" cy="34" r="5" fill="#4285F4"/>
+  <circle cx="32" cy="34" r="2.5" fill="white"/>
+</svg>

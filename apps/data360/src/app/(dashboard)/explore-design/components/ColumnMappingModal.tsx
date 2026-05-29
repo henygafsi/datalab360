@@ -4,7 +4,16 @@ import React, { useState, useMemo } from 'react';
 import { Modal, Button, Badge, Input, Text, Tooltip, Select } from 'rizzui';
 import { X, ArrowRight, Plus, Trash2, Search, Check, Link2, AlertTriangle, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { ColumnTransformation } from '@/app/services/explore-design';
+// Column transformation type (previously from old explore-design service)
+type ColumnTransformation =
+  | null
+  | 'CONCAT'
+  | 'CONCAT_WS'
+  | 'COALESCE'
+  | 'UPPER'
+  | 'LOWER'
+  | 'TRIM'
+  | 'SUM';
 
 interface Column {
   name: string;

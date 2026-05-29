@@ -14,6 +14,7 @@ import {
   PiArrowsLeftRightBold,
   PiSparkle,
   PiLightningDuotone,
+  PiShieldCheckDuotone,
 } from 'react-icons/pi';
 import {
   generateCompletion,
@@ -28,6 +29,9 @@ import {
   getSentimentColor,
   getSentimentEmoji,
 } from '@/app/services/cortex/ml-features';
+import AiCostBadge from './components/AiCostBadge';
+import { useTrackAiCharge } from './store/ai-store';
+import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
 
 type TabId = 'ai-assistant' | 'sentiment' | 'translate' | 'summarize';
 
@@ -100,6 +104,9 @@ function AIAssistantTab() {
   const [response, setResponse] = useState('');
   const [model, setModel] = useState<LLMModel>('mistral-7b');
   const [loading, setLoading] = useState(false);
+  const [guardrails, setGuardrails] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_complete', { prompt_chars: prompt.length, model });
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -107,8 +114,9 @@ function AIAssistantTab() {
 
     setLoading(true);
     try {
-      const result = await generateCompletion({ prompt, model });
+      const result = await generateCompletion({ prompt, model, guardrails });
       setResponse(result.response);
+      trackCharge('cortex_complete', estimate.credits, model);
     } catch (error: any) {
       toast.error(error.message || 'Failed to generate response');
     } finally {
@@ -130,6 +138,36 @@ function AIAssistantTab() {
         <div>
           <h3 className="text-lg font-semibold text-slate-900 dark:text-white">AI Assistant</h3>
           <p className="text-sm text-slate-500">Ask questions, generate content, and more</p>
+        </div>
+      </div>
+
+      {/* Quick Demo Presets */}
+      <div>
+        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          Quick Demo
+        </label>
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          {[
+            { label: 'Explain Schema', text: 'Explain the schema of CP_DATA360.RETAIL_DW', icon: PiDatabaseDuotone },
+            { label: 'Top Customers Query', text: 'Write a query to find top 10 customers by revenue', icon: PiMagnifyingGlassDuotone },
+            { label: 'DQ Checks', text: 'Suggest data quality checks for FACT_TRANSACTIONS', icon: PiShieldCheckDuotone },
+          ].map((preset) => {
+            const PresetIcon = preset.icon;
+            return (
+              <button
+                key={preset.label}
+                type="button"
+                onClick={() => setPrompt(preset.text)}
+                className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 text-left transition-all hover:border-purple-400 hover:bg-purple-50 dark:border-slate-600 dark:hover:border-purple-500 dark:hover:bg-purple-900/20"
+              >
+                <PresetIcon className="h-5 w-5 flex-shrink-0 text-purple-500 dark:text-purple-400" />
+                <div>
+                  <div className="text-sm font-medium text-slate-700 dark:text-slate-300">{preset.label}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400 line-clamp-1">{preset.text}</div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -160,6 +198,28 @@ function AIAssistantTab() {
           </div>
         </div>
 
+        {/* Cortex Guard Toggle */}
+        <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
+          <button
+            type="button"
+            onClick={() => setGuardrails(!guardrails)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+              guardrails ? 'bg-green-500' : 'bg-slate-300 dark:bg-slate-600'
+            }`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+              guardrails ? 'translate-x-6' : 'translate-x-1'
+            }`} />
+          </button>
+          <div className="flex items-center gap-2">
+            <PiShieldCheckDuotone className={`h-5 w-5 ${guardrails ? 'text-green-600' : 'text-slate-400'}`} />
+            <div>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Cortex Guard</span>
+              <p className="text-xs text-slate-500">{guardrails ? 'Content safety filtering enabled' : 'No content filtering'}</p>
+            </div>
+          </div>
+        </div>
+
         {/* Prompt Input */}
         <div>
           <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -174,23 +234,31 @@ function AIAssistantTab() {
           />
         </div>
 
-        <Button
-          type="submit"
-          disabled={loading || !prompt.trim()}
-          className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white"
-        >
-          {loading ? (
-            <>
-              <Loader className="mr-2 h-4 w-4 animate-spin" />
-              Generating...
-            </>
-          ) : (
-            <>
-              <PiSparkle className="mr-2 h-4 w-4" />
-              Generate Response
-            </>
-          )}
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button
+            type="submit"
+            disabled={loading || !prompt.trim()}
+            className="bg-gradient-to-r from-purple-500 to-indigo-600 text-white"
+          >
+            {loading ? (
+              <>
+                <Loader className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              <>
+                <PiSparkle className="mr-2 h-4 w-4" />
+                Generate Response
+              </>
+            )}
+          </Button>
+          <AiCostBadge
+            featureKey="cortex_complete"
+            params={{ prompt_chars: prompt.length, model }}
+            size="md"
+            showSource
+          />
+        </div>
       </form>
 
       {/* Response */}
@@ -222,6 +290,9 @@ function SentimentTab() {
   const [input, setInput] = useState('');
   const [results, setResults] = useState<SentimentResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const rowCount = input.split('\n').filter((t) => t.trim()).length;
+  const estimate = useAiCostEstimate('cortex_sentiment', { rows: rowCount });
 
   async function handleAnalyze() {
     if (!input.trim()) return;
@@ -233,6 +304,7 @@ function SentimentTab() {
     try {
       const sentiments = await analyzeSentiment(texts);
       setResults(sentiments);
+      trackCharge('cortex_sentiment', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to analyze sentiment');
     } finally {
@@ -260,9 +332,18 @@ function SentimentTab() {
       </div>
 
       <div>
-        <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          Enter text to analyze (one per line for batch analysis)
-        </label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+            Enter text to analyze (one per line for batch analysis)
+          </label>
+          <button
+            onClick={() => setInput("I love this product! The quality is amazing and delivery was super fast.\nTerrible experience. The item arrived broken and customer service was unhelpful.\nIt's okay, nothing special but it works as expected.\nBest purchase I've made this year! Highly recommended.\nDisappointing quality for the price. Would not buy again.")}
+            className="text-xs font-medium text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center gap-1"
+          >
+            <PiSparkle className="h-3 w-3" />
+            Try Sample
+          </button>
+        </div>
         <Textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -272,23 +353,31 @@ function SentimentTab() {
         />
       </div>
 
-      <Button
-        onClick={handleAnalyze}
-        disabled={loading || !input.trim()}
-        className="bg-gradient-to-r from-green-500 to-emerald-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Analyzing...
-          </>
-        ) : (
-          <>
-            <PiSmileyDuotone className="mr-2 h-4 w-4" />
-            Analyze Sentiment
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleAnalyze}
+          disabled={loading || !input.trim()}
+          className="bg-gradient-to-r from-green-500 to-emerald-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Analyzing...
+            </>
+          ) : (
+            <>
+              <PiSmileyDuotone className="mr-2 h-4 w-4" />
+              Analyze Sentiment
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_sentiment"
+          params={{ rows: rowCount }}
+          size="md"
+          showSource
+        />
+      </div>
 
       {/* Results */}
       {results.length > 0 && (
@@ -353,6 +442,8 @@ function TranslatorTab() {
   const [fromLang, setFromLang] = useState<LanguageCode>('en');
   const [toLang, setToLang] = useState<LanguageCode>('fr');
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_translate', { prompt_chars: sourceText.length });
 
   async function handleTranslate() {
     if (!sourceText.trim()) return;
@@ -365,6 +456,7 @@ function TranslatorTab() {
         to_language: toLang,
       });
       setTranslatedText(result.translated);
+      trackCharge('cortex_translate', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to translate');
     } finally {
@@ -443,9 +535,18 @@ function TranslatorTab() {
       {/* Text Areas */}
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
-            Source Text
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+              Source Text
+            </label>
+            <button
+              onClick={() => setSourceText("Data360 is the all-in-one AI and Data ERP platform that connects, models, transforms, governs, and analyzes enterprise data in a single unified experience.")}
+              className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 flex items-center gap-1"
+            >
+              <PiSparkle className="h-3 w-3" />
+              Try Sample
+            </button>
+          </div>
           <Textarea
             value={sourceText}
             onChange={(e) => setSourceText(e.target.value)}
@@ -482,23 +583,31 @@ function TranslatorTab() {
         </div>
       </div>
 
-      <Button
-        onClick={handleTranslate}
-        disabled={loading || !sourceText.trim()}
-        className="bg-gradient-to-r from-blue-500 to-cyan-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Translating...
-          </>
-        ) : (
-          <>
-            <PiTranslateDuotone className="mr-2 h-4 w-4" />
-            Translate
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleTranslate}
+          disabled={loading || !sourceText.trim()}
+          className="bg-gradient-to-r from-blue-500 to-cyan-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Translating...
+            </>
+          ) : (
+            <>
+              <PiTranslateDuotone className="mr-2 h-4 w-4" />
+              Translate
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_translate"
+          params={{ prompt_chars: sourceText.length }}
+          size="md"
+          showSource
+        />
+      </div>
     </div>
   );
 }
@@ -512,6 +621,8 @@ function SummarizerTab() {
   const [maxLength, setMaxLength] = useState(150);
   const [summary, setSummary] = useState<{ text: string; compression: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const trackCharge = useTrackAiCharge();
+  const estimate = useAiCostEstimate('cortex_summarize', { prompt_chars: inputText.length });
 
   async function handleSummarize() {
     if (!inputText.trim() || inputText.length < 100) {
@@ -523,6 +634,7 @@ function SummarizerTab() {
     try {
       const result = await summarizeText({ text: inputText, max_length: maxLength });
       setSummary({ text: result.summary, compression: result.compression_ratio || '0' });
+      trackCharge('cortex_summarize', estimate.credits);
     } catch (error: any) {
       toast.error(error.message || 'Failed to summarize');
     } finally {
@@ -574,6 +686,13 @@ function SummarizerTab() {
         <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
           Original Text
         </label>
+        <button
+          onClick={() => setInputText("Data governance is the process of managing the availability, usability, integrity, and security of data in enterprise systems. It includes establishing policies, standards, and procedures that ensure data quality and compliance with regulations such as GDPR and SOC 2. Effective data governance requires collaboration between data stewards, engineers, analysts, and business stakeholders. Modern platforms like Data360 automate governance through AI-powered classification, masking policies, row-level security, and real-time compliance monitoring across all data assets.")}
+          className="text-xs font-medium text-orange-600 dark:text-orange-400 hover:text-orange-700 flex items-center gap-1 mb-1"
+        >
+          <PiSparkle className="h-3 w-3" />
+          Try Sample Text
+        </button>
         <Textarea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -589,23 +708,31 @@ function SummarizerTab() {
         </div>
       </div>
 
-      <Button
-        onClick={handleSummarize}
-        disabled={loading || inputText.length < 100}
-        className="bg-gradient-to-r from-orange-500 to-amber-600 text-white"
-      >
-        {loading ? (
-          <>
-            <Loader className="mr-2 h-4 w-4 animate-spin" />
-            Summarizing...
-          </>
-        ) : (
-          <>
-            <PiTextAlignLeftDuotone className="mr-2 h-4 w-4" />
-            Generate Summary
-          </>
-        )}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button
+          onClick={handleSummarize}
+          disabled={loading || inputText.length < 100}
+          className="bg-gradient-to-r from-orange-500 to-amber-600 text-white"
+        >
+          {loading ? (
+            <>
+              <Loader className="mr-2 h-4 w-4 animate-spin" />
+              Summarizing...
+            </>
+          ) : (
+            <>
+              <PiTextAlignLeftDuotone className="mr-2 h-4 w-4" />
+              Generate Summary
+            </>
+          )}
+        </Button>
+        <AiCostBadge
+          featureKey="cortex_summarize"
+          params={{ prompt_chars: inputText.length }}
+          size="md"
+          showSource
+        />
+      </div>
 
       {/* Summary Result */}
       {summary && (

@@ -34,7 +34,7 @@ const priorityConfig = {
 export default function RecommendationsCard({ recommendations, className }: RecommendationsCardProps) {
   if (!recommendations || recommendations.length === 0) {
     return (
-      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+      <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
         <Title as="h3" className="text-base font-semibold">
           Recommendations
         </Title>
@@ -49,7 +49,7 @@ export default function RecommendationsCard({ recommendations, className }: Reco
   }
 
   return (
-    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-50', className)}>
+    <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
       <div className="flex items-center justify-between">
         <Title as="h3" className="text-base font-semibold">
           Recommendations

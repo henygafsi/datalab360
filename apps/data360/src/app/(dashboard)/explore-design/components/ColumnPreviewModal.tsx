@@ -8,16 +8,36 @@ import {
   Percent, List, Database, TrendingUp, TrendingDown, Minus
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import {
-  getColumnPreview,
-  getColumnProfile,
-  ColumnPreviewData,
-  ColumnProfile
-} from '@/app/services/explore-design';
+import { columnPreview, columnProfile } from '@/app/services/api/exploreDesignApi';
+
+// Adapted shapes for rendering (mapped from new API responses)
+interface ColumnPreviewData {
+  sample_values: any[];
+  total_rows: number;
+}
+
+interface ColumnProfile {
+  total_rows: number;
+  null_count: number;
+  null_percentage: number;
+  distinct_count: number;
+  distinct_percentage: number;
+  min_value?: any;
+  max_value?: any;
+  avg_value?: number;
+  min_length?: number;
+  max_length?: number;
+  avg_length?: number;
+  most_frequent?: Array<{ value: any; count: number; percentage: number }>;
+  data_quality_score: number;
+  is_unique: boolean;
+  has_nulls: boolean;
+}
 
 interface ColumnPreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
+  projectId: string;
   database: string;
   schema: string;
   table: string;
@@ -59,6 +79,7 @@ const formatValue = (value: any): string => {
 export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
   isOpen,
   onClose,
+  projectId,
   database,
   schema,
   table,
@@ -85,23 +106,54 @@ export const ColumnPreviewModal: React.FC<ColumnPreviewModalProps> = ({
     setProfileData(null);
 
     try {
-      // Load both preview and profile in parallel
-      const [preview, profile] = await Promise.all([
-        getColumnPreview(database, schema, table, column).catch((err) => {
+      // Load both preview and profile in parallel using new API
+      const [previewResp, profileResp] = await Promise.all([
+        columnPreview(projectId, database, schema, table, column).catch((err) => {
           console.error('Failed to load preview:', err);
           return null;
         }),
-        getColumnProfile(database, schema, table, column).catch((err) => {
+        columnProfile(projectId, database, schema, table, column).catch((err) => {
           console.error('Failed to load profile:', err);
           return null;
         }),
       ]);
 
-      if (preview) setPreviewData(preview);
-      if (profile) setProfileData(profile);
+      // Map new API response to rendering shape
+      if (previewResp) {
+        const values = Array.isArray(previewResp.values)
+          ? previewResp.values.map((v: any) => (typeof v === 'object' && v !== null && 'value' in v ? v.value : v))
+          : [];
+        setPreviewData({ sample_values: values, total_rows: previewResp.count });
+      }
+      if (profileResp) {
+        const totalRows = profileResp.total_count;
+        const nullCount = profileResp.null_count;
+        const distinctCount = profileResp.distinct_count;
+        const nullPct = totalRows > 0 ? (nullCount / totalRows) * 100 : 0;
+        const distinctPct = totalRows > 0 ? (distinctCount / totalRows) * 100 : 0;
+        const topFrequent = (profileResp.top_values ?? []).map((tv) => ({
+          value: tv.value,
+          count: tv.count,
+          percentage: totalRows > 0 ? (tv.count / totalRows) * 100 : 0,
+        }));
+        setProfileData({
+          total_rows: totalRows,
+          null_count: nullCount,
+          null_percentage: nullPct,
+          distinct_count: distinctCount,
+          distinct_percentage: distinctPct,
+          min_value: profileResp.min_value,
+          max_value: profileResp.max_value,
+          data_quality_score: profileResp.quality_score ?? 100,
+          is_unique: distinctCount === totalRows && totalRows > 0,
+          has_nulls: nullCount > 0,
+          most_frequent: topFrequent.length > 0 ? topFrequent : undefined,
+          max_length: profileResp.max_length ?? undefined,
+        });
+      }
 
       // If both failed, show error
-      if (!preview && !profile) {
+      if (!previewResp && !profileResp) {
         setError('Failed to load column data. The backend endpoints may not be available.');
       }
     } catch (err) {

@@ -6,7 +6,8 @@ import { cn } from '@/lib/utils';
 import {
   Table2, Key, Shield, Lock, RefreshCw, Clock, History, Layers,
   MoreVertical, Edit2, Trash2, Eye, Link2, Copy, ArrowRight,
-  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag
+  ChevronDown, ChevronRight, Database, AlertTriangle, Check, Plus, Tag,
+  BarChart3
 } from 'lucide-react';
 
 // Column info for the node
@@ -40,6 +41,12 @@ export interface TableNodeData {
   onContextMenu?: (e: React.MouseEvent, action: string) => void;
   onExpand?: () => void;
   compact?: boolean;
+  config?: {
+    hasRLS?: boolean;
+    tags?: string[];
+    qualityScore?: number | null;
+    rowCount?: number | null;
+  };
 }
 
 // Ingestion mode icons
@@ -55,7 +62,8 @@ const ingestionModeIcons: Record<string, React.ReactNode> = {
 // Menu items for table actions - used by sidebar panel
 export const TABLE_ACTION_ITEMS = [
   { id: 'rename', label: 'Rename Table', icon: Edit2 },
-  { id: 'add_column', label: 'Add Computed Column', icon: Plus, highlight: true },
+  { id: 'add_new_column', label: 'Add Column', icon: Plus, highlight: true },
+  { id: 'add_computed_column', label: 'Add Computed Column', icon: Plus, highlight: true },
   { id: 'duplicate', label: 'Duplicate', icon: Copy },
   { id: 'divider1', label: '' },
   { id: 'pk_config', label: 'Set Primary Key', icon: Key, highlight: true },
@@ -121,7 +129,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
     <>
       <div
         className={cn(
-          'min-w-[220px] rounded-lg border-2 shadow-lg transition-all',
+          'min-w-[220px] rounded-lg border-2 shadow-lg transition-all hover:shadow-2xl hover:border-blue-400 dark:hover:border-blue-500 hover:-translate-y-0.5',
           selected ? 'ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-slate-900' : '',
           data.isTargetTable
             ? targetTableStyles // Target/DWH tables get special styling
@@ -132,7 +140,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
       >
         {/* Header */}
         <div className={cn(
-          "px-3 py-2 rounded-t-md border-b dark:border-slate-600",
+          "px-3 py-2 rounded-t-md border-b dark:border-slate-600 cursor-grab active:cursor-grabbing",
           data.isTargetTable
             ? "bg-indigo-100 dark:bg-indigo-900/40"
             : "bg-slate-100 dark:bg-slate-700"
@@ -157,7 +165,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
                   autoFocus
                 />
               ) : (
-                <span className="font-medium text-sm truncate" title={displayName}>
+                <span className="font-semibold text-sm truncate" title={displayName}>
                   {displayName}
                 </span>
               )}
@@ -198,6 +206,39 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
           <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
             {data.schema}
           </div>
+          {/* Governance & Metadata Badges */}
+          {(data.config?.hasRLS || (data.config?.tags && data.config.tags.length > 0) || data.config?.qualityScore != null || data.config?.rowCount != null) && (
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {data.config?.hasRLS && (
+                <div className="flex items-center gap-0.5 text-[9px] text-purple-600 dark:text-purple-400" title="RLS Policy Applied">
+                  <Lock className="h-2.5 w-2.5" />
+                  <span>RLS</span>
+                </div>
+              )}
+              {data.config?.tags && data.config.tags.length > 0 && (
+                <div className="flex items-center gap-0.5 text-[9px] text-yellow-600 dark:text-yellow-400" title={`${data.config.tags.length} tags`}>
+                  <Tag className="h-2.5 w-2.5" />
+                  <span>{data.config.tags.length}</span>
+                </div>
+              )}
+              {data.config?.qualityScore != null && (
+                <div className={cn("flex items-center gap-0.5 text-[9px]",
+                  data.config.qualityScore >= 80 ? "text-green-600 dark:text-green-400" :
+                  data.config.qualityScore >= 50 ? "text-amber-600 dark:text-amber-400" :
+                  "text-red-600 dark:text-red-400"
+                )} title={`Quality: ${data.config.qualityScore}%`}>
+                  <BarChart3 className="h-2.5 w-2.5" />
+                  <span>{data.config.qualityScore}%</span>
+                </div>
+              )}
+              {data.config?.rowCount != null && (
+                <div className="flex items-center gap-0.5 text-[9px] text-gray-500 dark:text-gray-400" title={`${data.config.rowCount.toLocaleString()} rows`}>
+                  <Table2 className="h-2.5 w-2.5" />
+                  <span>{data.config.rowCount > 1000000 ? `${(data.config.rowCount/1000000).toFixed(1)}M` : data.config.rowCount > 1000 ? `${(data.config.rowCount/1000).toFixed(1)}K` : data.config.rowCount}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Columns */}
@@ -286,7 +327,7 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
 
         {/* Footer */}
         <div className="px-3 py-1.5 bg-slate-50 dark:bg-slate-800/50 rounded-b-md border-t dark:border-slate-700 flex items-center justify-between text-xs text-slate-500">
-          <span>{data.columns.length} columns</span>
+          <span><span className="font-semibold">{data.columns.length}</span> columns</span>
           <div className="flex items-center gap-2">
             {/* Mapping status for target tables */}
             {data.isTargetTable && mappedCount > 0 && (
@@ -314,12 +355,12 @@ const TableNode: React.FC<NodeProps<TableNodeData>> = ({ data, selected }) => {
         <Handle
           type="target"
           position={Position.Left}
-          className="!w-3 !h-3 !bg-blue-500 !border-2 !border-white"
+          className="!w-4 !h-4 !bg-blue-500 !border-2 !border-white"
         />
         <Handle
           type="source"
           position={Position.Right}
-          className="!w-3 !h-3 !bg-green-500 !border-2 !border-white"
+          className="!w-4 !h-4 !bg-green-500 !border-2 !border-white"
         />
       </div>
     </>

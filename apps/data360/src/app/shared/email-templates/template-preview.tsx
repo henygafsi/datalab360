@@ -36,7 +36,7 @@ export default function TemplatePreview({
     <div
       className={cn(
         className,
-        'rounded-2xl border border-gray-100 bg-white @container dark:bg-gray-50'
+        'rounded-2xl border border-gray-100 bg-white @container dark:bg-gray-800'
       )}
     >
       <div className="relative flex h-full w-full flex-col items-center justify-center p-6 @2xl:p-12 3xl:px-16 4xl:px-28">
@@ -77,7 +77,7 @@ function EmailForm({ template }: { template: string }) {
   const [isLoading, setIsLoading] = useState(false);
 
   const onSubmit: SubmitHandler<NewsLetterFormSchema> = async (data) => {
-    console.log(data);
+    // console.log(data);
 
     setIsLoading(true);
     try {
@@ -91,7 +91,7 @@ function EmailForm({ template }: { template: string }) {
       setIsLoading(false);
       toast.success(messages.emailSentSuccessfully);
     } catch (error) {
-      console.log('error', error);
+      // console.log('error', error);
       setIsLoading(false);
     }
   };

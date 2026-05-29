@@ -4,7 +4,7 @@ import { Title, Text } from 'rizzui';
 import cn from '@core/utils/class-names';
 
 const metricCardClasses = {
-  base: 'border border-muted bg-gray-0 p-5 dark:bg-gray-50 lg:p-6',
+  base: 'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6',
   rounded: {
     sm: 'rounded-sm',
     DEFAULT: 'rounded-lg',

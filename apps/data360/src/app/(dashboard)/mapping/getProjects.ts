@@ -1,5 +1,6 @@
 /**
- * Mapping projects list: uses backend GET /explore-design/projects (single source for cross-module project list).
+ * Mapping projects list: uses unified GET /projects?project_type=explore_design
+ * (the legacy /explore-design/projects route no longer exists server-side).
  */
 import apiClient from '@/lib/api-client';
 
@@ -15,7 +16,7 @@ export interface Project {
 
 /**
  * Fetches all projects for the current user (explore-design + mapping).
- * Backend: GET /explore-design/projects
+ * Backend: GET /projects?project_type=explore_design
  */
 export const getProjects = async (): Promise<Project[]> => {
   try {
@@ -25,7 +26,9 @@ export const getProjects = async (): Promise<Project[]> => {
       created_by: string;
       status: string;
       metadata?: { shared_with?: string[]; deployment_version?: number };
-    }>; total: number }>('/explore-design/projects');
+    }>; total: number }>('/projects', {
+      params: { project_type: 'explore_design' },
+    });
     const list = response.data?.projects ?? [];
     return list.map((p) => ({
       project_id: p.project_id,

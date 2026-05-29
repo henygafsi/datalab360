@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
     Button,
     Card,
@@ -20,8 +20,9 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { createProject } from './createProject';
 import { getProjects } from './getProjects';
 import { getProjectLatestEvents } from './getProjectLatestEvents';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface Project {
     project_id: string;
@@ -39,91 +40,43 @@ interface Step0Props {
 
 const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => {
     const { toast } = useToast();
-    const [projects, setProjects] = useState<Project[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
     const [newProjectName, setNewProjectName] = useState('');
     const [newProjectSharedWith, setNewProjectSharedWith] = useState('');
-    const [loading, setLoading] = useState(true);
     const [isCreatingProject, setIsCreatingProject] = useState(false);
-    const [isRefreshing, setIsRefreshing] = useState(false);
 
-    // Watch for SSE cache invalidation events on 'projects' key
-    const { wasInvalidated } = useCacheInvalidationWatcher([CACHE_KEYS.PROJECTS]);
-    const mountedRef = useRef(true);
+    // Fetch and enrich projects with latest events
+    const fetchData = useCallback(async (): Promise<Project[]> => {
+        const baseProjects = await getProjects();
 
-    // Fetch projects data
-    const fetchData = useCallback(async (isBackgroundRefresh = false) => {
-        if (!isBackgroundRefresh) {
-            setLoading(true);
-        } else {
-            setIsRefreshing(true);
+        if (!baseProjects || baseProjects.length === 0) {
+            return [];
         }
 
-        try {
-            const baseProjects = await getProjects();
-            console.log('Step0: Fetched base projects:', baseProjects);
+        const enrichedProjectsPromises = baseProjects.map(async (project) => {
+            const events = await getProjectLatestEvents(project.project_id);
+            const lastEvent = events.length > 0 ? events[events.length - 1] : null;
+            const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || 'None');
+            return {
+                ...project,
+                last_completed_step: finalStep,
+            };
+        });
 
-            if (!baseProjects || baseProjects.length === 0) {
-                if (mountedRef.current) setProjects([]);
-                return;
-            }
+        return Promise.all(enrichedProjectsPromises);
+    }, []);
 
-            const enrichedProjectsPromises = baseProjects.map(async (project) => {
-                const events = await getProjectLatestEvents(project.project_id);
-                const lastEvent = events.length > 0 ? events[events.length - 1] : null;
-                const finalStep = lastEvent ? lastEvent.event_type : (project.step_name || 'None');
-                return {
-                    ...project,
-                    last_completed_step: finalStep,
-                };
-            });
-
-            const finalProjects = await Promise.all(enrichedProjectsPromises);
-            if (mountedRef.current) {
-                setProjects(finalProjects);
-                console.log('Step0: Enriched projects with final steps:', finalProjects);
-            }
-        } catch (error: unknown) {
-            console.error("Step0: Error during data fetching:", error);
-            if (mountedRef.current) {
-                toast({
-                    title: 'Error',
-                    description: `Failed to fetch project data: ${error instanceof Error ? error.message : 'An unexpected error occurred.'}`,
-                    variant: 'destructive',
-                });
-                setProjects([]);
-            }
-        } finally {
-            if (mountedRef.current) {
-                setLoading(false);
-                setIsRefreshing(false);
-            }
-        }
-    }, [toast]);
-
-    // Initial fetch
-    useEffect(() => {
-        mountedRef.current = true;
-        fetchData();
-        return () => {
-            mountedRef.current = false;
-        };
-    }, [fetchData]);
-
-    // Auto-refresh when SSE cache invalidation event is received
-    useEffect(() => {
-        if (wasInvalidated && !loading) {
-            console.log('[SSE] Projects cache invalidated - refreshing data...');
-            fetchData(true);
-        }
-    }, [wasInvalidated, loading, fetchData]);
+    const { data: projects, loading, isStale, refetch } = useCacheAwareQuery<Project[]>(
+        fetchData,
+        { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: [] }
+    );
 
     const handleSelectProject = () => {
         if (!selectedProjectId) {
             toast({ title: 'Selection Required', description: 'Please select an existing project.', variant: 'destructive' });
             return;
         }
-        const selectedProject = projects.find(p => p.project_id === selectedProjectId);
+        const selectedProject = (projects ?? []).find(p => p.project_id === selectedProjectId);
         if (selectedProject) {
             onProjectSelected(selectedProject.project_id, selectedProject.last_completed_step);
         } else {
@@ -145,16 +98,8 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
             const response = await createProject(payload);
             toast({ title: 'Project Created', description: `Project "${newProjectName}" created successfully!` });
 
-            const newProject: Project = {
-                project_id: response.project_id,
-                name: newProjectName.trim(),
-                created_by: 'You',
-                shared_with: sharedUsers,
-                deployment_version: 0,
-                last_completed_step: 'CREATE_PROJECT',
-            };
-            setProjects(prevProjects => [newProject, ...prevProjects]);
             setSelectedProjectId(response.project_id);
+            refetch();
             onProjectSelected(response.project_id, null);
         } catch (error: any) {
             console.error("Step0: Error creating project:", error);
@@ -176,11 +121,12 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
     }
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <div className="flex items-center justify-between">
                     <CardTitle>Step 0: Project Management</CardTitle>
-                    {isRefreshing && (
+                    {isStale && (
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <RefreshCw className="h-4 w-4 animate-spin" />
                             <span>Syncing...</span>
@@ -224,7 +170,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                         )}
                     </Button>
                 </div>
-                {projects.length > 0 ? (
+                {(projects ?? []).length > 0 ? (
                     <div className="space-y-4 border p-4 rounded-lg">
                         <h3 className="text-lg font-semibold">Select Existing Project</h3>
                         <div>
@@ -234,7 +180,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                                     <SelectValue placeholder="Select an existing project" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {projects.map((project) => (
+                                    {(projects ?? []).map((project) => (
                                         <SelectItem key={project.project_id} value={project.project_id}>
                                             {project.name} (Created by: {project.created_by}) - Last Step: {project.last_completed_step || 'None'}
                                         </SelectItem>
@@ -251,6 +197,7 @@ const Step0ProjectManagement: React.FC<Step0Props> = ({ onProjectSelected }) => 
                 )}
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

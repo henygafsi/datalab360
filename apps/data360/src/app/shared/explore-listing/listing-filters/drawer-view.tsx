@@ -37,7 +37,7 @@ export default function FilterDrawerView() {
   const { closeDrawer } = useDrawer();
 
   return (
-    <div className="relative flex h-full w-full flex-col bg-white px-5 py-3.5 dark:bg-gray-50">
+    <div className="relative flex h-full w-full flex-col bg-white px-5 py-3.5 dark:bg-gray-800">
       <div className="-mx-5 mb-6 flex items-center justify-between border-b border-muted px-4 pb-4">
         <Title as="h5" className="font-semibold">
           More Filters
@@ -151,7 +151,7 @@ export default function FilterDrawerView() {
         </div>
       </SimpleBar>
 
-      <div className="sticky bottom-0 flex items-center justify-center gap-3 bg-white pb-3 pt-5 dark:bg-gray-50">
+      <div className="sticky bottom-0 flex items-center justify-center gap-3 bg-white pb-3 pt-5 dark:bg-gray-800">
         {hasSearchedParams() ? (
           <Button
             size="lg"

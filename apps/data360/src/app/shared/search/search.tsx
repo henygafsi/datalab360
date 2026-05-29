@@ -46,7 +46,7 @@ export default function SearchWidget({
       <Modal
         isOpen={open}
         onClose={() => setOpen(false)}
-        overlayClassName="dark:bg-opacity-20 dark:bg-gray-50 dark:backdrop-blur-sm"
+        overlayClassName="dark:bg-opacity-20 dark:bg-gray-800 dark:backdrop-blur-sm"
         containerClassName="dark:bg-gray-100/90 overflow-hidden dark:backdrop-blur-xl"
         className="z-[9999]"
       >

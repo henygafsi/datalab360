@@ -68,19 +68,19 @@ export default function KPICard({
     return (
       <div
         className={cn(
-          'border border-muted bg-gray-0 p-5 dark:bg-gray-50 lg:p-6 rounded-xl',
+          'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6 rounded-xl',
           'animate-pulse',
           className
         )}
       >
         <div className="flex items-start justify-between">
           <div className="flex-1">
-            <div className="h-4 w-24 bg-gray-200 rounded mb-3" />
-            <div className="h-8 w-32 bg-gray-200 rounded mb-2" />
-            {subtitle && <div className="h-3 w-20 bg-gray-200 rounded" />}
+            <div className="h-4 w-24 bg-gray-200 dark:bg-gray-700 rounded mb-3" />
+            <div className="h-8 w-32 bg-gray-200 dark:bg-gray-700 rounded mb-2" />
+            {subtitle && <div className="h-3 w-20 bg-gray-200 dark:bg-gray-700 rounded" />}
           </div>
           {icon && (
-            <div className="h-11 w-11 bg-gray-200 rounded-lg lg:h-12 lg:w-12" />
+            <div className="h-11 w-11 bg-gray-200 dark:bg-gray-700 rounded-lg lg:h-12 lg:w-12" />
           )}
         </div>
       </div>
@@ -120,7 +120,7 @@ export default function KPICard({
   return (
     <div
       className={cn(
-        'border border-muted bg-gray-0 p-5 dark:bg-gray-50 lg:p-6 rounded-xl',
+        'border border-muted bg-gray-0 p-5 dark:bg-gray-800 lg:p-6 rounded-xl',
         'transition-all duration-200 hover:shadow-md',
         className
       )}

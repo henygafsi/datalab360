@@ -12,6 +12,7 @@ import { getTables } from '@/app/services/mapping/getTables';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { addPrimaryKey } from './addPrimaryKey';
 import { addGroupEvent, GroupData } from '@/app/services/mapping/saveGroups';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 // --- Interface Definitions ---
 interface ColumnDetail {
@@ -427,11 +428,11 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 mappingData.primary_keys.source[tableKey].forEach(columnName => pksFromProps.push({ tableKey, columnName }));
             }
         }
-        console.log('Building PKs from mappingData:', {
-            pksFromProps: pksFromProps.length,
-            currentManuallyDefinedPKs: manuallyDefinedPKs.length,
-            mappingDataPKs: mappingData.primary_keys?.source
-        });
+        // console.log('Building PKs from mappingData:', {
+            // pksFromProps: pksFromProps.length,
+            // currentManuallyDefinedPKs: manuallyDefinedPKs.length,
+            // mappingDataPKs: mappingData.primary_keys?.source
+        // });
         setManuallyDefinedPKs(pksFromProps);
     }, [mappingData.primary_keys?.source]); // Removed extraGroups and selectedTargetTable from deps
 
@@ -525,14 +526,14 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
             ? otherTablesPks
             : [...manuallyDefinedPKs, { tableKey, columnName }];
         
-        console.log('Toggling PK:', {
-            tableKey,
-            columnName,
-            isCurrentlyPk,
-            currentPKs: manuallyDefinedPKs.length,
-            nextPKs: nextState.length,
-            action: isCurrentlyPk ? 'REMOVING' : 'ADDING'
-        });
+        // console.log('Toggling PK:', {
+            // tableKey,
+            // columnName,
+            // isCurrentlyPk,
+            // currentPKs: manuallyDefinedPKs.length,
+            // nextPKs: nextState.length,
+            // action: isCurrentlyPk ? 'REMOVING' : 'ADDING'
+        // });
         
         setManuallyDefinedPKs(nextState);
     }, [manuallyDefinedPKs, isColumnPK]);
@@ -621,32 +622,32 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         const targetPkSet = new Set<string>();
 
         // Debug: Log current state before processing
-        console.log('=== DEBUG: Before PK Collection ===');
-        console.log('Total groups:', extraGroups.length);
-        console.log('Manually defined PKs:', manuallyDefinedPKs);
-        console.log('Groups details:', extraGroups.map(g => ({
-            id: g.id,
-            sources: g.selectedSourceTables.length,
-            target: g.target?.table || 'none',
-            sourceTables: g.selectedSourceTables.map(t => `${t.database}.${t.schema}.${t.table}`)
-        })));
+        // console.log('=== DEBUG: Before PK Collection ===');
+        // console.log('Total groups:', extraGroups.length);
+        // console.log('Manually defined PKs:', manuallyDefinedPKs);
+        // console.log('Groups details:', extraGroups.map(g => ({
+            // id: g.id,
+            // sources: g.selectedSourceTables.length,
+            // target: g.target?.table || 'none',
+            // sourceTables: g.selectedSourceTables.map(t => `${t.database}.${t.schema}.${t.table}`)
+        // })));
 
         // Collect source and target PKs across ALL groups
         for (const group of extraGroups) {
-            console.log(`Processing group ${group.id}:`, {
-                sources: group.selectedSourceTables.length,
-                target: group.target?.table || 'none'
-            });
+            // console.log(`Processing group ${group.id}:`, {
+                // sources: group.selectedSourceTables.length,
+                // target: group.target?.table || 'none'
+            // });
             
             // Collect source PKs for this group's sources
             for (const sourceTable of group.selectedSourceTables) {
                 const tableKey = `${sourceTable.database}.${sourceTable.schema}.${sourceTable.table}`;
                 const sourcePKs = manuallyDefinedPKs.filter(pk => pk.tableKey === tableKey);
                 
-                console.log(`  Processing source table ${tableKey}:`, {
-                    foundPKs: sourcePKs.length,
-                    pkDetails: sourcePKs
-                });
+                // console.log(`  Processing source table ${tableKey}:`, {
+                    // foundPKs: sourcePKs.length,
+                    // pkDetails: sourcePKs
+                // });
                 
                 if (sourcePKs.length > 0) {
                     if (!primaryKeysForMapping.source[tableKey]) {
@@ -665,10 +666,10 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 const tKey = `${group.target.database}.${group.target.schema}.${group.target.table}`;
                 const targetPKs = manuallyDefinedPKs.filter(pk => pk.tableKey === tKey);
                 
-                console.log(`  Processing target table ${tKey}:`, {
-                    foundPKs: targetPKs.length,
-                    pkDetails: targetPKs
-                });
+                // console.log(`  Processing target table ${tKey}:`, {
+                    // foundPKs: targetPKs.length,
+                    // pkDetails: targetPKs
+                // });
                 
                 targetPKs.forEach(pk => targetPkSet.add(pk.columnName));
             }
@@ -676,25 +677,25 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
         primaryKeysForMapping.target = Array.from(targetPkSet);
 
         // Debug logging to verify all groups are processed
-        console.log('Processing PKs for all groups:', {
-            totalGroups: extraGroups.length,
-            sourcePKs: Object.keys(primaryKeysForMapping.source).length,
-            targetPKs: primaryKeysForMapping.target.length,
-            sourcePKDetails: primaryKeysForMapping.source,
-            targetPKDetails: primaryKeysForMapping.target,
-            allManuallyDefinedPKs: manuallyDefinedPKs.length,
-            manuallyDefinedPKDetails: manuallyDefinedPKs
-        });
+        // console.log('Processing PKs for all groups:', {
+            // totalGroups: extraGroups.length,
+            // sourcePKs: Object.keys(primaryKeysForMapping.source).length,
+            // targetPKs: primaryKeysForMapping.target.length,
+            // sourcePKDetails: primaryKeysForMapping.source,
+            // targetPKDetails: primaryKeysForMapping.target,
+            // allManuallyDefinedPKs: manuallyDefinedPKs.length,
+            // manuallyDefinedPKDetails: manuallyDefinedPKs
+        // });
 
         // Validate that we have PKs for all groups
         const groupsWithSources = extraGroups.filter(g => g.selectedSourceTables.length > 0);
         const groupsWithTargets = extraGroups.filter(g => g.target && g.target.table);
         
-        console.log('Group validation:', {
-            groupsWithSources: groupsWithSources.length,
-            groupsWithTargets: groupsWithTargets.length,
-            totalSourceTables: groupsWithSources.reduce((sum, g) => sum + g.selectedSourceTables.length, 0)
-        });
+        // console.log('Group validation:', {
+            // groupsWithSources: groupsWithSources.length,
+            // groupsWithTargets: groupsWithTargets.length,
+            // totalSourceTables: groupsWithSources.reduce((sum, g) => sum + g.selectedSourceTables.length, 0)
+        // });
 
         const firstSrc = g.selectedSourceTables[0];
         // Persist every group's PKs (call addPrimaryKey for each table with selected PKs)
@@ -820,6 +821,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
     }, [extraGroups, updateGroup, fetchGroupTargetSchemas, fetchGroupTargetTables]); // eslint-disable-line react-hooks/exhaustive-deps
 
     return (
+        <ErrorBoundary>
         <Card className="p-4">
             <CardHeader>
                 <CardTitle>Step 1: Primary Key Management</CardTitle>
@@ -1047,6 +1049,7 @@ const Step1PrimaryKeyFK: React.FC<Step1Props> = ({
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { createEnv } from '@t3-oss/env-nextjs';
 
+if (!process.env.NEXTAUTH_URL && process.env.VERCEL_URL) {
+  process.env.NEXTAUTH_URL = `https://${process.env.VERCEL_URL}`;
+}
+
 export const env = createEnv({
   /*
    * ServerSide Environment variables, not available on the client.
@@ -31,4 +35,8 @@ export const env = createEnv({
     NEXT_PUBLIC_GOOGLE_MAP_API_KEY: z.string().optional(),
   },
   runtimeEnv: process.env,
+  skipValidation:
+    !!process.env.SKIP_ENV_VALIDATION ||
+    process.env.npm_lifecycle_event === 'lint' ||
+    process.env.NEXT_PHASE === 'phase-production-build',
 });

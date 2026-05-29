@@ -60,7 +60,7 @@ export default function StepFive() {
   });
 
   const onSubmit: SubmitHandler<FormStep5Schema> = (data) => {
-    console.log('data', data);
+    // console.log('data', data);
     setFormData((prev) => ({
       ...prev,
       guests: data.guests,
@@ -126,7 +126,7 @@ export default function StepFive() {
                 name="bedroomLock"
                 control={control}
                 render={({ field: { value, onChange } }) => {
-                  console.log('value', value);
+                  // console.log('value', value);
                   return (
                     <RadioGroup
                       value={value}

@@ -218,7 +218,7 @@ export default function SingleJob({ data }: { data: JobType }) {
       </div>
 
       {/* footer */}
-      <div className="sticky bottom-0 flex gap-x-5 border-t border-muted bg-white px-4 py-4 @lg:px-10 dark:bg-gray-50">
+      <div className="sticky bottom-0 flex gap-x-5 border-t border-muted bg-white px-4 py-4 @lg:px-10 dark:bg-gray-800">
         <Button>Apply Job</Button>
         <Button
           variant="outline"

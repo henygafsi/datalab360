@@ -59,7 +59,7 @@ export default function HometypeFilter({
             setOpen(false);
             applyFilter('home_type', values);
           }}
-          className="mt-5 w-full rounded-md dark:bg-gray-50 dark:text-white"
+          className="mt-5 w-full rounded-md dark:bg-gray-800 dark:text-white"
         >
           Apply
         </Button>

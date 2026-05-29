@@ -47,7 +47,7 @@ export default function Timeline({
                 'before:-bottom-[3px] before:top-auto before:block'
             )}
           >
-            <span className="absolute -left-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-gray-0 dark:bg-gray-50 rtl:-right-3">
+            <span className="absolute -left-3 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-gray-0 dark:bg-gray-800 rtl:-right-3">
               {timeline.icon ? (
                 timeline.icon
               ) : order === 'asc' ? (

@@ -1,1171 +1,338 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+/**
+ * ETL Config Sidebar.
+ *
+ * Hosts the right-side configuration panel for whichever node the user clicks
+ * in the workflow canvas. The per-block forms (~75 of them) are each split
+ * into their own file under `./config-forms/` and lazy-loaded via
+ * `next/dynamic` so the workflow chunk only ships the form the user actually
+ * opens.
+ *
+ * Adding a new block:
+ *   1. Drop a new file under `./config-forms/<kebab-name>.tsx` with a default
+ *      export.
+ *   2. Add a `const <Name>ConfigForm = dynamic(...)` line below.
+ *   3. Route the block type to it in the `renderConfig` switch.
+ */
+
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
 import { Node } from 'reactflow';
 import {
-  X, AlertCircle, ChevronDown, Loader2, Trash2, Save, Plus, Minus
+  X, AlertCircle, Trash2, Save,
 } from 'lucide-react';
-import { getDatabases } from '@/app/services/mapping/getDatabases';
-import { getSchemas } from '@/app/services/mapping/getSchema';
-import { getTables } from '@/app/services/mapping/getTables';
-import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { getBlockByType } from './etl-blocks';
-import type {
-  ComponentType,
-  SourceConfig,
-  JoinConfig,
-  FilterConfig,
-  FilterCondition,
-  AggregateConfig,
-  AggregationDef,
-  SelectConfig,
-  RenameConfig,
-  CastConfig,
-  FormulaConfig,
-  FormulaDef,
-  SortConfig,
-  SortOrderDef,
-  UnionConfig,
-  DistinctConfig,
-  LimitConfig,
-  DestinationConfig,
-  ExportFileConfig,
-} from '@/app/services/etl/types';
+import { FormField, Input } from './config-forms/_primitives';
+import ConfigFormSkeleton from './config-forms/_skeleton';
 
 // ============================================
-// FORM COMPONENTS
+// LAZY-LOADED CONFIG FORMS
 // ============================================
 
-interface FormFieldProps {
-  label: string;
-  error?: string;
-  required?: boolean;
-  children: React.ReactNode;
-  hint?: string;
-}
+const SourceConfigForm = dynamic(() => import('./config-forms/source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="source" />,
+});
+const JoinConfigForm = dynamic(() => import('./config-forms/join-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="join" />,
+});
+const FilterConfigForm = dynamic(() => import('./config-forms/filter-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="filter" />,
+});
+const AggregateConfigForm = dynamic(() => import('./config-forms/aggregate-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="aggregate" />,
+});
+const SelectConfigForm = dynamic(() => import('./config-forms/select-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="select" />,
+});
+const RenameConfigForm = dynamic(() => import('./config-forms/rename-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="rename" />,
+});
+const CastConfigForm = dynamic(() => import('./config-forms/cast-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="cast" />,
+});
+const FormulaConfigForm = dynamic(() => import('./config-forms/formula-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="formula" />,
+});
+const SortConfigForm = dynamic(() => import('./config-forms/sort-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="sort" />,
+});
+const UnionConfigForm = dynamic(() => import('./config-forms/union-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="union" />,
+});
+const DistinctConfigForm = dynamic(() => import('./config-forms/distinct-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="distinct" />,
+});
+const LimitConfigForm = dynamic(() => import('./config-forms/limit-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="limit" />,
+});
+const RecommendationConfigForm = dynamic(() => import('./config-forms/recommendation-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="recommendation" />,
+});
+const SegmentationConfigForm = dynamic(() => import('./config-forms/segmentation-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="segmentation" />,
+});
+const ClusteringConfigForm = dynamic(() => import('./config-forms/clustering-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="clustering" />,
+});
+const DestinationConfigForm = dynamic(() => import('./config-forms/destination-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="destination" />,
+});
+const ExportFileConfigForm = dynamic(() => import('./config-forms/export-file-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="export_file" />,
+});
+const SQLScriptConfigForm = dynamic(() => import('./config-forms/sql-script-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="sql_script" />,
+});
+const PythonScriptConfigForm = dynamic(() => import('./config-forms/python-script-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="python_script" />,
+});
+const NotebookRunConfigForm = dynamic(() => import('./config-forms/notebook-run-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="notebook_run" />,
+});
+const DynamicTableConfigForm = dynamic(() => import('./config-forms/dynamic-table-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="dynamic_table" />,
+});
+const StreamConsumeConfigForm = dynamic(() => import('./config-forms/stream-consume-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="stream_consume" />,
+});
+const CdcMergeConfigForm = dynamic(() => import('./config-forms/cdc-merge-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="cdc_merge" />,
+});
+const GitFileConfigForm = dynamic(() => import('./config-forms/git-file-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="git_file" />,
+});
+const ComputePoolConfigForm = dynamic(() => import('./config-forms/compute-pool-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="compute_pool" />,
+});
+const ContainerServiceConfigForm = dynamic(() => import('./config-forms/container-service-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="container_service" />,
+});
+const WindowRankConfigForm = dynamic(() => import('./config-forms/window-rank-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="window_rank" />,
+});
+const WindowLagLeadConfigForm = dynamic(() => import('./config-forms/window-lag-lead-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="window_lag_lead" />,
+});
+const WindowAggregateConfigForm = dynamic(() => import('./config-forms/window-aggregate-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="window_aggregate" />,
+});
+const WindowNtileConfigForm = dynamic(() => import('./config-forms/window-ntile-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="window_ntile" />,
+});
+const JsonFlattenConfigForm = dynamic(() => import('./config-forms/json-flatten-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="json_flatten" />,
+});
+const JsonExtractConfigForm = dynamic(() => import('./config-forms/json-extract-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="json_extract" />,
+});
+const JsonConstructConfigForm = dynamic(() => import('./config-forms/json-construct-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="json_construct" />,
+});
+const PivotConfigForm = dynamic(() => import('./config-forms/pivot-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="pivot" />,
+});
+const UnpivotConfigForm = dynamic(() => import('./config-forms/unpivot-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="unpivot" />,
+});
+const DateTransformConfigForm = dynamic(() => import('./config-forms/date-transform-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="date_transform" />,
+});
+const TimeSliceConfigForm = dynamic(() => import('./config-forms/time-slice-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="time_slice" />,
+});
+const FillNullsConfigForm = dynamic(() => import('./config-forms/fill-nulls-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="fill_nulls" />,
+});
+const CaseWhenConfigForm = dynamic(() => import('./config-forms/case-when-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="case_when" />,
+});
+const SplitColumnConfigForm = dynamic(() => import('./config-forms/split-column-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="split_column" />,
+});
+const S3SourceConfigForm = dynamic(() => import('./config-forms/s3-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="s3_source" />,
+});
+const AzureSourceConfigForm = dynamic(() => import('./config-forms/azure-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="azure_source" />,
+});
+const GCSSourceConfigForm = dynamic(() => import('./config-forms/gcs-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="gcs_source" />,
+});
+const PostgresSourceConfigForm = dynamic(() => import('./config-forms/postgres-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="postgres_source" />,
+});
+const MySQLSourceConfigForm = dynamic(() => import('./config-forms/my-sql-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="mysql_source" />,
+});
+const SalesforceSourceConfigForm = dynamic(() => import('./config-forms/salesforce-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="salesforce_source" />,
+});
+const SapSourceConfigForm = dynamic(() => import('./config-forms/sap-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="sap_source" />,
+});
+const OracleSourceConfigForm = dynamic(() => import('./config-forms/oracle-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="oracle_source" />,
+});
+const HubspotSourceConfigForm = dynamic(() => import('./config-forms/hubspot-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="hubspot_source" />,
+});
+const ServicenowSourceConfigForm = dynamic(() => import('./config-forms/servicenow-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="servicenow_source" />,
+});
+const ApiSourceConfigForm = dynamic(() => import('./config-forms/api-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="api_source" />,
+});
+const ExternalTableSourceConfigForm = dynamic(() => import('./config-forms/external-table-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="external_table_source" />,
+});
+const DynamicTableSourceConfigForm = dynamic(() => import('./config-forms/dynamic-table-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="dynamic_table_source" />,
+});
+const SharedDataSourceConfigForm = dynamic(() => import('./config-forms/shared-data-source-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="shared_data_source" />,
+});
+const CreateUDFConfigForm = dynamic(() => import('./config-forms/create-udf-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="create_udf" />,
+});
+const CreateProcedureConfigForm = dynamic(() => import('./config-forms/create-procedure-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="create_procedure" />,
+});
+const ApplyUDFConfigForm = dynamic(() => import('./config-forms/apply-udf-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="apply_udf" />,
+});
+const AIClassifyConfigForm = dynamic(() => import('./config-forms/ai-classify-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_classify" />,
+});
+const AISentimentConfigForm = dynamic(() => import('./config-forms/ai-sentiment-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_sentiment" />,
+});
+const AITranslateConfigForm = dynamic(() => import('./config-forms/ai-translate-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_translate" />,
+});
+const AICompleteConfigForm = dynamic(() => import('./config-forms/ai-complete-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_complete" />,
+});
+const FuzzyMatchConfigForm = dynamic(() => import('./config-forms/fuzzy-match-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="fuzzy_match" />,
+});
+const JSONPathExtractConfigForm = dynamic(() => import('./config-forms/json-path-extract-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="json_path_extract" />,
+});
+const QualifyFilterConfigForm = dynamic(() => import('./config-forms/qualify-filter-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="qualify_filter" />,
+});
+const CorrelationConfigForm = dynamic(() => import('./config-forms/correlation-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="correlation" />,
+});
+const HistogramConfigForm = dynamic(() => import('./config-forms/histogram-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="histogram" />,
+});
+const AIFilterConfigForm = dynamic(() => import('./config-forms/ai-filter-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_filter" />,
+});
+const AIAggConfigForm = dynamic(() => import('./config-forms/ai-agg-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_agg" />,
+});
+const RecursiveCTEConfigForm = dynamic(() => import('./config-forms/recursive-cte-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="recursive_cte" />,
+});
+const MLForecastConfigForm = dynamic(() => import('./config-forms/ml-forecast-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="forecast" />,
+});
+const MLAnomalyConfigForm = dynamic(() => import('./config-forms/ml-anomaly-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="anomaly_detect" />,
+});
+const AIExtractConfigForm = dynamic(() => import('./config-forms/ai-extract-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="ai_extract" />,
+});
+const DocumentAIConfigForm = dynamic(() => import('./config-forms/document-ai-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="document_ai" />,
+});
+const FinetuneConfigForm = dynamic(() => import('./config-forms/finetune-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="finetune" />,
+});
+const ClassificationTrainConfigForm = dynamic(() => import('./config-forms/classification-train-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="classification_train" />,
+});
 
-const FormField: React.FC<FormFieldProps> = ({ label, error, required, children, hint }) => (
-  <div className="space-y-1.5">
-    <label className="block text-sm font-medium text-slate-700 dark:text-slate-200">
-      {label}
-      {required && <span className="text-red-500 ml-1">*</span>}
-    </label>
-    {children}
-    {hint && !error && (
-      <p className="text-xs text-slate-500 dark:text-slate-400">{hint}</p>
-    )}
-    {error && (
-      <p className="text-xs text-red-500 flex items-center gap-1">
-        <AlertCircle className="h-3 w-3" />
-        {error}
-      </p>
-    )}
-  </div>
-);
 
-interface SelectProps {
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
-  disabled?: boolean;
-  error?: boolean;
-}
-
-const Select: React.FC<SelectProps> = ({ value, onChange, options, placeholder, disabled, error }) => (
-  <div className="relative">
-    <select
-      value={value || ''}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-      className={cn(
-        'w-full px-3 py-2 rounded-lg border appearance-none',
-        'bg-white dark:bg-slate-800',
-        'text-sm text-slate-800 dark:text-slate-100',
-        'focus:outline-none focus:ring-2 focus:ring-blue-500',
-        error ? 'border-red-500' : 'border-slate-200 dark:border-slate-700',
-        disabled && 'opacity-50 cursor-not-allowed'
-      )}
-    >
-      {placeholder && <option value="">{placeholder}</option>}
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>{opt.label}</option>
-      ))}
-    </select>
-    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
-  </div>
-);
-
-interface MultiSelectProps {
-  values: string[];
-  onChange: (values: string[]) => void;
-  options: string[];
-  placeholder?: string;
-  disabled?: boolean;
-}
-
-const MultiSelect: React.FC<MultiSelectProps> = ({ values, onChange, options, placeholder, disabled }) => (
-  <select
-    multiple
-    value={values}
-    onChange={(e) => onChange(Array.from(e.target.selectedOptions, (o) => o.value))}
-    disabled={disabled}
-    className={cn(
-      'w-full px-3 py-2 rounded-lg border h-32',
-      'bg-white dark:bg-slate-800',
-      'text-sm text-slate-800 dark:text-slate-100',
-      'focus:outline-none focus:ring-2 focus:ring-blue-500',
-      'border-slate-200 dark:border-slate-700',
-      disabled && 'opacity-50 cursor-not-allowed'
-    )}
-  >
-    {options.map((opt) => (
-      <option key={opt} value={opt}>{opt}</option>
-    ))}
-  </select>
-);
-
-interface InputProps {
-  value: string | number;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  error?: boolean;
-  type?: string;
-}
-
-const Input: React.FC<InputProps> = ({ value, onChange, placeholder, disabled, error, type = 'text' }) => (
-  <input
-    type={type}
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    placeholder={placeholder}
-    disabled={disabled}
-    className={cn(
-      'w-full px-3 py-2 rounded-lg border',
-      'bg-white dark:bg-slate-800',
-      'text-sm text-slate-800 dark:text-slate-100',
-      'placeholder:text-slate-400',
-      'focus:outline-none focus:ring-2 focus:ring-blue-500',
-      error ? 'border-red-500' : 'border-slate-200 dark:border-slate-700',
-      disabled && 'opacity-50 cursor-not-allowed'
-    )}
-  />
-);
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-const extractString = (item: unknown): string => {
-  if (typeof item === 'string') return item;
-  if (item && typeof item === 'object') {
-    if ('name' in item) return String((item as { name: unknown }).name);
-    if ('value' in item) return String((item as { value: unknown }).value);
-  }
-  return String(item);
-};
-
-const normalizeToStringArray = (items: unknown): string[] => {
-  if (!items) return [];
-  if (!Array.isArray(items)) return [];
-  return items.map(extractString).filter(Boolean);
-};
-
-// ============================================
-// CONFIG FORMS
-// ============================================
-
-// Source Config
-const SourceConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  accessToken?: string | null;
-}> = ({ data, onChange, errors, accessToken }) => {
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [tables, setTables] = useState<string[]>([]);
-  const [columns, setColumns] = useState<string[]>([]);
-  const [loading, setLoading] = useState<string | null>(null);
-
-  const config = data.config || data;
-
-  useEffect(() => {
-    if (!accessToken) return;
-    setLoading('databases');
-    getDatabases()
-      .then(setDatabases)
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (!accessToken || !config.database) return;
-    setLoading('schemas');
-    setSchemas([]);
-    getSchemas(config.database)
-      .then(setSchemas)
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken, config.database]);
-
-  useEffect(() => {
-    if (!accessToken || !config.database || !config.schema) return;
-    setLoading('tables');
-    setTables([]);
-    getTables(config.database, config.schema)
-      .then(setTables)
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken, config.database, config.schema]);
-
-  useEffect(() => {
-    if (!accessToken || !config.database || !config.schema || !config.table) return;
-    setLoading('columns');
-    setColumns([]);
-    getTableColumns(config.database, config.schema, config.table)
-      .then((cols) => setColumns(cols.map((c) => (c.name ?? (c as any).COLUMN_NAME) || '').filter(Boolean)))
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken, config.database, config.schema, config.table]);
-
-  const updateConfig = (updates: Partial<SourceConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Database" required error={errors.database}>
-        <Select
-          value={config.database || ''}
-          onChange={(v) => updateConfig({ database: v, schema: '', table: '', columns: [] })}
-          options={databases.map((d) => ({ value: d, label: d }))}
-          placeholder="Select database..."
-          disabled={loading === 'databases'}
-          error={!!errors.database}
-        />
-      </FormField>
-
-      <FormField label="Schema" required error={errors.schema}>
-        <Select
-          value={config.schema || ''}
-          onChange={(v) => updateConfig({ schema: v, table: '', columns: [] })}
-          options={schemas.map((s) => ({ value: s, label: s }))}
-          placeholder="Select schema..."
-          disabled={!config.database || loading === 'schemas'}
-          error={!!errors.schema}
-        />
-      </FormField>
-
-      <FormField label="Table" required error={errors.table}>
-        <Select
-          value={config.table || ''}
-          onChange={(v) => updateConfig({ table: v, columns: [] })}
-          options={tables.map((t) => ({ value: t, label: t }))}
-          placeholder="Select table..."
-          disabled={!config.schema || loading === 'tables'}
-          error={!!errors.table}
-        />
-      </FormField>
-
-      <FormField label="Columns" hint="Select columns or leave for all (SELECT *)">
-        <MultiSelect
-          values={config.columns || []}
-          onChange={(v) => updateConfig({ columns: v })}
-          options={columns}
-          disabled={!config.table || loading === 'columns'}
-        />
-        {columns.length > 0 && (!config.columns || config.columns.length === 0) && (
-          <button
-            type="button"
-            onClick={() => updateConfig({ columns: columns })}
-            className="mt-1 text-xs text-blue-600 hover:text-blue-700 hover:underline"
-          >
-            Select all {columns.length} columns
-          </button>
-        )}
-      </FormField>
-
-      <FormField label="WHERE Clause" hint="Optional filter condition">
-        <Input
-          value={config.where_clause || ''}
-          onChange={(v) => updateConfig({ where_clause: v })}
-          placeholder="e.g., STATUS = 'active'"
-        />
-      </FormField>
-
-      {loading && (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading {loading}...
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Join Config
-const JoinConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  leftInputColumns: string[];
-  rightInputColumns: string[];
-}> = ({ data, onChange, errors, leftInputColumns, rightInputColumns }) => {
-  const config = data.config || data;
-  const joinTypes = [
-    { value: 'INNER', label: 'Inner Join' },
-    { value: 'LEFT', label: 'Left Join' },
-    { value: 'RIGHT', label: 'Right Join' },
-    { value: 'FULL', label: 'Full Outer Join' },
-    { value: 'CROSS', label: 'Cross Join' },
-  ];
-
-  const updateConfig = (updates: Partial<JoinConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const noColumnsAvailable = leftInputColumns.length === 0 && rightInputColumns.length === 0;
-
-  return (
-    <div className="space-y-4">
-      {noColumnsAvailable && (
-        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            <strong>No columns available.</strong> Please configure the Source nodes connected to this Join and select their columns first.
-          </p>
-        </div>
-      )}
-
-      <FormField label="Join Type" required>
-        <Select
-          value={config.join_type || 'INNER'}
-          onChange={(v) => updateConfig({ join_type: v as JoinConfig['join_type'] })}
-          options={joinTypes}
-        />
-      </FormField>
-
-      <div className="grid grid-cols-2 gap-3">
-        <FormField label="Left Key" required error={errors.left_key}>
-          <Select
-            value={config.left_key || ''}
-            onChange={(v) => updateConfig({ left_key: v })}
-            options={leftInputColumns.map((c) => ({ value: c, label: c }))}
-            placeholder={leftInputColumns.length === 0 ? 'No columns' : 'Select...'}
-            error={!!errors.left_key}
-            disabled={leftInputColumns.length === 0}
-          />
-          {leftInputColumns.length === 0 && (
-            <p className="text-xs text-slate-500 mt-1">Configure left Source first</p>
-          )}
-        </FormField>
-
-        <FormField label="Right Key" required error={errors.right_key}>
-          <Select
-            value={config.right_key || ''}
-            onChange={(v) => updateConfig({ right_key: v })}
-            options={rightInputColumns.map((c) => ({ value: c, label: c }))}
-            placeholder={rightInputColumns.length === 0 ? 'No columns' : 'Select...'}
-            error={!!errors.right_key}
-            disabled={rightInputColumns.length === 0}
-          />
-          {rightInputColumns.length === 0 && (
-            <p className="text-xs text-slate-500 mt-1">Configure right Source first</p>
-          )}
-        </FormField>
-      </div>
-
-      <FormField label="Exclude Right Columns" hint="Columns to exclude from right table (avoid duplicates)">
-        <MultiSelect
-          values={config.exclude_right_columns || []}
-          onChange={(v) => updateConfig({ exclude_right_columns: v })}
-          options={rightInputColumns}
-          disabled={rightInputColumns.length === 0}
-        />
-      </FormField>
-    </div>
-  );
-};
-
-// Filter Config
-const FilterConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const conditions: FilterCondition[] = config.conditions || [];
-
-  const operators = [
-    { value: '=', label: '=' },
-    { value: '!=', label: '!=' },
-    { value: '>', label: '>' },
-    { value: '<', label: '<' },
-    { value: '>=', label: '>=' },
-    { value: '<=', label: '<=' },
-    { value: 'LIKE', label: 'LIKE' },
-    { value: 'IN', label: 'IN' },
-    { value: 'IS NULL', label: 'IS NULL' },
-    { value: 'IS NOT NULL', label: 'IS NOT NULL' },
-  ];
-
-  const updateConfig = (updates: Partial<FilterConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addCondition = () => {
-    updateConfig({ conditions: [...conditions, { column: '', operator: '=', value: '' }] });
-  };
-
-  const removeCondition = (index: number) => {
-    updateConfig({ conditions: conditions.filter((_, i) => i !== index) });
-  };
-
-  const updateCondition = (index: number, updates: Partial<FilterCondition>) => {
-    const newConditions = [...conditions];
-    newConditions[index] = { ...newConditions[index], ...updates };
-    updateConfig({ conditions: newConditions });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Logic">
-        <Select
-          value={config.logic || 'AND'}
-          onChange={(v) => updateConfig({ logic: v as 'AND' | 'OR' })}
-          options={[
-            { value: 'AND', label: 'AND (all conditions)' },
-            { value: 'OR', label: 'OR (any condition)' },
-          ]}
-        />
-      </FormField>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Conditions</label>
-          <button
-            onClick={addCondition}
-            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-          >
-            <Plus className="h-3 w-3" /> Add
-          </button>
-        </div>
-
-        {conditions.map((cond, i) => (
-          <div key={i} className="flex items-center gap-2 p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-            <Select
-              value={cond.column}
-              onChange={(v) => updateCondition(i, { column: v })}
-              options={availableColumns.map((c) => ({ value: c, label: c }))}
-              placeholder="Column"
-            />
-            <Select
-              value={cond.operator}
-              onChange={(v) => updateCondition(i, { operator: v as FilterCondition['operator'] })}
-              options={operators}
-            />
-            {!['IS NULL', 'IS NOT NULL'].includes(cond.operator) && (
-              <Input
-                value={String(cond.value || '')}
-                onChange={(v) => updateCondition(i, { value: v })}
-                placeholder="Value"
-              />
-            )}
-            <button
-              onClick={() => removeCondition(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
-
-        {conditions.length === 0 && (
-          <p className="text-xs text-slate-500 text-center py-2">No conditions added</p>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Aggregate Config
-const AggregateConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const aggregations: AggregationDef[] = config.aggregations || [];
-
-  const aggFunctions = [
-    { value: 'SUM', label: 'SUM' },
-    { value: 'AVG', label: 'AVG' },
-    { value: 'COUNT', label: 'COUNT' },
-    { value: 'MIN', label: 'MIN' },
-    { value: 'MAX', label: 'MAX' },
-    { value: 'COUNT_DISTINCT', label: 'COUNT DISTINCT' },
-    { value: 'LISTAGG', label: 'LISTAGG' },
-  ];
-
-  const updateConfig = (updates: Partial<AggregateConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addAggregation = () => {
-    updateConfig({ aggregations: [...aggregations, { column: '', function: 'SUM', alias: '' }] });
-  };
-
-  const removeAggregation = (index: number) => {
-    updateConfig({ aggregations: aggregations.filter((_, i) => i !== index) });
-  };
-
-  const updateAggregation = (index: number, updates: Partial<AggregationDef>) => {
-    const newAggregations = [...aggregations];
-    newAggregations[index] = { ...newAggregations[index], ...updates };
-    updateConfig({ aggregations: newAggregations });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Group By" hint="Columns to group by">
-        <MultiSelect
-          values={config.group_by || []}
-          onChange={(v) => updateConfig({ group_by: v })}
-          options={availableColumns}
-        />
-      </FormField>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Aggregations</label>
-          <button
-            onClick={addAggregation}
-            className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-          >
-            <Plus className="h-3 w-3" /> Add
-          </button>
-        </div>
-
-        {aggregations.map((agg, i) => (
-          <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
-            <div className="flex items-center gap-2">
-              <Select
-                value={agg.function}
-                onChange={(v) => updateAggregation(i, { function: v as AggregationDef['function'] })}
-                options={aggFunctions}
-              />
-              <Select
-                value={agg.column}
-                onChange={(v) => updateAggregation(i, { column: v })}
-                options={availableColumns.map((c) => ({ value: c, label: c }))}
-                placeholder="Column"
-              />
-              <button
-                onClick={() => removeAggregation(i)}
-                className="p-1 text-red-500 hover:bg-red-100 rounded"
-              >
-                <Minus className="h-4 w-4" />
-              </button>
-            </div>
-            <Input
-              value={agg.alias}
-              onChange={(v) => updateAggregation(i, { alias: v })}
-              placeholder="Alias (e.g., total_sales)"
-            />
-          </div>
-        ))}
-
-        {aggregations.length === 0 && (
-          <p className="text-xs text-slate-500 text-center py-2">No aggregations added</p>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// Select Config
-const SelectConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-
-  const updateConfig = (updates: Partial<SelectConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Columns" required error={errors.columns} hint="Select columns to include">
-        <MultiSelect
-          values={config.columns || []}
-          onChange={(v) => updateConfig({ columns: v })}
-          options={availableColumns}
-        />
-      </FormField>
-    </div>
-  );
-};
-
-// Rename Config
-const RenameConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const mappings: Record<string, string> = config.mappings || {};
-  const entries = Object.entries(mappings);
-
-  const updateConfig = (updates: Partial<RenameConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addMapping = () => {
-    updateConfig({ mappings: { ...mappings, '': '' } });
-  };
-
-  const removeMapping = (oldName: string) => {
-    const newMappings = { ...mappings };
-    delete newMappings[oldName];
-    updateConfig({ mappings: newMappings });
-  };
-
-  const updateMapping = (oldKey: string, newKey: string, newValue: string) => {
-    const newMappings = { ...mappings };
-    delete newMappings[oldKey];
-    newMappings[newKey] = newValue;
-    updateConfig({ mappings: newMappings });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Column Mappings</label>
-        <button
-          onClick={addMapping}
-          className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="h-3 w-3" /> Add
-        </button>
-      </div>
-
-      {entries.map(([oldName, newName], i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Select
-            value={oldName}
-            onChange={(v) => updateMapping(oldName, v, newName)}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
-            placeholder="Old name"
-          />
-          <span className="text-slate-400">→</span>
-          <Input
-            value={newName}
-            onChange={(v) => updateMapping(oldName, oldName, v)}
-            placeholder="New name"
-          />
-          <button
-            onClick={() => removeMapping(oldName)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-
-      {entries.length === 0 && (
-        <p className="text-xs text-slate-500 text-center py-2">No mappings added</p>
-      )}
-    </div>
-  );
-};
-
-// Cast Config
-const CastConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const casts: Record<string, string> = config.casts || {};
-  const entries = Object.entries(casts);
-
-  const dataTypes = [
-    { value: 'VARCHAR', label: 'VARCHAR' },
-    { value: 'NUMBER', label: 'NUMBER' },
-    { value: 'DECIMAL(18,2)', label: 'DECIMAL(18,2)' },
-    { value: 'INTEGER', label: 'INTEGER' },
-    { value: 'FLOAT', label: 'FLOAT' },
-    { value: 'DATE', label: 'DATE' },
-    { value: 'TIMESTAMP', label: 'TIMESTAMP' },
-    { value: 'BOOLEAN', label: 'BOOLEAN' },
-  ];
-
-  const updateConfig = (updates: Partial<CastConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addCast = () => {
-    updateConfig({ casts: { ...casts, '': 'VARCHAR' } });
-  };
-
-  const removeCast = (col: string) => {
-    const newCasts = { ...casts };
-    delete newCasts[col];
-    updateConfig({ casts: newCasts });
-  };
-
-  const updateCast = (oldCol: string, newCol: string, type: string) => {
-    const newCasts = { ...casts };
-    delete newCasts[oldCol];
-    newCasts[newCol] = type;
-    updateConfig({ casts: newCasts });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Type Casts</label>
-        <button
-          onClick={addCast}
-          className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="h-3 w-3" /> Add
-        </button>
-      </div>
-
-      {entries.map(([col, type], i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Select
-            value={col}
-            onChange={(v) => updateCast(col, v, type)}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
-            placeholder="Column"
-          />
-          <span className="text-slate-400">→</span>
-          <Select
-            value={type}
-            onChange={(v) => updateCast(col, col, v)}
-            options={dataTypes}
-          />
-          <button
-            onClick={() => removeCast(col)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-
-      {entries.length === 0 && (
-        <p className="text-xs text-slate-500 text-center py-2">No casts added</p>
-      )}
-    </div>
-  );
-};
-
-// Formula Config
-const FormulaConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const formulas: FormulaDef[] = config.formulas || [];
-
-  const updateConfig = (updates: Partial<FormulaConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addFormula = () => {
-    updateConfig({ formulas: [...formulas, { name: '', expression: '' }] });
-  };
-
-  const removeFormula = (index: number) => {
-    updateConfig({ formulas: formulas.filter((_, i) => i !== index) });
-  };
-
-  const updateFormula = (index: number, updates: Partial<FormulaDef>) => {
-    const newFormulas = [...formulas];
-    newFormulas[index] = { ...newFormulas[index], ...updates };
-    updateConfig({ formulas: newFormulas });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Calculated Columns</label>
-        <button
-          onClick={addFormula}
-          className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="h-3 w-3" /> Add
-        </button>
-      </div>
-
-      {formulas.map((formula, i) => (
-        <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg space-y-2">
-          <div className="flex items-center gap-2">
-            <Input
-              value={formula.name}
-              onChange={(v) => updateFormula(i, { name: v })}
-              placeholder="Column name"
-            />
-            <button
-              onClick={() => removeFormula(i)}
-              className="p-1 text-red-500 hover:bg-red-100 rounded"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-          </div>
-          <Input
-            value={formula.expression}
-            onChange={(v) => updateFormula(i, { expression: v })}
-            placeholder="Expression (e.g., revenue - cost)"
-          />
-        </div>
-      ))}
-
-      {formulas.length === 0 && (
-        <p className="text-xs text-slate-500 text-center py-2">No formulas added</p>
-      )}
-
-      <div className="text-xs text-slate-500 p-2 bg-slate-100 dark:bg-slate-800 rounded">
-        Available columns: {availableColumns.join(', ') || 'Connect an input first'}
-      </div>
-    </div>
-  );
-};
-
-// Sort Config
-const SortConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-  const orderBy: SortOrderDef[] = config.order_by || [];
-
-  const updateConfig = (updates: Partial<SortConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  const addSort = () => {
-    updateConfig({ order_by: [...orderBy, { column: '', direction: 'ASC' }] });
-  };
-
-  const removeSort = (index: number) => {
-    updateConfig({ order_by: orderBy.filter((_, i) => i !== index) });
-  };
-
-  const updateSort = (index: number, updates: Partial<SortOrderDef>) => {
-    const newOrderBy = [...orderBy];
-    newOrderBy[index] = { ...newOrderBy[index], ...updates };
-    updateConfig({ order_by: newOrderBy });
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <label className="text-sm font-medium text-slate-700 dark:text-slate-200">Sort Order</label>
-        <button
-          onClick={addSort}
-          className="text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700"
-        >
-          <Plus className="h-3 w-3" /> Add
-        </button>
-      </div>
-
-      {orderBy.map((sort, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <Select
-            value={sort.column}
-            onChange={(v) => updateSort(i, { column: v })}
-            options={availableColumns.map((c) => ({ value: c, label: c }))}
-            placeholder="Column"
-          />
-          <Select
-            value={sort.direction}
-            onChange={(v) => updateSort(i, { direction: v as 'ASC' | 'DESC' })}
-            options={[
-              { value: 'ASC', label: 'ASC' },
-              { value: 'DESC', label: 'DESC' },
-            ]}
-          />
-          <button
-            onClick={() => removeSort(i)}
-            className="p-1 text-red-500 hover:bg-red-100 rounded"
-          >
-            <Minus className="h-4 w-4" />
-          </button>
-        </div>
-      ))}
-
-      {orderBy.length === 0 && (
-        <p className="text-xs text-slate-500 text-center py-2">No sort columns added</p>
-      )}
-    </div>
-  );
-};
-
-// Union Config
-const UnionConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-}> = ({ data, onChange, errors }) => {
-  const config = data.config || data;
-
-  const updateConfig = (updates: Partial<UnionConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Union Mode">
-        <Select
-          value={config.union_all ? 'true' : 'false'}
-          onChange={(v) => updateConfig({ union_all: v === 'true' })}
-          options={[
-            { value: 'false', label: 'UNION (remove duplicates)' },
-            { value: 'true', label: 'UNION ALL (keep all rows)' },
-          ]}
-        />
-      </FormField>
-    </div>
-  );
-};
-
-// Distinct Config
-const DistinctConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, availableColumns }) => {
-  const config = data.config || data;
-
-  const updateConfig = (updates: Partial<DistinctConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Columns" hint="Leave empty for all columns">
-        <MultiSelect
-          values={config.columns || []}
-          onChange={(v) => updateConfig({ columns: v })}
-          options={availableColumns}
-        />
-      </FormField>
-    </div>
-  );
-};
-
-// Limit Config
-const LimitConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-}> = ({ data, onChange, errors }) => {
-  const config = data.config || data;
-
-  const updateConfig = (updates: Partial<LimitConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Limit" required error={errors.limit}>
-        <Input
-          type="number"
-          value={config.limit || ''}
-          onChange={(v) => updateConfig({ limit: parseInt(v) || 0 })}
-          placeholder="Number of rows"
-          error={!!errors.limit}
-        />
-      </FormField>
-
-      <FormField label="Offset" hint="Number of rows to skip">
-        <Input
-          type="number"
-          value={config.offset || ''}
-          onChange={(v) => updateConfig({ offset: parseInt(v) || 0 })}
-          placeholder="0"
-        />
-      </FormField>
-    </div>
-  );
-};
-
-// Destination Config
-const DestinationConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-  accessToken?: string | null;
-  availableColumns: string[];
-}> = ({ data, onChange, errors, accessToken, availableColumns }) => {
-  const [databases, setDatabases] = useState<string[]>([]);
-  const [schemas, setSchemas] = useState<string[]>([]);
-  const [loading, setLoading] = useState<string | null>(null);
-
-  const config = data.config || data;
-
-  useEffect(() => {
-    if (!accessToken) return;
-    setLoading('databases');
-    getDatabases()
-      .then(setDatabases)
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (!accessToken || !config.database) return;
-    setLoading('schemas');
-    setSchemas([]);
-    getSchemas(config.database)
-      .then(setSchemas)
-      .catch(console.error)
-      .finally(() => setLoading(null));
-  }, [accessToken, config.database]);
-
-  const updateConfig = (updates: Partial<DestinationConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Database" required error={errors.database}>
-        <Select
-          value={config.database || ''}
-          onChange={(v) => updateConfig({ database: v, schema: '' })}
-          options={databases.map((d) => ({ value: d, label: d }))}
-          placeholder="Select database..."
-          disabled={loading === 'databases'}
-          error={!!errors.database}
-        />
-      </FormField>
-
-      <FormField label="Schema" required error={errors.schema}>
-        <Select
-          value={config.schema || ''}
-          onChange={(v) => updateConfig({ schema: v })}
-          options={schemas.map((s) => ({ value: s, label: s }))}
-          placeholder="Select schema..."
-          disabled={!config.database || loading === 'schemas'}
-          error={!!errors.schema}
-        />
-      </FormField>
-
-      <FormField label="Table Name" required error={errors.table}>
-        <Input
-          value={config.table || ''}
-          onChange={(v) => updateConfig({ table: v })}
-          placeholder="e.g., FACT_SALES"
-          error={!!errors.table}
-        />
-      </FormField>
-
-      <FormField label="Write Mode" required>
-        <Select
-          value={config.write_mode || 'overwrite'}
-          onChange={(v) => updateConfig({ write_mode: v as DestinationConfig['write_mode'] })}
-          options={[
-            { value: 'overwrite', label: 'Overwrite' },
-            { value: 'append', label: 'Append' },
-            { value: 'merge', label: 'Merge (Upsert)' },
-          ]}
-        />
-      </FormField>
-
-      {config.write_mode === 'merge' && (
-        <FormField label="Merge Keys" required error={errors.merge_keys} hint="Columns to match for merge">
-          <MultiSelect
-            values={config.merge_keys || []}
-            onChange={(v) => updateConfig({ merge_keys: v })}
-            options={availableColumns}
-          />
-        </FormField>
-      )}
-
-      {loading && (
-        <div className="flex items-center gap-2 text-sm text-slate-500">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading {loading}...
-        </div>
-      )}
-    </div>
-  );
-};
-
-// Export File Config
-const ExportFileConfigForm: React.FC<{
-  data: any;
-  onChange: (data: any) => void;
-  errors: Record<string, string>;
-}> = ({ data, onChange, errors }) => {
-  const config = data.config || data;
-
-  const updateConfig = (updates: Partial<ExportFileConfig>) => {
-    onChange({ ...data, config: { ...config, ...updates } });
-  };
-
-  return (
-    <div className="space-y-4">
-      <FormField label="Format" required>
-        <Select
-          value={config.format || 'csv'}
-          onChange={(v) => updateConfig({ format: v as ExportFileConfig['format'] })}
-          options={[
-            { value: 'csv', label: 'CSV' },
-            { value: 'parquet', label: 'Parquet' },
-            { value: 'json', label: 'JSON' },
-          ]}
-        />
-      </FormField>
-
-      <FormField label="Stage Name" required error={errors.stage_name}>
-        <Input
-          value={config.stage_name || ''}
-          onChange={(v) => updateConfig({ stage_name: v })}
-          placeholder="e.g., CP_DATA360.STAGING.ETL_EXPORT"
-          error={!!errors.stage_name}
-        />
-      </FormField>
-
-      <FormField label="File Name" hint="Optional, auto-generated if empty">
-        <Input
-          value={config.file_name || ''}
-          onChange={(v) => updateConfig({ file_name: v })}
-          placeholder="export.csv"
-        />
-      </FormField>
-
-      <FormField label="Compression">
-        <Select
-          value={config.compression || 'NONE'}
-          onChange={(v) => updateConfig({ compression: v as ExportFileConfig['compression'] })}
-          options={[
-            { value: 'NONE', label: 'None' },
-            { value: 'GZIP', label: 'GZIP' },
-          ]}
-        />
-      </FormField>
-    </div>
-  );
-};
 
 // ============================================
 // MAIN SIDEBAR COMPONENT
@@ -1195,12 +362,20 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   const [formData, setFormData] = useState<any>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [hasChanges, setHasChanges] = useState(false);
+  const [confirmDeleteNode, setConfirmDeleteNode] = useState(false);
+
+  // Memoize column options to avoid recreating 41 identical arrays per render
+  const columnOptions = useMemo(
+    () => availableColumns.map((c) => ({ value: c, label: c })),
+    [availableColumns]
+  );
 
   useEffect(() => {
     if (node) {
       setFormData(node.data || {});
       setErrors({});
       setHasChanges(false);
+      setConfirmDeleteNode(false);
     }
   }, [node]);
 
@@ -1209,6 +384,49 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
     setHasChanges(true);
     setErrors({});
   }, []);
+
+  // Real-time validation errors (computed on every formData change)
+  const validationErrors = useMemo(() => {
+    if (!node) return [];
+    const config = formData.config || formData;
+    const errs: string[] = [];
+    const type = node.type || '';
+
+    if (['source', 'src'].includes(type)) {
+      if (!config.database && !config.database_name) errs.push('Database is required');
+      if (!config.schema && !config.schema_name) errs.push('Schema is required');
+      if (!config.table && !config.table_name) errs.push('Table is required');
+    }
+    if (['s3_source', 'azure_source', 'gcs_source'].includes(type)) {
+      if (!config.stage_name) errs.push('Stage name is required');
+      if (!config.file_path) errs.push('File path is required');
+    }
+    if (type === 'join') {
+      if (!config.left_key && !config.join_key) errs.push('Left key is required');
+      if (!config.right_key) errs.push('Right key is required');
+    }
+    if (type === 'destination') {
+      if (!config.database && !config.database_name) errs.push('Database is required');
+      if (!config.schema && !config.schema_name) errs.push('Schema is required');
+      if (!config.table && !config.table_name) errs.push('Table name is required');
+    }
+    if (type === 'filter') {
+      if (!config.filter_condition && (!config.conditions || config.conditions.length === 0)) {
+        errs.push('At least one filter condition is required');
+      }
+    }
+    if (type === 'aggregate') {
+      if (!config.aggregations || config.aggregations.length === 0) {
+        errs.push('At least one aggregation is required');
+      }
+    }
+    if (type === 'select') {
+      if (!config.columns || config.columns.length === 0) errs.push('Select at least one column');
+    }
+    return errs;
+  }, [node, formData]);
+
+  const isValid = validationErrors.length === 0;
 
   const validate = useCallback((): boolean => {
     const newErrors: Record<string, string> = {};
@@ -1233,6 +451,15 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
       case 'limit':
         if (!config.limit || config.limit <= 0) newErrors.limit = 'Limit must be greater than 0';
         break;
+      case 'recommendation':
+        if (!config.score_column) newErrors.score_column = 'Score column name is required';
+        break;
+      case 'segmentation':
+        if (!config.segment_column) newErrors.segment_column = 'Segment column name is required';
+        break;
+      case 'clustering':
+        if (!config.cluster_column) newErrors.cluster_column = 'Cluster column name is required';
+        break;
       case 'destination':
         if (!config.database) newErrors.database = 'Database is required';
         if (!config.schema) newErrors.schema = 'Schema is required';
@@ -1243,6 +470,288 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         break;
       case 'export_file':
         if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        break;
+      case 'sql_script':
+        if (!config.sql_code) newErrors.sql_code = 'SQL code is required';
+        break;
+      case 'python_script':
+        if (config.python_mode === 'inline') {
+          if (!config.python_code) newErrors.python_code = 'Python code is required';
+        } else {
+          if (!config.database) newErrors.database = 'Database is required';
+          if (!config.schema) newErrors.schema = 'Schema is required';
+          if (!config.proc_name) newErrors.proc_name = 'Procedure name is required';
+        }
+        break;
+      case 'notebook_run':
+        if (!config.database) newErrors.database = 'Database is required';
+        if (!config.schema) newErrors.schema = 'Schema is required';
+        if (!config.notebook_name) newErrors.notebook_name = 'Notebook name is required';
+        break;
+      case 'dynamic_table':
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        if (!config.target_lag) newErrors.target_lag = 'Target lag is required';
+        if (!config.warehouse) newErrors.warehouse = 'Warehouse is required';
+        if (!config.query) newErrors.query = 'Query is required';
+        break;
+      case 'stream_consume':
+        if (!config.stream_name) newErrors.stream_name = 'Stream name is required';
+        if (!config.database) newErrors.database = 'Source database is required';
+        if (!config.schema) newErrors.schema = 'Source schema is required';
+        if (!config.source_object) newErrors.source_object = 'Source table/view is required';
+        break;
+      case 'cdc_merge':
+        if (!config.stream_name) newErrors.stream_name = 'Stream name is required';
+        if (!config.target_table) newErrors.target_table = 'Target table is required';
+        if (!config.merge_keys) newErrors.merge_keys = 'Merge keys are required';
+        break;
+      case 'git_file':
+        if (!config.repo_name) newErrors.repo_name = 'Repository name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'compute_pool':
+        if (!config.pool_name) newErrors.pool_name = 'Pool name is required';
+        if (!config.min_nodes || config.min_nodes <= 0) newErrors.min_nodes = 'Min nodes must be greater than 0';
+        if (!config.max_nodes || config.max_nodes <= 0) newErrors.max_nodes = 'Max nodes must be greater than 0';
+        break;
+      case 'container_service':
+        if (!config.service_name) newErrors.service_name = 'Service name is required';
+        if (!config.compute_pool) newErrors.compute_pool = 'Compute pool is required';
+        if (!config.stage) newErrors.stage = 'Stage is required';
+        if (!config.spec_file) newErrors.spec_file = 'Spec file is required';
+        break;
+      // Window Functions
+      case 'window_rank':
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_lag_lead':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_aggregate':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      case 'window_ntile':
+        if (!config.buckets || config.buckets <= 0) newErrors.buckets = 'Number of buckets must be greater than 0';
+        if (!config.order_by || config.order_by.length === 0) newErrors.order_by = 'At least one order by column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // JSON
+      case 'json_flatten':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        break;
+      case 'json_extract':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.extract_paths || config.extract_paths.length === 0) newErrors.extract_paths = 'At least one extract path is required';
+        break;
+      // AI Blocks validation
+      case 'ai_classify':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.categories) newErrors.categories = 'Categories are required';
+        break;
+      case 'ai_sentiment':
+        if (!config.text_column) newErrors.text_column = 'Text column is required';
+        break;
+      case 'ai_translate':
+        if (!config.text_column) newErrors.text_column = 'Text column is required';
+        if (!config.target_lang) newErrors.target_lang = 'Target language is required';
+        break;
+      case 'ai_complete':
+        if (!config.prompt_template) newErrors.prompt_template = 'Prompt template is required';
+        break;
+      case 'ml_forecast':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        if (!config.forecast_periods || config.forecast_periods <= 0) newErrors.forecast_periods = 'Forecast periods must be greater than 0';
+        break;
+      case 'ml_anomaly':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'json_construct':
+        if (!config.columns || config.columns.length === 0) newErrors.columns = 'Select at least one column';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // Pivot/Unpivot
+      case 'pivot':
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        if (!config.pivot_column) newErrors.pivot_column = 'Pivot column is required';
+        if (!config.pivot_values) newErrors.pivot_values = 'Pivot values are required';
+        break;
+      case 'unpivot':
+        if (!config.unpivot_columns || config.unpivot_columns.length === 0) newErrors.unpivot_columns = 'Select at least one column to unpivot';
+        break;
+      // Date/Time
+      case 'date_transform':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        if (config.operation === 'DATEDIFF' && !config.second_column) newErrors.second_column = 'Second column is required for DATEDIFF';
+        break;
+      case 'time_slice':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.slice_length || config.slice_length <= 0) newErrors.slice_length = 'Slice length must be greater than 0';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // Data Cleaning
+      case 'fill_nulls':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (config.strategy === 'VALUE' && !config.fill_value) newErrors.fill_value = 'Fill value is required when strategy is VALUE';
+        if ((config.strategy === 'FORWARD_FILL' || config.strategy === 'BACKWARD_FILL') && !config.order_column) {
+          newErrors.order_column = 'Order column is required for forward/backward fill';
+        }
+        break;
+      case 'case_when':
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        if (!config.conditions || config.conditions.length === 0) newErrors.conditions = 'At least one condition is required';
+        break;
+      case 'split_column':
+        if (!config.column) newErrors.column = 'Column is required';
+        if (!config.delimiter) newErrors.delimiter = 'Delimiter is required';
+        break;
+      case 'fuzzy_match':
+        if (!config.source_column) newErrors.source_column = 'Source column is required';
+        if (!config.target_column) newErrors.target_column = 'Target column is required';
+        break;
+      case 'json_path_extract':
+        if (!config.json_column) newErrors.json_column = 'JSON column is required';
+        if (!config.json_path) newErrors.json_path = 'JSON path is required';
+        break;
+      case 'qualify_filter':
+        if (!config.partition_columns) newErrors.partition_columns = 'Partition columns are required';
+        if (!config.order_column) newErrors.order_column = 'Order column is required';
+        break;
+      case 'correlation':
+        if (!config.column_a) newErrors.column_a = 'Column A is required';
+        if (!config.column_b) newErrors.column_b = 'Column B is required';
+        break;
+      case 'histogram':
+        if (!config.column) newErrors.column = 'Column is required';
+        break;
+      case 'ai_filter':
+        if (!config.filter_prompt) newErrors.filter_prompt = 'Filter prompt is required';
+        break;
+      case 'ai_agg':
+        if (!config.group_column) newErrors.group_column = 'Group column is required';
+        if (!config.aggregation_prompt) newErrors.aggregation_prompt = 'Aggregation prompt is required';
+        break;
+      case 'recursive_cte':
+        if (!config.id_column) newErrors.id_column = 'ID column is required';
+        if (!config.parent_column) newErrors.parent_column = 'Parent column is required';
+        if (!config.name_column) newErrors.name_column = 'Name column is required';
+        break;
+      // Cloud Sources
+      case 's3_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'azure_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      case 'gcs_source':
+        if (!config.stage_name) newErrors.stage_name = 'Stage name is required';
+        if (!config.file_path) newErrors.file_path = 'File path is required';
+        break;
+      // DB Sources
+      case 'postgres_source':
+        if (!config.connection_name) newErrors.connection_name = 'Connection name is required';
+        if (!config.source_table) newErrors.source_table = 'Source table is required';
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.target_schema) newErrors.target_schema = 'Target schema is required';
+        break;
+      case 'mysql_source':
+        if (!config.connection_name) newErrors.connection_name = 'Connection name is required';
+        if (!config.source_table) newErrors.source_table = 'Source table is required';
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.target_schema) newErrors.target_schema = 'Target schema is required';
+        break;
+      // CRM/ERP Sources
+      case 'salesforce_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.object_name) newErrors.object_name = 'Object name is required';
+        break;
+      case 'sap_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'oracle_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'hubspot_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.object_name) newErrors.object_name = 'Object name is required';
+        break;
+      case 'servicenow_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'api_source':
+        if (!config.target_database) newErrors.target_database = 'Target database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema name is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      // Other Sources
+      case 'external_table_source':
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'dynamic_table_source':
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      case 'shared_data_source':
+        if (!config.share_database) newErrors.share_database = 'Shared database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.table_name) newErrors.table_name = 'Table name is required';
+        break;
+      // Python UDF/Procedure
+      case 'create_udf':
+        if (!config.function_name) newErrors.function_name = 'Function name is required';
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.function_body) newErrors.function_body = 'Function body is required';
+        break;
+      case 'create_procedure':
+        if (!config.procedure_name) newErrors.procedure_name = 'Procedure name is required';
+        if (!config.database_name) newErrors.database_name = 'Database is required';
+        if (!config.schema_name) newErrors.schema_name = 'Schema is required';
+        if (!config.procedure_body) newErrors.procedure_body = 'Procedure body is required';
+        break;
+      case 'apply_udf':
+        if (!config.function_name) newErrors.function_name = 'Function name is required';
+        if (!config.input_columns || config.input_columns.length === 0) newErrors.input_columns = 'At least one input column is required';
+        if (!config.output_column) newErrors.output_column = 'Output column name is required';
+        break;
+      // AI Functions
+      case 'ai_extract':
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        if (!config.extract_keys || config.extract_keys.length === 0) newErrors.extract_keys = 'Extract keys are required';
+        break;
+      // ML Training
+      case 'forecast':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'anomaly_detect':
+        if (!config.timestamp_column) newErrors.timestamp_column = 'Timestamp column is required';
+        if (!config.value_column) newErrors.value_column = 'Value column is required';
+        break;
+      case 'document_ai':
+        if (!config.model) newErrors.model = 'Model name is required';
+        if (!config.input_column) newErrors.input_column = 'Input column is required';
+        break;
+      case 'finetune':
+        if (!config.base_model) newErrors.base_model = 'Base model is required';
+        if (!config.training_table) newErrors.training_table = 'Training table is required';
+        break;
+      case 'classification_train':
+        if (!config.target_column) newErrors.target_column = 'Target column is required';
         break;
     }
 
@@ -1260,9 +769,13 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
 
   const handleDelete = useCallback(() => {
     if (!node) return;
-    if (confirm('Are you sure you want to delete this node?')) {
-      onDelete(node.id);
-    }
+    setConfirmDeleteNode(true);
+  }, [node]);
+
+  const executeDeleteNode = useCallback(() => {
+    if (!node) return;
+    setConfirmDeleteNode(false);
+    onDelete(node.id);
   }, [node, onDelete]);
 
   if (!node || !node.type) return null;
@@ -1281,33 +794,169 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <JoinConfigForm data={formData} onChange={handleChange} errors={errors} leftInputColumns={leftInputColumns} rightInputColumns={rightInputColumns} />;
       case 'filter':
       case 'drop_nulls':
-        return <FilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'aggregate':
       case 'aggregate_kpi':
-        return <AggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <AggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'select':
-        return <SelectConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SelectConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'rename':
-        return <RenameConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <RenameConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'cast':
-        return <CastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <CastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'formula':
       case 'normalize':
-        return <FormulaConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <FormulaConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'sort':
-        return <SortConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <SortConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'union':
         return <UnionConfigForm data={formData} onChange={handleChange} errors={errors} />;
       case 'distinct':
       case 'drop_duplicates':
-        return <DistinctConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} />;
+        return <DistinctConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'limit':
         return <LimitConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'recommendation':
+        return <RecommendationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'segmentation':
+        return <SegmentationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'clustering':
+        return <ClusteringConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'destination':
-        return <DestinationConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} availableColumns={availableColumns} />;
+        return <DestinationConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'export_file':
       case 'export_excel':
         return <ExportFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'sql_script':
+        return <SQLScriptConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'python_script':
+        return <PythonScriptConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} />;
+      case 'notebook_run':
+        return <NotebookRunConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'dynamic_table':
+        return <DynamicTableConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'stream_consume':
+        return <StreamConsumeConfigForm data={formData} onChange={handleChange} errors={errors} accessToken={accessToken} />;
+      case 'cdc_merge':
+        return <CdcMergeConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'git_file':
+        return <GitFileConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'compute_pool':
+        return <ComputePoolConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'container_service':
+        return <ContainerServiceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Window Functions
+      case 'window_rank':
+        return <WindowRankConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'window_lag_lead':
+        return <WindowLagLeadConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'window_aggregate':
+        return <WindowAggregateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'window_ntile':
+        return <WindowNtileConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // JSON
+      case 'json_flatten':
+        return <JsonFlattenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'json_extract':
+        return <JsonExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'json_construct':
+        return <JsonConstructConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // Pivot/Unpivot
+      case 'pivot':
+        return <PivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'unpivot':
+        return <UnpivotConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // Date/Time
+      case 'date_transform':
+        return <DateTransformConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'time_slice':
+        return <TimeSliceConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // Data Cleaning
+      case 'fill_nulls':
+        return <FillNullsConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'case_when':
+        return <CaseWhenConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'split_column':
+        return <SplitColumnConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // Cloud Sources
+      case 's3_source':
+        return <S3SourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'azure_source':
+        return <AzureSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'gcs_source':
+        return <GCSSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // DB Sources
+      case 'postgres_source':
+        return <PostgresSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'mysql_source':
+        return <MySQLSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // CRM/ERP Sources
+      case 'salesforce_source':
+        return <SalesforceSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'sap_source':
+        return <SapSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'oracle_source':
+        return <OracleSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'hubspot_source':
+        return <HubspotSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'servicenow_source':
+        return <ServicenowSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'api_source':
+        return <ApiSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Other Sources
+      case 'external_table_source':
+        return <ExternalTableSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'dynamic_table_source':
+        return <DynamicTableSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'shared_data_source':
+        return <SharedDataSourceConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      // Python UDF/Procedure
+      case 'create_udf':
+        return <CreateUDFConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'create_procedure':
+        return <CreateProcedureConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'apply_udf':
+        return <ApplyUDFConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // AI Blocks
+      case 'ai_classify':
+        return <AIClassifyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'ai_sentiment':
+        return <AISentimentConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'ai_translate':
+        return <AITranslateConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'ai_complete':
+        return <AICompleteConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'ai_extract':
+        return <AIExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'forecast':
+      case 'ml_forecast':
+        return <MLForecastConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'anomaly_detect':
+      case 'ml_anomaly':
+        return <MLAnomalyConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'document_ai':
+        return <DocumentAIConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'finetune':
+        return <FinetuneConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'classification_train':
+        return <ClassificationTrainConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // New blocks
+      case 'fuzzy_match':
+        return <FuzzyMatchConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'json_path_extract':
+        return <JSONPathExtractConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'qualify_filter':
+        return <QualifyFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'correlation':
+        return <CorrelationConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'histogram':
+        return <HistogramConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'ai_filter':
+        return <AIFilterConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'ai_agg':
+        return <AIAggConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'recursive_cte':
+        return <RecursiveCTEConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }
@@ -1368,12 +1017,22 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 space-y-2">
+        {validationErrors.length > 0 && (
+          <div className="mb-2 p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg">
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300 mb-1">Required fields missing:</p>
+            {validationErrors.map((err, i) => (
+              <p key={i} className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                <span>•</span> {err}
+              </p>
+            ))}
+          </div>
+        )}
         <button
           onClick={handleSave}
-          disabled={!hasChanges}
+          disabled={!hasChanges || !isValid}
           className={cn(
             'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors',
-            hasChanges
+            hasChanges && isValid
               ? 'bg-blue-600 text-white hover:bg-blue-700'
               : 'bg-slate-200 text-slate-400 cursor-not-allowed dark:bg-slate-700'
           )}
@@ -1382,16 +1041,34 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
           Save Configuration
         </button>
 
-        <button
-          onClick={handleDelete}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete Node
-        </button>
+        {!confirmDeleteNode ? (
+          <button
+            onClick={handleDelete}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+          >
+            <Trash2 className="h-4 w-4" />
+            Delete Node
+          </button>
+        ) : (
+          <div className="w-full flex items-center justify-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+            <span className="text-sm text-red-700 dark:text-red-300">Delete this node?</span>
+            <button
+              onClick={executeDeleteNode}
+              className="px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDeleteNode(false)}
+              className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
-export default ETLConfigSidebar;
+export default React.memo(ETLConfigSidebar);

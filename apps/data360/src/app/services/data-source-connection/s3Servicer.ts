@@ -8,7 +8,6 @@ interface S3FormData {
   integration_name: string;
   bucket_name: string;
   aws_role_arn: string;
-  external_id: string;
   stage_name: string;
 }
 
@@ -19,7 +18,7 @@ interface S3FormData {
  */
 export const submitS3Form = async (formData: S3FormData): Promise<any> => {
   try {
-    const response = await apiClient.get('/connect/data_lake');
+    const response = await apiClient.get('/connect/stages');
     return response.data;
   } catch (error) {
     console.error('Error submitting the S3 form:', error);

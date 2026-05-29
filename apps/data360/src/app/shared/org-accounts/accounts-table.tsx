@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { Text, Input, Select, Badge, Button, Tooltip } from 'rizzui';
 import cn from '@core/utils/class-names';
+import { UserPlus } from 'lucide-react';
 import {
   PiMagnifyingGlass,
   PiFunnel,
@@ -12,7 +13,10 @@ import {
   PiDownloadSimple,
   PiArrowSquareOut,
 } from 'react-icons/pi';
+import { useAuth } from '@/hooks/useAuth';
 import type { ClientAccount, AccountFilters, HealthScore } from '@/app/services/org-accounts/types';
+import AccountLifecycleMenu, { normalizeRole } from './AccountLifecycleMenu';
+import AccountCreationWizard from './AccountCreationWizard';
 
 interface AccountsTableProps {
   accounts: ClientAccount[];
@@ -21,6 +25,8 @@ interface AccountsTableProps {
   storageUsage?: Record<string, number>;
   loading?: boolean;
   onAccountClick?: (account: ClientAccount) => void;
+  /** Refetch parent data after a successful lifecycle mutation. */
+  onAccountsChanged?: () => void;
   className?: string;
 }
 
@@ -86,6 +92,7 @@ export default function AccountsTable({
   storageUsage = {},
   loading = false,
   onAccountClick,
+  onAccountsChanged,
   className,
 }: AccountsTableProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +100,12 @@ export default function AccountsTable({
   const [sortField, setSortField] = useState<SortField>('account_name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
   const [showFilters, setShowFilters] = useState(false);
+  const [showCreateWizard, setShowCreateWizard] = useState(false);
+
+  // Role-aware actions. Falls back to 'user' if the auth hook hasn't
+  // resolved yet — kebab will then hide everything except View + Export.
+  const { role: rawRole, username: currentUsername } = useAuth();
+  const userRole = normalizeRole(rawRole, currentUsername);
 
   // Create health score map for quick lookup
   const healthScoreMap = useMemo(() => {
@@ -262,6 +275,16 @@ export default function AccountsTable({
               <PiDownloadSimple className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
+            {(userRole === 'orgadmin' || userRole === 'accountadmin') && (
+              <Button
+                variant="solid"
+                size="sm"
+                onClick={() => setShowCreateWizard(true)}
+              >
+                <UserPlus className="h-4 w-4 mr-2" />
+                New account
+              </Button>
+            )}
           </div>
         </div>
 
@@ -302,6 +325,17 @@ export default function AccountsTable({
           </div>
         )}
       </div>
+
+      {/* Create wizard */}
+      <AccountCreationWizard
+        open={showCreateWizard}
+        onOpenChange={setShowCreateWizard}
+        currentUserRole={userRole}
+        onCreated={(newAccount) => {
+          onAccountsChanged?.();
+          onAccountClick?.(newAccount);
+        }}
+      />
 
       {/* Table */}
       <div className="overflow-x-auto">
@@ -501,16 +535,14 @@ export default function AccountsTable({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-center">
-                        <Button
-                          variant="text"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onAccountClick?.(account);
-                          }}
-                        >
-                          View
-                        </Button>
+                        <AccountLifecycleMenu
+                          account={account}
+                          currentUserRole={userRole}
+                          currentUsername={currentUsername}
+                          onViewDetails={(a) => onAccountClick?.(a)}
+                          onChanged={onAccountsChanged}
+                          onDropped={onAccountsChanged}
+                        />
                       </div>
                     </td>
                   </tr>

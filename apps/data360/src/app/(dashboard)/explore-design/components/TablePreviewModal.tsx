@@ -16,11 +16,20 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
-import { getTablePreview, TablePreviewData } from '@/app/services/explore-design';
+import { tablePreview } from '@/app/services/api/exploreDesignApi';
+
+// Adapted shape for rendering (mapped from new API response)
+interface TablePreviewData {
+  table: string;
+  columns: string[];
+  rows: Record<string, any>[];
+  total_rows: number;
+}
 
 interface TablePreviewModalProps {
   isOpen: boolean;
   onClose: () => void;
+  projectId: string;
   database: string;
   schema: string;
   table: string;
@@ -29,6 +38,7 @@ interface TablePreviewModalProps {
 const TablePreviewModal: React.FC<TablePreviewModalProps> = ({
   isOpen,
   onClose,
+  projectId,
   database,
   schema,
   table,
@@ -46,16 +56,20 @@ const TablePreviewModal: React.FC<TablePreviewModalProps> = ({
     setError(null);
 
     try {
-      const offset = (currentPage - 1) * pageSize;
-      const data = await getTablePreview(database, schema, table, pageSize, offset);
-      setPreviewData(data);
+      const data = await tablePreview(projectId, database, schema, table, { limit: pageSize });
+      setPreviewData({
+        table: data.table,
+        columns: data.columns,
+        rows: data.rows as Record<string, any>[],
+        total_rows: data.row_count,
+      });
     } catch (err: any) {
       console.error('Failed to load table preview:', err);
       setError(err.message || 'Failed to load table data. The backend endpoint may not be available.');
     } finally {
       setIsLoading(false);
     }
-  }, [database, schema, table, currentPage, pageSize]);
+  }, [projectId, database, schema, table, currentPage, pageSize]);
 
   useEffect(() => {
     if (isOpen) {

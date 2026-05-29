@@ -5,6 +5,9 @@ export { default as ETLConfigSidebar } from './ETLConfigSidebar';
 export { etlNodeTypes } from './ETLNodeTypes';
 export * from './etl-blocks';
 
+// Retail Pipeline Templates
+export * from './retail-pipeline-templates';
+
 // Workflow Management Components
 export { default as VersionHistory } from './VersionHistory';
 export { default as ExecutionHistory } from './ExecutionHistory';

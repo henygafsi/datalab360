@@ -7,12 +7,13 @@ import {
   Table2, RefreshCw, Clock, History, Shield, Key, Link2, Edit2,
   Trash2, Check, X, AlertTriangle, ChevronDown, ChevronRight,
   Filter, Search, Undo2, CheckCircle2, XCircle, Clock4,
-  Plus, Minus, Eye, Tag, Layers
+  Plus, Minus, Eye, Tag, Layers, Database
 } from 'lucide-react';
 import { useEventStore, DesignEvent, EventType, EventStatus } from '../stores/event-store';
 
 // Event type icons and labels
 const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label: string; color: string }> = {
+  SCHEMA_CREATED: { icon: Database, label: 'Schema Created', color: 'bg-indigo-100 text-indigo-600' },
   SCHEMA_SELECTED: { icon: Table2, label: 'Schema Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_SELECTED: { icon: Table2, label: 'Table Selected', color: 'bg-slate-100 text-slate-600' },
   TABLE_CREATED: { icon: Plus, label: 'Table Created', color: 'bg-green-100 text-green-600' },
@@ -46,7 +47,60 @@ const eventTypeConfig: Record<EventType, { icon: React.ComponentType<any>; label
   TABLE_REMOVED_FROM_MODELING: { icon: Minus, label: 'Removed from Modeling', color: 'bg-red-100 text-red-600' },
   COLUMN_MAPPING_CREATED: { icon: Link2, label: 'Column Mapped', color: 'bg-blue-100 text-blue-600' },
   COLUMN_MAPPING_REMOVED: { icon: Link2, label: 'Mapping Removed', color: 'bg-red-100 text-red-600' },
+  DYNAMIC_TABLE_CREATED: { icon: RefreshCw, label: 'Dynamic Table Created', color: 'bg-teal-100 text-teal-600' },
+  STREAM_CREATED: { icon: Database, label: 'Stream Created', color: 'bg-cyan-100 text-cyan-600' },
+  EVENT_TABLE_CREATED: { icon: Clock, label: 'Event Table Created', color: 'bg-violet-100 text-violet-600' },
+  HYBRID_TABLE_CREATED: { icon: Layers, label: 'Hybrid Table Created', color: 'bg-indigo-100 text-indigo-600' },
+  ALERT_CREATED: { icon: AlertTriangle, label: 'Alert Created', color: 'bg-amber-100 text-amber-600' },
+  // AI-assisted events
+  AI_CLASSIFICATION_APPLIED: { icon: Layers, label: 'AI Classification', color: 'bg-violet-100 text-violet-600' },
+  AI_TYPE_CHANGE_APPLIED: { icon: Table2, label: 'AI Type Change', color: 'bg-violet-100 text-violet-600' },
+  AI_RELATION_ACCEPTED: { icon: Link2, label: 'AI Relation', color: 'bg-violet-100 text-violet-600' },
+  AI_TEMPLATE_APPLIED: { icon: Layers, label: 'AI Template', color: 'bg-violet-100 text-violet-600' },
+  AI_COLUMNS_ADDED: { icon: Plus, label: 'AI Columns Added', color: 'bg-violet-100 text-violet-600' },
+  // Advanced configuration events
+  SCD_CONFIG_SET: { icon: History, label: 'SCD Config', color: 'bg-indigo-100 text-indigo-600' },
+  WHERE_CLAUSE_SET: { icon: Filter, label: 'Where Clause', color: 'bg-slate-100 text-slate-600' },
+  QUALITY_GATE_SET: { icon: Shield, label: 'Quality Gate', color: 'bg-emerald-100 text-emerald-600' },
 };
+
+// Event display priority — same order as deployment execution
+// Lower = show first (schema before tables before FKs before policies)
+const EVENT_DISPLAY_PRIORITY: Partial<Record<EventType, number>> = {
+  SCHEMA_CREATED: 0,
+  TABLE_ADDED_TO_MODELING: 1,
+  TABLE_REMOVED_FROM_MODELING: 1,
+  TABLE_CREATED: 2,
+  ADD_COLUMN: 3,
+  COLUMN_RENAMED: 4,
+  COLUMN_TYPE_CHANGED: 4,
+  REMOVE_COLUMN: 4,
+  PRIMARY_KEY_SET: 5,
+  PRIMARY_KEY_REMOVED: 5,
+  FOREIGN_KEY_ADDED: 6,
+  FOREIGN_KEY_REMOVED: 6,
+  MASKING_POLICY_APPLIED: 7,
+  MASKING_POLICY_REMOVED: 7,
+  RLS_POLICY_APPLIED: 7,
+  RLS_POLICY_REMOVED: 7,
+  AGGREGATION_POLICY_APPLIED: 7,
+  AGGREGATION_POLICY_REMOVED: 7,
+  TAG_APPLIED: 8,
+  TAG_REMOVED: 8,
+  INGESTION_MODE_SET: 9,
+  TABLE_RENAMED: 10,
+};
+
+const sortByPriority = (events: DesignEvent[]): DesignEvent[] =>
+  [...events].sort((a, b) => {
+    const pa = EVENT_DISPLAY_PRIORITY[a.type] ?? 99;
+    const pb = EVENT_DISPLAY_PRIORITY[b.type] ?? 99;
+    if (pa !== pb) return pa - pb;
+    // Same priority: sort by timestamp
+    const ta = a.timestamp instanceof Date ? a.timestamp.getTime() : new Date(a.timestamp).getTime();
+    const tb = b.timestamp instanceof Date ? b.timestamp.getTime() : new Date(b.timestamp).getTime();
+    return ta - tb;
+  });
 
 // Status config
 const statusConfig: Record<EventStatus, { icon: React.ComponentType<any>; label: string; color: string }> = {
@@ -90,6 +144,9 @@ const EventRow: React.FC<{
           event.status === 'failed' && 'bg-red-50 dark:bg-red-900/10'
         )}
         onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+        role="button"
+        tabIndex={0}
       >
         {/* Expand Toggle */}
         <button className="p-0.5">
@@ -137,7 +194,7 @@ const EventRow: React.FC<{
               variant="text"
               size="sm"
               onClick={onRemove}
-              className="p-1.5 text-red-600 hover:bg-red-50"
+              className="p-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
               <Trash2 className="h-4 w-4" />
             </Button>
@@ -153,11 +210,21 @@ const EventRow: React.FC<{
             <pre className="text-xs text-slate-600 dark:text-slate-400 overflow-auto">
               {JSON.stringify(event.payload, null, 2)}
             </pre>
-            {event.error && (
-              <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-red-600 dark:text-red-400 text-xs">
-                <strong>Error:</strong> {event.error}
-              </div>
-            )}
+            {event.error && (() => {
+              // Parse "message (code NNN) | Fix: suggestion" format written by DeploymentValidation
+              const raw = typeof event.error === 'string' ? event.error : JSON.stringify(event.error);
+              const fixMatch = raw.match(/\|\s*Fix:\s*(.+)$/);
+              const mainMsg = fixMatch ? raw.slice(0, raw.indexOf(' | Fix:')).trim() : raw;
+              const suggestedFix = fixMatch ? fixMatch[1].trim() : null;
+              return (
+                <div className="mt-2 p-2 bg-red-50 dark:bg-red-900/20 rounded text-xs space-y-1">
+                  <p className="text-red-600 dark:text-red-400"><strong>Error:</strong> {mainMsg}</p>
+                  {suggestedFix && (
+                    <p className="text-amber-600 dark:text-amber-400"><strong>Fix:</strong> {suggestedFix}</p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -172,16 +239,18 @@ interface EventTableProps {
   projectId?: string | null;
 }
 
-const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }) => {
+const EventTable = React.memo(function EventTable({ className, compact, projectId }: EventTableProps) {
   const { events, pendingEvents, removeEvent, clearEvents, undoEvent, canUndo } = useEventStore(projectId);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<EventStatus | 'all'>('all');
   const [typeFilter, setTypeFilter] = useState<EventType | 'all'>('all');
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  const [showTemplateEvents, setShowTemplateEvents] = useState(false);
 
   // Event types that should be displayed in the Changes panel
-  // Only show actual schema changes, not UI state events like SCHEMA_SELECTED
+  // Schema changes + modeling actions (ETL mappings are shown in Deployment modal instead)
   const displayableEventTypes: EventType[] = [
+    'SCHEMA_CREATED',
     'TABLE_CREATED',
     'TABLE_RENAMED',
     'COLUMN_RENAMED',
@@ -198,16 +267,18 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
     'RLS_POLICY_REMOVED',
     'FOREIGN_KEY_ADDED',
     'FOREIGN_KEY_REMOVED',
+    'TABLE_ADDED_TO_MODELING',
+    'TABLE_REMOVED_FROM_MODELING',
   ];
 
   // Filter pending events to only count displayable ones
   const displayablePendingEvents = useMemo(() => {
-    return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
+    return pendingEvents.filter(event => displayableEventTypes.includes(event.type) && !event.payload?.isTemplate);
   }, [pendingEvents]);
 
-  // Filtered events
+  // Filtered events — sorted by execution priority (schema → tables → columns → FKs → policies)
   const filteredEvents = useMemo(() => {
-    return events.filter((event) => {
+    const filtered = events.filter((event) => {
       // Only show displayable event types (exclude SCHEMA_SELECTED, TABLE_SELECTED, etc.)
       if (!displayableEventTypes.includes(event.type)) return false;
 
@@ -229,6 +300,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
 
       return true;
     });
+    return sortByPriority(filtered);
   }, [events, searchQuery, statusFilter, typeFilter]);
 
   // Group events by table
@@ -345,6 +417,34 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
             <span className="text-purple-600 dark:text-purple-400">{payload.refTable}.{payload.refColumn}</span>
           </div>
         );
+      case 'COLUMN_MAPPING_CREATED':
+        return (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400 space-y-0.5">
+            <div>
+              <span className="text-green-600 dark:text-green-400">Source: </span>
+              <span className="font-mono">{payload.source?.table}.{payload.source?.columns?.join(', ')}</span>
+            </div>
+            <div>
+              <span className="text-blue-600 dark:text-blue-400">Target: </span>
+              <span className="font-mono">{payload.target?.table}.{payload.target?.column}</span>
+            </div>
+            {payload.transformation && (
+              <div>
+                <span className="text-purple-600 dark:text-purple-400">Transform: </span>
+                <span className="font-mono">{payload.transformation}</span>
+              </div>
+            )}
+          </div>
+        );
+      case 'COLUMN_MAPPING_REMOVED':
+        return (
+          <div className="text-[10px] text-slate-500 dark:text-slate-400">
+            <span className="text-red-500">Removed: </span>
+            <span className="font-mono">{payload.source?.table}.{payload.source?.columns?.[0]}</span>
+            <span className="mx-1">→</span>
+            <span className="font-mono">{payload.target?.table}.{payload.target?.column}</span>
+          </div>
+        );
       case 'INGESTION_MODE_SET':
         return (
           <div className="text-[10px] text-slate-500 dark:text-slate-400">
@@ -411,12 +511,64 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
           </div>
         </div>
         <div className="flex-1 overflow-auto">
-          {events.length === 0 ? (
+          {/* Template events collapsible group */}
+          {(() => {
+            const templateEvents = sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && e.payload?.isTemplate));
+            if (templateEvents.length > 0) {
+              const templateSchemaCount = templateEvents.filter(e => e.type === 'SCHEMA_CREATED').length;
+              const templateTableCount = templateEvents.filter(e => e.type === 'TABLE_CREATED').length;
+              const templateFkCount = templateEvents.filter(e => e.type === 'FOREIGN_KEY_ADDED').length;
+              return (
+                <div className="border-b border-slate-200 dark:border-slate-700">
+                  <button
+                    onClick={() => setShowTemplateEvents(!showTemplateEvents)}
+                    className="w-full flex items-center gap-2 px-3 py-2 bg-indigo-50/80 dark:bg-indigo-900/15 hover:bg-indigo-100/80 dark:hover:bg-indigo-900/25 transition-colors"
+                  >
+                    {showTemplateEvents ? (
+                      <ChevronDown className="h-3 w-3 text-indigo-400" />
+                    ) : (
+                      <ChevronRight className="h-3 w-3 text-indigo-400" />
+                    )}
+                    <Database className="h-3.5 w-3.5 text-indigo-500" />
+                    <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300 flex-1 text-left">
+                      DWH Template: {templateSchemaCount > 0 ? `${templateSchemaCount} schema, ` : ''}{templateTableCount} tables, {templateFkCount} FKs
+                    </span>
+                    <Badge className="bg-indigo-500 text-white text-[10px] px-1.5 py-0 font-medium">
+                      Template
+                    </Badge>
+                  </button>
+                  {showTemplateEvents && (
+                    <div className="bg-indigo-50/30 dark:bg-indigo-900/5">
+                      {templateEvents.map((event) => {
+                        const config = eventTypeConfig[event.type] || { icon: Table2, label: event.type, color: 'bg-slate-100 text-slate-600' };
+                        const Icon = config.icon;
+                        return (
+                          <div key={event.id} className="flex items-center gap-2 px-3 py-1.5 border-t border-indigo-100 dark:border-indigo-900/30">
+                            <div className={cn('p-0.5 rounded', config.color)}>
+                              <Icon className="h-2.5 w-2.5" />
+                            </div>
+                            <span className="text-[11px] text-slate-600 dark:text-slate-400 truncate flex-1">
+                              {event.target.table}
+                            </span>
+                            <span className="text-[10px] text-indigo-400">
+                              {config.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            return null;
+          })()}
+          {events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate).length === 0 && events.filter(e => e.payload?.isTemplate).length === 0 ? (
             <div className="p-4 text-center text-slate-500 text-sm">
               No changes recorded yet
             </div>
           ) : (
-            events.slice(-10).reverse().map((event) => {
+            sortByPriority(events.filter(e => displayableEventTypes.includes(e.type) && !e.payload?.isTemplate)).map((event) => {
               const config = eventTypeConfig[event.type] || {
                 icon: Table2,
                 label: event.type,
@@ -439,6 +591,9 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                   <div
                     className="flex flex-col px-3 py-2 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-700/50"
                     onClick={() => handleToggleExpand(event.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleToggleExpand(event.id); } }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="flex items-center gap-2">
                       {/* Expand/Collapse Icon */}
@@ -462,9 +617,11 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                     {/* Show error message for failed events even when collapsed */}
                     {event.status === 'failed' && event.error && !isExpanded && (
                       <div className="ml-7 mt-1 text-[10px] text-red-500 dark:text-red-400 truncate">
-                        ⚠️ {typeof event.error === 'string'
-                          ? event.error
-                          : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error)}
+                        ⚠️ {(() => {
+                          const raw = typeof event.error === 'string' ? event.error : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error);
+                          // Strip " | Fix: ..." suffix for the collapsed single-line preview
+                          return raw.replace(/\s*\|\s*Fix:\s*.+$/, '');
+                        })()}
                       </div>
                     )}
                   </div>
@@ -489,13 +646,20 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
                         {renderEventDetails(event)}
 
                         {/* Error message if failed */}
-                        {event.status === 'failed' && event.error && (
-                          <div className="mt-1 p-1.5 bg-red-50 dark:bg-red-900/20 rounded text-[10px] text-red-600 dark:text-red-400">
-                            {typeof event.error === 'string'
-                              ? event.error
-                              : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error)}
-                          </div>
-                        )}
+                        {event.status === 'failed' && event.error && (() => {
+                          const raw = typeof event.error === 'string' ? event.error : (event.error as any)?.msg || (event.error as any)?.message || JSON.stringify(event.error);
+                          const fixMatch = raw.match(/\|\s*Fix:\s*(.+)$/);
+                          const mainMsg = fixMatch ? raw.slice(0, raw.indexOf(' | Fix:')).trim() : raw;
+                          const suggestedFix = fixMatch ? fixMatch[1].trim() : null;
+                          return (
+                            <div className="mt-1 p-1.5 bg-red-50 dark:bg-red-900/20 rounded text-[10px] space-y-0.5">
+                              <p className="text-red-600 dark:text-red-400">{mainMsg}</p>
+                              {suggestedFix && (
+                                <p className="text-amber-600 dark:text-amber-400">Fix: {suggestedFix}</p>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Action buttons - only remove, no execute */}
                         <div className="flex items-center gap-1 pt-1">
@@ -542,7 +706,7 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
               size="sm"
               onClick={() => clearEvents()}
               disabled={events.length === 0}
-              className="gap-1 text-red-500 border-red-200 hover:bg-red-50"
+              className="gap-1 text-red-500 border-red-200 hover:bg-red-50 dark:hover:bg-red-900/20"
             >
               <Trash2 className="h-4 w-4" />
               Clear
@@ -626,6 +790,6 @@ const EventTable: React.FC<EventTableProps> = ({ className, compact, projectId }
       </div>
     </div>
   );
-};
+});
 
 export default EventTable;

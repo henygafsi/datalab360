@@ -1,14 +1,11 @@
 /** Explore & Design API: metadata, events, deployments. Data journey: UI → service → /explore-design/guided/*. */
-// ////dependency//// service → lib.auth, lib.api-contracts, config.database.config, axios
-import axios from 'axios';
-import { getAuthHeaders } from '@/lib/auth';
-import { API_CONTRACTS } from '@/lib/api-contracts';
-import { API_CONFIG } from '@/config/database.config';
+// ////dependency//// service → lib.api-client (centralized auth+interceptors)
+import apiClient from '@/lib/api-client';
 
-const API_URL = API_CONFIG.BASE_URL;
-const EXPLORE_DESIGN_BASE = `${API_URL}/explore-design`;
-/** Explore & Design guided data flow: /explore-design/guided/* */
-const GUIDED_BASE = `${API_URL}/explore-design/guided`;
+/** Explore-design prefix — unified to match backend router at /explore-design */
+const ED = '/explore-design';
+/** Alias for V1 explore-design prefix (same as ED) */
+const V1_EXPLORE = '/explore-design';
 
 // Types
 export type IngestionMode =
@@ -151,6 +148,105 @@ export interface RelationDetection {
   detection_method: string;
   value_overlap_percent?: number;
 }
+
+// ============================================
+// METADATA APIS
+// ============================================
+
+
+// ============================================
+// INGESTION CONFIGURATION APIS
+// ============================================
+
+/**
+ * Set ingestion mode for a table
+ */
+
+
+/**
+ * Bulk set ingestion mode for multiple tables
+ */
+
+
+// ============================================
+// DETECTION APIS
+// ============================================
+
+/**
+ * Detect sensitive columns in tables
+ */
+
+/**
+ * Auto-detect foreign key relationships
+ */
+export async function detectRelations(
+  sourceTables: TableReference[],
+  targetTables: TableReference[],
+  options?: {
+    detection_methods?: ('naming_convention' | 'data_type_match' | 'value_overlap')[];
+    sample_size?: number;
+  }
+): Promise<{
+  detected_relations: RelationDetection[];
+  suggestions: RelationDetection[];
+}> {
+  try {
+    const response = await apiClient.get(
+      `${ED}/smart/detect-fk`,
+      {
+        params: {
+          source_tables: sourceTables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+          target_tables: targetTables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+          sample_size: options?.sample_size ?? 1000,
+        },
+      },
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('[detectRelations] Error:', error?.response?.status, error?.message);
+    return { detected_relations: [], suggestions: [] };
+  }
+}
+
+/**
+ * Detect primary key candidates
+ */
+export async function detectPrimaryKeys(
+  tables: TableReference[],
+  options?: {
+    patterns?: string[];
+    check_uniqueness?: boolean;
+    check_nullability?: boolean;
+  }
+): Promise<{
+  detections: Array<{
+    database: string;
+    schema: string;
+    table: string;
+    column: string;
+    confidence: number;
+    is_unique: boolean;
+    has_nulls: boolean;
+    pattern_matched: string;
+    recommendation: string;
+  }>;
+}> {
+  try {
+    const response = await apiClient.get(
+      `${ED}/smart/detect-pk`,
+      {
+        params: {
+          tables: tables.map(t => `${t.database}.${t.schema}.${t.table}`).join(','),
+        },
+      },
+    );
+    return response.data;
+  } catch (error: any) {
+    console.error('[detectPrimaryKeys] Error:', error?.response?.status, error?.message);
+    return { detections: [] };
+  }
+}
+
 // ============================================
 // EVENT MANAGEMENT APIS
 // ============================================
@@ -164,22 +260,21 @@ export async function recordEvent(
   target: TableReference & { column?: string },
   payload: Record<string, any>
 ): Promise<{ event_id: string; status: EventStatus; created_at: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/events`,
+  const response = await apiClient.post(
+    `/projects/${projectId}/events`,
     {
       project_id: projectId,
       event_type: eventType,
       target,
       payload,
     },
-    { headers }
   );
   return response.data;
 }
 
 /**
  * Get all events for a project
+ * Tries v1 API first (GET /explore-design/{projectId}/events), falls back to legacy
  */
 export async function getProjectEvents(
   projectId: string,
@@ -192,16 +287,36 @@ export async function getProjectEvents(
   events: DesignEvent[];
   summary: { total: number; pending: number; validated: number; failed: number };
 }> {
-  const headers = await getAuthHeaders();
-  const params = new URLSearchParams();
-  if (filters?.status) params.append('status', filters.status);
-  if (filters?.event_type) params.append('event_type', filters.event_type);
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/events`, {
+      params: {
+        ...(filters?.event_type ? { event_type: filters.event_type } : {}),
+      },
+    });
+    const events = data.events || [];
+    return {
+      project_id: data.project_id || projectId,
+      events,
+      summary: {
+        total: events.length,
+        pending: events.filter((e: any) => e.status === 'pending').length,
+        validated: events.filter((e: any) => e.status === 'validated').length,
+        failed: events.filter((e: any) => e.status === 'failed').length,
+      },
+    };
+  } catch {
+    // Fallback to cross-module endpoint
+    const params: Record<string, string> = {};
+    if (filters?.status) params.status = filters.status;
+    if (filters?.event_type) params.event_type = filters.event_type;
 
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects/${projectId}/events?${params.toString()}`,
-    { headers }
-  );
-  return response.data;
+    const response = await apiClient.get(
+      `/projects/${projectId}/events`,
+      { params },
+    );
+    return response.data;
+  }
 }
 /**
  * Delete an event (backend may not implement; prefer filtering in UI).
@@ -228,18 +343,44 @@ export async function validateEvents(
   results: ValidationResult[];
   summary: { validated: number; failed: number };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/validate-events`,
+  const response = await apiClient.post(
+    `${ED}/${projectId}/validate-events`,
     {
       project_id: projectId,
       event_ids: eventIds,
       dry_run: dryRun,
     },
-    { headers }
   );
   return response.data;
 }
+
+// ============================================
+// DEPLOYMENT APIS
+// ============================================
+
+/**
+ * Deploy validated events
+ */
+// TODO: backend endpoint not implemented — use the deployment pipeline (createDeployment + executeDeploymentV1)
+export async function deployEvents(
+  projectId: string,
+  eventIds: string[],
+  options?: { rollback_on_error?: boolean }
+): Promise<{
+  deployment_id: string;
+  status: 'completed' | 'partial' | 'failed';
+  results: DeploymentResult[];
+  summary: { applied: number; failed: number; skipped: number };
+}> {
+  console.warn('[deployEvents] no backend route — use deployment pipeline instead');
+  return {
+    deployment_id: '',
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
+}
+
 // ============================================
 // PROJECT STATE APIS
 // ============================================
@@ -289,36 +430,73 @@ export interface ExploreProjectsResponse {
 
 /**
  * Get all explore projects for the current user
- * Backend endpoint: GET /explore-design/projects
+ * Tries v1 API first (GET /projects?project_type=explore_design), falls back to legacy
  */
 export async function getExploreProjects(): Promise<ExploreProjectsResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/projects`,
-    { headers }
-  );
-  return response.data;
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.get('/projects', {
+      params: { project_type: 'explore_design' },
+    });
+    // Map v1 response shape to legacy shape
+    const projects = (data.projects || []).map((p: any) => ({
+      project_id: p.project_id,
+      project_name: p.project_name,
+      created_by: p.created_by,
+      created_at: p.created_at,
+      status: p.status,
+      metadata: p.metadata,
+    }));
+    return { projects, total: data.total ?? projects.length };
+  } catch {
+    // Fallback to legacy endpoint
+    const response = await apiClient.get(`${ED}/projects`);
+    return response.data;
+  }
 }
 
 /**
  * Create a new explore project
- * Backend endpoint: POST /explore-design/projects or POST /explore-design/create_project
+ * Tries v1 API first (POST /explore-design), falls back to legacy
  */
 export async function createExploreProject(
   projectName: string,
   metadata?: Record<string, any>
 ): Promise<{ success: boolean; project_id: string; project_name: string; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/projects`,
-    {
+  // Try v1 endpoint first
+  try {
+    const { data } = await apiClient.post(V1_EXPLORE, {
       project_name: projectName,
+      project_type: 'explore_design',
       metadata: metadata || {},
-    },
-    { headers }
-  );
+    });
+    return {
+      success: true,
+      project_id: data.project_id,
+      project_name: data.project_name || projectName,
+      message: 'Project created successfully',
+    };
+  } catch {
+    // Fallback to legacy endpoint
+    const response = await apiClient.post(
+      `${ED}/projects`,
+      {
+        project_name: projectName,
+        metadata: metadata || {},
+      },
+    );
+    return response.data;
+  }
+}
+
+/**
+ * Get project state
+ */
+export async function getProjectState(projectId: string): Promise<ProjectState> {
+  const response = await apiClient.get(`${ED}/${projectId}/state`);
   return response.data;
 }
+
 /**
  * Save project state
  */
@@ -326,12 +504,7 @@ export async function saveProjectState(
   projectId: string,
   state: Partial<ProjectState>
 ): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.put(
-    `${EXPLORE_DESIGN_BASE}/project/${projectId}`,
-    state,
-    { headers }
-  );
+  const response = await apiClient.put(`${ED}/${projectId}/state`, state);
   return response.data;
 }
 
@@ -342,12 +515,9 @@ export async function createProject(
   name: string,
   tables?: TableReference[]
 ): Promise<{ project_id: string; name: string }> {
-  const headers = await getAuthHeaders();
-  const url = API_CONTRACTS.exploreDesign.createProject.getUrl();
-  const response = await axios.post(
-    url,
+  const response = await apiClient.post(
+    `${ED}/projects`,
     { project_name: name, metadata: tables ? { tables } : undefined },
-    { headers }
   );
   return response.data;
 }
@@ -373,21 +543,38 @@ export interface ConfigTemplate {
     };
   };
 }
+
+/**
+ * List available templates
+ */
+// TODO: backend endpoint not implemented — event-templates exist separately per project
+export async function getTemplates(): Promise<ConfigTemplate[]> {
+  console.warn('[getTemplates] no backend route');
+  return [];
+}
+
+/**
+ * Save a configuration template
+ */
+// TODO: backend endpoint not implemented
+export async function saveTemplate(
+  template: Omit<ConfigTemplate, 'id'>
+): Promise<{ template_id: string; message: string }> {
+  console.warn('[saveTemplate] no backend route');
+  return { template_id: '', message: 'Backend endpoint not implemented' };
+}
+
 /**
  * Apply template to tables
  */
+// TODO: backend endpoint not implemented
 export async function applyTemplate(
   templateId: string,
   projectId: string,
   tables: TableReference[]
 ): Promise<{ success: boolean; applied_to: number; events_created: number }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/templates/${templateId}/apply`,
-    { project_id: projectId, tables },
-    { headers }
-  );
-  return response.data;
+  console.warn('[applyTemplate] no backend route');
+  return { success: false, applied_to: 0, events_created: 0 };
 }
 
 // ============================================
@@ -404,6 +591,21 @@ export interface SchemaChange {
   }>;
   removed_tables: TableReference[];
 }
+
+/**
+ * Detect schema changes since last sync
+ */
+// TODO: backend endpoint not implemented
+export async function detectSchemaChanges(
+  projectId: string
+): Promise<{ last_sync: string; changes: SchemaChange }> {
+  console.warn('[detectSchemaChanges] no backend route');
+  return {
+    last_sync: '',
+    changes: { new_tables: [], modified_tables: [], removed_tables: [] },
+  };
+}
+
 // ============================================
 // COMPLIANCE VALIDATION
 // ============================================
@@ -415,6 +617,25 @@ export interface ComplianceCheck {
   tables?: string[];
   columns?: string[];
 }
+
+/**
+ * Validate compliance rules
+ */
+export async function validateCompliance(
+  projectId: string,
+  rules: string[]
+): Promise<{
+  status: 'pass' | 'warning' | 'fail';
+  score: number;
+  checks: ComplianceCheck[];
+}> {
+  const response = await apiClient.post(
+    `${ED}/compliance/validate`,
+    { project_id: projectId, compliance_rules: rules },
+  );
+  return response.data;
+}
+
 // ============================================
 // DEPLOYMENT APIs
 // ============================================
@@ -464,10 +685,8 @@ export async function createDeployment(
   approval_required: boolean;
   approval_request_id?: string;
 }> {
-  const headers = await getAuthHeaders();
-  const url = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
-  const response = await axios.post(
-    url,
+  const response = await apiClient.post(
+    `${ED}/${projectId}/deployments`,
     {
       project_id: projectId,
       version,
@@ -481,13 +700,52 @@ export async function createDeployment(
         ...config,
       },
     },
-    { headers }
   );
   return response.data;
 }
+
 /**
- * Execute a deployment
+ * Get deployment details
  */
+// TODO: backend endpoint not implemented — no single-deployment GET route exists
+export async function getDeployment(deploymentId: string): Promise<Deployment & {
+  execution_log: Array<{
+    timestamp: string;
+    event_id: string;
+    status: string;
+    duration_ms: number;
+    error?: string;
+  }>;
+  metrics?: {
+    total_events: number;
+    succeeded: number;
+    failed: number;
+    duration_seconds: number;
+  };
+}> {
+  return {
+    deployment_id: deploymentId,
+    project_id: '',
+    version: '',
+    type: 'immediate' as DeploymentType,
+    status: 'draft' as DeploymentStatus,
+    config: { immediate: false, rollback_on_error: false, notification_channels: [], approvers: [] },
+    event_ids: [],
+    created_at: '',
+    execution_log: [],
+    metrics: { total_events: 0, succeeded: 0, failed: 0, duration_seconds: 0 },
+  };
+}
+
+/**
+ * Execute a deployment.
+ *
+ * @deprecated DIVERGENT URL SHAPE — do not use in the explore-design deployment
+ * UI. Use `executeDeploymentV1(projectId, deploymentId)` instead which hits
+ * `POST /explore-design/{projectId}/deployments/{deploymentId}/execute`.
+ * This stub returns a no-op response; signature kept for backward-compat.
+ */
+// TODO: backend endpoint requires projectId — use executeDeploymentV1 instead
 export async function executeDeployment(
   deploymentId: string,
   options?: { execution_mode?: 'immediate' | 'dry_run'; dry_run?: boolean }
@@ -496,37 +754,48 @@ export async function executeDeployment(
   status: DeploymentStatus;
   execution_started: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/execute`,
-    {
-      execution_mode: options?.execution_mode ?? 'immediate',
-      dry_run: options?.dry_run ?? false,
-    },
-    { headers }
-  );
-  return response.data;
+  console.warn('[executeDeployment] deprecated — use executeDeploymentV1(projectId, deploymentId) instead');
+  return {
+    deployment_id: deploymentId,
+    status: 'failed' as DeploymentStatus,
+    execution_started: '',
+  };
 }
 
 /**
  * Rollback a deployment
  */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
 export async function rollbackDeployment(
   deploymentId: string,
   targetVersion: string,
   reason: string
 ): Promise<{ success: boolean; message: string; rollback_deployment_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments/${deploymentId}/rollback`,
-    {
-      target_version: targetVersion,
-      reason,
-    },
-    { headers }
+  console.warn('[rollbackDeployment] no backend route — use projectsApi.rollbackProject(projectId, ...) instead');
+  return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
+}
+
+/**
+ * List deployments for a project.
+ *
+ * @deprecated Use `listProjectDeploymentsV1` instead. Path corrected to
+ * `GET /explore-design/{projectId}/deployments`.
+ */
+export async function listDeployments(
+  projectId: string,
+  filters?: { status?: DeploymentStatus; limit?: number }
+): Promise<{ deployments: Deployment[]; total: number }> {
+  const params: Record<string, string> = {};
+  if (filters?.status) params.status = filters.status;
+  if (filters?.limit) params.limit = String(filters.limit);
+
+  const response = await apiClient.get(
+    `${ED}/${projectId}/deployments`,
+    { params },
   );
   return response.data;
 }
+
 // ============================================
 // VERSION APIs
 // ============================================
@@ -560,28 +829,47 @@ export interface Version {
 /**
  * Create a new version
  */
+// TODO: backend endpoint not implemented — versions are created via the deployment flow in the projects module
 export async function createVersion(
   projectId: string,
   versionType: VersionType,
   changelogSummary: string,
   snapshotEvents?: boolean
 ): Promise<{ version_id: string; version: string; previous_version?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions`,
-    {
-      project_id: projectId,
-      version_type: versionType,
-      changelog: changelogSummary,
-      snapshot_events: snapshotEvents ?? true,
-    },
-    { headers }
-  );
+  console.warn('[createVersion] no backend route — versions are created via the deployment flow');
+  return { version_id: '', version: '', previous_version: undefined };
+}
+
+/**
+ * List versions for a project
+ */
+export async function listVersions(projectId: string): Promise<{ versions: Version[] }> {
+  const response = await apiClient.get(`${ED}/${projectId}/versions`);
   return response.data;
 }
+
+/**
+ * Get version details
+ */
+// TODO: backend endpoint not implemented — no single-version detail route
+export async function getVersion(versionId: string): Promise<Version & { snapshot: any }> {
+  console.warn('[getVersion] no backend route for version detail');
+  return {
+    version_id: versionId,
+    project_id: '',
+    version: '',
+    status: 'draft' as VersionStatus,
+    created_at: '',
+    created_by: '',
+    changelog: { summary: '', changes: [] },
+    snapshot: null,
+  };
+}
+
 /**
  * Compare two versions
  */
+// TODO: backend endpoint not implemented — no version comparison route
 export async function compareVersions(
   fromVersionId: string,
   toVersionId: string
@@ -599,38 +887,30 @@ export async function compareVersions(
     policies_removed: string[];
   };
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.get(
-    `${EXPLORE_DESIGN_BASE}/versions/${fromVersionId}/compare/${toVersionId}`,
-    { headers }
-  );
-  return response.data;
+  console.warn('[compareVersions] no backend route');
+  return {
+    from_version: fromVersionId,
+    to_version: toVersionId,
+    diff: { tables_added: [], tables_removed: [], tables_modified: [], policies_added: [], policies_removed: [] },
+  };
 }
 
 /**
  * Publish a version
  */
+// TODO: backend endpoint not implemented
 export async function publishVersion(versionId: string): Promise<{ success: boolean; published_at: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions/${versionId}/publish`,
-    {},
-    { headers }
-  );
-  return response.data;
+  console.warn('[publishVersion] no backend route');
+  return { success: false, published_at: '' };
 }
 
 /**
  * Archive a version
  */
+// TODO: backend endpoint not implemented
 export async function archiveVersion(versionId: string): Promise<{ success: boolean; message: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/versions/${versionId}/archive`,
-    {},
-    { headers }
-  );
-  return response.data;
+  console.warn('[archiveVersion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
 }
 
 // ============================================
@@ -670,6 +950,77 @@ export interface ApprovalRequest {
     created_at: string;
   }>;
 }
+
+/**
+ * Get pending approvals for current user
+ */
+// TODO: backend endpoint not implemented — approval workflow uses deployment approve/reject routes
+export async function getPendingApprovals(): Promise<{
+  pending: ApprovalRequest[];
+  total: number;
+}> {
+  console.warn('[getPendingApprovals] no backend route');
+  return { pending: [], total: 0 };
+}
+
+/**
+ * Get approval details
+ */
+// TODO: backend endpoint not implemented
+export async function getApprovalDetails(approvalId: string): Promise<ApprovalRequest> {
+  console.warn('[getApprovalDetails] no backend route');
+  return {
+    approval_request_id: approvalId,
+    project_id: '',
+    deployment_id: '',
+    version: '',
+    requested_by: '',
+    requested_at: '',
+    status: 'pending' as ApprovalStatus,
+    priority: 'low' as ApprovalPriority,
+    changes_summary: { total_events: 0, by_category: {}, high_risk_changes: 0, affected_tables: 0 },
+    approvers: [],
+    comments: [],
+  };
+}
+
+/**
+ * Approve a request
+ */
+// TODO: backend endpoint not implemented — use approveDeploymentV1(projectId, deploymentId) instead
+export async function approveRequest(
+  approvalId: string,
+  comment?: string
+): Promise<{ success: boolean; deployment_status: string }> {
+  console.warn('[approveRequest] no backend route — use approveDeploymentV1 instead');
+  return { success: false, deployment_status: '' };
+}
+
+/**
+ * Reject a request
+ */
+// TODO: backend endpoint not implemented — use rejectDeploymentV1(projectId, deploymentId, reason) instead
+export async function rejectRequest(
+  approvalId: string,
+  comment: string,
+  requiredChanges?: Array<{ type: string; table?: string; column?: string }>
+): Promise<{ success: boolean; message: string }> {
+  console.warn('[rejectRequest] no backend route — use rejectDeploymentV1 instead');
+  return { success: false, message: 'Backend endpoint not implemented. Use rejectDeploymentV1 instead.' };
+}
+
+/**
+ * Add comment to approval request
+ */
+// TODO: backend endpoint not implemented
+export async function addApprovalComment(
+  approvalId: string,
+  comment: string
+): Promise<{ success: boolean; comment_id: string }> {
+  console.warn('[addApprovalComment] no backend route');
+  return { success: false, comment_id: '' };
+}
+
 // ============================================
 // INGESTION APIs
 // ============================================
@@ -701,6 +1052,79 @@ export interface BatchTaskConfig {
   warehouse_size: 'XSMALL' | 'SMALL' | 'MEDIUM' | 'LARGE' | 'XLARGE';
   sql_statements: string[];
 }
+
+/**
+ * Create/configure Snowpipe
+ */
+// TODO: backend endpoint not implemented — Snowpipe config lives in the connect module
+export async function createSnowpipe(
+  projectId: string,
+  tableId: string,
+  config: SnowpipeConfig
+): Promise<{ pipe_id: string; pipe_name: string; status: string }> {
+  console.warn('[createSnowpipe] no backend route in explore-design — use connect module');
+  return { pipe_id: '', pipe_name: '', status: 'not_implemented' };
+}
+
+/**
+ * Create batch task
+ */
+// TODO: backend endpoint not implemented
+export async function createBatchTask(
+  projectId: string,
+  tableId: string,
+  config: BatchTaskConfig
+): Promise<{ task_id: string; task_name: string; status: string }> {
+  console.warn('[createBatchTask] no backend route');
+  return { task_id: '', task_name: '', status: 'not_implemented' };
+}
+
+/**
+ * Create stream for CDC
+ */
+export async function createStream(
+  projectId: string,
+  streamName: string,
+  sourceTable: string,
+  options?: { append_only?: boolean; show_initial_rows?: boolean }
+): Promise<{ stream_id: string; stream_name: string; status: string }> {
+  const response = await apiClient.post(
+    `${ED}/streams`,
+    {
+      project_id: projectId,
+      stream_name: streamName,
+      source_table: sourceTable,
+      append_only: options?.append_only ?? false,
+      show_initial_rows: options?.show_initial_rows ?? false,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Pause ingestion (pipe or task)
+ */
+// TODO: backend endpoint not implemented
+export async function pauseIngestion(
+  ingestionId: string,
+  type: 'snowpipe' | 'task'
+): Promise<{ success: boolean; message: string }> {
+  console.warn('[pauseIngestion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
+}
+
+/**
+ * Resume ingestion (pipe or task)
+ */
+// TODO: backend endpoint not implemented
+export async function resumeIngestion(
+  ingestionId: string,
+  type: 'snowpipe' | 'task'
+): Promise<{ success: boolean; message: string }> {
+  console.warn('[resumeIngestion] no backend route');
+  return { success: false, message: 'Backend endpoint not implemented' };
+}
+
 // ============================================
 // INGESTION EXECUTION API
 // Backend: POST /execute_ingestion
@@ -879,6 +1303,17 @@ export interface SchemaVersionsResponse {
   current_version?: SchemaVersion;
   versions: SchemaVersion[];
   total_versions: number;
+  /**
+   * Honest fetch outcome so the UI can distinguish three states:
+   *  - 'ok'          → endpoint responded with one or more versions
+   *  - 'empty'       → endpoint responded successfully with zero versions
+   *  - 'unavailable' → endpoint returned an error (400/404/500) — versions
+   *                    may still exist; do NOT render this as "no versions".
+   * Optional for backward-compatibility with older callers.
+   */
+  availability?: 'ok' | 'empty' | 'unavailable';
+  /** Populated when availability === 'unavailable' — the upstream error message. */
+  error?: string;
 }
 
 export interface RollbackOptions {
@@ -966,45 +1401,148 @@ export interface IngestionHistoryResponse {
 export async function executeIngestion(
   request: IngestionExecutionRequest
 ): Promise<IngestionExecutionResponse> {
-  const headers = await getAuthHeaders();
-
+  // Try v1 ingestion endpoint first
   try {
-    const response = await axios.post<IngestionExecutionResponse>(
-      `${EXPLORE_DESIGN_BASE}/execute_ingestion`,
+    const { data } = await apiClient.post<IngestionExecutionResponse>(
+      `${V1_EXPLORE}/${request.project_id}/ingestion/execute`,
       {
-        project_id: request.project_id,
-        schema_version_id: request.schema_version_id, // Link to schema version
         tables: request.tables,
         warehouse: request.warehouse || 'COMPUTE_WH',
+        schema_version_id: request.schema_version_id,
         triggered_by: request.triggered_by,
       },
-      { headers }
     );
+    return { ...data, project_id: request.project_id };
+  } catch {
+    // Fallback to legacy endpoint
+    try {
+      const response = await apiClient.post<IngestionExecutionResponse>(
+        `${ED}/execute_ingestion`,
+        {
+          project_id: request.project_id,
+          schema_version_id: request.schema_version_id,
+          tables: request.tables,
+          warehouse: request.warehouse || 'COMPUTE_WH',
+          triggered_by: request.triggered_by,
+        },
+      );
 
-    return response.data;
-  } catch (error: any) {
-    console.error('[executeIngestion] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
+      return response.data;
+    } catch (error: any) {
+      console.error('[executeIngestion] Error:', error);
+      const errorDetail = error.response?.data?.detail || error.message;
 
-    return {
-      status: 'failed',
-      message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      project_id: request.project_id,
-      total_tables: request.tables.length,
-      successful: 0,
-      failed: request.tables.length,
-      total_rows_affected: 0,
-      results: request.tables.map((table) => ({
-        source: `${table.source_database}.${table.source_schema}.${table.source_table}`,
-        target: table.target_table, // Only table name - schema is determined by version
-        ingestion_mode: table.ingestion_mode,
-        success: false,
-        rows_affected: 0,
-        message: 'Failed to execute ingestion',
-        error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      })),
-    };
+      return {
+        status: 'failed',
+        message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
+        project_id: request.project_id,
+        total_tables: request.tables.length,
+        successful: 0,
+        failed: request.tables.length,
+        total_rows_affected: 0,
+        results: request.tables.map((table) => ({
+          source: `${table.source_database}.${table.source_schema}.${table.source_table}`,
+          target: table.target_table,
+          ingestion_mode: table.ingestion_mode,
+          success: false,
+          rows_affected: 0,
+          message: 'Failed to execute ingestion',
+          error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
+        })),
+      };
+    }
   }
+}
+
+// ============================================
+// INGESTION OPERATIONS (versioned, approvable, rollback-enabled)
+// ============================================
+
+export interface IngestionOperation {
+  operation_id: string;
+  project_id: string;
+  version_id?: string;
+  deployment_id?: string;
+  source: { database: string; schema: string; table: string };
+  target: { database: string; schema: string; table: string };
+  ingestion_mode: string;
+  status: 'PENDING' | 'APPROVED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILED' | 'ROLLED_BACK';
+  rows_affected: number;
+  created_by: string;
+  created_at: string;
+  executed_at?: string;
+  rolled_back_at?: string;
+  error_message?: string;
+}
+
+export interface IngestionOperationsResponse {
+  operations: IngestionOperation[];
+  total: number;
+}
+
+/**
+ * Create an ingestion operation for approval workflow
+ * Registers the operation without executing — goes through approve → execute flow
+ */
+export async function createIngestionOperation(
+  projectId: string,
+  config: IngestionTableConfig
+): Promise<{ operation_id: string; status: string; ingestion_mode: string }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations`,
+    {
+      source_database: config.source_database,
+      source_schema: config.source_schema,
+      source_table: config.source_table,
+      target_database: config.target_database,
+      target_schema: config.target_schema,
+      target_table: config.target_table,
+      ingestion_mode: config.ingestion_mode,
+      mappings: config.column_mappings,
+      config: config.config,
+    },
+  );
+  return data;
+}
+
+/**
+ * List ingestion operations for a project
+ */
+export async function listIngestionOperations(
+  projectId: string,
+  status?: string
+): Promise<IngestionOperationsResponse> {
+  const { data } = await apiClient.get<IngestionOperationsResponse>(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations`,
+    { params: status ? { status } : undefined },
+  );
+  return data;
+}
+
+/**
+ * Execute a pending/approved ingestion operation with rollback tracking
+ */
+export async function executeIngestionOperation(
+  projectId: string,
+  operationId: string
+): Promise<{ operation_id: string; status: string; rows_affected: number }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations/${operationId}/execute`,
+  );
+  return data;
+}
+
+/**
+ * Rollback a completed ingestion operation using Time Travel or stored rollback SQL
+ */
+export async function rollbackIngestionOperation(
+  projectId: string,
+  operationId: string
+): Promise<{ operation_id: string; status: string; rows_restored: number }> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/ingestion/operations/${operationId}/rollback`,
+  );
+  return data;
 }
 
 // ============================================
@@ -1029,90 +1567,86 @@ export async function executeIngestion(
  *   options: { rollback_on_error: true }
  * });
  */
+// TODO: backend endpoint not implemented — use deployWithVersion or the deployment pipeline instead
 export async function deploySchema(
   request: SchemaDeploymentRequest
 ): Promise<SchemaDeploymentResponse> {
-  const headers = await getAuthHeaders();
-
-  try {
-    const response = await axios.post<SchemaDeploymentResponse>(
-      `${EXPLORE_DESIGN_BASE}/deploy_schema`,
-      {
-        project_id: request.project_id,
-        version_name: request.version_name,
-        description: request.description,
-        sql_queries: request.sql_queries,
-        events: request.events,
-        options: request.options || { rollback_on_error: true },
-      },
-      { headers }
-    );
-
-    return response.data;
-  } catch (error: any) {
-    console.error('[deploySchema] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
-
-    return {
-      status: 'failed',
-      version_name: request.version_name || 'Unknown',
-      version_number: 0,
-      executed_statements: 0,
-      failed_statements: request.sql_queries.length,
-      changes_summary: {
-        tables_created: 0,
-        tables_modified: 0,
-        tables_dropped: 0,
-        columns_added: 0,
-        columns_modified: 0,
-        columns_dropped: 0,
-        constraints_added: 0,
-        constraints_dropped: 0,
-      },
-      rollback_available: false,
-      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
-      warnings: [],
-    };
-  }
+  console.warn('[deploySchema] no backend route — use deployWithVersion or deployment pipeline');
+  return {
+    status: 'failed',
+    version_name: request.version_name || 'Unknown',
+    version_number: 0,
+    executed_statements: 0,
+    failed_statements: request.sql_queries.length,
+    changes_summary: {
+      tables_created: 0,
+      tables_modified: 0,
+      tables_dropped: 0,
+      columns_added: 0,
+      columns_modified: 0,
+      columns_dropped: 0,
+      constraints_added: 0,
+      constraints_dropped: 0,
+    },
+    rollback_available: false,
+    errors: ['Backend endpoint /explore-design/deploy_schema not implemented'],
+    warnings: [],
+  };
 }
 
 /**
- * Get schema version history for a project
+ * Get schema version history for a project.
  *
- * Backend: GET /explore-design/schema_versions/{project_id}
+ * Endpoint: GET /explore-design/{project_id}/versions
  *
  * @param projectId - Project ID
- * @param options - Query options
- * @returns List of schema versions
+ * @param options - Query options. Pass `signal` to abort on unmount.
+ * @returns List of schema versions with an `availability` outcome flag.
  */
 export async function getSchemaVersions(
   projectId: string,
   options?: {
     limit?: number;
     include_rolled_back?: boolean;
+    signal?: AbortSignal;
   }
 ): Promise<SchemaVersionsResponse> {
-  const headers = await getAuthHeaders();
-
   try {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.include_rolled_back) params.append('include_rolled_back', 'true');
-
-    const response = await axios.get<SchemaVersionsResponse>(
-      `${EXPLORE_DESIGN_BASE}/schema_versions/${projectId}?${params.toString()}`,
-      { headers }
-    );
-
-    return response.data;
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/versions`, {
+      params: options?.limit ? { limit: options.limit } : undefined,
+      signal: options?.signal,
+    });
+    const versions = (data.versions || []).map((v: any) => ({
+      version_id: v.version_id,
+      version_name: v.version_name || `v${v.version_number}`,
+      version_number: v.version_number,
+      versioned_schema_name: v.versioned_schema_name,
+      created_at: v.created_at,
+      created_by: v.created_by,
+      status: v.status,
+      description: v.description,
+      changes_summary: v.changes_summary || {},
+      can_rollback: v.can_rollback ?? false,
+    }));
+    return {
+      project_id: projectId,
+      current_version: versions.find((v: any) => v.status === 'active') || versions[0],
+      versions,
+      total_versions: versions.length,
+      availability: versions.length > 0 ? 'ok' : 'empty',
+    };
   } catch (error: any) {
-    console.error('[getSchemaVersions] Error:', error);
-
-    // Return empty response on error
+    console.error('[getSchemaVersions] Version endpoint failed:', error);
+    const detail =
+      error?.response?.data?.detail ||
+      error?.message ||
+      'Version endpoint is unavailable';
     return {
       project_id: projectId,
       versions: [],
       total_versions: 0,
+      availability: 'unavailable',
+      error: typeof detail === 'string' ? detail : JSON.stringify(detail),
     };
   }
 }
@@ -1136,13 +1670,12 @@ export interface RecentDeploymentError {
 export async function getRecentDeploymentErrors(
   limit: number = 20
 ): Promise<{ errors: RecentDeploymentError[]; total: number }> {
-  const headers = await getAuthHeaders();
   try {
-    const response = await axios.get<{ errors: RecentDeploymentError[]; total: number }>(
-      `${EXPLORE_DESIGN_BASE}/recent-deployment-errors?limit=${limit}`,
-      { headers }
+    const { data } = await apiClient.get<{ errors: RecentDeploymentError[]; total: number }>(
+      `${V1_EXPLORE}/recent-deployment-errors`,
+      { params: { limit } }
     );
-    return response.data;
+    return data;
   } catch (error: any) {
     console.error('[getRecentDeploymentErrors] Error:', error);
     return { errors: [], total: 0 };
@@ -1152,46 +1685,154 @@ export async function getRecentDeploymentErrors(
 /**
  * Rollback schema to a specific version
  *
- * Backend: POST /explore-design/rollback_schema/{version_id}
- *
  * @param versionId - Target version ID to rollback to
  * @param options - Rollback options
  * @returns Rollback result
  */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
 export async function rollbackSchema(
   versionId: string,
   options?: RollbackOptions
 ): Promise<RollbackResponse> {
-  const headers = await getAuthHeaders();
+  console.warn('[rollbackSchema] no backend route — use projectsApi.rollbackProject(projectId, { target_version_id: versionId })');
+  return {
+    status: 'failed',
+    rolled_back_from: '',
+    rolled_back_to: versionId,
+    versions_rolled_back: 0,
+    statements_executed: 0,
+    message: 'Backend endpoint /explore-design/rollback_schema not implemented. Use POST /projects/{projectId}/rollback instead.',
+    errors: ['Backend endpoint not implemented'],
+  };
+}
 
+/**
+ * List deployments for a project via v1 API
+ * GET /explore-design/{projectId}/deployments
+ */
+export async function listProjectDeploymentsV1(
+  projectId: string,
+  params?: { status?: string }
+): Promise<{ deployments: any[]; total: number }> {
   try {
-    const response = await axios.post<RollbackResponse>(
-      `${EXPLORE_DESIGN_BASE}/rollback_schema/${versionId}`,
-      options || {},
-      { headers }
-    );
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/deployments`, { params });
+    return { deployments: data.deployments || [], total: data.total ?? 0 };
+  } catch {
+    return { deployments: [], total: 0 };
+  }
+}
 
-    return response.data;
-  } catch (error: any) {
-    console.error('[rollbackSchema] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
+/**
+ * Approve a deployment via v1 API
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/approve
+ */
+export async function approveDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/approve`,
+  );
+  return data;
+}
 
-    return {
-      status: 'failed',
-      rolled_back_from: '',
-      rolled_back_to: versionId,
-      versions_rolled_back: 0,
-      statements_executed: 0,
-      message: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      errors: [typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail)],
-    };
+/**
+ * Reject a deployment via v1 API
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/reject
+ */
+export async function rejectDeploymentV1(
+  projectId: string,
+  deploymentId: string,
+  reason?: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/reject`,
+    reason ? { reason } : undefined,
+  );
+  return data;
+}
+
+/**
+ * Execute a deployment via v1 API
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/execute
+ */
+export async function executeDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/execute`,
+  );
+  return data;
+}
+
+/**
+ * Cancel a deployment via v1 API
+ * POST /explore-design/{projectId}/deployments/{deploymentId}/cancel
+ */
+export async function cancelDeploymentV1(
+  projectId: string,
+  deploymentId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/cancel`,
+  );
+  return data;
+}
+
+/**
+ * Quick deploy via v1 API
+ * POST /explore-design/{projectId}/deploy?version_id=...
+ */
+export async function quickDeployV1(
+  projectId: string,
+  versionId: string
+): Promise<any> {
+  const { data } = await apiClient.post(
+    `${V1_EXPLORE}/${projectId}/deploy`,
+    undefined,
+    { params: { version_id: versionId } },
+  );
+  return data;
+}
+
+/**
+ * Create a schedule via v1 API
+ * POST /explore-design/{projectId}/schedule
+ */
+export async function createScheduleV1(
+  projectId: string,
+  body: {
+    cron_expression: string;
+    warehouse?: string;
+    version_id?: string;
+    description?: string;
+  }
+): Promise<any> {
+  const { data } = await apiClient.post(`${V1_EXPLORE}/${projectId}/schedule`, body);
+  return data;
+}
+
+/**
+ * List schedules via v1 API
+ * GET /explore-design/{projectId}/schedules
+ */
+export async function listSchedulesV1(
+  projectId: string,
+  params?: { status?: string }
+): Promise<{ schedules: any[] }> {
+  try {
+    const { data } = await apiClient.get(`${V1_EXPLORE}/${projectId}/schedules`, { params });
+    return data;
+  } catch {
+    return { schedules: [] };
   }
 }
 
 /**
  * Get ingestion run history for a project
  *
- * Backend: GET /explore-design/ingestion_history/{project_id}
+ * Backend: GET /explore-design/{project_id}/ingestion/runs
  *
  * @param projectId - Project ID
  * @param options - Query options
@@ -1204,16 +1845,14 @@ export async function getIngestionHistory(
     schema_version_id?: string;
   }
 ): Promise<IngestionHistoryResponse> {
-  const headers = await getAuthHeaders();
-
   try {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.schema_version_id) params.append('schema_version_id', options.schema_version_id);
+    const params: Record<string, string> = {};
+    if (options?.limit) params.limit = options.limit.toString();
+    if (options?.schema_version_id) params.schema_version_id = options.schema_version_id;
 
-    const response = await axios.get<IngestionHistoryResponse>(
-      `${EXPLORE_DESIGN_BASE}/ingestion_history/${projectId}?${params.toString()}`,
-      { headers }
+    const response = await apiClient.get<IngestionHistoryResponse>(
+      `${ED}/${projectId}/ingestion/runs`,
+      { params },
     );
 
     return response.data;
@@ -1241,6 +1880,73 @@ export interface EventCondition {
   config: Record<string, any>;
   required: boolean;
 }
+
+/**
+ * Add conditions to an event
+ */
+export async function addEventConditions(
+  eventId: string,
+  conditions: Omit<EventCondition, 'id'>[]
+): Promise<{ success: boolean; condition_ids: string[] }> {
+  const response = await apiClient.post(
+    `${ED}/events/${eventId}/conditions`,
+    { conditions },
+  );
+  return response.data;
+}
+
+/**
+ * Evaluate event conditions
+ */
+export async function evaluateConditions(eventId: string): Promise<{
+  all_met: boolean;
+  results: Array<{
+    condition_id: string;
+    type: ConditionType;
+    met: boolean;
+    reason?: string;
+    next_valid_window?: string;
+  }>;
+}> {
+  const response = await apiClient.post(
+    `${ED}/events/${eventId}/conditions/evaluate`,
+    {},
+  );
+  return response.data;
+}
+
+// ============================================
+// EXPORT/IMPORT
+// ============================================
+
+/**
+ * Export project configuration
+ */
+export async function exportProject(projectId: string): Promise<Blob> {
+  const response = await apiClient.get(
+    `${ED}/export/${projectId}`,
+    { responseType: 'blob' },
+  );
+  return response.data;
+}
+
+/**
+ * Import project configuration
+ */
+export async function importProject(
+  file: File
+): Promise<{ project_id: string; imported_tables: number; imported_events: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await apiClient.post(
+    `${ED}/import`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return response.data;
+}
+
 // ============================================
 // SCHEMA CLONE & VERSIONING APIs
 // ============================================
@@ -1291,6 +1997,42 @@ export interface IngestionAdaptationRequest {
     resume_after_clone?: boolean;
   };
 }
+
+/**
+ * Create a schema clone for versioning
+ * POST /explore-design/schema-clone
+ */
+export async function createSchemaClone(request: SchemaCloneRequest): Promise<SchemaCloneResponse> {
+  const response = await apiClient.post<SchemaCloneResponse>(`${ED}/schema-clone`, request);
+  return response.data;
+}
+
+/**
+ * Get schema clone status
+ * GET /explore-design/schema-clone/{clone_id}/status
+ */
+export async function getSchemaCloneStatus(clone_id: string): Promise<SchemaCloneResponse> {
+  const response = await apiClient.get<SchemaCloneResponse>(`${ED}/schema-clone/${clone_id}/status`);
+  return response.data;
+}
+
+/**
+ * Execute schema clone DDL
+ * POST /explore-design/schema-clone/{clone_id}/execute
+ */
+export async function executeSchemaClone(clone_id: string, warehouse?: string): Promise<{
+  success: boolean;
+  tables_cloned: number;
+  execution_time_ms: number;
+  errors?: string[];
+}> {
+  const response = await apiClient.post(
+    `${ED}/schema-clone/${clone_id}/execute`,
+    { warehouse },
+  );
+  return response.data;
+}
+
 /**
  * Rollback schema clone (drop versioned schema)
  * POST /explore-design/schema-clone/{clone_id}/rollback
@@ -1299,14 +2041,205 @@ export async function rollbackSchemaClone(clone_id: string): Promise<{
   success: boolean;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/schema-clone/${clone_id}/rollback`,
-    {},
-    { headers }
+  const response = await apiClient.post(`${ED}/schema-clone/${clone_id}/rollback`, {});
+  return response.data;
+}
+
+/**
+ * List all schema clones
+ * GET /explore-design/schema-clone/list
+ */
+export async function listSchemaClones(project_id?: string): Promise<SchemaCloneResponse[]> {
+  const params = project_id ? { project_id } : {};
+  const response = await apiClient.get<SchemaCloneResponse[]>(
+    `${ED}/schema-clone/list`,
+    { params },
   );
   return response.data;
 }
+
+/**
+ * Preview schema clone DDL without executing
+ * POST /explore-design/schema-clone/preview
+ */
+export async function previewSchemaCloneDDL(request: Omit<SchemaCloneRequest, 'warehouse'>): Promise<{
+  ddl_statements: string[];
+  rollback_ddl: string[];
+  estimated_tables: number;
+  estimated_size_bytes?: number;
+}> {
+  const response = await apiClient.post(`${ED}/schema-clone/preview`, request);
+  return response.data;
+}
+
+/**
+ * Adapt ingestion configurations for versioned schema
+ * POST /explore-design/ingestion/adapt
+ */
+export async function adaptIngestionForVersion(
+  version_id: string,
+  source_schema: string,
+  target_schema: string
+): Promise<{
+  adaptations: Array<{
+    table: string;
+    streams_to_recreate: string[];
+    tasks_to_recreate: string[];
+    pipes_to_recreate: string[];
+    ddl_statements: string[];
+  }>;
+}> {
+  const response = await apiClient.post(
+    `${ED}/ingestion/adapt`,
+    { version_id, source_schema, target_schema },
+  );
+  return response.data;
+}
+
+/**
+ * Pause ingestion during schema clone
+ * POST /explore-design/ingestion/{table}/pause
+ */
+export async function pauseIngestionForClone(
+  database: string,
+  schema: string,
+  table: string
+): Promise<{
+  success: boolean;
+  paused_objects: {
+    streams: string[];
+    tasks: string[];
+    pipes: string[];
+  };
+}> {
+  const response = await apiClient.post(
+    `${ED}/ingestion/pause`,
+    { database, schema, table },
+  );
+  return response.data;
+}
+
+/**
+ * Resume ingestion after schema clone
+ * POST /explore-design/ingestion/{table}/resume
+ */
+export async function resumeIngestionAfterClone(
+  database: string,
+  schema: string,
+  table: string,
+  target_schema: string
+): Promise<{
+  success: boolean;
+  resumed_objects: {
+    streams: string[];
+    tasks: string[];
+    pipes: string[];
+  };
+}> {
+  const response = await apiClient.post(
+    `${ED}/ingestion/resume`,
+    { database, schema, table, target_schema },
+  );
+  return response.data;
+}
+
+/**
+ * Create versioned ingestion objects (streams, tasks, pipes) for new schema
+ * POST /explore-design/ingestion/create-versioned
+ */
+export async function createVersionedIngestion(
+  version_id: string,
+  database: string,
+  source_schema: string,
+  target_schema: string,
+  tables: string[]
+): Promise<{
+  success: boolean;
+  created_objects: Array<{
+    table: string;
+    stream?: string;
+    task?: string;
+    pipe?: string;
+  }>;
+  ddl_executed: string[];
+}> {
+  const response = await apiClient.post(
+    `${ED}/ingestion/create-versioned`,
+    { version_id, database, source_schema, target_schema, tables },
+  );
+  return response.data;
+}
+
+/**
+ * Compare two schema versions
+ * GET /explore-design/versions/{from_version_id}/compare/{to_version_id}
+ */
+export async function compareSchemaVersions(
+  from_version_id: string,
+  to_version_id: string
+): Promise<{
+  from_version: string;
+  to_version: string;
+  diff: {
+    tables_added: Array<{ table: string; columns: string[] }>;
+    tables_removed: Array<{ table: string }>;
+    tables_modified: Array<{
+      table: string;
+      columns_added: string[];
+      columns_removed: string[];
+      columns_modified: Array<{ column: string; from_type: string; to_type: string }>;
+      ingestion_changed?: { from: string; to: string };
+    }>;
+    policies_added: Array<{ type: string; name: string; table?: string }>;
+    policies_removed: Array<{ type: string; name: string; table?: string }>;
+  };
+}> {
+  const response = await apiClient.get(
+    `${ED}/versions/${from_version_id}/compare/${to_version_id}`,
+  );
+  return response.data;
+}
+
+/**
+ * Promote version to target environment
+ * POST /explore-design/versions/{version_id}/promote
+ */
+export async function promoteVersion(
+  version_id: string,
+  target_environment: string,
+  target_database?: string
+): Promise<{
+  success: boolean;
+  deployment_id: string;
+  target_schema: string;
+  promoted_at: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/versions/${version_id}/promote`,
+    { target_environment, target_database },
+  );
+  return response.data;
+}
+
+/**
+ * Get version migration script (DDL to migrate from one version to another)
+ * GET /explore-design/versions/{from_version_id}/migration/{to_version_id}
+ */
+export async function getVersionMigrationScript(
+  from_version_id: string,
+  to_version_id: string
+): Promise<{
+  migration_script: string[];
+  rollback_script: string[];
+  estimated_downtime_seconds?: number;
+  requires_data_migration: boolean;
+}> {
+  const response = await apiClient.get(
+    `${ED}/versions/${from_version_id}/migration/${to_version_id}`,
+  );
+  return response.data;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -1338,19 +2271,26 @@ export function generateEventSQL(event: DesignEvent): string {
     case 'RELATION_CREATED':
       return `-- Relation: ${tableRef}.${payload.source_column} -> ${payload.target_table}.${payload.target_column} (${payload.relation_type})`;
     case 'COLUMN_MAPPING_CREATED':
-      // ETL column mapping: source column → target column
-      const targetTableRef = payload.targetTable
-        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+      // ETL column mapping: source → target
+      const srcRef = payload.source
+        ? `${payload.source.database}.${payload.source.schema}.${payload.source.table}`
+        : tableRef;
+      const tgtRef = payload.target
+        ? `${payload.target.database}.${payload.target.schema}.${payload.target.table}`
         : 'UNKNOWN_TARGET';
+      const srcCols = payload.source?.columns?.join(', ') || '';
       const transformExpr = payload.transformation
-        ? `${payload.transformation}(${target.table}.${payload.sourceColumn})`
-        : `${target.table}.${payload.sourceColumn}`;
-      return `-- ETL Mapping: ${tableRef}.${payload.sourceColumn} -> ${targetTableRef}.${payload.targetColumn}\n-- Transform: ${transformExpr}`;
+        ? `${payload.transformation}(${srcCols})`
+        : srcCols;
+      return `-- ETL Mapping: ${srcRef}.(${srcCols}) -> ${tgtRef}.${payload.target?.column}\n-- Transform: ${transformExpr}`;
     case 'COLUMN_MAPPING_REMOVED':
-      const removedTargetRef = payload.targetTable
-        ? `${payload.targetTable.database}.${payload.targetTable.schema}.${payload.targetTable.table}`
+      const removedSrcRef = payload.source
+        ? `${payload.source.database}.${payload.source.schema}.${payload.source.table}`
+        : tableRef;
+      const removedTgtRef = payload.target
+        ? `${payload.target.database}.${payload.target.schema}.${payload.target.table}`
         : 'UNKNOWN_TARGET';
-      return `-- ETL Mapping Removed: ${tableRef}.${payload.sourceColumn} -> ${removedTargetRef}.${payload.targetColumn}`;
+      return `-- ETL Mapping Removed: ${removedSrcRef}.(${payload.source?.columns?.[0]}) -> ${removedTgtRef}.${payload.target?.column}`;
     case 'TAG_APPLIED':
       return `ALTER TABLE ${tableRef} SET TAG ${payload.tag_name} = '${payload.tag_value}';`;
     default:
@@ -1368,14 +2308,11 @@ export function generateEventSQL(event: DesignEvent): string {
 export async function ensureProjectExists(
   projectName: string
 ): Promise<{ project_id: string; created: boolean }> {
-  const headers = await getAuthHeaders();
-
   try {
     // Try to create the project - if it already exists, backend may return it
-    const response = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/projects`,
+    const response = await apiClient.post(
+      `${ED}/projects`,
       { name: projectName },
-      { headers }
     );
 
     return {
@@ -1457,126 +2394,6 @@ export interface ScheduledDeployment {
 // ============================================
 
 /**
- * Schedule a deployment using the /explore-design/deployments endpoint
- * This creates a deployment with type='scheduled' for explore-design events
- *
- * For 'with_approval' deployments, we set requires_approval=true
- *
- * Backend endpoint: POST /explore-design/deployments
- * Request body: { project_id, version, type, event_ids, config, scheduled_at }
- */
-export async function scheduleDeploymentUnified(
-  config: {
-    workflow_name: string;
-    scheduled_date: string;
-    deployment_method: DeploymentMethod;
-    project_id: string;
-    events: DesignEvent[];
-    sql_queries?: string[]; // Pre-ordered SQL queries for execution
-    created_by: string;
-    description?: string;
-    module_type: 'explore-design' | 'mapping' | 'workflow';
-    requires_approval?: boolean;
-  }
-): Promise<{
-  schedule_id: string;
-  status: ScheduledDeploymentStatus;
-  scheduled_date: string;
-  message: string;
-  workflow_name: string;
-  event_id?: string;
-  deployment_id?: string;
-}> {
-  const headers = await getAuthHeaders();
-
-  // First, record all events to the backend using POST /explore-design/add-event
-  // Backend expects: { project_id, event_type, event_details, module_type }
-  const eventIds: string[] = [];
-  for (const event of config.events) {
-    try {
-      const eventPayload = {
-        project_id: config.project_id,
-        event_type: event.event_type,
-        event_details: {
-          // Target information
-          database: event.target?.database,
-          schema: event.target?.schema,
-          table: event.target?.table,
-          column: event.target?.column,
-          // Event payload (contains oldName, newName, policyName, etc.)
-          ...event.payload,
-          // Generated SQL for reference
-          sql: generateEventSQL(event),
-        },
-        module_type: config.module_type || 'explore-design',
-      };
-
-      console.log('[scheduleDeploymentUnified] Recording event:', JSON.stringify(eventPayload, null, 2));
-
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/add-event`,
-        eventPayload,
-        { headers }
-      );
-      eventIds.push(response.data.event_id || response.data.project_id || event.event_id);
-    } catch (e: any) {
-      const errorDetail = e.response?.data?.detail || e.message;
-      console.warn(`Failed to record event ${event.event_id}:`, errorDetail);
-      eventIds.push(event.event_id); // Use local ID as fallback
-    }
-  }
-
-  // Create the scheduled deployment
-  const deploymentPayload = {
-    project_id: config.project_id,
-    version: config.workflow_name,
-    type: config.requires_approval ? 'with_approval' : 'scheduled',
-    event_ids: eventIds,
-    scheduled_at: config.scheduled_date,
-    // Pre-ordered SQL queries for execution (passed from frontend after sorting by dependency)
-    sql_queries: config.sql_queries || [],
-    config: {
-      immediate: false,
-      scheduled_at: config.scheduled_date,
-      rollback_on_error: true,
-      notification_channels: ['email'],
-      approvers: config.requires_approval ? ['DATA_MODELER', 'DATA_ADMIN'] : [],
-      requires_approval: config.requires_approval || false,
-      deployment_method: config.deployment_method,
-      created_by: config.created_by,
-      description: config.description || `Scheduled deployment: ${config.workflow_name}`,
-      events: config.events.map(event => ({
-        event_id: event.event_id,
-        event_type: event.event_type,
-        sql: generateEventSQL(event),
-        target: event.target,
-        payload: event.payload,
-      })),
-    },
-  };
-
-  console.log('[scheduleDeploymentUnified] Creating scheduled deployment:', JSON.stringify(deploymentPayload, null, 2));
-
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/deployments`,
-    deploymentPayload,
-    { headers }
-  );
-
-  const deploymentId = response.data.deployment_id || response.data.id;
-
-  return {
-    schedule_id: deploymentId || `sched_${Date.now()}`,
-    status: config.requires_approval ? 'PENDING_APPROVAL' : 'SCHEDULED',
-    scheduled_date: config.scheduled_date,
-    message: response.data.message || 'Deployment scheduled successfully',
-    workflow_name: config.workflow_name,
-    event_id: deploymentId,
-    deployment_id: deploymentId,
-  };
-}
-
-/**
  * Record design events to the backend using POST /explore-design/add-event endpoint
  * This stores events persistently in the database and auto-creates project if needed
  *
@@ -1597,7 +2414,6 @@ export async function recordDesignEvents(
   recorded_count: number;
   event_ids: string[];
 }> {
-  const headers = await getAuthHeaders();
   const recordedIds: string[] = [];
 
   for (const event of events) {
@@ -1621,26 +2437,15 @@ export async function recordDesignEvents(
         module_type: moduleType,
       };
 
-      console.log('[recordDesignEvents] 🔍 DEBUG - Sending to /explore-design/add-event:', {
-        url: `${EXPLORE_DESIGN_BASE}/add-event`,
-        payload: JSON.stringify(eventPayload, null, 2),
-        headers: Object.keys(headers),
-      });
+      const response = await apiClient.post(`${ED}/add-event`, eventPayload);
 
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/add-event`,
-        eventPayload,
-        { headers }
-      );
-
-      console.log('[recordDesignEvents] ✅ SUCCESS - Response:', response.data);
       recordedIds.push(response.data?.event_id || response.data?.project_id || event.event_id);
     } catch (error: any) {
       // Enhanced error logging
-      console.error('[recordDesignEvents] ❌ ERROR - Failed to record event:', {
+      console.error('[recordDesignEvents] Failed to record event:', {
         event_id: event.event_id,
         event_type: event.event_type,
-        url: `${EXPLORE_DESIGN_BASE}/add-event`,
+        url: `${ED}/add-event`,
         status: error.response?.status,
         statusText: error.response?.statusText,
         errorMessage: error.message,
@@ -1661,323 +2466,8 @@ export async function recordDesignEvents(
 // QUERY EXECUTION API
 // ============================================
 
-/**
- * Execute SQL queries directly on Snowflake
- * Uses /explore-design/execute_queries endpoint
- *
- * @param queries - Array of SQL statements to execute in order
- * @returns Execution results for each query
- */
-export async function executeQueries(
-  queries: string[]
-): Promise<{
-  status: 'success' | 'failed';
-  executed_queries: number;
-  results: Array<{
-    query: string;
-    rows?: any[];
-    rows_affected?: number;
-    error?: string;
-  }>;
-}> {
-  const headers = await getAuthHeaders();
 
-  try {
-    const response = await axios.post(
-      `${EXPLORE_DESIGN_BASE}/execute_queries`,
-      queries,
-      { headers }
-    );
 
-    return {
-      status: 'success',
-      executed_queries: response.data.executed_queries || queries.length,
-      results: response.data.results || [],
-    };
-  } catch (error: any) {
-    console.error('[executeQueries] Error:', error);
-    const errorDetail = error.response?.data?.detail || error.message;
-
-    return {
-      status: 'failed',
-      executed_queries: 0,
-      results: [{
-        query: queries[0] || '',
-        error: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
-      }],
-    };
-  }
-}
-
-/**
- * Deploy events immediately by executing SQL through the backend
- * Uses /explore-design/deployments + /explore-design/deployments/{id}/execute endpoints
- */
-export async function deployEventsImmediate(
-  projectId: string,
-  events: DesignEvent[],
-  options?: {
-    rollback_on_error?: boolean;
-    created_by?: string;
-  }
-): Promise<{
-  deployment_id: string;
-  status: 'success' | 'partial' | 'failed';
-  results: Array<{
-    event_id: string;
-    status: 'applied' | 'failed' | 'skipped';
-    sql_executed?: string;
-    error?: string;
-    duration_ms?: number;
-  }>;
-  summary: {
-    total: number;
-    applied: number;
-    failed: number;
-    skipped: number;
-  };
-}> {
-  const headers = await getAuthHeaders();
-
-  // Step 1: Create a deployment
-  const createPayload = {
-    project_id: projectId,
-    version: `v${Date.now()}`,
-    type: 'immediate',
-    event_ids: events.map(e => e.event_id),
-    config: {
-      rollback_on_error: options?.rollback_on_error ?? true,
-      created_by: options?.created_by || 'system',
-      events: events.map(event => ({
-        event_id: event.event_id,
-        event_type: event.event_type,
-        sql: generateEventSQL(event),
-        target: event.target,
-        payload: event.payload,
-      })),
-    },
-  };
-
-  console.log('[deployEventsImmediate] Creating deployment:', JSON.stringify(createPayload, null, 2));
-
-  try {
-    // Create the deployment
-    const createUrl = API_CONTRACTS.exploreDesign.createDeployment.getUrl();
-    const createResponse = await axios.post(
-      createUrl,
-      createPayload,
-      { headers }
-    );
-
-    const deploymentId = createResponse.data.deployment_id || createResponse.data.id;
-    console.log('[deployEventsImmediate] Deployment created:', deploymentId);
-
-    // Step 2: Execute the deployment
-    const executeResponse = await axios.post(
-      `${API_URL}/explore-design/deployments/${deploymentId}/execute`,
-      { rollback_on_error: options?.rollback_on_error ?? true },
-      { headers }
-    );
-
-    console.log('[deployEventsImmediate] Deployment executed:', executeResponse.data);
-
-    return {
-      deployment_id: deploymentId,
-      status: executeResponse.data.status || 'success',
-      results: executeResponse.data.results || events.map(e => ({
-        event_id: e.event_id,
-        status: 'applied' as const,
-        sql_executed: generateEventSQL(e),
-      })),
-      summary: executeResponse.data.summary || {
-        total: events.length,
-        applied: events.length,
-        failed: 0,
-        skipped: 0,
-      },
-    };
-  } catch (error: any) {
-    // Handle deployment errors gracefully
-    console.error('Deployment error:', error);
-    const errorDetail = error.response?.data?.detail || error.response?.data || error.message;
-    throw new Error(typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail));
-  }
-}
-
-/**
- * Validate events before deployment
- *
- * Note: /mapping/test_mapping/ expects column mapping payloads (source_columns, target_columns, etc.)
- * For explore-design events, we do local validation + record events to backend
- *
- * This function validates events locally and optionally records them to the backend
- */
-export async function validateEventsBackend(
-  projectId: string,
-  events: DesignEvent[]
-): Promise<{
-  results: Array<{
-    event_id: string;
-    valid: boolean;
-    sql: string;
-    error?: string;
-    warnings?: string[];
-  }>;
-  summary: {
-    total: number;
-    valid: number;
-    invalid: number;
-    warnings: number;
-  };
-}> {
-  const results: Array<{
-    event_id: string;
-    valid: boolean;
-    sql: string;
-    error?: string;
-    warnings?: string[];
-  }> = [];
-
-  let validCount = 0;
-  let invalidCount = 0;
-  let warningCount = 0;
-
-  // Perform local validation for each event
-  for (const event of events) {
-    const errors: string[] = [];
-    const warnings: string[] = [];
-
-    // Basic validation rules
-    if (!event.target?.database || !event.target?.schema || !event.target?.table) {
-      errors.push('Invalid target: missing database, schema, or table');
-    }
-
-    // Event type specific validation
-    switch (event.event_type) {
-      case 'TABLE_RENAMED':
-        if (!event.payload?.newName) {
-          errors.push('New table name is required');
-        } else if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(event.payload.newName)) {
-          errors.push('Invalid table name format');
-        }
-        break;
-
-      case 'COLUMN_RENAMED':
-        if (!event.payload?.newName) {
-          errors.push('New column name is required');
-        }
-        break;
-
-      case 'PRIMARY_KEY_SET':
-        if (!event.payload?.columns || event.payload.columns.length === 0) {
-          errors.push('At least one column required for primary key');
-        }
-        break;
-
-      case 'MASKING_POLICY_APPLIED':
-        if (!event.payload?.policyName) {
-          errors.push('Policy name is required');
-        }
-        break;
-
-      case 'RELATION_CREATED':
-      case 'FOREIGN_KEY_ADDED':
-        if (!event.payload?.targetTable || !event.payload?.targetColumn) {
-          errors.push('Target table and column are required');
-        }
-        break;
-    }
-
-    const isValid = errors.length === 0;
-    if (isValid) {
-      validCount++;
-    } else {
-      invalidCount++;
-    }
-    if (warnings.length > 0) {
-      warningCount++;
-    }
-
-    results.push({
-      event_id: event.event_id,
-      valid: isValid,
-      sql: generateEventSQL(event),
-      error: errors.length > 0 ? errors.join('; ') : undefined,
-      warnings: warnings.length > 0 ? warnings : undefined,
-    });
-  }
-
-  // Optionally record validated events to backend
-  if (validCount > 0) {
-    try {
-      await recordDesignEvents(projectId, events.filter((_, i) => results[i].valid), 'explore-design');
-    } catch (e) {
-      console.warn('Failed to record events to backend:', e);
-    }
-  }
-
-  return {
-    results,
-    summary: {
-      total: events.length,
-      valid: validCount,
-      invalid: invalidCount,
-      warnings: warningCount,
-    },
-  };
-}
-/**
- * Schedule a deployment for a future date
- * POST /explore-design/schedule-deployment (fallback to /mapping/schedule_deployment/)
- */
-export async function scheduleDeployment(
-  config: ScheduledDeploymentConfig
-): Promise<{
-  schedule_id: string;
-  status: ScheduledDeploymentStatus;
-  scheduled_date: string;
-  requires_approval: boolean;
-  approval_request_id?: string;
-}> {
-  const headers = await getAuthHeaders();
-
-  // Try /mapping/schedule_deployment/ first (which exists on the backend)
-  try {
-    const response = await axios.post(
-      `${GUIDED_BASE}/schedule_deployment/`,
-      {
-        ...config,
-        module_type: 'explore-design',
-        status: 'PENDING_APPROVAL',
-      },
-      { headers }
-    );
-    return {
-      schedule_id: response.data.schedule_id || `sched_${Date.now()}`,
-      status: 'PENDING_APPROVAL',
-      scheduled_date: config.scheduled_date,
-      requires_approval: true,
-      ...response.data,
-    };
-  } catch (mappingError: any) {
-    // Fall back to explore-design endpoint
-    console.warn('Falling back to explore-design endpoint:', mappingError.message);
-    try {
-      const response = await axios.post(
-        `${EXPLORE_DESIGN_BASE}/schedule-deployment`,
-        config,
-        { headers }
-      );
-      return response.data;
-    } catch (error: any) {
-      throw new Error(
-        error.response?.data?.detail ||
-        mappingError.response?.data?.detail ||
-        'Failed to schedule deployment. Please ensure the backend endpoint is configured.'
-      );
-    }
-  }
-}
 
 /**
  * Get all scheduled deployments for a project
@@ -1995,14 +2485,12 @@ export async function getScheduledDeployments(
   scheduled_deployments: ScheduledDeployment[];
   total: number;
 }> {
-  const headers = await getAuthHeaders();
-
   try {
-    const params = new URLSearchParams();
-    if (projectId) params.append('project_id', projectId);
-    const response = await axios.get(
-      `${EXPLORE_DESIGN_BASE}/scheduled-deployments${params.toString() ? `?${params.toString()}` : ''}`,
-      { headers }
+    const params: Record<string, string> = {};
+    if (projectId) params.project_id = projectId;
+    const response = await apiClient.get(
+      `${ED}/scheduled-deployments`,
+      { params },
     );
 
     let deployments = response.data?.deployments ?? response.data?.scheduled_deployments ?? [];
@@ -2043,6 +2531,27 @@ export async function getScheduledDeployments(
     return { scheduled_deployments: [], total: 0 };
   }
 }
+
+/**
+ * Get details of a specific scheduled deployment
+ * GET /explore-design/scheduled-deployments/{schedule_id}
+ */
+export async function getScheduledDeploymentDetails(
+  scheduleId: string
+): Promise<ScheduledDeployment & {
+  deployment_config: ScheduledDeploymentConfig;
+  events_preview?: DesignEvent[];
+  approval_history?: Array<{
+    user_id: string;
+    action: 'approved' | 'rejected';
+    comment?: string;
+    timestamp: string;
+  }>;
+}> {
+  const response = await apiClient.get(`${ED}/scheduled-deployments/${scheduleId}`);
+  return response.data;
+}
+
 /**
  * Approve a scheduled deployment
  * POST /explore-design/scheduled-deployments/{schedule_id}/approve
@@ -2056,11 +2565,9 @@ export async function approveScheduledDeployment(
   approved_at: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/approve`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/approve`,
     { comment },
-    { headers }
   );
   return response.data;
 }
@@ -2078,14 +2585,57 @@ export async function rejectScheduledDeployment(
   rejected_at: string;
   message: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/reject`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/reject`,
     { reason },
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Cancel a scheduled deployment
+ * POST /explore-design/scheduled-deployments/{schedule_id}/cancel
+ */
+export async function cancelScheduledDeployment(
+  scheduleId: string,
+  reason?: string
+): Promise<{
+  success: boolean;
+  status: ScheduledDeploymentStatus;
+  cancelled_at: string;
+  message: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/cancel`,
+    { reason },
+  );
+  return response.data;
+}
+
+/**
+ * Reschedule a deployment to a new date
+ * POST /explore-design/scheduled-deployments/{schedule_id}/reschedule
+ */
+export async function rescheduleDeployment(
+  scheduleId: string,
+  newScheduledDate: string,
+  reason?: string
+): Promise<{
+  success: boolean;
+  new_scheduled_date: string;
+  requires_reapproval: boolean;
+  message: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/reschedule`,
+    {
+      scheduled_date: newScheduledDate,
+      reason,
+    },
+  );
+  return response.data;
+}
+
 /**
  * Execute a scheduled deployment immediately (admin override)
  * POST /explore-design/scheduled-deployments/{schedule_id}/execute-now
@@ -2099,14 +2649,33 @@ export async function executeScheduledDeploymentNow(
   status: ScheduledDeploymentStatus;
   started_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/scheduled-deployments/${scheduleId}/execute-now`,
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/execute-now`,
     { reason },
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Get execution log for a scheduled deployment
+ * GET /explore-design/scheduled-deployments/{schedule_id}/logs
+ */
+export async function getScheduledDeploymentLogs(
+  scheduleId: string
+): Promise<{
+  schedule_id: string;
+  logs: Array<{
+    timestamp: string;
+    message: string;
+    level: 'info' | 'warning' | 'error';
+    event_id?: string;
+    sql_executed?: string;
+  }>;
+}> {
+  const response = await apiClient.get(`${ED}/scheduled-deployments/${scheduleId}/logs`);
+  return response.data;
+}
+
 // ============================================
 // WORKFLOW & DAG APIs
 // ============================================
@@ -2176,7 +2745,7 @@ export interface WorkflowDAG {
 
 /**
  * Create a new workflow
- * POST /explore-design/workflows
+ * POST /explore-design/workflow
  */
 export async function createWorkflow(
   projectId: string,
@@ -2188,22 +2757,30 @@ export async function createWorkflow(
     notification_channels?: string[];
   }
 ): Promise<{ workflow_id: string; status: WorkflowStatus }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows`,
+  const response = await apiClient.post(
+    `${ED}/workflow`,
     {
       project_id: projectId,
       name,
       tasks,
       ...options,
     },
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Get workflow DAG
+ * GET /explore-design/workflow/{workflow_id}/dag
+ */
+export async function getWorkflowDAG(workflowId: string): Promise<WorkflowDAG> {
+  const response = await apiClient.get(`${ED}/workflow/${workflowId}/dag`);
+  return response.data;
+}
+
 /**
  * Execute workflow
- * POST /explore-design/workflows/{workflow_id}/execute
+ * POST /explore-design/workflow/{workflow_id}/execute
  */
 export async function executeWorkflow(
   workflowId: string,
@@ -2217,14 +2794,65 @@ export async function executeWorkflow(
   status: WorkflowStatus;
   execution_started: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/workflows/${workflowId}/execute`,
+  const response = await apiClient.post(
+    `${ED}/workflow/${workflowId}/execute`,
     options || {},
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Get task logs
+ * GET /explore-design/workflow/{workflow_id}/tasks/{task_id}/logs
+ */
+export async function getTaskLogs(
+  workflowId: string,
+  taskId: string
+): Promise<{
+  task_id: string;
+  logs: Array<{
+    timestamp: string;
+    level: 'info' | 'warning' | 'error';
+    message: string;
+    sql_executed?: string;
+  }>;
+}> {
+  const response = await apiClient.get(
+    `${ED}/workflow/${workflowId}/tasks/${taskId}/logs`,
+  );
+  return response.data;
+}
+
+/**
+ * Cancel workflow
+ * POST /explore-design/workflow/{workflow_id}/cancel
+ */
+export async function cancelWorkflow(
+  workflowId: string,
+  reason?: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await apiClient.post(
+    `${ED}/workflow/${workflowId}/cancel`,
+    { reason },
+  );
+  return response.data;
+}
+
+/**
+ * Retry failed task
+ * POST /explore-design/workflow/{workflow_id}/tasks/{task_id}/retry
+ */
+export async function retryTask(
+  workflowId: string,
+  taskId: string
+): Promise<{ success: boolean; new_status: TaskStatus }> {
+  const response = await apiClient.post(
+    `${ED}/workflow/${workflowId}/tasks/${taskId}/retry`,
+    {},
+  );
+  return response.data;
+}
+
 // ============================================
 // POLICY APIs
 // ============================================
@@ -2271,6 +2899,32 @@ export interface RLSPolicy {
   default_expression: string;
   audit_queries?: boolean;
 }
+
+/**
+ * Get available policies
+ * GET /explore-design/policies
+ */
+export async function getPolicies(filters?: {
+  type?: PolicyType;
+  database?: string;
+  schema?: string;
+}): Promise<{
+  policies: {
+    masking: Array<{ name: string; description: string; applied_to: number; data_types: string[] }>;
+    rls: Array<{ name: string; description: string; applied_to: number }>;
+    aggregation: Array<{ name: string; description: string; applied_to: number }>;
+    tags: Array<{ name: string; columns_tagged: number }>;
+  };
+}> {
+  const params: Record<string, string> = {};
+  if (filters?.type) params.type = filters.type;
+  if (filters?.database) params.database = filters.database;
+  if (filters?.schema) params.schema = filters.schema;
+
+  const response = await apiClient.get(`${ED}/policies`, { params });
+  return response.data;
+}
+
 /**
  * Apply masking policy to column
  * POST /explore-design/policies/masking/apply
@@ -2286,16 +2940,14 @@ export async function applyMaskingPolicy(
   },
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/apply`,
+  const response = await apiClient.post(
+    `${ED}/policies/masking/apply`,
     {
       project_id: projectId,
       policy_name: policyName,
       target,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -2314,15 +2966,13 @@ export async function removeMaskingPolicy(
   },
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/remove`,
+  const response = await apiClient.post(
+    `${ED}/policies/masking/remove`,
     {
       project_id: projectId,
       target,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
@@ -2342,9 +2992,8 @@ export async function applyRLSPolicy(
   filterColumn: string,
   createEvent?: boolean
 ): Promise<{ success: boolean; event_id?: string }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/rls/apply`,
+  const response = await apiClient.post(
+    `${ED}/policies/rls/apply`,
     {
       project_id: projectId,
       policy_name: policyName,
@@ -2352,10 +3001,71 @@ export async function applyRLSPolicy(
       filter_column: filterColumn,
       create_event: createEvent ?? true,
     },
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Detect sensitive columns
+ * POST /explore-design/policies/detect-sensitive
+ */
+export async function detectSensitiveColumnsInTables(
+  tables: Array<{ database: string; schema: string; table: string }>,
+  options?: {
+    patterns?: string[];
+    sample_data?: boolean;
+    sample_size?: number;
+  }
+): Promise<{
+  detections: SensitiveColumnDetection[];
+  summary: {
+    tables_scanned: number;
+    columns_scanned: number;
+    sensitive_found: number;
+  };
+}> {
+  const response = await apiClient.post(
+    `${ED}/policies/detect-sensitive`,
+    {
+      tables,
+      patterns: options?.patterns ?? ['email', 'ssn', 'phone', 'address', 'credit_card', 'dob'],
+      sample_data: options?.sample_data ?? true,
+      sample_size: options?.sample_size ?? 100,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Bulk apply tags
+ * POST /explore-design/policies/tags/bulk-apply
+ */
+export async function bulkApplyTags(
+  projectId: string,
+  applications: Array<{
+    database: string;
+    schema: string;
+    table: string;
+    column: string;
+    tags: string[];
+  }>,
+  createEvents?: boolean
+): Promise<{
+  success: boolean;
+  applied_count: number;
+  event_ids?: string[];
+}> {
+  const response = await apiClient.post(
+    `${ED}/policies/tags/bulk-apply`,
+    {
+      project_id: projectId,
+      applications,
+      create_events: createEvents ?? true,
+    },
+  );
+  return response.data;
+}
+
 /**
  * Create masking policy
  * POST /explore-design/policies/masking/create
@@ -2364,12 +3074,7 @@ export async function createMaskingPolicy(policy: MaskingPolicy): Promise<{
   success: boolean;
   policy_name: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/masking/create`,
-    policy,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/policies/masking/create`, policy);
   return response.data;
 }
 
@@ -2381,12 +3086,7 @@ export async function createRLSPolicy(policy: RLSPolicy): Promise<{
   success: boolean;
   policy_name: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/policies/rls/create`,
-    policy,
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/policies/rls/create`, policy);
   return response.data;
 }
 
@@ -2437,6 +3137,110 @@ export interface ERDLayout {
   tables: ERDTable[];
   relationships: ERDRelationship[];
 }
+
+/**
+ * Get ERD layout
+ * GET /explore-design/projects/{project_id}/erd
+ */
+export async function getERDLayout(projectId: string): Promise<ERDLayout> {
+  const response = await apiClient.get(`${ED}/projects/${projectId}/erd`);
+  return response.data;
+}
+
+/**
+ * Save ERD layout
+ * PUT /explore-design/projects/{project_id}/erd
+ */
+export async function saveERDLayout(
+  projectId: string,
+  layout: {
+    tables?: Array<{ id: string; position: { x: number; y: number } }>;
+    canvas?: {
+      zoom?: number;
+      offset?: { x: number; y: number };
+    };
+  }
+): Promise<{ success: boolean }> {
+  const response = await apiClient.put(`${ED}/projects/${projectId}/erd`, layout);
+  return response.data;
+}
+
+/**
+ * Auto-layout ERD
+ * POST /explore-design/projects/{project_id}/erd/auto-layout
+ */
+export async function autoLayoutERD(
+  projectId: string,
+  options?: {
+    algorithm?: 'dagre' | 'elk' | 'force';
+    direction?: 'TB' | 'LR' | 'BT' | 'RL';
+    node_spacing?: number;
+    rank_spacing?: number;
+  }
+): Promise<{
+  tables: Array<{ id: string; position: { x: number; y: number } }>;
+}> {
+  const response = await apiClient.post(
+    `${ED}/projects/${projectId}/erd/auto-layout`,
+    {
+      algorithm: options?.algorithm ?? 'dagre',
+      direction: options?.direction ?? 'TB',
+      node_spacing: options?.node_spacing ?? 100,
+      rank_spacing: options?.rank_spacing ?? 150,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Create relationship
+ * POST /explore-design/projects/{project_id}/relationships
+ */
+export async function createRelationship(
+  projectId: string,
+  relationship: {
+    source_table: string;
+    source_column: string;
+    target_table: string;
+    target_column: string;
+    cardinality: 'one_to_one' | 'one_to_many' | 'many_to_one' | 'many_to_many';
+    constraint_name?: string;
+    on_delete?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+    on_update?: 'CASCADE' | 'SET NULL' | 'RESTRICT' | 'NO ACTION';
+  },
+  createEvent?: boolean
+): Promise<{
+  relationship_id: string;
+  event_id?: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/projects/${projectId}/relationships`,
+    {
+      ...relationship,
+      create_event: createEvent ?? true,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Delete relationship
+ * DELETE /explore-design/projects/{project_id}/relationships/{relationship_id}
+ */
+export async function deleteRelationship(
+  projectId: string,
+  relationshipId: string,
+  createEvent?: boolean
+): Promise<{ success: boolean; event_id?: string }> {
+  const response = await apiClient.delete(
+    `${ED}/projects/${projectId}/relationships/${relationshipId}`,
+    {
+      data: { create_event: createEvent ?? true },
+    },
+  );
+  return response.data;
+}
+
 // ============================================
 // LINEAGE & IMPACT APIs
 // ============================================
@@ -2448,6 +3252,81 @@ export interface LineageNode {
   column?: string;
   transformation?: string;
 }
+
+/**
+ * Get column lineage
+ * GET /explore-design/lineage/column
+ */
+export async function getColumnLineage(
+  target: {
+    database: string;
+    schema: string;
+    table: string;
+    column: string;
+  },
+  options?: {
+    direction?: 'upstream' | 'downstream' | 'both';
+    depth?: number;
+  }
+): Promise<{
+  target: LineageNode;
+  upstream: LineageNode[];
+  downstream: LineageNode[];
+}> {
+  const params: Record<string, string> = {
+    database: target.database,
+    schema: target.schema,
+    table: target.table,
+    column: target.column,
+  };
+  if (options?.direction) params.direction = options.direction;
+  if (options?.depth) params.depth = String(options.depth);
+
+  const response = await apiClient.get(`${ED}/lineage/column`, { params });
+  return response.data;
+}
+
+/**
+ * Get impact analysis
+ * POST /explore-design/impact-analysis
+ */
+export async function getImpactAnalysis(
+  changes: Array<{
+    type: 'COLUMN_TYPE_CHANGE' | 'COLUMN_REMOVED' | 'COLUMN_RENAMED' | 'TABLE_REMOVED' | 'TABLE_RENAMED';
+    database: string;
+    schema: string;
+    table: string;
+    column?: string;
+    from_type?: string;
+    to_type?: string;
+    new_name?: string;
+  }>
+): Promise<{
+  impact_summary: {
+    high_risk: number;
+    medium_risk: number;
+    low_risk: number;
+    total_affected_objects: number;
+  };
+  affected_objects: Array<{
+    type: 'VIEW' | 'TABLE' | 'REPORT' | 'DASHBOARD' | 'TASK' | 'PIPE';
+    database?: string;
+    schema?: string;
+    name: string;
+    risk_level: 'high' | 'medium' | 'low';
+    reason: string;
+    recommendation: string;
+  }>;
+  breaking_changes: Array<{
+    change: string;
+    affected_count: number;
+    objects: string[];
+  }>;
+}> {
+  const response = await apiClient.post(`${ED}/impact-analysis`, { changes });
+  return response.data;
+}
+
 
 // ============= PRIMARY KEY SERVICES =============
 
@@ -2465,9 +3344,6 @@ export interface AddPrimaryKeyRequest {
  * @returns Response from the backend API
  */
 export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
-  const headers = await getAuthHeaders();
-  const url = `${EXPLORE_DESIGN_BASE}/primary-key/add`;
-
   const payload = {
     project_id: data.project_id,
     database: data.database,
@@ -2476,22 +3352,11 @@ export async function addPrimaryKey(data: AddPrimaryKeyRequest): Promise<any> {
     columns: data.columns,
   };
 
-  console.log('🔑 ADD Primary Key API Call:', {
-    url,
-    payload,
-  });
-
   try {
-    const response = await axios.post(url, payload, { headers });
-
-    console.log('✅ ADD Primary Key Response:', {
-      status: response.status,
-      data: response.data,
-    });
-
+    const response = await apiClient.post(`${ED}/primary-key/add`, payload);
     return response.data.data || response.data;
   } catch (error: any) {
-    console.error('❌ ADD Primary Key Error:', {
+    console.error('ADD Primary Key Error:', {
       message: error.response?.data?.message || error.message,
       detail: error.response?.data?.detail,
       status: error.response?.status,
@@ -2538,52 +3403,14 @@ export interface ManageTableRequest {
   COLUMN_COMMENT?: string;
 }
 
+
+
 /**
- * Manage table schema - rename tables/columns, add/drop constraints, etc.
- * Uses POST /mapping/manage_table endpoint
+ * Generic table management helper (rename, add/drop column, change type, FK, etc.)
  */
-export async function manageTable(request: ManageTableRequest): Promise<any> {
-  const headers = await getAuthHeaders();
-  const url = `${GUIDED_BASE}/manage_table`;
-
-  // Build query params
-  const params = new URLSearchParams();
-  params.append('SOURCE_TABLE', request.SOURCE_TABLE);
-  params.append('CONSTRAINT_TYPE', request.CONSTRAINT_TYPE);
-
-  if (request.COLUMN_NAME) params.append('COLUMN_NAME', request.COLUMN_NAME);
-  if (request.COLUMN_TYPE) params.append('COLUMN_TYPE', request.COLUMN_TYPE);
-  if (request.NEW_NAME) params.append('NEW_NAME', request.NEW_NAME);
-  if (request.TABLE_REF) params.append('TABLE_REF', request.TABLE_REF);
-  if (request.COLUMN_REF) params.append('COLUMN_REF', request.COLUMN_REF);
-  if (request.DEFAULT_VALUE) params.append('DEFAULT_VALUE', request.DEFAULT_VALUE);
-  if (request.TARGET_TABLE) params.append('TARGET_TABLE', request.TARGET_TABLE);
-  if (request.COLUMN_COMMENT) params.append('COLUMN_COMMENT', request.COLUMN_COMMENT);
-
-  console.log('🔧 Manage Table API Call:', {
-    url: `${url}?${params.toString()}`,
-    request,
-  });
-
-  try {
-    const response = await axios.post(`${url}?${params.toString()}`, null, { headers });
-
-    console.log('✅ Manage Table Response:', {
-      status: response.status,
-      data: response.data,
-    });
-
-    return response.data;
-  } catch (error: any) {
-    console.error('❌ Manage Table Error:', {
-      message: error.response?.data?.message || error.message,
-      detail: error.response?.data?.detail,
-      status: error.response?.status,
-      request,
-      fullError: error.response?.data,
-    });
-    throw error;
-  }
+async function manageTable(payload: ManageTableRequest): Promise<any> {
+  const response = await apiClient.get(`${ED}/guided/manage_table`, { params: payload });
+  return response.data;
 }
 
 /**
@@ -2727,7 +3554,7 @@ export async function executeEventAction(event: LocalDesignEvent, projectId?: st
   const { type, target, payload } = event;
   const { database, schema, table, column } = target;
 
-  console.log('🚀 Executing event action:', { type, target, payload });
+  // console.log('🚀 Executing event action:', { type, target, payload });
 
   try {
     switch (type) {
@@ -2885,9 +3712,8 @@ export async function getColumnPreview(
   column: string,
   sampleSize: number = 100
 ): Promise<ColumnPreviewData> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/preview`,
+  const response = await apiClient.post(
+    `${ED}/column/preview`,
     {
       database,
       schema,
@@ -2895,7 +3721,6 @@ export async function getColumnPreview(
       column,
       sample_size: sampleSize,
     },
-    { headers }
   );
   return response.data;
 }
@@ -2911,9 +3736,8 @@ export async function getTablePreview(
   limit: number = 50,
   offset: number = 0
 ): Promise<TablePreviewData> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/table/preview`,
+  const response = await apiClient.post(
+    `${ED}/table/preview`,
     {
       database,
       schema,
@@ -2921,7 +3745,6 @@ export async function getTablePreview(
       limit,
       offset,
     },
-    { headers }
   );
   return response.data;
 }
@@ -2936,16 +3759,14 @@ export async function getColumnProfile(
   table: string,
   column: string
 ): Promise<ColumnProfile> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/column/profile`,
+  const response = await apiClient.post(
+    `${ED}/column/profile`,
     {
       database,
       schema,
       table,
       column,
     },
-    { headers }
   );
   return response.data;
 }
@@ -2965,18 +3786,73 @@ export async function getTableProfile(
   columns: ColumnProfile[];
   overall_quality_score: number;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/table/profile`,
+  const response = await apiClient.post(
+    `${ED}/table/profile`,
     {
       database,
       schema,
       table,
     },
-    { headers }
   );
   return response.data;
 }
+
+/**
+ * Mark column as sensitive and optionally create event
+ * POST /explore-design/column/mark-sensitive
+ */
+export async function markColumnSensitive(
+  projectId: string,
+  database: string,
+  schema: string,
+  table: string,
+  column: string,
+  sensitiveType: string,
+  createEvent: boolean = true
+): Promise<{ success: boolean; event_id?: string }> {
+  const response = await apiClient.post(
+    `${ED}/column/mark-sensitive`,
+    {
+      project_id: projectId,
+      database,
+      schema,
+      table,
+      column,
+      sensitive_type: sensitiveType,
+      create_event: createEvent,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Exclude/include column from modeling
+ * POST /explore-design/column/exclude
+ */
+export async function setColumnExclusion(
+  projectId: string,
+  database: string,
+  schema: string,
+  table: string,
+  column: string,
+  excluded: boolean,
+  reason?: string
+): Promise<{ success: boolean; event_id?: string }> {
+  const response = await apiClient.post(
+    `${ED}/column/exclude`,
+    {
+      project_id: projectId,
+      database,
+      schema,
+      table,
+      column,
+      excluded,
+      reason,
+    },
+  );
+  return response.data;
+}
+
 /**
  * Fetch table relationships (foreign keys) for a Snowflake schema
  *
@@ -2988,12 +3864,7 @@ export async function fetchRelationships(
   database: string,
   schema: string
 ): Promise<FetchRelationshipsResponse> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/fetch_relationships`,
-    { database, schema },
-    { headers }
-  );
+  const response = await apiClient.post(`${ED}/fetch_relationships`, { database, schema });
   return response.data;
 }
 
@@ -3031,21 +3902,401 @@ export async function addDesignEvent(
   status: string;
   created_at: string;
 }> {
-  const headers = await getAuthHeaders();
-  const response = await axios.post(
-    `${EXPLORE_DESIGN_BASE}/add-event`,
-    {
-      project_id: projectId,
-      event_id: eventId,
-      event_type: eventType,
-      target,
-      payload,
-      module_type: moduleType,
-    },
-    { headers }
+  // Try the explore-design add-event endpoint, fall back to cross-module projects endpoint
+  try {
+    const response = await apiClient.post(
+      `${ED}/add-event`,
+      {
+        project_id: projectId,
+        event_id: eventId,
+        event_type: eventType,
+        target,
+        payload,
+        module_type: moduleType,
+      },
+    );
+    return response.data;
+  } catch {
+    // Fallback: POST /projects/{projectId}/events
+    try {
+      const response = await apiClient.post(
+        `/projects/${projectId}/events`,
+        {
+          event_id: eventId,
+          event_type: eventType,
+          target,
+          payload,
+          module_type: moduleType,
+        },
+      );
+      return response.data;
+    } catch (error: any) {
+      console.error('[addDesignEvent] Both endpoints failed:', error?.message);
+      return { success: false, event_id: eventId, project_id: projectId, status: 'failed', created_at: '' };
+    }
+  }
+}
+
+/**
+ * Get all events for a project
+ *
+ * @param projectId - Project ID
+ * @param status - Optional filter by status (pending, validated, applied, failed)
+ * @param eventType - Optional filter by event type
+ * @returns Promise with events list and summary
+ */
+export async function getDesignEvents(
+  projectId: string,
+  status?: string,
+  eventType?: string
+): Promise<{
+  project_id: string;
+  events: Array<{
+    event_id: string;
+    event_type: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column?: string;
+    };
+    payload: Record<string, any>;
+    status: string;
+    created_at: string;
+  }>;
+  summary: {
+    total: number;
+    pending: number;
+    validated: number;
+    failed: number;
+    applied: number;
+  };
+}> {
+  const params: Record<string, string> = {};
+  if (status) params.status = status;
+  if (eventType) params.event_type = eventType;
+
+  const response = await apiClient.get(
+    `${ED}/${projectId}/events`,
+    { params },
   );
   return response.data;
 }
+
+/**
+ * Validate events before deployment
+ *
+ * @param projectId - Project ID
+ * @param eventIds - List of event IDs to validate
+ * @param dryRun - If true, only validate without marking as validated
+ * @returns Promise with validation results
+ */
+export async function validateDesignEvents(
+  projectId: string,
+  eventIds: string[],
+  dryRun: boolean = true
+): Promise<{
+  results: Array<{
+    event_id: string;
+    valid: boolean;
+    sql?: string;
+    error?: string;
+    warnings?: string[];
+  }>;
+  summary: {
+    total: number;
+    valid: number;
+    invalid: number;
+  };
+}> {
+  const response = await apiClient.post(
+    `${ED}/${projectId}/validate-events`,
+    {
+      project_id: projectId,
+      event_ids: eventIds,
+      dry_run: dryRun,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Create a deployment record
+ *
+ * @param projectId - Project ID
+ * @param version - Version string
+ * @param deploymentType - Type (immediate, scheduled, conditional)
+ * @param events - List of event items to deploy
+ * @param rollbackOnError - Whether to rollback all if any fails
+ * @param createdBy - User who created deployment
+ * @returns Promise with deployment info
+ */
+export async function createDesignDeployment(
+  projectId: string,
+  version: string,
+  deploymentType: string,
+  events: Array<{
+    event_id: string;
+    event_type: string;
+    sql: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column?: string;
+    };
+    payload: Record<string, any>;
+  }>,
+  rollbackOnError: boolean = true,
+  createdBy?: string
+): Promise<{
+  deployment_id: string;
+  status: string;
+  created_at: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/${projectId}/deployments`,
+    {
+      project_id: projectId,
+      version,
+      deployment_type: deploymentType,
+      events,
+      rollback_on_error: rollbackOnError,
+      created_by: createdBy,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Execute a deployment
+ *
+ * @param deploymentId - Deployment ID to execute
+ * @param executionMode - Mode (immediate, dry_run)
+ * @param dryRun - If true, don't actually execute SQL
+ * @returns Promise with execution results
+ */
+// TODO: backend endpoint requires projectId — use executeDeploymentV1(projectId, deploymentId) instead
+export async function executeDesignDeployment(
+  deploymentId: string,
+  executionMode: string = 'immediate',
+  dryRun: boolean = false
+): Promise<{
+  deployment_id: string;
+  status: string;
+  results: Array<{
+    event_id: string;
+    status: string;
+    sql_executed?: string;
+    execution_time_ms?: number;
+    error?: string;
+  }>;
+  summary: {
+    applied: number;
+    failed: number;
+    skipped: number;
+  };
+}> {
+  console.warn('[executeDesignDeployment] deprecated — use executeDeploymentV1(projectId, deploymentId)');
+  return {
+    deployment_id: deploymentId,
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
+}
+
+/**
+ * Create and immediately execute a deployment
+ *
+ * @param projectId - Project ID
+ * @param events - List of event items to deploy
+ * @param rollbackOnError - Whether to rollback all if any fails
+ * @param createdBy - User who created deployment
+ * @returns Promise with deployment results
+ */
+export async function immediateDesignDeploy(
+  projectId: string,
+  events: Array<{
+    event_id: string;
+    event_type: string;
+    sql: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column?: string;
+    };
+    payload: Record<string, any>;
+  }>,
+  rollbackOnError: boolean = true,
+  createdBy?: string
+): Promise<{
+  deployment_id: string;
+  status: string;
+  results: Array<{
+    event_id: string;
+    status: string;
+    sql_executed?: string;
+    execution_time_ms?: number;
+    error?: string;
+  }>;
+  summary: {
+    applied: number;
+    failed: number;
+    skipped: number;
+  };
+}> {
+  // TODO: backend endpoint not implemented — use createDeployment + executeDeploymentV1 instead
+  console.warn('[immediateDesignDeploy] no backend route — use createDeployment + executeDeploymentV1');
+  return {
+    deployment_id: '',
+    status: 'failed',
+    results: [],
+    summary: { applied: 0, failed: 0, skipped: 0 },
+  };
+}
+
+/**
+ * Schedule a deployment for future execution
+ *
+ * @param workflowName - Name of the workflow/deployment
+ * @param scheduledDate - ISO format datetime for scheduled execution
+ * @param deploymentMethod - Method (REPLACE_EXISTING, NEW_RELEASE, TEST)
+ * @param projectId - Project ID
+ * @param events - List of event items to deploy
+ * @param createdBy - User who created the schedule
+ * @param description - Optional description
+ * @param moduleType - Module type (default: explore-design)
+ * @param requiresApproval - Whether approval is required
+ * @returns Promise with schedule info
+ */
+export async function scheduleDesignDeployment(
+  workflowName: string,
+  scheduledDate: string,
+  deploymentMethod: string,
+  projectId: string,
+  events: Array<{
+    event_id: string;
+    event_type: string;
+    sql: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column?: string;
+    };
+    payload: Record<string, any>;
+  }>,
+  createdBy: string,
+  description?: string,
+  moduleType: string = 'explore-design',
+  requiresApproval: boolean = false
+): Promise<{
+  schedule_id: string;
+  status: string;
+  workflow_name: string;
+  scheduled_date: string;
+  created_at: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/schedule-deployment`,
+    {
+      workflow_name: workflowName,
+      scheduled_date: scheduledDate,
+      deployment_method: deploymentMethod,
+      project_id: projectId,
+      events,
+      created_by: createdBy,
+      description,
+      module_type: moduleType,
+      requires_approval: requiresApproval,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * List scheduled deployments
+ *
+ * @param projectId - Optional filter by project
+ * @param status - Optional filter by status
+ * @param limit - Maximum number of results
+ * @returns Promise with list of scheduled deployments
+ */
+export async function listScheduledDesignDeployments(
+  projectId?: string,
+  status?: string,
+  limit: number = 50
+): Promise<{
+  deployments: Array<{
+    schedule_id: string;
+    workflow_name: string;
+    scheduled_date: string;
+    status: string;
+    project_id: string;
+    created_by: string;
+    created_at: string;
+  }>;
+  total: number;
+}> {
+  const params: Record<string, string> = { limit: limit.toString() };
+  if (projectId) params.project_id = projectId;
+  if (status) params.status = status;
+
+  const response = await apiClient.get(`${ED}/scheduled-deployments`, { params });
+  return response.data;
+}
+
+/**
+ * Execute a scheduled deployment
+ *
+ * @param scheduleId - Schedule ID to execute
+ * @returns Promise with execution results
+ */
+export async function executeScheduledDesignDeployment(
+  scheduleId: string
+): Promise<{
+  success: boolean;
+  schedule_id: string;
+  status: string;
+  summary: {
+    applied: number;
+    failed: number;
+  };
+  results: Array<{
+    event_id: string;
+    status: string;
+    error?: string;
+  }>;
+}> {
+  const response = await apiClient.post(
+    `${ED}/scheduled-deployments/${scheduleId}/execute`,
+    {},
+  );
+  return response.data;
+}
+
+/**
+ * Rollback a deployment
+ *
+ * @param deploymentId - Deployment ID to rollback
+ * @param reason - Reason for rollback
+ * @returns Promise with rollback status
+ */
+// TODO: backend endpoint not implemented — use POST /projects/{projectId}/rollback via projectsApi
+export async function rollbackDesignDeployment(
+  deploymentId: string,
+  reason: string
+): Promise<{
+  success: boolean;
+  rollback_deployment_id?: string;
+  message: string;
+}> {
+  console.warn('[rollbackDesignDeployment] no backend route — use projectsApi.rollbackProject');
+  return { success: false, message: 'Backend endpoint not implemented. Use projectsApi.rollbackProject instead.' };
+}
+
 
 // ============================================
 // VERSION-BASED DEPLOYMENT (Deploy to cp_data360.<version_schema>)
@@ -3095,4 +4346,371 @@ export interface DeployWithVersionResponse {
   };
   executed_at: string;
   rollback_available: boolean;
+}
+
+/**
+ * Deploy events to a version-specific schema
+ *
+ * This is the main deployment function that:
+ * 1. Creates the target schema (cp_data360.<version_name>) if it doesn't exist
+ * 2. Executes all event SQL statements in order
+ * 3. Stores rollback SQL for potential future rollback
+ * 4. Handles errors with optional rollback of applied changes
+ *
+ * @param request - Deployment request with version name and events
+ * @returns Promise with deployment results
+ */
+export async function deployWithVersion(
+  request: DeployWithVersionRequest
+): Promise<DeployWithVersionResponse> {
+  const response = await apiClient.post(
+    `${ED}/deploy/version`,
+    {
+      project_id: request.project_id,
+      version_name: request.version_name,
+      events: request.events.map(e => ({
+        event_id: e.event_id,
+        event_type: e.event_type,
+        sql: e.sql,
+        rollback_sql: e.rollback_sql,
+        target: {
+          database: e.target.database,
+          schema: e.target.schema,
+          table: e.target.table,
+          column: e.target.column,
+        },
+        payload: e.payload,
+      })),
+      rollback_on_error: request.rollback_on_error ?? true,
+      created_by: request.created_by,
+      dry_run: request.dry_run ?? false,
+    },
+  );
+  return response.data;
+}
+
+/**
+ * Rollback a version deployment using stored rollback SQLs
+ *
+ * @param deploymentId - Deployment ID to rollback
+ * @param reason - Reason for rollback
+ * @returns Promise with rollback status
+ */
+export async function rollbackVersionDeployment(
+  deploymentId: string,
+  reason: string
+): Promise<{
+  success: boolean;
+  rollback_deployment_id?: string;
+  message: string;
+  results?: Array<{
+    sql: string;
+    status: 'success' | 'failed';
+    error?: string;
+  }>;
+  target_database?: string;
+  target_schema?: string;
+}> {
+  const response = await apiClient.post(
+    `${ED}/deployments/${deploymentId}/rollback-version`,
+    {
+      deployment_id: deploymentId,
+      reason,
+    },
+  );
+  return response.data;
+}
+
+// ============================================================================
+// NEW API v1 — Re-export from services/api/
+// These use /projects/* and /explore-design/* endpoints
+// ============================================================================
+
+export * as projectsApi from '@/app/services/api/projectsApi';
+export * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
+export type {
+  // Unified Project types
+  ProjectType as V1ProjectType,
+  ProjectStatus as V1ProjectStatus,
+  Project as V1Project,
+  ProjectListResponse as V1ProjectListResponse,
+  CreateProjectRequest as V1CreateProjectRequest,
+  CreateProjectResponse as V1CreateProjectResponse,
+  UpdateProjectRequest as V1UpdateProjectRequest,
+  ListProjectsParams as V1ListProjectsParams,
+  ProjectVersion as V1ProjectVersion,
+  CreateVersionRequest as V1CreateVersionRequest,
+  VersionListResponse as V1VersionListResponse,
+  ProjectDeployment as V1ProjectDeployment,
+  CreateDeploymentRequest as V1CreateDeploymentRequest,
+  ListDeploymentsParams as V1ListDeploymentsParams,
+  RejectDeploymentRequest as V1RejectDeploymentRequest,
+  ExecuteDeploymentRequest as V1ExecuteDeploymentRequest,
+  ProjectRun as V1ProjectRun,
+  StartRunRequest as V1StartRunRequest,
+  Contributor as V1Contributor,
+  AddContributorRequest as V1AddContributorRequest,
+  // Explore Design v1 types
+  UnifiedDeploymentType as V1DeploymentType,
+  ExploreDeployment as V1ExploreDeployment,
+  CreateExploreDeploymentRequest as V1CreateExploreDeploymentRequest,
+  ExploreDeploymentListResponse as V1ExploreDeploymentListResponse,
+  QuickDeployResponse as V1QuickDeployResponse,
+  CreateScheduleRequest as V1CreateScheduleRequest,
+  Schedule as V1Schedule,
+  ScheduleListResponse as V1ScheduleListResponse,
+  SaveModelRequest as V1SaveModelRequest,
+  SaveModelResponse as V1SaveModelResponse,
+  ModelVersionListResponse as V1ModelVersionListResponse,
+  DDLAction as V1DDLAction,
+  CreateDDLActionRequest as V1CreateDDLActionRequest,
+  DDLActionListResponse as V1DDLActionListResponse,
+  SchemaClone as V1SchemaClone,
+  SchemaCloneRequest as V1SchemaCloneRequest,
+  WizardState as V1WizardState,
+  SaveStateRequest as V1SaveStateRequest,
+  ConfigTemplate as V1ConfigTemplate,
+} from '@/app/services/api/types';
+
+// === Deployment Pipeline (14 endpoints) ===
+
+export async function dryRunDDL(projectId: string, data: { database: string; schema: string; actions: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/dry-run`, data);
+  return res.data;
+}
+
+export async function batchAddDDLActions(projectId: string, data: { actions: Array<{ ddl_sql: string; ddl_type?: string; priority?: number; target_table?: string; description?: string }> }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/batch`, data);
+  return res.data;
+}
+
+export async function preCheckDeployment(projectId: string, data: { database: string; schema: string; warehouse?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ddl-actions/pre-check`, data);
+  return res.data;
+}
+
+export async function verifyDeployment(projectId: string, deploymentId: string, data: { database: string; schema: string; expected_tables?: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/deployments/${deploymentId}/verify`, data);
+  return res.data;
+}
+
+export async function checkTypeCompatibility(projectId: string, params: { database: string; schema: string; source_table: string; source_column: string; target_table: string; target_column: string }) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/validate/type-compatibility`, { params });
+  return res.data;
+}
+
+export async function analyzeImpact(projectId: string, data: { database: string; schema: string; targets: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/validate/impact-analysis`, data);
+  return res.data;
+}
+
+export async function runQualityCheck(projectId: string, data: { source_table: string; gates: any[]; where_clause?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/quality-check`, data);
+  return res.data;
+}
+
+export async function previewIngestionSQL(projectId: string, data: { source_table: string; target_table: string; mode: string; column_mappings?: any[]; where_clause?: string; scd_config?: any }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/preview-sql`, data);
+  return res.data;
+}
+
+export async function dryRunIngestion(projectId: string, data: { source_table: string; target_table: string; mode: string; column_mappings?: any[]; where_clause?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/dry-run`, data);
+  return res.data;
+}
+
+export async function getWatermark(projectId: string, table: string, column: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ingestion/watermark`, { params: { table, column } });
+  return res.data;
+}
+
+export async function resetWatermark(projectId: string, data: { table: string; column: string; reset_to?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ingestion/watermark/reset`, data);
+  return res.data;
+}
+
+export async function getEventConflicts(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/events/conflicts`);
+  return res.data;
+}
+
+export async function saveEventTemplate(projectId: string, data: { name: string; description: string; events: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/event-templates`, data);
+  return res.data;
+}
+
+export async function listEventTemplates(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/event-templates`);
+  return res.data;
+}
+
+export async function applyEventTemplate(projectId: string, templateId: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/event-templates/${templateId}/apply`);
+  return res.data;
+}
+
+// === AI Intelligence (15 endpoints) ===
+
+export async function getColumnClassification(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/column-classification`);
+  return res.data;
+}
+
+export async function discoverRelationships(projectId: string, data: { tables: any[]; existing_relations?: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/discover-relationships`, data);
+  return res.data;
+}
+
+export async function getSchemaHealth(projectId: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/ai/schema-health`);
+  return res.data;
+}
+
+export async function suggestColumns(projectId: string, data: { table_name: string; existing_tables?: string[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/suggest-columns`, data);
+  return res.data;
+}
+
+export async function checkNaming(projectId: string, data: { names: string[]; object_type?: string }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/check-naming`, data);
+  return res.data;
+}
+
+export async function getTypeOptimization(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/type-optimization`);
+  return res.data;
+}
+
+export async function getSCDRecommendation(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/scd-recommendation`);
+  return res.data;
+}
+
+export async function getWarehouseSizing(warehouse?: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/warehouse-sizing`, { params: warehouse ? { warehouse } : {} });
+  return res.data;
+}
+
+export async function getClusteringSuggestion(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/clustering-suggestion`);
+  return res.data;
+}
+
+export async function getMaterializationStrategy(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/materialization-strategy`);
+  return res.data;
+}
+
+export async function getIngestionRecommendation(projectId: string, database: string, schema: string, table: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/${projectId}/tables/${database}/${schema}/${table}/ai/ingestion-recommendation`);
+  return res.data;
+}
+
+export async function scoreDeploymentRisk(projectId: string, data: { pending_events: any[] }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/${projectId}/ai/deployment-risk`, data);
+  return res.data;
+}
+
+export async function getOptimalSchedule(warehouse?: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/optimal-schedule`, { params: warehouse ? { warehouse } : {} });
+  return res.data;
+}
+
+export async function submitAIFeedback(data: { suggestion_id: string; suggestion_type: string; accepted: boolean }) {
+  const res = await apiClient.post(`${V1_EXPLORE}/ai/feedback`, data);
+  return res.data;
+}
+
+export async function getAISavingsSummary() {
+  const res = await apiClient.get(`${V1_EXPLORE}/ai/savings-summary`);
+  return res.data;
+}
+
+// === Data Engineering Actions ===
+
+// Dynamic Tables
+export async function listDynamicTables(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/dynamic-tables`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function suspendDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/suspend`, { database, schema });
+  return res.data;
+}
+
+export async function resumeDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/resume`, { database, schema });
+  return res.data;
+}
+
+export async function refreshDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/dynamic-tables/${name}/refresh`, { database, schema });
+  return res.data;
+}
+
+export async function dropDynamicTable(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/dynamic-tables/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// Streams
+export async function listStreams(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/streams`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function getStreamData(name: string, database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/streams/${name}/data`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function dropStream(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/streams/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// Alerts
+export async function listAlerts(database: string, schema: string) {
+  const res = await apiClient.get(`${V1_EXPLORE}/alerts`, { params: { database, schema } });
+  return res.data;
+}
+
+export async function dropAlert(name: string, database: string, schema: string) {
+  const res = await apiClient.delete(`${V1_EXPLORE}/alerts/${name}`, { params: { database, schema } });
+  return res.data;
+}
+
+// =====================================
+// Smart Key & Embedding Intelligence
+// =====================================
+
+// Smart Key & Embedding functions: detectPrimaryKeys, detectForeignKeys, suggestClusteringKeys
+// are defined earlier in this file (lines 208, 229, 249) — no duplicates needed here.
+
+/** Semantic search across table data using vector similarity */
+export async function semanticSearch(
+  query: string,
+  table: string,
+  textColumn: string,
+  embeddingColumn?: string,
+  limit?: number
+) {
+  const res = await apiClient.post(`${V1_EXPLORE}/smart/semantic-search`, {
+    query,
+    table,
+    text_column: textColumn,
+    embedding_column: embeddingColumn,
+    limit: limit ?? 10,
+  });
+  return res.data;
+}
+
+/** Generate embedding vector for text */
+export async function embedText(text: string, model?: string) {
+  const res = await apiClient.post(`${V1_EXPLORE}/smart/embed`, {
+    text,
+    model: model ?? 'e5-base-v2',
+  });
+  return res.data;
 }

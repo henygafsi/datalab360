@@ -296,7 +296,7 @@ export default function MessageDetails({ className }: { className?: string }) {
                         suffix={<PiCaretDownBold className="ml-1 h-3 w-3" />}
                         placement="bottom-start"
                         dropdownClassName="p-2 gap-1 grid !w-20 !z-0"
-                        selectClassName="bg-gray-0 dark:bg-gray-50"
+                        selectClassName="bg-gray-0 dark:bg-gray-800"
                         className={'w-auto'}
                       />
                       <Button
@@ -322,7 +322,7 @@ export default function MessageDetails({ className }: { className?: string }) {
                         <QuillEditor
                           value={value}
                           onChange={onChange}
-                          className="rounded-md bg-gray-0 dark:bg-gray-50 [&>.ql-container_.ql-editor]:min-h-[100px]"
+                          className="rounded-md bg-gray-0 dark:bg-gray-800 [&>.ql-container_.ql-editor]:min-h-[100px]"
                         />
                       )}
                     />

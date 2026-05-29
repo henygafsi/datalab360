@@ -22,12 +22,13 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Modal, Tooltip } from 'rizzui';
+import { Button, Badge, Input, Modal, Tooltip, Select, Checkbox } from 'rizzui';
 import {
   ZoomIn, ZoomOut, Maximize2, Download, Upload, Undo2, Redo2,
   Grid3X3, Layers, Eye, EyeOff, Lock, Unlock, Plus, Minus,
   LayoutGrid, Save, RefreshCw, Settings, Filter, Search,
-  ArrowLeftRight, Database, Table2, GitBranch, Workflow, List
+  ArrowLeftRight, Database, Table2, GitBranch, Workflow, List,
+  Minimize2, PanelLeft, PanelRight
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import TableNode, { TableNodeData, TableNodeColumn } from './TableNode';
@@ -92,6 +93,21 @@ interface ModelingCanvasProps {
   defaultRelationships?: TableRelationship[];
   targetTableIds?: Set<string>; // IDs of target/DWH tables (default tables)
   initialMappings?: InitialColumnMapping[]; // Mappings loaded from events
+  isReadOnly?: boolean;
+  onColumnsMapUpdate?: (updater: (prev: Map<string, ColumnInfo[]>) => Map<string, ColumnInfo[]>) => void;
+  // Data engineering callbacks
+  onDynamicTableCreate?: (table: TableItem) => void;
+  onEventTableCreate?: (table: TableItem) => void;
+  onHybridTableCreate?: (table: TableItem) => void;
+  onStreamCreate?: (table: TableItem) => void;
+  onAlertCreate?: (table: TableItem) => void;
+  // Fullscreen & panel toggle props
+  isFullscreen?: boolean;
+  onToggleFullscreen?: () => void;
+  showSidebar?: boolean;
+  onToggleSidebar?: () => void;
+  showEventPanel?: boolean;
+  onToggleEventPanel?: () => void;
 }
 
 // Auto-layout helper
@@ -122,6 +138,19 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   defaultRelationships = [],
   targetTableIds = new Set(),
   initialMappings = [],
+  isReadOnly = false,
+  onColumnsMapUpdate,
+  onDynamicTableCreate,
+  onEventTableCreate,
+  onHybridTableCreate,
+  onStreamCreate,
+  onAlertCreate,
+  isFullscreen = false,
+  onToggleFullscreen,
+  showSidebar,
+  onToggleSidebar,
+  showEventPanel,
+  onToggleEventPanel,
 }) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const { fitView, zoomIn, zoomOut, getNodes, getEdges } = useReactFlow();
@@ -245,11 +274,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
   // Create edges from default relationships
   useEffect(() => {
-    console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
-    console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
+    // console.log('[ModelingCanvas] defaultRelationships:', defaultRelationships);
+    // console.log('[ModelingCanvas] tables:', tables.map(t => t.id));
 
     if (defaultRelationships.length === 0 || tables.length === 0) {
-      console.log('[ModelingCanvas] Skipping - no relationships or tables');
+      // console.log('[ModelingCanvas] Skipping - no relationships or tables');
       return;
     }
 
@@ -258,7 +287,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     if (!firstTable) return;
 
     const { database } = firstTable;
-    console.log('[ModelingCanvas] Using database:', database);
+    // console.log('[ModelingCanvas] Using database:', database);
 
     // Group relationships by child_table + parent_table to create single edges with multiple column mappings
     const relationshipGroups = new Map<string, TableRelationship[]>();
@@ -271,7 +300,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       relationshipGroups.get(key)!.push(rel);
     });
 
-    console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
+    // console.log('[ModelingCanvas] Relationship groups:', Array.from(relationshipGroups.keys()));
 
     // Create edges from grouped relationships
     const newEdges: Edge[] = [];
@@ -286,7 +315,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceExists = tables.some(t => t.id === sourceId);
       const targetExists = tables.some(t => t.id === targetId);
 
-      console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
+      // console.log(`[ModelingCanvas] Checking: ${sourceId} (exists: ${sourceExists}) -> ${targetId} (exists: ${targetExists})`);
 
       if (sourceExists && targetExists) {
         // Create label showing FK relationship (not ETL mapping)
@@ -316,20 +345,115 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           },
         });
       } else {
-        console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
+        // console.log(`[ModelingCanvas] SKIPPED edge - table not found`);
       }
     });
 
-    console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
+    // console.log(`[ModelingCanvas] Created ${newEdges.length} FK edges:`, newEdges);
 
-    // Preserve existing mapping edges and add/update FK edges
+    // Preserve existing mapping edges and FK edges from events, add/update template FK edges
     setEdges(prev => {
-      // Keep existing mapping edges (user-created ETL mappings)
       const mappingEdges = prev.filter(e => e.data?.edgeType === 'mapping');
-      // Combine with new FK edges
-      return [...newEdges, ...mappingEdges];
+      const eventFkEdges = prev.filter(e => e.data?.edgeType === 'fk' && e.id.startsWith('fk-evt-'));
+      // Template FK edges + event FK edges (dedup by source→target)
+      const templatePairs = new Set(newEdges.map(e => `${e.source}->${e.target}`));
+      const nonDupEventFks = eventFkEdges.filter(e => !templatePairs.has(`${e.source}->${e.target}`));
+      return [...newEdges, ...nonDupEventFks, ...mappingEdges];
     });
   }, [defaultRelationships, tables, setEdges]);
+
+  // Build FK edges from FOREIGN_KEY_ADDED events (covers manual FK creation + post-deployment)
+  // Event payload shape: { columns: string[], referencedTable: {database,schema,table}, referencedColumns: string[], sourceColumn, targetTable, targetColumn }
+  useEffect(() => {
+    const fkEvents = events.filter(e => e.type === 'FOREIGN_KEY_ADDED');
+    if (fkEvents.length === 0 || tables.length === 0) return;
+
+    const fkEdges: Edge[] = [];
+    const seenPairs = new Set<string>();
+
+    for (const fk of fkEvents) {
+      // Source table from event.target
+      const srcDb = fk.target?.database;
+      const srcSchema = fk.target?.schema;
+      const srcTable = fk.target?.table;
+      // Source column (multiple paths for compat)
+      const srcCol = fk.payload?.sourceColumn || fk.payload?.columns?.[0] || fk.target?.column;
+
+      // Target table from payload.referencedTable or payload.targetTable
+      const refTable = fk.payload?.referencedTable || fk.payload?.targetTable;
+      const tgtDb = typeof refTable === 'object' ? refTable?.database : srcDb;
+      const tgtSchema = typeof refTable === 'object' ? refTable?.schema : srcSchema;
+      const tgtTable = typeof refTable === 'object' ? refTable?.table : (typeof refTable === 'string' ? refTable : null);
+      // Target column
+      const tgtCol = fk.payload?.targetColumn || fk.payload?.referencedColumns?.[0];
+
+      if (!srcTable || !tgtTable) continue;
+
+      // Match table nodes flexibly: exact ID > schema.table > table name only
+      // This handles database mismatches (e.g., FK event says "draft_source" but canvas has "cp_data360")
+      const findNode = (db: string | undefined, schema: string | undefined, table: string) => {
+        const fullId = db && schema ? `${db}.${schema}.${table}` : null;
+        const schemaTable = schema ? `${schema}.${table}` : null;
+        return (
+          (fullId && tables.find(t => t.id === fullId)) ||
+          (schemaTable && tables.find(t => t.id.endsWith(`.${schema}.${table}`))) ||
+          (schemaTable && tables.find(t => t.schema === schema && t.table === table)) ||
+          tables.find(t => t.table === table)
+        ) || null;
+      };
+
+      const sourceNode = findNode(srcDb, srcSchema, srcTable);
+      const targetNode = findNode(tgtDb, tgtSchema, tgtTable);
+
+      if (!sourceNode || !targetNode) {
+        console.warn(`[ModelingCanvas] FK edge skipped — no match for src=${srcDb}.${srcSchema}.${srcTable} or tgt=${tgtDb}.${tgtSchema}.${tgtTable}`, {
+          tablesOnCanvas: tables.map(t => t.id).slice(0, 10),
+        });
+        continue;
+      }
+
+      // Deduplicate by source→target pair
+      const pairKey = `${sourceNode.id}->${targetNode.id}`;
+      if (seenPairs.has(pairKey)) continue;
+      seenPairs.add(pairKey);
+
+      const edgeId = `fk-evt-${fk.id}`;
+      fkEdges.push({
+        id: edgeId,
+        source: sourceNode.id,
+        target: targetNode.id,
+        type: 'smoothstep',
+        animated: false,
+        markerEnd: { type: MarkerType.ArrowClosed },
+        style: edgeStyles['fk'],
+        label: srcCol && tgtCol ? `FK: ${srcCol} → ${tgtCol}` : 'FK',
+        labelStyle: { fontSize: 10, fill: '#8b5cf6', fontStyle: 'italic' },
+        labelBgStyle: { fill: '#f5f3ff', fillOpacity: 0.9 },
+        data: {
+          edgeType: 'fk',
+          relationType: 'many_to_one',
+          columnMappings: srcCol && tgtCol
+            ? [{ source_column: srcCol, target_column: tgtCol }]
+            : [],
+        },
+      });
+    }
+
+    if (fkEdges.length > 0) {
+      setEdges(prev => {
+        // Avoid duplicating edges already on canvas (from defaultRelationships)
+        const existingFkPairs = new Set(
+          prev.filter(e => e.data?.edgeType === 'fk').map(e => `${e.source}->${e.target}`)
+        );
+        const existingIds = new Set(prev.map(e => e.id));
+        const newEdges = fkEdges.filter(e =>
+          !existingIds.has(e.id) && !existingFkPairs.has(`${e.source}->${e.target}`)
+        );
+        if (newEdges.length === 0) return prev;
+        return [...prev, ...newEdges];
+      });
+    }
+  }, [events, tables, setEdges]);
 
   // State
   const [showMinimap, setShowMinimap] = useState(true);
@@ -344,6 +468,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // Policy and column modals state
   const [showPolicyPanel, setShowPolicyPanel] = useState(false);
   const [showAddColumnModal, setShowAddColumnModal] = useState(false);
+  const [showAddSimpleColumnModal, setShowAddSimpleColumnModal] = useState(false);
+  const [newColumnName, setNewColumnName] = useState('');
+  const [newColumnType, setNewColumnType] = useState('VARCHAR');
+  const [newColumnNullable, setNewColumnNullable] = useState(true);
+  const [newColumnIsPK, setNewColumnIsPK] = useState(false);
   const [showColumnMappingModal, setShowColumnMappingModal] = useState(false);
   const [selectedTableForPanel, setSelectedTableForPanel] = useState<TableItem | null>(null);
   const [selectedTableColumns, setSelectedTableColumns] = useState<ColumnInfo[]>([]);
@@ -352,6 +481,18 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   const [mappingSourceTable, setMappingSourceTable] = useState<TableItem | null>(null);
   const [mappingTargetTable, setMappingTargetTable] = useState<TableItem | null>(null);
   const [pendingConnectionParams, setPendingConnectionParams] = useState<Connection | null>(null);
+
+  // FK picker modal state
+  const [fkPickerState, setFkPickerState] = useState<{
+    sourceTable: TableItem;
+    targetTable: TableItem;
+    sourceCols: ColumnInfo[];
+    targetCols: ColumnInfo[];
+    selectedSourceCol: string;
+    selectedTargetCol: string;
+    sourceId: string;
+    targetId: string;
+  } | null>(null);
 
   // Track all ETL column mappings for the summary panel (FK relationships are handled separately)
   const [columnMappingsList, setColumnMappingsList] = useState<Array<{
@@ -378,7 +519,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   useEffect(() => {
     // Reset when project changes
     if (projectId !== prevProjectIdRef.current) {
-      console.log('[ModelingCanvas] Project changed, resetting state');
+      // console.log('[ModelingCanvas] Project changed, resetting state');
       edgesCreatedForProjectRef.current = null;
       prevProjectIdRef.current = projectId;
       // Also clear current state for new project
@@ -387,24 +528,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     }
 
     if (initialMappings.length === 0) {
-      console.log('[ModelingCanvas] No initial mappings to restore');
+      // console.log('[ModelingCanvas] No initial mappings to restore');
       return;
     }
 
     // Wait for tables to be available before restoring mappings
     if (tables.length === 0) {
-      console.log('[ModelingCanvas] Waiting for tables to load before restoring mappings');
+      // console.log('[ModelingCanvas] Waiting for tables to load before restoring mappings');
       return;
     }
 
     // Check if we've already created edges for this project with these mappings
     const mappingKey = `${projectId}-${initialMappings.length}-${tables.length}`;
     if (edgesCreatedForProjectRef.current === mappingKey) {
-      console.log('[ModelingCanvas] Edges already created for this project/mappings/tables combo, skipping');
+      // console.log('[ModelingCanvas] Edges already created for this project/mappings/tables combo, skipping');
       return;
     }
 
-    console.log('[ModelingCanvas] Restoring mappings from events:', initialMappings.length, 'mappings,', tables.length, 'tables');
+    // console.log('[ModelingCanvas] Restoring mappings from events:', initialMappings.length, 'mappings,', tables.length, 'tables');
 
     // Mark as processed
     edgesCreatedForProjectRef.current = mappingKey;
@@ -419,7 +560,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     });
     const dedupedMappings = Array.from(uniqueMappings.values());
 
-    console.log('[ModelingCanvas] Deduped mappings:', dedupedMappings.length, 'from', initialMappings.length);
+    // console.log('[ModelingCanvas] Deduped mappings:', dedupedMappings.length, 'from', initialMappings.length);
 
     // Convert initial mappings to columnMappingsList format
     const restoredMappings = dedupedMappings.map(m => ({
@@ -433,11 +574,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
     setColumnMappingsList(restoredMappings);
 
     // Log available tables for debugging
-    console.log('[ModelingCanvas] Available tables:', tables.map(t => ({
-      id: t.id,
-      table: t.table,
-      schema: t.schema,
-    })));
+    // console.log('[ModelingCanvas] Available tables:', tables.map(t => ({
+      // id: t.id,
+      // table: t.table,
+      // schema: t.schema,
+    // })));
 
     // Update dynamic mappings for unmapped indicator
     const newDynamicMappings = new Map<string, Set<string>>();
@@ -470,7 +611,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       mappingsByKey.get(key)!.push(m);
     });
 
-    console.log('[ModelingCanvas] Mapping groups:', Array.from(mappingsByKey.keys()));
+    // console.log('[ModelingCanvas] Mapping groups:', Array.from(mappingsByKey.keys()));
 
     // Create an edge for each unique mapping (source table → target table.column)
     mappingsByKey.forEach((mappings, key) => {
@@ -487,22 +628,22 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       // Fallback: match by table name only if schema match fails
       if (!sourceTable) {
         sourceTable = tables.find(t => t.table === firstMapping.sourceTable);
-        console.log('[ModelingCanvas] Source table fallback match:', sourceTable?.id);
+        // console.log('[ModelingCanvas] Source table fallback match:', sourceTable?.id);
       }
       if (!targetTable) {
         targetTable = tables.find(t => t.table === firstMapping.targetTable);
-        console.log('[ModelingCanvas] Target table fallback match:', targetTable?.id);
+        // console.log('[ModelingCanvas] Target table fallback match:', targetTable?.id);
       }
 
-      console.log('[ModelingCanvas] Creating edge for:', {
-        key,
-        sourceTable: sourceTable?.id,
-        targetTable: targetTable?.id,
-        lookingFor: {
-          source: `${firstMapping.sourceSchema}.${firstMapping.sourceTable}`,
-          target: `${firstMapping.targetSchema}.${firstMapping.targetTable}`,
-        }
-      });
+      // console.log('[ModelingCanvas] Creating edge for:', {
+        // key,
+        // sourceTable: sourceTable?.id,
+        // targetTable: targetTable?.id,
+        // lookingFor: {
+          // source: `${firstMapping.sourceSchema}.${firstMapping.sourceTable}`,
+          // target: `${firstMapping.targetSchema}.${firstMapping.targetTable}`,
+        // }
+      // });
 
       if (sourceTable && targetTable) {
         // Collect all source columns that map to this target column
@@ -537,12 +678,12 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       }
     });
 
-    console.log('[ModelingCanvas] Created mapping edges:', mappingEdges.length, mappingEdges.map(e => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      label: e.label,
-    })));
+    // console.log('[ModelingCanvas] Created mapping edges:', mappingEdges.length, mappingEdges.map(e => ({
+      // id: e.id,
+      // source: e.source,
+      // target: e.target,
+      // label: e.label,
+    // })));
 
     // Add mapping edges (keeping FK edges from defaultRelationships)
     if (mappingEdges.length > 0) {
@@ -550,7 +691,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Keep FK edges, add restored mapping edges
         const fkEdges = prev.filter(e => e.data?.edgeType === 'fk');
         const newEdges = [...fkEdges, ...mappingEdges];
-        console.log('[ModelingCanvas] Setting edges:', newEdges.length, '(', fkEdges.length, 'FK +', mappingEdges.length, 'mapping)');
+        // console.log('[ModelingCanvas] Setting edges:', newEdges.length, '(', fkEdges.length, 'FK +', mappingEdges.length, 'mapping)');
         return newEdges;
       });
     } else {
@@ -566,11 +707,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
   // ENFORCES: Source tables (user-added) → Target tables (DWH/default)
   const onConnect = useCallback(
     (params: Connection) => {
-      console.log('[ModelingCanvas] onConnect called:', {
-        source: params.source,
-        target: params.target,
-        targetTableIds: Array.from(targetTableIds),
-      });
+      // console.log('[ModelingCanvas] onConnect called:', {
+        // source: params.source,
+        // target: params.target,
+        // targetTableIds: Array.from(targetTableIds),
+      // });
 
       if (!params.source || !params.target) return;
 
@@ -589,16 +730,37 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       const sourceIsTarget = targetTableIds.has(params.source);
       const targetIsTarget = targetTableIds.has(params.target);
 
-      console.log('[ModelingCanvas] Connection validation:', {
-        sourceTable: sourceTable.table,
-        targetTable: targetTable.table,
-        sourceIsTarget,
-        targetIsTarget,
-      });
+      // console.log('[ModelingCanvas] Connection validation:', {
+        // sourceTable: sourceTable.table,
+        // targetTable: targetTable.table,
+        // sourceIsTarget,
+        // targetIsTarget,
+      // });
 
-      // Validate: Source must be a source table (not DWH), Target must be a target table (DWH)
+      // DWH ↔ DWH: treat as FK relationship — open picker modal
       if (sourceIsTarget && targetIsTarget) {
-        toast.error('Cannot connect two target tables (DWH). Connect from a source table.');
+        const sourceCols = tableColumns.get(params.source) || [];
+        const targetCols = tableColumns.get(params.target) || [];
+        if (sourceCols.length === 0 || targetCols.length === 0) {
+          toast.error('Both tables must have columns to create a foreign key.');
+          return;
+        }
+        const targetPk = targetCols.find(c => c.isPrimaryKey);
+        // Auto-suggest: find matching column by naming convention
+        const suggestedSource = sourceCols.find(c =>
+          c.name.toLowerCase().includes(targetTable.table.toLowerCase().replace('dim_', '')) ||
+          (targetPk && c.name.toLowerCase() === targetPk.name.toLowerCase())
+        );
+        setFkPickerState({
+          sourceTable: sourceTable,
+          targetTable: targetTable,
+          sourceCols,
+          targetCols,
+          selectedSourceCol: suggestedSource?.name || sourceCols[0]?.name || '',
+          selectedTargetCol: targetPk?.name || targetCols[0]?.name || '',
+          sourceId: params.source,
+          targetId: params.target,
+        });
         return;
       }
 
@@ -610,7 +772,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       if (sourceIsTarget && !targetIsTarget) {
         // User connected backwards: DWH → Source, swap them
         toast('Swapped direction: Source → Target (DWH)', { icon: '🔄' });
-        console.log('[ModelingCanvas] Swapping direction - Source will be:', targetTable.table, 'Target will be:', sourceTable.table);
+        // console.log('[ModelingCanvas] Swapping direction - Source will be:', targetTable.table, 'Target will be:', sourceTable.table);
         setMappingSourceTable(targetTable);
         setMappingTargetTable(sourceTable);
         setPendingConnectionParams({
@@ -620,7 +782,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         });
       } else {
         // Correct direction: Source → DWH
-        console.log('[ModelingCanvas] Correct direction - Source:', sourceTable.table, 'Target:', targetTable.table);
+        // console.log('[ModelingCanvas] Correct direction - Source:', sourceTable.table, 'Target:', targetTable.table);
         setMappingSourceTable(sourceTable);
         setMappingTargetTable(targetTable);
         setPendingConnectionParams(params);
@@ -628,20 +790,20 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
 
       setShowColumnMappingModal(true);
     },
-    [tables, targetTableIds]
+    [tables, targetTableIds, tableColumns, projectId, setEdges]
   );
 
   // Handle column mapping from modal (ETL mapping, not FK relationship)
   const handleColumnMapping = useCallback(
-    (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
-      console.log('[ModelingCanvas] handleColumnMapping called:', {
-        sourceColumns,
-        targetColumn,
-        transformation,
-        mappingSourceTable: mappingSourceTable?.table,
-        mappingTargetTable: mappingTargetTable?.table,
-        pendingConnectionParams,
-      });
+    async (sourceColumns: string[], targetColumn: string, transformation?: string | null) => {
+      // console.log('[ModelingCanvas] handleColumnMapping called:', {
+        // sourceColumns,
+        // targetColumn,
+        // transformation,
+        // mappingSourceTable: mappingSourceTable?.table,
+        // mappingTargetTable: mappingTargetTable?.table,
+        // pendingConnectionParams,
+      // });
 
       if (!mappingSourceTable || !mappingTargetTable || !pendingConnectionParams) {
         console.error('[ModelingCanvas] handleColumnMapping - missing required data:', {
@@ -653,11 +815,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       }
 
       // Create a single COLUMN_MAPPING event with all source columns and transformation
+      // (replaces createMapping API call — mappings are now event-driven and deployed via DDL actions)
       addEventRef.current(createColumnMappingEvent(
         { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table },
-        sourceColumns, // Now supports array of columns
-        { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table },
-        targetColumn,
+        { database: mappingSourceTable.database, schema: mappingSourceTable.schema, table: mappingSourceTable.table, columns: sourceColumns },
+        { database: mappingTargetTable.database, schema: mappingTargetTable.schema, table: mappingTargetTable.table, column: targetColumn },
         true, // created
         transformation // Pass transformation
       ));
@@ -689,11 +851,11 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         ? `${sourceColumns.join(' + ')}${transformLabel} → ${targetColumn}`
         : `${sourceColumns[0]}${transformLabel} → ${targetColumn}`;
 
-      console.log('[ModelingCanvas] Creating mapping edge:', {
-        source: pendingConnectionParams.source,
-        target: pendingConnectionParams.target,
-        label: mappingLabel,
-      });
+      // console.log('[ModelingCanvas] Creating mapping edge:', {
+        // source: pendingConnectionParams.source,
+        // target: pendingConnectionParams.target,
+        // label: mappingLabel,
+      // });
 
       // Add edge with label showing column mapping (ETL style - blue/green, animated)
       // Use mappingSourceTable and mappingTargetTable IDs directly for reliable edge creation
@@ -707,7 +869,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Check if edge already exists (avoid duplicates)
         const existingEdge = eds.find(e => e.id === edgeId);
         if (existingEdge) {
-          console.log('[ModelingCanvas] Edge already exists, updating:', edgeId);
+          // console.log('[ModelingCanvas] Edge already exists, updating:', edgeId);
           // Update existing edge with new source columns
           return eds.map(e => e.id === edgeId ? {
             ...e,
@@ -740,14 +902,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         const sourceNodeExists = getNodes().some(n => n.id === sourceId);
         const targetNodeExists = getNodes().some(n => n.id === targetId);
 
-        console.log('[ModelingCanvas] Adding mapping edge:', {
-          newEdge,
-          sourceId,
-          targetId,
-          sourceNodeExists,
-          targetNodeExists,
-          existingEdgesCount: eds.length,
-        });
+        // console.log('[ModelingCanvas] Adding mapping edge:', {
+          // newEdge,
+          // sourceId,
+          // targetId,
+          // sourceNodeExists,
+          // targetNodeExists,
+          // existingEdgesCount: eds.length,
+        // });
 
         if (!sourceNodeExists || !targetNodeExists) {
           console.error('[ModelingCanvas] ERROR: Source or target node not found!', {
@@ -781,7 +943,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       setMappingTargetTable(null);
       setPendingConnectionParams(null);
     },
-    [mappingSourceTable, mappingTargetTable, pendingConnectionParams, setEdges, onRelationCreate]
+    [mappingSourceTable, mappingTargetTable, pendingConnectionParams, setEdges, onRelationCreate, projectId]
   );
 
   // Helper to open policy panel for a table
@@ -823,7 +985,39 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         // Open table options sidebar
         openTableOptions(table);
         break;
+      case 'rename':
+        {
+          const newName = prompt('Enter new table name:', table.table);
+          if (newName && newName !== table.table) {
+            addEvent({
+              type: 'TABLE_RENAMED',
+              target: { database: table.database, schema: table.schema, table: table.table },
+              payload: { newName },
+            });
+            toast.success(`Rename "${table.table}" → "${newName}" added to pending changes`);
+          }
+        }
+        break;
+      case 'add_new_column':
+        setSelectedTableForPanel(table);
+        setSelectedTableColumns(columns);
+        setNewColumnName('');
+        setNewColumnType('VARCHAR');
+        setNewColumnNullable(true);
+        setNewColumnIsPK(false);
+        setShowAddSimpleColumnModal(true);
+        break;
       case 'add_column':
+        // Simple column add — reuse the add_new_column flow
+        setSelectedTableForPanel(table);
+        setSelectedTableColumns(columns);
+        setNewColumnName('');
+        setNewColumnType('VARCHAR');
+        setNewColumnNullable(true);
+        setNewColumnIsPK(false);
+        setShowAddSimpleColumnModal(true);
+        break;
+      case 'add_computed_column':
         openAddColumnModal(table);
         break;
       case 'policies':
@@ -892,8 +1086,24 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           setNodes((nds) => [...nds, newNode]);
         }
         break;
+      case 'dynamic_table':
+        if (onDynamicTableCreate) onDynamicTableCreate(table);
+        break;
+      case 'event_table':
+        if (onEventTableCreate) onEventTableCreate(table);
+        break;
+      case 'hybrid_table':
+        if (onHybridTableCreate) onHybridTableCreate(table);
+        break;
+      case 'stream':
+        if (onStreamCreate) onStreamCreate(table);
+        break;
+      case 'alert':
+        if (onAlertCreate) onAlertCreate(table);
+        break;
     }
-  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent]);
+  }, [tables, nodes, setNodes, openPolicyPanel, openAddColumnModal, openTableOptions, tableColumns, addEvent,
+      onDynamicTableCreate, onEventTableCreate, onHybridTableCreate, onStreamCreate, onAlertCreate]);
 
   // Update ref for context action handler
   handleNodeContextActionRef.current = handleNodeContextAction;
@@ -950,16 +1160,18 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={isLocked ? undefined : onNodesChange}
-        onEdgesChange={isLocked ? undefined : onEdgesChange}
-        onConnect={onConnect}
+        onNodesChange={(isLocked || isReadOnly) ? undefined : onNodesChange}
+        onEdgesChange={(isLocked || isReadOnly) ? undefined : onEdgesChange}
+        onConnect={isReadOnly ? undefined : onConnect}
         onNodeClick={onNodeClick}
         nodeTypes={nodeTypes}
         connectionMode={ConnectionMode.Loose}
+        onlyRenderVisibleElements
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.1}
         maxZoom={2}
+        nodeExtent={[[-5000, -5000], [10000, 10000]]}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: true,
@@ -1094,6 +1306,45 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
                 <Download className="h-4 w-4" />
               </Button>
             </Tooltip>
+            {onToggleFullscreen && (
+              <>
+                <div className="w-px h-6 bg-slate-200 dark:bg-slate-600 mx-1" />
+                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                  <Button
+                    variant="text"
+                    size="sm"
+                    onClick={onToggleFullscreen}
+                    className={cn("p-2", isFullscreen && "text-blue-500 bg-blue-50 dark:bg-blue-900/30")}
+                  >
+                    {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+                  </Button>
+                </Tooltip>
+              </>
+            )}
+            {!isFullscreen && onToggleSidebar && (
+              <Tooltip content={showSidebar ? "Hide Tables" : "Show Tables"}>
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={onToggleSidebar}
+                  className={cn("p-2", !showSidebar && "text-blue-500")}
+                >
+                  <PanelLeft className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+            )}
+            {!isFullscreen && onToggleEventPanel && (
+              <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
+                <Button
+                  variant="text"
+                  size="sm"
+                  onClick={onToggleEventPanel}
+                  className={cn("p-2", !showEventPanel && "text-blue-500")}
+                >
+                  <PanelRight className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+            )}
           </div>
         </Panel>
 
@@ -1168,6 +1419,14 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
               setShowPolicyPanel(false);
               setSelectedTableForPanel(null);
             }}
+            isTemplateTable={events.some(
+              e => e.type === 'TABLE_CREATED' &&
+                   e.payload?.isTemplate &&
+                   e.target.table === selectedTableForPanel.table &&
+                   e.target.schema === selectedTableForPanel.schema &&
+                   e.target.database === selectedTableForPanel.database
+            )}
+            projectId={projectId}
           />
         </div>
       )}
@@ -1182,12 +1441,123 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           }}
           table={selectedTableForPanel}
           columns={selectedTableColumns}
+          projectId={projectId}
           onColumnAdd={(column: ComputedColumn) => {
-            // Column will be added via event store during deployment
-            toast.success(`Computed column "${column.name}" queued for deployment`);
+            // Update columns map locally so the table node shows the new column
+            if (onColumnsMapUpdate && selectedTableForPanel) {
+              const tableId = `${selectedTableForPanel.database}.${selectedTableForPanel.schema}.${selectedTableForPanel.table}`;
+              onColumnsMapUpdate((prev) => {
+                const existing = prev.get(tableId) || [];
+                const newCol: ColumnInfo = {
+                  name: column.name,
+                  dataType: column.dataType,
+                  isNullable: true,
+                  isPrimaryKey: false,
+                };
+                const updated = new Map(prev);
+                updated.set(tableId, [...existing, newCol]);
+                return updated;
+              });
+            }
           }}
         />
       )}
+
+      {/* Add Simple Column Modal */}
+      <Modal isOpen={showAddSimpleColumnModal} onClose={() => setShowAddSimpleColumnModal(false)}>
+        <div className="p-6">
+          <h3 className="text-lg font-semibold mb-4">
+            Add Column to {selectedTableForPanel?.table}
+          </h3>
+          <div className="space-y-4">
+            <Input
+              label="Column Name"
+              placeholder="e.g. ORDER_ID"
+              value={newColumnName}
+              onChange={(e) => setNewColumnName(e.target.value.toUpperCase())}
+            />
+            <Select
+              label="Data Type"
+              value={{ label: newColumnType, value: newColumnType }}
+              options={[
+                'VARCHAR', 'NUMBER', 'INTEGER', 'FLOAT', 'BOOLEAN',
+                'DATE', 'TIMESTAMP', 'TIMESTAMP_NTZ', 'VARIANT', 'ARRAY', 'OBJECT',
+              ].map(t => ({ label: t, value: t }))}
+              onChange={(opt: any) => setNewColumnType(opt?.value || 'VARCHAR')}
+            />
+            <div className="flex items-center gap-4">
+              <Checkbox
+                label="Nullable"
+                checked={newColumnNullable}
+                onChange={() => setNewColumnNullable(!newColumnNullable)}
+              />
+              <Checkbox
+                label="Primary Key"
+                checked={newColumnIsPK}
+                onChange={() => setNewColumnIsPK(!newColumnIsPK)}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-6">
+            <Button variant="outline" onClick={() => setShowAddSimpleColumnModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!newColumnName.trim()}
+              onClick={() => {
+                if (!selectedTableForPanel || !newColumnName.trim()) return;
+                const table = selectedTableForPanel;
+                const tableId = `${table.database}.${table.schema}.${table.table}`;
+
+                // Add event with projectId
+                addEvent({
+                  type: 'ADD_COLUMN',
+                  projectId: projectId || undefined,
+                  target: { database: table.database, schema: table.schema, table: table.table },
+                  payload: {
+                    columnName: newColumnName.trim(),
+                    columnType: newColumnType,
+                    dataType: newColumnType,
+                    nullable: newColumnNullable,
+                    isPrimaryKey: newColumnIsPK,
+                  },
+                });
+
+                // Update columns map locally so the table node shows the new column
+                if (onColumnsMapUpdate) {
+                  onColumnsMapUpdate((prev) => {
+                    const existing = prev.get(tableId) || [];
+                    const newCol: ColumnInfo = {
+                      name: newColumnName.trim(),
+                      dataType: newColumnType,
+                      isNullable: newColumnNullable,
+                      isPrimaryKey: newColumnIsPK,
+                    };
+                    const updated = new Map(prev);
+                    updated.set(tableId, [...existing, newCol]);
+                    return updated;
+                  });
+                }
+
+                toast.success(`Column "${newColumnName.trim()}" added to ${table.table}`);
+                setShowAddSimpleColumnModal(false);
+
+                // If PK was set, also add a PK event
+                if (newColumnIsPK) {
+                  addEvent({
+                    type: 'PRIMARY_KEY_SET',
+                    projectId: projectId || undefined,
+                    target: { database: table.database, schema: table.schema, table: table.table },
+                    payload: { columns: [newColumnName.trim()] },
+                  });
+                }
+              }}
+            >
+              Add Column
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Column Mapping Modal */}
       <ColumnMappingModal
@@ -1286,17 +1656,117 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
           />
         </div>
       )}
+
+      {/* FK Column Picker Modal */}
+      {fkPickerState && (
+        <Modal isOpen onClose={() => setFkPickerState(null)} customSize="440px">
+          <div className="p-5">
+            <h3 className="text-lg font-semibold mb-1 flex items-center gap-2">
+              <GitBranch className="h-5 w-5 text-amber-500" />
+              Create Foreign Key
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              {fkPickerState.sourceTable.table} → {fkPickerState.targetTable.table}
+            </p>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 block">
+                  Source Column ({fkPickerState.sourceTable.table})
+                </label>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700"
+                  value={fkPickerState.selectedSourceCol}
+                  onChange={(e) => setFkPickerState(prev => prev ? { ...prev, selectedSourceCol: e.target.value } : null)}
+                >
+                  {fkPickerState.sourceCols.map(c => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-center">
+                <ArrowLeftRight className="h-4 w-4 text-slate-400" />
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1 block">
+                  Referenced Column ({fkPickerState.targetTable.table})
+                </label>
+                <select
+                  className="w-full border rounded-lg px-3 py-2 text-sm dark:bg-slate-800 dark:border-slate-700"
+                  value={fkPickerState.selectedTargetCol}
+                  onChange={(e) => setFkPickerState(prev => prev ? { ...prev, selectedTargetCol: e.target.value } : null)}
+                >
+                  {fkPickerState.targetCols.map(c => (
+                    <option key={c.name} value={c.name}>
+                      {c.name} ({c.dataType}){c.isPrimaryKey ? ' 🔑' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 mt-5">
+              <Button variant="outline" size="sm" onClick={() => setFkPickerState(null)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="bg-amber-500 hover:bg-amber-600 text-white"
+                onClick={() => {
+                  const st = fkPickerState;
+                  const constraintName = `FK_${st.sourceTable.table}_${st.selectedSourceCol}`;
+                  addEventRef.current({
+                    type: 'FOREIGN_KEY_ADDED',
+                    projectId: projectId || undefined,
+                    target: { database: st.sourceTable.database, schema: st.sourceTable.schema, table: st.sourceTable.table },
+                    payload: {
+                      constraintName,
+                      columns: [st.selectedSourceCol],
+                      referencedTable: { database: st.targetTable.database, schema: st.targetTable.schema, table: st.targetTable.table },
+                      referencedColumns: [st.selectedTargetCol],
+                    },
+                  });
+                  setEdges(prev => [
+                    ...prev,
+                    {
+                      id: `fk-${st.sourceId}-${st.targetId}-${st.selectedSourceCol}`,
+                      source: st.sourceId,
+                      target: st.targetId,
+                      type: 'smoothstep',
+                      animated: true,
+                      style: { stroke: '#f59e0b' },
+                      label: `${st.selectedSourceCol} → ${st.selectedTargetCol}`,
+                      labelStyle: { fontSize: 10, fill: '#64748b' },
+                      markerEnd: { type: MarkerType.ArrowClosed, color: '#f59e0b' },
+                    },
+                  ]);
+                  toast.success(`FK: ${st.sourceTable.table}.${st.selectedSourceCol} → ${st.targetTable.table}.${st.selectedTargetCol}`);
+                  setFkPickerState(null);
+                }}
+              >
+                Create FK
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 };
 
 // Main component with provider
-const ModelingCanvas: React.FC<ModelingCanvasProps> = (props) => {
+const ModelingCanvas: React.FC<ModelingCanvasProps> = React.memo((props) => {
   return (
     <ReactFlowProvider>
       <ModelingCanvasInner {...props} />
     </ReactFlowProvider>
   );
-};
+});
+
+ModelingCanvas.displayName = 'ModelingCanvas';
 
 export default ModelingCanvas;

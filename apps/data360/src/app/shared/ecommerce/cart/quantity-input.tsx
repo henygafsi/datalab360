@@ -21,7 +21,7 @@ export default function QuantityInput({ product }: { product: CartItem }) {
       </ActionIcon>
       <input
         type="number"
-        className="h-full w-12 border-none text-center outline-none focus:ring-0 sm:w-20 dark:bg-gray-50"
+        className="h-full w-12 border-none text-center outline-none focus:ring-0 sm:w-20 dark:bg-gray-800"
         value={product.quantity}
         readOnly
       />

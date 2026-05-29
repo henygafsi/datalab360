@@ -21,6 +21,7 @@ export interface AuthHeaders {
   'Content-Type': string;
   'X-Account-Name': string;
   'X-Username': string;
+  [key: string]: string;
 }
 
 /**

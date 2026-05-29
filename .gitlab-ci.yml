@@ -1,15 +1,316 @@
-stages:
-  - deploy
+# =============================================================================
+# Data360 Front — GitLab CI (shell-executor compatible)
+#
+# Runner: frontend-shell (shell executor). `image:` is IGNORED by shell
+# executors — they run on the host as a normal bash process. So:
+#   - No apk / no apt / no docker image pulls
+#   - Trust the host to have node + npm + git already installed
+#   - pnpm gets installed locally per pipeline via `npm install --prefix`
+#
+# Fast path on every push: build → (deploy on main).
+# lint + typecheck run parallel with build, non-blocking.
+# Heavy stuff (extras stage) runs only on schedule | main | RUN_EXTRAS=1.
+#
+# Required CI/CD variables (Settings → CI/CD → Variables):
+#   - VERCEL_TOKEN        : masked + protected (from vercel.com/account/tokens)
+# Vercel project env vars (vercel.com → Project → Settings → Env Variables):
+#   - NEXTAUTH_SECRET     : 32+ char random
+#   - NEXT_PUBLIC_API_URL : https://api.datalab360.io
+#   - SKIP_ENV_VALIDATION : true (escape hatch)
+# =============================================================================
 
-vercel-deploy:
-  image: node:18
-  stage: deploy
-  tags:
-    - RUN-FRONT
-  only:
-    - dev  # or "main", or adjust as needed
+stages:
+  - build
+  - deploy
+  - extras
+
+variables:
+  # New Vercel project under data360 team (henygafsi@gmail.com account).
+  # Previous (decommissioned): team_kC7CPyVYhZTxlOrqAlaKbKfi / prj_P5hsPsdZ24jZUqJzaULd0hFYkKkL.
+  VERCEL_ORG_ID: "team_870F5F869lfDNHP6WhOk065P"
+  VERCEL_PROJECT_ID: "prj_yrcCWe5lKXX7o3IxIui7Q5h3saci"
+  SKIP_ENV_VALIDATION: "true"
+  NEXTAUTH_URL: "http://localhost:3000"
+  NEXTAUTH_SECRET: "ci-only-not-used-at-runtime-32chars-minimum-padding"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CI: "true"
+  PNPM_VERSION: "9.1.4"
+  # pnpm + vercel installed locally per pipeline. PNPM_BIN_DIR is reused
+  # across jobs via cache so cold-start cost is paid once.
+  PNPM_BIN_DIR: "$CI_PROJECT_DIR/.pnpm-bin"
+
+default:
+  interruptible: true
+  retry:
+    max: 1
+    when: [runner_system_failure, scheduler_failure, stuck_or_timeout_failure]
+
+# Shared install + cache.
+.with-pnpm:
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+      prefix: pnpm-v3
+    paths:
+      - .pnpm-store/
+      - .pnpm-bin/
+      - node_modules/
+      - apps/data360/node_modules/
+      - apps/data360/.next/cache/
+      - packages/config-tailwind/node_modules/
+      - packages/config-typescript/node_modules/
+      - packages/data360-core/node_modules/
   before_script:
-    - npm install -g vercel
+    - 'echo "Node: $(node --version), npm: $(npm --version)"'
+    # Install pnpm into a local prefix (works on any host with node+npm).
+    - |
+      if ! "$PNPM_BIN_DIR/node_modules/.bin/pnpm" --version > /dev/null 2>&1; then
+        echo "Installing pnpm@${PNPM_VERSION} into $PNPM_BIN_DIR"
+        npm install --prefix "$PNPM_BIN_DIR" --silent --no-save pnpm@${PNPM_VERSION}
+      fi
+    - export PATH="$PNPM_BIN_DIR/node_modules/.bin:$PATH"
+    - pnpm --version
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile --prefer-offline --reporter=append-only
+    - mkdir -p reports
+
+# ============================================================================
+# BUILD STAGE — build (gate) + lint + typecheck in parallel
+# ============================================================================
+
+# Path filter — build/lint/typecheck skip when only CI/docs/markdown changed.
+# Deploy uses its own rule (main branch + this same path filter inverted so
+# CI-only commits to main still deploy via main-branch rule).
+.code-changes:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+    - if: '$CI_MERGE_REQUEST_IID'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH != "main"'
+      changes:
+        - apps/**/*
+        - packages/**/*
+        - pnpm-lock.yaml
+        - package.json
+        - turbo.json
+
+build:
+  stage: build
+  extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
+  timeout: 15 minutes
   script:
-    - vercel build --token=$VERCEL_TOKEN
-    - vercel deploy --prebuilt --prod --token=$VERCEL_TOKEN --org=$VERCEL_ORG_ID --project=$VERCEL_PROJECT_ID
+    - pnpm --filter iso build 2>&1 | tee reports/build.txt
+  artifacts:
+    when: always
+    paths: [reports/build.txt]
+    expire_in: 3 days
+
+lint:
+  stage: build
+  extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
+  timeout: 8 minutes
+  script:
+    - set +e
+    - pnpm lint 2>&1 | tee reports/eslint.txt
+    - LINT_EXIT=${PIPESTATUS[0]}
+    - 'echo "Lint exit=$LINT_EXIT"'
+    - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LINT_EXIT" != "0" ]; then exit $LINT_EXIT; fi
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/eslint.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+typecheck:
+  stage: build
+  extends: .with-pnpm
+  rules: !reference [.code-changes, rules]
+  timeout: 8 minutes
+  script:
+    - set +e
+    - cd apps/data360
+    - npx tsc --noEmit --pretty false --ignoreDeprecations 5.0 2>&1 | tee ../../reports/tsc.txt
+    - TSC_EXIT=${PIPESTATUS[0]}
+    - ERR=$(grep -cE 'error TS[0-9]+' ../../reports/tsc.txt || echo 0)
+    - 'echo "TypeScript errors=$ERR"'
+    - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$TSC_EXIT" != "0" ]; then exit $TSC_EXIT; fi
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/tsc.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+# ============================================================================
+# DEPLOY — main branch only, single-shot vercel deploy (Vercel builds server-
+# side using its own env vars). Build gates deploy via `needs`.
+# ============================================================================
+
+deploy:
+  stage: deploy
+  timeout: 15 minutes
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
+  # `build` is `optional: true` so deploy still runs on CI-only commits where
+  # build was skipped via the `.code-changes` path filter. When build IS
+  # present, deploy waits for it (stage ordering does this too).
+  needs:
+    - job: build
+      optional: true
+  dependencies: []
+  script:
+    - set -x
+    - |
+      if [ -z "$VERCEL_TOKEN" ]; then
+        echo "FAIL: VERCEL_TOKEN missing in CI/CD variables (Settings → CI/CD → Variables, masked + protected)"
+        echo "Generate at: https://vercel.com/account/tokens"
+        exit 1
+      fi
+    - 'echo "Node: $(node --version), npm: $(npm --version)"'
+    - VERCEL_BIN_DIR="$CI_PROJECT_DIR/.vercel-bin"
+    # vercel CLI: platform endpoint requires >=47.2.2; pin to a known-good
+    # current version rather than `@latest` to avoid surprise breakage.
+    - npm install --prefix "$VERCEL_BIN_DIR" --silent --no-save vercel@47.2.2
+    - export PATH="$VERCEL_BIN_DIR/node_modules/.bin:$PATH"
+    - vercel --version
+    # .vercel/ is gitignored; synthesise project.json at workspace root with
+    # rootDirectory=apps/data360 so the linked Vercel project resolves Next.
+    - mkdir -p .vercel
+    - |
+      cat > .vercel/project.json <<EOF
+      {
+        "projectId": "$VERCEL_PROJECT_ID",
+        "orgId": "$VERCEL_ORG_ID",
+        "settings": {
+          "framework": "nextjs",
+          "rootDirectory": "apps/data360"
+        }
+      }
+      EOF
+    - echo "--- .vercel/project.json ---" && cat .vercel/project.json && echo "---"
+    # Single-shot deploy: Vercel uploads source, builds server-side using
+    # ENV VARS ON THE VERCEL PROJECT (not GitLab). This avoids env inheritance
+    # issues across pull → build → deploy phases.
+    - vercel deploy --prod --token="$VERCEL_TOKEN" --yes 2>&1 | tee deploy.log
+    - DEPLOY_URL=$(grep -E '^https?://' deploy.log | tail -n 1)
+    - 'echo "Deployed -> $DEPLOY_URL"'
+    - echo "$DEPLOY_URL" > vercel-deploy-url.txt
+  artifacts:
+    when: always
+    paths: [vercel-deploy-url.txt, deploy.log]
+    expire_in: 30 days
+
+# ============================================================================
+# EXTRAS — opt-in heavy lane (schedule | main | RUN_EXTRAS=1)
+# ============================================================================
+
+.extras-rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$RUN_EXTRAS == "1"'
+
+extras:format-check:
+  stage: extras
+  extends: .with-pnpm
+  rules: !reference [.extras-rules, rules]
+  timeout: 8 minutes
+  script:
+    - set +e
+    - cd apps/data360
+    - npx prettier --check 'src/**/*.{ts,tsx,js,jsx,json,md}' 2>&1 | tee ../../reports/prettier.txt
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/prettier.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+extras:dep-audit:
+  stage: extras
+  extends: .with-pnpm
+  rules: !reference [.extras-rules, rules]
+  timeout: 8 minutes
+  script:
+    - set +e
+    - pnpm audit --prod 2>&1 | tee reports/pnpm-audit.txt || true
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/pnpm-audit.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+extras:secret-scan:
+  stage: extras
+  rules: !reference [.extras-rules, rules]
+  timeout: 5 minutes
+  needs: []
+  before_script:
+    - mkdir -p reports
+  script:
+    - set +e
+    - find apps packages -type d \( -name node_modules -o -name .next -o -name .pnpm-store -o -name .pnpm-bin -o -name .turbo -o -name dist -o -name build \) -prune -o -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.json' \) -print > /tmp/scan-files.txt 2>/dev/null || true
+    - xargs -a /tmp/scan-files.txt grep -EHn '(SECRET|PASSWORD|TOKEN|API_KEY|PRIVATE_KEY)[[:space:]]*=[[:space:]]*["\x27][^"\x27]{8,}' 2>/dev/null | tee reports/secrets.txt || true
+    - xargs -a /tmp/scan-files.txt grep -EHn 'eyJhbGciOi[A-Za-z0-9_-]{20,}' 2>/dev/null | tee -a reports/secrets.txt || true
+    - xargs -a /tmp/scan-files.txt grep -EHn 'http://api\.datalab360\.io' 2>/dev/null | tee -a reports/secrets.txt || true
+    - LEAKS=$(grep -c . reports/secrets.txt 2>/dev/null || echo 0)
+    - 'echo "Potential leaks=$LEAKS"'
+    - if [ "$ENFORCE_QUALITY" = "1" ] && [ "$LEAKS" -gt 0 ]; then exit 1; fi
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/secrets.txt]
+    expire_in: 1 month
+  allow_failure: true
+
+extras:dead-route-scan:
+  stage: extras
+  extends: .with-pnpm
+  rules: !reference [.extras-rules, rules]
+  timeout: 5 minutes
+  script:
+    - set +e
+    - node scripts/ci/scan-dead-routes.mjs > reports/dead-routes.txt 2>&1 || true
+    - cat reports/dead-routes.txt
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/dead-routes.txt]
+    expire_in: 1 week
+  allow_failure: true
+
+extras:bundle-size:
+  stage: extras
+  extends: .with-pnpm
+  rules: !reference [.extras-rules, rules]
+  timeout: 8 minutes
+  needs:
+    - job: build
+      artifacts: false
+  script:
+    - set +e
+    - pnpm --filter iso build > /dev/null 2>&1
+    - node scripts/ci/bundle-report.mjs apps/data360/.next > reports/bundle.txt 2>&1 || true
+    - cat reports/bundle.txt
+    - exit 0
+  artifacts:
+    when: always
+    paths: [reports/bundle.txt]
+    expire_in: 1 week
+  allow_failure: true

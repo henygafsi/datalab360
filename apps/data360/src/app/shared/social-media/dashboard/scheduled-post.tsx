@@ -51,7 +51,7 @@ export default function ScheduledPost({ className }: { className?: string }) {
           </Tab.Panel>
         </Tab.Panels>
       </Tab>
-      <div className="absolute inset-x-0 bottom-3 z-10 h-20 bg-gradient-to-t from-white to-transparent dark:from-gray-50" />
+      <div className="absolute inset-x-0 bottom-3 z-10 h-20 bg-gradient-to-t from-white to-transparent dark:from-gray-800" />
     </WidgetCard>
   );
 }

@@ -10,11 +10,25 @@ import VersionHistory from './components/VersionHistory';
 import ExecutionHistory from './components/ExecutionHistory';
 import DeploymentScheduler from './components/DeploymentScheduler';
 import DeploymentHistory from './components/DeploymentHistory';
-import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight } from 'lucide-react';
-import ETLPipelineBuilder from './ETLPipelineBuilder';
+import { History, PlayCircle, Rocket, ChevronLeft, ChevronRight, X, FileCheck, ToggleLeft, ToggleRight, AlertTriangle, BarChart3, Activity, ArrowRight, Sparkles, Download } from 'lucide-react';
+import { motion } from 'framer-motion';
+import GuidedAiWorkflowWizard from './components/GuidedAiWorkflowWizard';
+import ImportTasksModal from './components/ImportTasksModal';
+import Breadcrumb from '@/components/ui/Breadcrumb';
+import { Button } from 'rizzui';
+import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
+const ETLPipelineBuilder = dynamic(() => import('./ETLPipelineBuilder'), { ssr: false });
 import { ProjectContextPanel } from '@/app/shared/project-context';
+import * as workflowApi from '@/app/services/api/workflowApi';
+import { listProjects, updateProject } from '@/app/services/api/projectsApi';
+import { getApiErrorMessage } from '@/lib/api-client';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface BackendWorkflow {
+  workflow_id?: string;
   workflow_name: string;
   steps: BackendStep[];
   schedule_interval_str?: string;
@@ -45,115 +59,118 @@ interface ReactFlowEdge {
 let globalNodeIdCounter = 0;
 
 const WorkflowHomePage: React.FC = () => {
-  const [workflows, setWorkflows] = useState<BackendWorkflow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const sourceModule = searchParams?.get('source');
+  const sourceProjectId = searchParams?.get('project_id');
+
   const [activeWorkflowName, setActiveWorkflowName] = useState<string>('');
   const [activeNodes, setActiveNodes] = useState<ReactFlowNode[]>([]);
   const [activeEdges, setActiveEdges] = useState<ReactFlowEdge[]>([]);
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
-  const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
-  // Explicit in-flight states so long ops (save / execute) surface progress instead of being fire-and-forget.
-  const [isSaving, setIsSaving] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executeStartedAt, setExecuteStartedAt] = useState<number | null>(null);
-  const [executeElapsed, setExecuteElapsed] = useState(0);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
-  const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
+  const initialLoadDoneRef = useRef(false);
 
   // Right panel state for Version History, Execution History, Deployment History, and Deploy
   const [rightPanelTab, setRightPanelTab] = useState<'versions' | 'runs' | 'deployments' | null>(null);
+  // Modals (PDF page 8 #1 + #2)
+  const [showAiGenerate, setShowAiGenerate] = useState(false);
+  const [showImportTasks, setShowImportTasks] = useState(false);
   const [showDeployModal, setShowDeployModal] = useState(false);
+  const [showNavigationButtons, setShowNavigationButtons] = useState(false);
 
-  // Get workflow ID for the active workflow (using name as ID for now until backend provides IDs)
-  const activeWorkflowId = useMemo(() => {
-    const workflow = workflows.find(w => w.workflow_name === activeWorkflowName);
-    return workflow ? activeWorkflowName : null; // Using name as ID since backend doesn't expose ID
-  }, [workflows, activeWorkflowName]);
-
-  const cronScheduleOptions = useMemo(() => ([
-    { value: 'hourly', label: 'Every hour' },
-    { value: 'daily', label: 'Every day at 8 AM' },
-    { value: 'weekly', label: 'Every Monday at 8 AM' },
-    { value: 'monthly', label: 'Every first day of the month at 8 AM' },
-  ]), []);
+  // Resolve access token on mount
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchSessionAndWorkflows = async () => {
-      const session = await getSession();
-      if (session?.user?.access_token) {
-        const token = session.user.access_token as string;
+    const resolveToken = async () => {
+      let token = localStorage.getItem('access_token') || localStorage.getItem('snowflake_token') || '';
+      if (!token) {
+        try {
+          const res = await fetch('/api/auth/session');
+          const session = (await res.json()) as { user?: { access_token?: string } };
+          token = session?.user?.access_token || '';
+          if (token) {
+            localStorage.setItem('access_token', token);
+            localStorage.setItem('snowflake_token', token);
+          }
+        } catch { /* session fetch failed */ }
+      }
+      if (!token) {
+        try {
+          const session = await getSession();
+          token = (session?.user as any)?.access_token || '';
+        } catch { /* getSession may fail without SessionProvider */ }
+      }
+      if (token) {
         setAccessToken(token);
-        await fetchWorkflowsRef.current?.(token);
       } else {
-        setError("No access token found. Please log in.");
-        setLoading(false);
+        setTokenError("No access token found. Please log in.");
       }
     };
-    fetchSessionAndWorkflows();
+    resolveToken();
   }, []);
 
-  const fetchWorkflows = useCallback(async (token: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      // TODO(backend): FETCH /workflow/get_workflows/ — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Failed to fetch workflows: ${response.status} - ${errorText}`);
-      }
-      const data = await response.json() as any;
-      if (Array.isArray(data.workflows)) {
-        setWorkflows(data.workflows);
-        if (data.workflows.length > 0 && !activeWorkflowName) {
-          // Load first workflow directly without calling loadWorkflow to avoid circular dependency
-          const firstWorkflow = data.workflows[0];
-          setActiveWorkflowName(firstWorkflow.workflow_name);
-          const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
-          setActiveNodes(nodes);
-          setActiveEdges(edges);
-          setActiveSchedule(firstWorkflow.schedule_interval_str || '');
-          setIsWorkflowSaved(true);
-          toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
+  // Fetch all workflow projects + their steps
+  const fetchWorkflowsFn = useCallback(async (): Promise<BackendWorkflow[]> => {
+    const projectsData = await listProjects({ project_type: 'workflow', mine_only: false });
+    const projectList = Array.isArray(projectsData?.projects) ? projectsData.projects : [];
+
+    return Promise.all(
+      projectList.map(async (proj) => {
+        try {
+          const stepsData = await workflowApi.listSteps(proj.project_id);
+          const steps: BackendStep[] = (stepsData.steps || []).map((s) => ({
+            step_order: s.step_order,
+            action_type: s.action_type,
+            payload: s.payload as { [key: string]: any },
+          }));
+          return {
+            workflow_id: proj.project_id,
+            workflow_name: proj.project_name,
+            steps,
+            schedule_interval_str: undefined,
+          };
+        } catch {
+          return {
+            workflow_id: proj.project_id,
+            workflow_name: proj.project_name,
+            steps: [],
+          };
         }
-      } else {
-        setWorkflows([]);
-      }
-    } catch (err: any) {
-      // Detect CORS errors
-      const isCorsError =
-        err.message?.includes('CORS') ||
-        err.message?.includes('NetworkError') ||
-        err.message?.includes('Failed to fetch') ||
-        err.name === 'TypeError';
+      })
+    );
+  }, []);
 
-      if (isCorsError) {
-        toast.error('Unable to connect to the server. Please check your network connection.');
-        setError('Unable to connect to the server. Please check your network connection or contact your administrator.');
-      } else if (err.message?.includes('401')) {
-        toast.error('Your session has expired. Please log in again.');
-        setError('Your session has expired. Please log in again.');
-      } else {
-        toast.error(`Error: ${err.message || "Failed to load workflows"}`);
-        setError(err.message || "An unknown error occurred while fetching workflows.");
-      }
+  const { data: workflowsRaw, loading, error: fetchError, refetch: fetchWorkflows } = useCacheAwareQuery(
+    fetchWorkflowsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!accessToken, initialData: [] as BackendWorkflow[] }
+  );
+  const workflows = workflowsRaw ?? [];
 
-      setWorkflows([]);
-    } finally {
-      setLoading(false);
+  const error = tokenError || (fetchError ? (getApiErrorMessage(fetchError) || 'An unknown error occurred while fetching workflows.') : null);
+
+  // Auto-select the first workflow on initial data load
+  useEffect(() => {
+    if (!initialLoadDoneRef.current && (workflows ?? []).length > 0 && !activeWorkflowName) {
+      initialLoadDoneRef.current = true;
+      const firstWorkflow = (workflows ?? [])[0];
+      setActiveWorkflowName(firstWorkflow.workflow_name);
+      const { nodes, edges } = convertBackendToReactFlow(firstWorkflow.steps);
+      setActiveNodes(nodes);
+      setActiveEdges(edges);
+      setActiveSchedule(firstWorkflow.schedule_interval_str || '');
+      setIsWorkflowSaved(true);
+      toast.success(`Loaded workflow: ${firstWorkflow.workflow_name}`);
     }
-  }, [activeWorkflowName]);
+  }, [workflows, activeWorkflowName]);
 
-  // Store the function in ref to avoid circular dependency
-  fetchWorkflowsRef.current = fetchWorkflows;
+  // Get workflow ID for the active workflow
+  const activeWorkflowId = useMemo(() => {
+    const workflow = (workflows ?? []).find(w => w.workflow_name === activeWorkflowName);
+    return workflow?.workflow_id || (workflow ? activeWorkflowName : null);
+  }, [workflows, activeWorkflowName]);
 
   // Elapsed-time ticker while a workflow execution is in flight (RUNNING on Snowflake).
   useEffect(() => {
@@ -272,37 +289,25 @@ const WorkflowHomePage: React.FC = () => {
   }, []);
 
   const handleUpdateWorkflowName = useCallback(async (oldName: string, newName: string) => {
-    if (!accessToken) {
-      toast.error("Authentication token missing.");
-      return;
-    }
-    if (oldName === newName) {
+    if (oldName === newName) return;
+    const workflow = workflows.find(w => w.workflow_name === oldName);
+    const wfId = workflow?.workflow_id;
+    if (!wfId) {
+      toast.error('Workflow ID not found.');
       return;
     }
     try {
-      // TODO(backend): FETCH /workflow/rename_workflow/ — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/rename_workflow/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ old_workflow_name: oldName, new_workflow_name: newName }),
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Failed to rename workflow: ${JSON.stringify(errorData)}`);
-      }
+      await updateProject(wfId, { project_name: newName });
       toast.success(`Workflow '${oldName}' renamed to '${newName}' successfully!`);
-      await fetchWorkflows(accessToken);
+      await fetchWorkflows();
       if (activeWorkflowName === oldName) {
         setActiveWorkflowName(newName);
       }
     } catch (error: any) {
       console.error("Error renaming workflow:", error);
-      toast.error(`Error renaming workflow: ${error.message}`);
+      toast.error(`Error renaming workflow: ${getApiErrorMessage(error)}`);
     }
-  }, [accessToken, fetchWorkflows, activeWorkflowName]);
+  }, [workflows, fetchWorkflows, activeWorkflowName]);
 
   const onSetIdCounterFromBuilder = useCallback((count: number) => {
     globalNodeIdCounter = count;
@@ -322,10 +327,6 @@ const WorkflowHomePage: React.FC = () => {
   const saveWorkflow = async () => {
     if (!activeWorkflowName) {
       toast.error("Please enter a workflow name before saving.");
-      return;
-    }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
       return;
     }
     const orderedSteps: any[] = [];
@@ -421,22 +422,44 @@ const WorkflowHomePage: React.FC = () => {
       }
     };
 
+    // Build a map from nodeId → a temp alias for CTE inputs referencing
+    // After steps are created by the backend, real step_ids will be assigned.
+    // We use nodeId as a placeholder so the backend can resolve CTE dependencies.
+    const nodeIdToAliasMap = new Map<string, string>();
+    topologicallySortedNodes.forEach((node, idx) => {
+      const alias = (node.data?.name || node.type || `step_${idx + 1}`)
+        .toString().toLowerCase().replace(/\s+/g, '_');
+      nodeIdToAliasMap.set(node.id, alias);
+    });
+
     const finalSteps = topologicallySortedNodes.map(node => {
       const step: any = {
         step_order: nodeIdToStepOrderMap.get(node.id),
         payload: { ...node.data },
       };
       const incomingEdgesForStep = activeEdges.filter(edge => edge.target === node.id);
+
+      // Build inputs array (nodeIds of upstream steps) for CTE mode
+      const inputNodeIds = incomingEdgesForStep.map(edge => edge.source);
+
+      // Also keep legacy input_step for backward compatibility
       let inputStep: string | undefined;
       if (incomingEdgesForStep.length > 0 && node.type !== 'join') {
         inputStep = nodeIdToStepOrderMap.get(incomingEdgesForStep[0].source)?.toString();
       }
+
+      // Set CTE-mode reserved keys
+      step.payload.inputs = inputNodeIds;
+      step.payload.cte_alias = nodeIdToAliasMap.get(node.id) || `step_${step.step_order}`;
+      step.payload.nodeId = node.id;
+
       switch (node.type) {
         case 'src':
           step.action_type = 'src';
           if (Array.isArray(step.payload.columns)) {
             step.payload.columns = step.payload.columns.join(', ');
           }
+          step.payload.inputs = []; // src has no inputs
           break;
         case 'drop_nulls':
           step.action_type = 'drop_nulls';
@@ -554,40 +577,50 @@ const WorkflowHomePage: React.FC = () => {
       workflow_name: activeWorkflowName,
       steps: finalSteps,
     };
-    console.log("Generated Workflow JSON:", JSON.stringify(workflowJson, null, 2));
 
     // Check if workflow already exists (update) or is new (create)
-    const workflowExists = workflows.some(w => w.workflow_name === activeWorkflowName);
-    const endpoint = workflowExists
-      ? `${process.env.NEXT_PUBLIC_API_URL}/workflow/update_workflow/`
-      : `${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`;
+    const existingWorkflow = workflows.find(w => w.workflow_name === activeWorkflowName);
 
     setIsSaving(true);
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify(workflowJson),
-      });
-      if (response.ok) {
-        toast.success(workflowExists ? 'Workflow updated successfully!' : 'Workflow created successfully!');
-        setIsWorkflowSaved(true);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
+      if (existingWorkflow?.workflow_id) {
+        // Update existing workflow: clear old steps, then add new ones
+        const wfId = existingWorkflow.workflow_id;
+        // Get current steps to delete them
+        try {
+          const currentSteps = await workflowApi.listSteps(wfId);
+          for (const step of currentSteps.steps || []) {
+            await workflowApi.deleteStep(wfId, step.step_id);
+          }
+        } catch { /* ignore if no steps exist */ }
+        // Add new steps
+        for (const step of finalSteps) {
+          await workflowApi.addStep(wfId, {
+            action_type: step.action_type,
+            step_name: `step_${step.step_order}`,
+            payload: step.payload,
+            position: step.step_order,
+          });
         }
+        toast.success('Workflow updated successfully!');
       } else {
-        const errorData = await response.json();
-        toast.error(`Failed to save workflow: ${JSON.stringify(errorData)}`);
-        setIsWorkflowSaved(false);
+        // Create new workflow with steps
+        await workflowApi.createWorkflow({
+          project_name: activeWorkflowName,
+          steps: finalSteps.map((step) => ({
+            action_type: step.action_type,
+            step_name: `step_${step.step_order}`,
+            payload: step.payload,
+          })),
+        });
+        toast.success('Workflow created successfully!');
       }
-    } catch (error) {
-      console.error('Error saving workflow:', error);
-      toast.error('An error occurred while saving the workflow.');
-    } finally {
-      setIsSaving(false);
+      setIsWorkflowSaved(true);
+      await fetchWorkflows();
+    } catch (err: any) {
+      console.error('Error saving workflow:', err);
+      toast.error(`Failed to save workflow: ${getApiErrorMessage(err)}`);
+      setIsWorkflowSaved(false);
     }
   };
 
@@ -596,159 +629,48 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Workflow name is missing. Please save the workflow first.");
       return;
     }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
+    if (!activeWorkflowId) {
+      toast.error("Workflow ID not found. Please save the workflow first.");
       return;
     }
     setIsExecuting(true);
     setExecuteStartedAt(Date.now());
     setExecuteElapsed(0);
     try {
-      // TODO(backend): FETCH /workflow/execute_workflow/?workflow_name={param} — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/execute_workflow/?workflow_name=${encodeURIComponent(activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json() as any;
-        // result is an object (run_id/status/…); stringify safely instead of rendering "[object Object]".
-        const detail = typeof result === 'string' ? result : (result?.run_id || result?.status || result?.message || 'started');
-        toast.success(`Workflow execution initiated: ${detail}`);
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to execute workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error executing workflow:', error);
-      toast.error('An error occurred while executing the workflow.');
-    } finally {
-      setIsExecuting(false);
-      setExecuteStartedAt(null);
+      const result = await workflowApi.executeWorkflow(activeWorkflowId, { trigger_type: 'manual' });
+      toast.success(`Workflow execution initiated: ${result.run_id}`);
+    } catch (err: any) {
+      console.error('Error executing workflow:', err);
+      toast.error(`Failed to execute workflow: ${getApiErrorMessage(err)}`);
     }
   };
 
-  const scheduleWorkflow = async (cron_schedule_value: string) => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!cron_schedule_value) {
-      toast.error("Please select a scheduling frequency.");
-      return;
-    }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
-      return;
-    }
-    console.log(`Attempting to schedule workflow: '${activeWorkflowName}' with cron_schedule: '${cron_schedule_value}'`);
-    try {
-      // TODO(backend): FETCH /workflow/schedule_workflow/ — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/schedule_workflow/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({
-          workflow_name: activeWorkflowName,
-          cron_schedule: cron_schedule_value,
-        }),
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' scheduled successfully: ${result}`);
-        setActiveSchedule(cron_schedule_value);
-        setShowScheduleDropdown(false);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to schedule workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error scheduling workflow:', error);
-      toast.error('An error occurred while scheduling the workflow.');
-    }
-  };
-
-  const suspendTask = async () => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
-      return;
-    }
-    console.log(`Attempting to suspend workflow: '${activeWorkflowName}'`);
-    try {
-      // TODO(backend): FETCH /workflow/suspend_task/?task_name={param} — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/suspend_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' suspended successfully: ${result}`);
-        setActiveSchedule('');
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to suspend workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error suspending workflow:', error);
-      toast.error('An error occurred while suspending the workflow.');
-    }
-  };
-
-  const resumeTask = async () => {
-    if (!activeWorkflowName) {
-      toast.error("Workflow name is missing. Please save the workflow first.");
-      return;
-    }
-    if (!accessToken) {
-      toast.error("Authentication token missing. Please log in.");
-      return;
-    }
-    console.log(`Attempting to resume workflow: '${activeWorkflowName}'`);
-    try {
-      // TODO(backend): FETCH /workflow/resume_task/?task_name={param} — endpoint not in API; wire it or remove this call
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/resume_task/?task_name=${encodeURIComponent('execute_workflow_'+ activeWorkflowName)}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow '${activeWorkflowName}' resumed successfully: ${result}`);
-        if (fetchWorkflows) {
-          fetchWorkflows(accessToken);
-        }
-      } else {
-        const errorData = await response.json();
-        toast.error(`Failed to resume workflow: ${JSON.stringify(errorData)}`);
-      }
-    } catch (error) {
-      console.error('Error resuming workflow:', error);
-      toast.error('An error occurred while resuming the workflow.');
-    }
-  };
+  // Schedule/suspend/resume are handled by ScheduleManager in ETLPipelineBuilder
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen text-xl bg-slate-50 dark:bg-slate-900">
-        <div className="flex flex-col items-center gap-4">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-          <span className="text-slate-600 dark:text-slate-300">Loading workflows...</span>
+      <div className="flex h-screen bg-slate-50 dark:bg-slate-900 animate-pulse">
+        {/* Left sidebar skeleton */}
+        <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 p-4 space-y-3">
+          <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded-lg w-3/4" />
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-10 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+          ))}
+        </div>
+        {/* Main canvas skeleton */}
+        <div className="flex-1 flex flex-col">
+          {/* Top bar */}
+          <div className="h-14 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3 px-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-8 w-24 bg-gray-200 dark:bg-gray-700 rounded-lg" />
+            ))}
+          </div>
+          {/* Canvas area */}
+          <div className="flex-1 p-6 space-y-4">
+            <div className="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" />
+            <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl w-2/3" />
+            <div className="h-24 bg-gray-200 dark:bg-gray-700 rounded-xl w-1/2 ml-auto" />
+          </div>
         </div>
       </div>
     );
@@ -756,10 +678,10 @@ const WorkflowHomePage: React.FC = () => {
   if (error) {
     const errorText = typeof error === 'string' ? error : (error && typeof (error as any).message === 'string' ? (error as any).message : JSON.stringify(error));
     return (
-      <div className="flex justify-center items-center h-screen bg-slate-50 dark:bg-slate-900">
-        <div className="text-red-500 text-xl p-6 bg-white dark:bg-slate-800 rounded-lg shadow-lg">
-          Error: {errorText}
-        </div>
+      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 bg-slate-50 dark:bg-slate-900">
+        <AlertTriangle className="h-10 w-10 text-amber-500" />
+        <p className="text-sm text-gray-600 dark:text-gray-400">{errorText}</p>
+        <Button onClick={() => fetchWorkflows()} variant="outline">Retry</Button>
       </div>
     );
   }
@@ -770,13 +692,14 @@ const WorkflowHomePage: React.FC = () => {
 
       {/* Left Sidebar - ETL Palette */}
       <div className="w-72 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 flex flex-col shadow-sm">
-        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 bg-indigo-50/80 dark:bg-indigo-900/20">
+        <div className="px-3 pt-2 pb-1 border-b border-slate-200 dark:border-slate-700 bg-indigo-50/80 dark:bg-indigo-900/20">
+          <Breadcrumb items={[{ label: 'Workflow', href: '/workflow' }]} className="mb-1" />
           <p className="text-xs text-slate-700 dark:text-slate-300">
             Glissez les blocs sur le canvas : <strong>Source</strong> → <strong>Transformations</strong> → <strong>Destination</strong>. Planifiez ou exécutez pour automatiser.
           </p>
         </div>
         <div className="flex-1 overflow-hidden">
-          <ETLPalette />
+          <ETLPalette projectId={activeWorkflowId ?? undefined} />
         </div>
 
         {/* Workflow Controls */}
@@ -838,76 +761,7 @@ const WorkflowHomePage: React.FC = () => {
             </button>
           </div>
 
-          {/* Schedule Section */}
-          <div className="pt-2 border-t border-slate-200 dark:border-slate-700">
-            <div className="text-xs text-slate-500 dark:text-slate-400 mb-2 text-center">
-              Schedule: {activeSchedule ? cronScheduleOptions.find(opt => opt.value === activeSchedule)?.label : 'None'}
-            </div>
-            <div className="relative">
-              <button
-                onClick={() => setShowScheduleDropdown(!showScheduleDropdown)}
-                className={cn(
-                  "w-full flex items-center justify-between py-2 px-3 rounded-lg text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-blue-500 text-white hover:bg-blue-600"
-                    : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                <span>Schedule</span>
-                <span>{showScheduleDropdown ? '▲' : '▼'}</span>
-              </button>
-              {showScheduleDropdown && (
-                <div className="absolute bottom-full mb-1 w-full z-20 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 rounded-lg shadow-lg overflow-hidden">
-                  <select
-                    className="w-full p-2 text-sm bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border-none focus:outline-none"
-                    value={activeSchedule}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      if (value && isWorkflowSaved && activeWorkflowName) {
-                        scheduleWorkflow(value);
-                      }
-                    }}
-                  >
-                    <option value="">Select Frequency</option>
-                    {cronScheduleOptions.map(option => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2 mt-2">
-              <button
-                onClick={resumeTask}
-                className={cn(
-                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 hover:bg-green-200 dark:hover:bg-green-900/50"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                title="Resume Task"
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                Resume
-              </button>
-              <button
-                onClick={suspendTask}
-                className={cn(
-                  "flex-1 p-2 rounded-lg flex items-center justify-center text-sm font-medium transition",
-                  isWorkflowSaved && activeWorkflowName
-                    ? "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
-                )}
-                title="Suspend Task"
-                disabled={!isWorkflowSaved || !activeWorkflowName}
-              >
-                Suspend
-              </button>
-            </div>
-          </div>
+          {/* Schedule is managed in ETLPipelineBuilder's ScheduleManager tab */}
         </div>
       </div>
 
@@ -917,17 +771,52 @@ const WorkflowHomePage: React.FC = () => {
         <div className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 px-4 py-3">
           <div className="flex items-center gap-3">
             {/* New Workflow Button */}
-            <button
+            <motion.button
+              whileHover={{ scale: 1.06 }}
+              whileTap={{ scale: 0.92 }}
               onClick={createNewWorkflow}
               className={cn(
                 "w-9 h-9 rounded-lg flex items-center justify-center transition",
-                "bg-green-500 hover:bg-green-600 text-white",
-                "shadow-sm hover:shadow"
+                "bg-gradient-to-br from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white",
+                "shadow-md shadow-green-500/30 hover:shadow-lg hover:shadow-green-500/40"
               )}
               title="Create New Workflow"
             >
-              <span className="text-xl">+</span>
-            </button>
+              <span className="text-xl leading-none">+</span>
+            </motion.button>
+
+            {/* AI Generate — opens AiGenerateModal */}
+            <motion.button
+              whileHover={{ scale: 1.04, y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowAiGenerate(true)}
+              className={cn(
+                "group relative flex items-center gap-1.5 overflow-hidden rounded-lg px-3 h-9 text-xs font-semibold text-white transition-all",
+                "bg-gradient-to-r from-purple-600 to-fuchsia-600 hover:from-purple-700 hover:to-fuchsia-700",
+                "shadow-md shadow-purple-500/30 hover:shadow-lg hover:shadow-purple-500/40"
+              )}
+              title="Generate workflow with AI"
+            >
+              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+              <Sparkles className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">AI</span>
+            </motion.button>
+
+            {/* Import Snowflake Tasks — opens ImportTasksModal */}
+            <motion.button
+              whileHover={{ scale: 1.04, y: -1 }}
+              whileTap={{ scale: 0.96 }}
+              onClick={() => setShowImportTasks(true)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-3 h-9 text-xs font-semibold text-white transition-all",
+                "bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700",
+                "shadow-md shadow-cyan-500/30 hover:shadow-lg hover:shadow-cyan-500/40"
+              )}
+              title="Import Snowflake task graphs as workflow projects"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Import tasks</span>
+            </motion.button>
 
             {/* Navigation Arrows */}
             <button
@@ -976,39 +865,63 @@ const WorkflowHomePage: React.FC = () => {
             <div className="flex items-center gap-1 ml-2 pl-2 border-l border-slate-200 dark:border-slate-700">
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'versions' ? null : 'versions')}
+                disabled={!activeWorkflowName}
+                aria-disabled={!activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'versions'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  !activeWorkflowName
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'versions'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Version History"
+                title={!activeWorkflowName ? "Build a workflow first" : "Version History"}
               >
                 <History className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Versions</span>
               </button>
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'runs' ? null : 'runs')}
+                disabled={!isWorkflowSaved || !activeWorkflowName}
+                aria-disabled={!isWorkflowSaved || !activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'runs'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  (!isWorkflowSaved || !activeWorkflowName)
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'runs'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Execution History"
+                title={
+                  !activeWorkflowName
+                    ? "Build a workflow first"
+                    : !isWorkflowSaved
+                      ? "Save the workflow to see runs"
+                      : "Execution History"
+                }
               >
                 <PlayCircle className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Runs</span>
               </button>
               <button
                 onClick={() => setRightPanelTab(rightPanelTab === 'deployments' ? null : 'deployments')}
+                disabled={!isWorkflowSaved || !activeWorkflowName}
+                aria-disabled={!isWorkflowSaved || !activeWorkflowName}
                 className={cn(
                   "p-2 rounded-lg transition flex items-center gap-1.5",
-                  rightPanelTab === 'deployments'
-                    ? "bg-blue-500 text-white"
-                    : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
+                  (!isWorkflowSaved || !activeWorkflowName)
+                    ? "bg-slate-100 dark:bg-slate-700 text-slate-400 opacity-50 cursor-not-allowed"
+                    : rightPanelTab === 'deployments'
+                      ? "bg-blue-500 text-white"
+                      : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-600"
                 )}
-                title="Deployment History"
+                title={
+                  !activeWorkflowName
+                    ? "Build a workflow first"
+                    : !isWorkflowSaved
+                      ? "Save the workflow to deploy"
+                      : "Deployment History"
+                }
               >
                 <FileCheck className="h-4 w-4" />
                 <span className="text-xs font-medium hidden lg:inline">Deploys</span>
@@ -1031,6 +944,19 @@ const WorkflowHomePage: React.FC = () => {
           </div>
         </div>
 
+        {/* E&D Handoff Banner */}
+        {sourceModule === 'explore-design' && sourceProjectId && (
+          <div className="mx-4 mt-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg flex items-center gap-2 text-sm">
+            <ArrowRight className="h-4 w-4 text-blue-500" />
+            <span className="text-blue-700 dark:text-blue-300">
+              Linked from Explore &amp; Design project.
+              <button className="underline ml-1" onClick={() => window.location.href = `/explore-design?project_id=${sourceProjectId}`}>
+                Return to E&amp;D
+              </button>
+            </span>
+          </div>
+        )}
+
         {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
         <ProjectContextPanel
           projectId={activeWorkflowId}
@@ -1042,7 +968,7 @@ const WorkflowHomePage: React.FC = () => {
             <VersionHistory
               workflowId={activeWorkflowId}
               workflowName={activeWorkflowName}
-              onVersionChange={() => accessToken && fetchWorkflowsRef.current?.(accessToken)}
+              onVersionChange={() => fetchWorkflows()}
               className="border-0 rounded-none"
             />
           ) : undefined}
@@ -1120,9 +1046,7 @@ const WorkflowHomePage: React.FC = () => {
                     workflowName={activeWorkflowName}
                     onVersionChange={() => {
                       // Refresh workflows after version change
-                      if (accessToken) {
-                        fetchWorkflowsRef.current?.(accessToken);
-                      }
+                      fetchWorkflows();
                     }}
                     className="border-0 rounded-none"
                   />
@@ -1150,11 +1074,12 @@ const WorkflowHomePage: React.FC = () => {
         <DeploymentScheduler
           workflowId={activeWorkflowId}
           workflowName={activeWorkflowName}
-          steps={workflows.find(w => w.workflow_name === activeWorkflowName)?.steps || []}
+          steps={(workflows.find(w => w.workflow_name === activeWorkflowName)?.steps || []) as any}
           isOpen={showDeployModal}
           onClose={() => setShowDeployModal(false)}
           onDeploymentCreated={(eventId, status) => {
             toast.success(`Deployment ${status === 'PENDING_APPROVAL' ? 'submitted for approval' : status === 'ACTIVE' ? 'executed' : 'scheduled'}!`);
+            setShowNavigationButtons(true);
             // Refresh deployment history after creating a new deployment
             if (rightPanelTab === 'deployments') {
               setRightPanelTab(null);
@@ -1163,6 +1088,56 @@ const WorkflowHomePage: React.FC = () => {
           }}
         />
       )}
+
+      {/* Cross-Module Navigation Buttons */}
+      {showNavigationButtons && (
+        <div className="fixed bottom-6 right-6 flex gap-2 bg-white dark:bg-gray-800 p-3 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
+          <button
+            onClick={() => window.location.href = '/data-quality'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 transition-colors"
+          >
+            <Activity className="h-3.5 w-3.5" />
+            Monitor in Data Quality
+          </button>
+          <button
+            onClick={() => window.location.href = '/bi-dashboard'}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-purple-200 dark:border-purple-800 text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors"
+          >
+            <BarChart3 className="h-3.5 w-3.5" />
+            Visualize in BI
+          </button>
+          <button
+            onClick={() => setShowNavigationButtons(false)}
+            className="flex items-center justify-center px-2 py-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* AI Guided Workflow — 9-step wizard. Replaces the old quick-prompt
+          AiGenerateModal. Reuses the same hand-off contract: when the user
+          finishes the wizard, we receive the nodes+edges and drop them on
+          the canvas. */}
+      <GuidedAiWorkflowWizard
+        open={showAiGenerate}
+        onClose={() => setShowAiGenerate(false)}
+        onCreated={(nodes, edges) => {
+          setActiveNodes(nodes as unknown as ReactFlowNode[]);
+          setActiveEdges(edges as unknown as ReactFlowEdge[]);
+          setIsWorkflowSaved(false);
+          toast.success('AI workflow ready — review and save when done');
+        }}
+      />
+
+      {/* Import Snowflake task graphs modal */}
+      <ImportTasksModal
+        open={showImportTasks}
+        onClose={() => setShowImportTasks(false)}
+        onImported={async () => {
+          await fetchWorkflows();
+        }}
+      />
     </div>
   );
 };
@@ -1171,43 +1146,23 @@ const WorkflowHomePage: React.FC = () => {
 const WorkflowPageWithToggle: React.FC = () => {
   const [useNewETL, setUseNewETL] = useState(true); // Default to new ETL builder
 
-  // Show toggle banner at the top
-  const ToggleBanner = () => (
-    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <span className="text-sm font-medium">
-          {useNewETL ? 'New ETL Pipeline Builder (Beta)' : 'Legacy Workflow Builder'}
-        </span>
-        <span className="text-xs bg-white/20 px-2 py-0.5 rounded">
-          {useNewETL ? '/etl/* API' : '/workflow/* API'}
-        </span>
-      </div>
-      <button
-        onClick={() => setUseNewETL(!useNewETL)}
-        className="flex items-center gap-2 px-3 py-1.5 bg-white/20 hover:bg-white/30 rounded-lg transition text-sm font-medium"
-      >
-        {useNewETL ? (
-          <>
-            <ToggleRight className="h-4 w-4" />
-            <span>Switch to Legacy</span>
-          </>
-        ) : (
-          <>
-            <ToggleLeft className="h-4 w-4" />
-            <span>Switch to New ETL</span>
-          </>
-        )}
-      </button>
-    </div>
-  );
+  
 
   return (
-    <div className="flex flex-col h-screen">
-      <ToggleBanner />
-      <div className="flex-1 overflow-hidden">
-        {useNewETL ? <ETLPipelineBuilder /> : <WorkflowHomePage />}
+    <ErrorBoundary>
+      <div className="flex flex-col h-screen bg-white dark:bg-gray-900">
+        <div className="flex-1 overflow-hidden">
+          <ETLPipelineBuilder />
+        </div>
+        {/* Cross-module links */}
+        <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400 bg-white dark:bg-gray-900">
+          <span>Related:</span>
+          <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Source Tables)</a>
+          <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
+          <a href="/bi-dashboard" className="text-blue-600 dark:text-blue-400 hover:underline">BI Dashboard (Visualize)</a>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 };
 

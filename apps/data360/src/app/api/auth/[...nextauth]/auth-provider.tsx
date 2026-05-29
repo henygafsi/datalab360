@@ -2,7 +2,7 @@
 
 import { SessionProvider } from 'next-auth/react';
 
-const SESSION_REFETCH_INTERVAL = 120; // seconds – reduce /api/auth/session polling
+const SESSION_REFETCH_INTERVAL = 300; // seconds (5 min) – reduce /api/auth/session polling
 
 export default function AuthProvider({
   children,
@@ -12,7 +12,7 @@ export default function AuthProvider({
   session: any;
 }): React.ReactNode {
   return (
-    <SessionProvider session={session} refetchInterval={SESSION_REFETCH_INTERVAL} refetchOnWindowFocus={true}>
+    <SessionProvider session={session} refetchInterval={SESSION_REFETCH_INTERVAL} refetchOnWindowFocus={false}>
       {children}
     </SessionProvider>
   );

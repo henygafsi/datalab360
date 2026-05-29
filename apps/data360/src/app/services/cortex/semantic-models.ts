@@ -1,7 +1,5 @@
-import { getAuthSession } from '@/lib/auth';
+import apiClient from '@/lib/api-client';
 import axios from 'axios';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // ============================================
 // TYPES & INTERFACES
@@ -29,27 +27,30 @@ export interface CreateSemanticModelRequest {
   description?: string;
 }
 
+export interface SemanticModelGenerateRequest {
+  database: string;
+  schema: string;
+  tables?: string[];
+  model_name?: string;
+  model_description?: string;
+  include_views?: boolean;
+  sample_values_limit?: number;
+}
+
+export interface SemanticModelGenerateResponse {
+  model_name: string;
+  yaml_content: string;
+  tables_count: number;
+  database: string;
+  schema: string;
+  stage_path?: string;
+  saved?: boolean;
+}
+
 export interface StandardResponse<T = any> {
   status: string;
   message: string;
   data: T;
-}
-
-// ============================================
-// HELPER FUNCTIONS
-// ============================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
 }
 
 // ============================================
@@ -62,62 +63,45 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
  */
 export async function listSemanticModels(): Promise<SemanticModel[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/semantic-models/list`,
-      { headers }
-    );
-    console.log('🔍 Semantic models list raw response:', JSON.stringify(response.data, null, 2));
-    console.log('🔍 Response type:', typeof response.data);
+    const response = await apiClient.get('/cortex/semantic-models/list');
 
     const responseData = response.data;
 
     // Handle wrapped response { status, message, data } format
     if (responseData.data !== undefined) {
-      console.log('🔍 Found data field:', responseData.data);
       if (Array.isArray(responseData.data)) {
-        console.log('✅ Returning responseData.data (array)');
         return responseData.data;
       }
       // If data contains nested models/files
       if (responseData.data?.models && Array.isArray(responseData.data.models)) {
-        console.log('✅ Returning responseData.data.models');
         return responseData.data.models;
       }
       if (responseData.data?.files && Array.isArray(responseData.data.files)) {
-        console.log('✅ Returning responseData.data.files');
         return responseData.data.files;
       }
     }
 
     // If response is direct array
     if (Array.isArray(responseData)) {
-      console.log('✅ Response is direct array');
       return responseData as SemanticModel[];
     }
 
     // If data is nested in models/files key at root level
     if (responseData.models && Array.isArray(responseData.models)) {
-      console.log('✅ Returning responseData.models');
       return responseData.models;
     }
     if (responseData.files && Array.isArray(responseData.files)) {
-      console.log('✅ Returning responseData.files');
       return responseData.files;
     }
 
     // If response has items key
     if (responseData.items && Array.isArray(responseData.items)) {
-      console.log('✅ Returning responseData.items');
       return responseData.items;
     }
 
-    console.log('⚠️ Semantic models - unexpected format, returning empty array');
-    console.log('⚠️ Available keys:', Object.keys(responseData));
     return [];
   } catch (error: any) {
-    console.error('❌ Error fetching semantic models:', error);
-    console.error('❌ Error response:', error.response?.data);
+    console.error('Error fetching semantic models:', error);
     if (axios.isAxiosError(error)) {
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Failed to list semantic models: ${message}`);
@@ -133,24 +117,16 @@ export async function listSemanticModels(): Promise<SemanticModel[]> {
  */
 export async function getSemanticModelContent(modelName: string): Promise<SemanticModelContent> {
   try {
-    const headers = await getAuthHeaders();
-    console.log('🔍 Fetching semantic model:', modelName);
-
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/semantic-models/${encodeURIComponent(modelName)}`,
-      { headers }
+    const response = await apiClient.get(
+      `/cortex/semantic-models/${encodeURIComponent(modelName)}`
     );
-    console.log('🔍 Semantic model content raw response:', JSON.stringify(response.data, null, 2));
-    console.log('🔍 Response type:', typeof response.data);
 
     const responseData = response.data;
 
     // Handle wrapped response { status, message, data } format
     if (responseData.data !== undefined) {
-      console.log('🔍 Found data field:', responseData.data);
       if (typeof responseData.data === 'object' && responseData.data !== null) {
         if (responseData.data.content !== undefined || responseData.data.yaml_content !== undefined) {
-          console.log('✅ Returning responseData.data');
           return {
             name: responseData.data.name || modelName,
             content: responseData.data.content || responseData.data.yaml_content || '',
@@ -160,7 +136,6 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
       }
       // If data is the content string itself
       if (typeof responseData.data === 'string') {
-        console.log('✅ Data is string content');
         return {
           name: modelName,
           content: responseData.data,
@@ -171,7 +146,6 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
 
     // If response has content directly
     if (responseData.content !== undefined) {
-      console.log('✅ Found content field');
       return {
         name: responseData.name || modelName,
         content: responseData.content,
@@ -181,7 +155,6 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
 
     // If response is in yaml_content format
     if (responseData.yaml_content !== undefined) {
-      console.log('✅ Found yaml_content field');
       return {
         name: responseData.name || modelName,
         content: responseData.yaml_content,
@@ -191,7 +164,6 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
 
     // If response is a plain string (direct YAML content)
     if (typeof responseData === 'string') {
-      console.log('✅ Response is direct string content');
       return {
         name: modelName,
         content: responseData,
@@ -200,15 +172,13 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
     }
 
     // Fallback
-    console.log('⚠️ Unexpected format, available keys:', Object.keys(responseData));
     return {
       name: modelName,
       content: JSON.stringify(responseData, null, 2),
       path: '',
     };
   } catch (error: any) {
-    console.error(`❌ Error fetching semantic model ${modelName}:`, error);
-    console.error('❌ Error response:', error.response?.data);
+    console.error(`Error fetching semantic model ${modelName}:`, error);
     if (axios.isAxiosError(error)) {
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Failed to get semantic model: ${message}`);
@@ -224,8 +194,6 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
  */
 export async function createSemanticModel(request: CreateSemanticModelRequest): Promise<any> {
   try {
-    const headers = await getAuthHeaders();
-
     // Set defaults if not provided
     const payload = {
       name: request.name,
@@ -236,12 +204,10 @@ export async function createSemanticModel(request: CreateSemanticModelRequest): 
       description: request.description || '',
     };
 
-    const response = await axios.post<StandardResponse>(
-      `${API_BASE_URL}/cortex/semantic-models`,
-      payload,
-      { headers }
+    const response = await apiClient.post<StandardResponse>(
+      '/cortex/semantic-models',
+      payload
     );
-    console.log('Create semantic model response:', response.data);
     return response.data;
   } catch (error: any) {
     console.error('Error creating semantic model:', error);
@@ -254,24 +220,85 @@ export async function createSemanticModel(request: CreateSemanticModelRequest): 
 }
 
 /**
+ * Auto-generate a semantic model YAML from Snowflake DDL introspection
+ */
+export async function generateSemanticModel(
+  request: SemanticModelGenerateRequest
+): Promise<SemanticModelGenerateResponse> {
+  try {
+    const response = await apiClient.post<StandardResponse<SemanticModelGenerateResponse>>(
+      '/cortex/semantic-models/generate',
+      request
+    );
+    const data = response.data?.data || response.data;
+    return data as SemanticModelGenerateResponse;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to generate semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Generate a semantic model and save it directly to SEMANTIC_STAGE
+ * One-step: picks schema -> generates YAML -> saves to stage
+ */
+export async function generateAndSaveSemanticModel(
+  request: SemanticModelGenerateRequest
+): Promise<SemanticModelGenerateResponse> {
+  try {
+    const response = await apiClient.post<StandardResponse<SemanticModelGenerateResponse>>(
+      '/cortex/semantic-models/generate-and-save',
+      request
+    );
+    const data = response.data?.data || response.data;
+    return data as SemanticModelGenerateResponse;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to generate and save semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
  * Delete a semantic model from the Snowflake stage
  * @param modelName - Name of the model to delete
  * @returns Success response
  */
 export async function deleteSemanticModel(modelName: string): Promise<any> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.delete<StandardResponse>(
-      `${API_BASE_URL}/cortex/semantic-models/${encodeURIComponent(modelName)}`,
-      { headers }
+    const response = await apiClient.delete<StandardResponse>(
+      `/cortex/semantic-models/${encodeURIComponent(modelName)}`
     );
-    console.log('Delete semantic model response:', response.data);
     return response.data;
   } catch (error: any) {
     console.error(`Error deleting semantic model ${modelName}:`, error);
     if (axios.isAxiosError(error)) {
       const message = error.response?.data?.detail || error.response?.data?.message || error.message;
       throw new Error(`Failed to delete semantic model: ${message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Update an existing semantic model YAML content
+ */
+export async function updateSemanticModel(modelName: string, yamlContent: string): Promise<any> {
+  try {
+    const response = await apiClient.put<StandardResponse>(
+      `/cortex/semantic-models/${encodeURIComponent(modelName)}`,
+      { name: modelName, yaml_content: yamlContent }
+    );
+    return response.data;
+  } catch (error: any) {
+    if (axios.isAxiosError(error)) {
+      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
+      throw new Error(`Failed to update semantic model: ${message}`);
     }
     throw error;
   }

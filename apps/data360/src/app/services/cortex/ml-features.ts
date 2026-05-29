@@ -1,24 +1,4 @@
-import { getAuthSession } from '@/lib/auth';
-import axios from 'axios';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
-
-// ============================================
-// AUTH HELPER
-// ============================================
-
-async function getAuthHeaders(): Promise<Record<string, string>> {
-  const session = await getAuthSession();
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': session.user.account_name || '',
-    'X-Username': session.user.username || '',
-  };
-}
+import apiClient from '@/lib/api-client';
 
 // ============================================
 // TYPES
@@ -31,6 +11,12 @@ export type LanguageCode = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'ja' | 'ko'
 export interface CompletionRequest {
   prompt: string;
   model?: LLMModel;
+  /**
+   * NOTE: The backend CompletionRequest model does NOT include a guardrails
+   * field.  Sending it is harmless (Pydantic ignores unknown fields) but has
+   * no effect. Kept here for future use if the backend adds support.
+   */
+  guardrails?: boolean;
 }
 
 export interface CompletionResponse {
@@ -127,14 +113,13 @@ export const LANGUAGES = [
  */
 export async function generateCompletion(request: CompletionRequest): Promise<CompletionResponse> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/complete`,
+    const response = await apiClient.post(
+      '/cortex/complete',
       {
         prompt: request.prompt,
         model: request.model || 'mistral-7b',
-      },
-      { headers }
+        guardrails: request.guardrails || false,
+      }
     );
 
     const data = response.data?.data || response.data;
@@ -149,15 +134,15 @@ export async function generateCompletion(request: CompletionRequest): Promise<Co
 }
 
 /**
- * Analyze sentiment of texts
+ * Analyze sentiment of texts.
+ * Backend SentimentAnalysisRequest requires text_column (even for direct texts mode).
+ * We send a placeholder value since the backend only uses it for table-based analysis.
  */
 export async function analyzeSentiment(texts: string[]): Promise<SentimentResult[]> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/sentiment`,
-      { texts },
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/ml/sentiment',
+      { texts, text_column: 'inline' }
     );
 
     const data = response.data?.data || response.data;
@@ -173,16 +158,49 @@ export async function analyzeSentiment(texts: string[]): Promise<SentimentResult
     throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze sentiment');
   }
 }
+
+/**
+ * Analyze sentiment of a database table column
+ */
+export async function analyzeTableSentiment(
+  tableName: string,
+  textColumn: string,
+  database?: string,
+  schema?: string
+): Promise<SentimentResult[]> {
+  try {
+    const response = await apiClient.post(
+      '/cortex/ml/sentiment',
+      {
+        table_name: tableName,
+        text_column: textColumn,
+        database,
+        schema,
+      }
+    );
+
+    const data = response.data?.data || response.data;
+    const results = data.results || data;
+
+    return (Array.isArray(results) ? results : []).map((result: any) => ({
+      text: result.text,
+      sentiment: result.sentiment,
+      category: categorizeSentiment(result.sentiment),
+    }));
+  } catch (error: any) {
+    console.error('Table sentiment analysis error:', error);
+    throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze table sentiment');
+  }
+}
+
 /**
  * Translate text between languages
  */
 export async function translateText(request: TranslationRequest): Promise<TranslationResult> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/translate`,
-      request,
-      { headers }
+    const response = await apiClient.post(
+      '/cortex/ml/translate',
+      request
     );
 
     const data = response.data?.data || response.data;
@@ -203,14 +221,12 @@ export async function translateText(request: TranslationRequest): Promise<Transl
  */
 export async function summarizeText(request: SummarizeRequest): Promise<SummaryResult> {
   try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/summarize`,
+    const response = await apiClient.post(
+      '/cortex/ml/summarize',
       {
         text: request.text,
         max_length: request.max_length || 100,
-      },
-      { headers }
+      }
     );
 
     const data = response.data?.data || response.data;
@@ -228,6 +244,78 @@ export async function summarizeText(request: SummarizeRequest): Promise<SummaryR
     throw new Error(error.response?.data?.detail || error.message || 'Failed to summarize text');
   }
 }
+
+/**
+ * Generate text embeddings
+ */
+export async function generateEmbeddings(
+  texts: string[],
+  model = 'e5-base-v2'
+): Promise<EmbeddingResult[]> {
+  try {
+    const response = await apiClient.post(
+      '/cortex/embeddings',
+      { texts, model }
+    );
+
+    const data = response.data?.data || response.data;
+    return data.embeddings || [];
+  } catch (error: any) {
+    console.error('Embeddings error:', error);
+    throw new Error(error.response?.data?.detail || error.message || 'Failed to generate embeddings');
+  }
+}
+
+/**
+ * List available databases
+ */
+export async function listDatabases(): Promise<DatabaseInfo[]> {
+  try {
+    const response = await apiClient.get('/cortex/explore/databases');
+
+    const data = response.data?.data || response.data;
+    return data.databases || data || [];
+  } catch (error: any) {
+    console.error('List databases error:', error);
+    throw new Error(error.response?.data?.detail || error.message || 'Failed to list databases');
+  }
+}
+
+/**
+ * List schemas in a database
+ */
+export async function listSchemas(database: string): Promise<SchemaInfo[]> {
+  try {
+    const response = await apiClient.get(
+      `/cortex/explore/schemas?database=${encodeURIComponent(database)}`
+    );
+
+    const data = response.data?.data || response.data;
+    return data.schemas || data || [];
+  } catch (error: any) {
+    console.error('List schemas error:', error);
+    throw new Error(error.response?.data?.detail || error.message || 'Failed to list schemas');
+  }
+}
+
+/**
+ * List tables in a schema
+ */
+export async function listTables(database: string, schema: string): Promise<TableInfo[]> {
+  try {
+    const response = await apiClient.post(
+      '/cortex/explore/tables',
+      { database, schema }
+    );
+
+    const data = response.data?.data || response.data;
+    return data.tables || data || [];
+  } catch (error: any) {
+    console.error('List tables error:', error);
+    throw new Error(error.response?.data?.detail || error.message || 'Failed to list tables');
+  }
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -251,6 +339,7 @@ export function getSentimentEmoji(score: number): string {
   if (score > -0.5) return '🙁';
   return '😞';
 }
+
 export function formatBytes(bytes?: number): string {
   if (!bytes) return 'N/A';
   if (bytes < 1024) return `${bytes} B`;

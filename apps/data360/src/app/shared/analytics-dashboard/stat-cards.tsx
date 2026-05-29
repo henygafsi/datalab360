@@ -179,7 +179,7 @@ export default function StatCards({ className }: { className?: string }) {
           rounded="lg"
           metricClassName="text-2xl mt-1"
           info={
-            <Text className="mt-4 max-w-[150px] text-sm text-gray-500">
+            <Text className="mt-4 max-w-[150px] text-sm text-gray-500 dark:text-gray-400">
               {stat.info}
             </Text>
           }

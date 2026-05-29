@@ -18,6 +18,7 @@ import ReactFlow, {
   Position,
   useReactFlow,
 } from 'reactflow';
+// @ts-ignore — CSS import handled by Next.js bundler
 import 'reactflow/dist/style.css';
 import toast, { Toaster } from 'react-hot-toast';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
@@ -153,7 +154,7 @@ const Modal = ({ isOpen, onClose, children, onDelete, nodeId }: any) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-      <div className="bg-white p-6 rounded-lg w-96 shadow-lg space-y-4">
+      <div className="bg-white dark:bg-gray-900 p-6 rounded-lg w-96 shadow-lg space-y-4">
         {children}
         <div className="flex justify-between items-center mt-4">
           {onDelete && (
@@ -179,9 +180,9 @@ const DropNullsConfigModal = ({ isOpen, onClose, onSave, initialData, availableI
   const handleSave = () => { onSave({ null_column: nullColumn }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Drop Nulls</h2>
-      <div><label className="block text-sm font-medium text-gray-700">Column to check for null</label><select className="w-full border px-3 py-2 rounded" value={nullColumn} onChange={(e) => setNullColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Drop Nulls</h2>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Column to check for null</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={nullColumn} onChange={(e) => setNullColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -193,10 +194,10 @@ const DropDuplicatesConfigModal = ({ isOpen, onClose, onSave, initialData, avail
   const handleSave = () => { onSave({ dedup_columns: dedupColumns, order_column: orderColumn, }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Drop Duplicates</h2>
-      <div><label className="block text-sm font-medium text-gray-700">Columns to Deduplicate</label><select multiple className="w-full border px-3 py-2 rounded h-24" value={dedupColumns} onChange={(e) => setDedupColumns(Array.from(e.target.selectedOptions, o => o.value))}><option value="">Select Columns (multi-select)</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
-      <div><label className="block text-sm font-medium text-gray-700">Order Column</label><select className="w-full border px-3 py-2 rounded" value={orderColumn} onChange={(e) => setOrderColumn(e.target.value)}><option value="">Select Order Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Drop Duplicates</h2>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Columns to Deduplicate</label><select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={dedupColumns} onChange={(e) => setDedupColumns(Array.from(e.target.selectedOptions, o => o.value))}><option value="">Select Columns (multi-select)</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Order Column</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={orderColumn} onChange={(e) => setOrderColumn(e.target.value)}><option value="">Select Order Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -209,11 +210,11 @@ const NormalizeConfigModal = ({ isOpen, onClose, onSave, initialData, availableI
   const handleSave = () => { const payload: any = { normalize_type: normalizeType, }; if (normalizeType === 'zscore') { payload.zscore_column = targetColumn; payload.zscore_column_normalized = outputColumn; } else { payload.minmax_column = targetColumn; payload.minmax_column_normalized = outputColumn; } onSave(payload); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Normalization</h2>
-      <div><label className="block text-sm font-medium text-gray-700">Normalization Type</label><select className="w-full border px-3 py-2 rounded" value={normalizeType} onChange={(e) => setNormalizeType(e.target.value)}><option value="zscore">Z-Score</option><option value="minmax">Min-Max</option></select></div>
-      <div><label className="block text-sm font-medium text-gray-700">Target Column</label><select className="w-full border px-3 py-2 rounded" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
-      <div><label className="block text-sm font-medium text-gray-700">Output Column</label><input type="text" className="w-full border px-3 py-2 rounded" value={outputColumn} onChange={(e) => setOutputColumn(e.target.value)} placeholder="e.g. total_amount_zscore" /></div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Normalization</h2>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Normalization Type</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={normalizeType} onChange={(e) => setNormalizeType(e.target.value)}><option value="zscore">Z-Score</option><option value="minmax">Min-Max</option></select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Target Column</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => (<option key={col} value={col}>{col}</option>))}</select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Output Column</label><input type="text" className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500" value={outputColumn} onChange={(e) => setOutputColumn(e.target.value)} placeholder="e.g. total_amount_zscore" /></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -253,13 +254,13 @@ const SourceConfigModal = ({ isOpen, onClose, onSave, initialData, accessToken, 
   const handleSave = () => { onSave({ database, schema, table, columns: columns.join(', ') }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Source</h2>
-      <select className="w-full border px-3 py-2 rounded" value={database} onChange={(e) => setDatabase(e.target.value)}><option value="">Select Database</option>{databases.map(db => <option key={db} value={db}>{db}</option>)}</select>
-      <select className="w-full border px-3 py-2 rounded" value={schema} onChange={(e) => setSchema(e.target.value)}><option value="">Select Schema</option>{schemas.map(s => <option key={s} value={s}>{s}</option>)}</select>
-      <select className="w-full border px-3 py-2 rounded" value={table} onChange={(e) => setTable(e.target.value)}><option value="">Select Table</option>{tables.map(t => <option key={t} value={t}>{t}</option>)}</select>
-      <label className="block text-sm font-medium text-gray-700 mt-2">Select Columns (Hold Ctrl/Cmd to select multiple)</label>
-      <select multiple className="w-full border px-3 py-2 rounded h-24" value={columns} onChange={(e) => setColumns(Array.from(e.target.selectedOptions, o => o.value))}>{columnsList.map(col => <option key={col} value={col}>{col}</option>)}</select>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Source</h2>
+      <select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={database} onChange={(e) => setDatabase(e.target.value)}><option value="">Select Database</option>{databases.map(db => <option key={db} value={db}>{db}</option>)}</select>
+      <select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={schema} onChange={(e) => setSchema(e.target.value)}><option value="">Select Schema</option>{schemas.map(s => <option key={s} value={s}>{s}</option>)}</select>
+      <select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={table} onChange={(e) => setTable(e.target.value)}><option value="">Select Table</option>{tables.map(t => <option key={t} value={t}>{t}</option>)}</select>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Select Columns (Hold Ctrl/Cmd to select multiple)</label>
+      <select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={columns} onChange={(e) => setColumns(Array.from(e.target.selectedOptions, o => o.value))}>{columnsList.map(col => <option key={col} value={col}>{col}</option>)}</select>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -291,17 +292,17 @@ const JoinConfigModal = ({ isOpen, onClose, onSave, initialData, availableNodes,
   const handleSave = () => { onSave({ left_step: leftStep, right_step: rightStep, left_key: leftKey, right_key: rightKey, join_type: joinType, left_columns: leftColumns, right_columns: rightColumns }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Join</h2>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Join</h2>
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="block text-sm font-medium text-gray-700">Left Key (from connected source)</label><select className="w-full border px-3 py-2 rounded" value={leftKey} onChange={(e) => setLeftKey(e.target.value)}><option value="">Select Left Key</option>{leftInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
-        <div><label className="block text-sm font-medium text-gray-700">Right Key (from connected source)</label><select className="w-full border px-3 py-2 rounded" value={rightKey} onChange={(e) => setRightKey(e.target.value)}><option value="">Select Right Key</option>{rightInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
+        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Left Key (from connected source)</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={leftKey} onChange={(e) => setLeftKey(e.target.value)}><option value="">Select Left Key</option>{leftInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
+        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Right Key (from connected source)</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={rightKey} onChange={(e) => setRightKey(e.target.value)}><option value="">Select Right Key</option>{rightInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
       </div>
-      <div><label className="block text-sm font-medium text-gray-700">Join Type</label><select className="w-full border px-3 py-2 rounded" value={joinType} onChange={(e) => setJoinType(e.target.value)}><option value="INNER">INNER</option><option value="LEFT">LEFT</option><option value="RIGHT">RIGHT</option><option value="FULL">FULL</option></select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Join Type</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={joinType} onChange={(e) => setJoinType(e.target.value)}><option value="INNER">INNER</option><option value="LEFT">LEFT</option><option value="RIGHT">RIGHT</option><option value="FULL">FULL</option></select></div>
       <div className="grid grid-cols-2 gap-4">
-        <div><label className="block text-sm font-medium text-gray-700">Left Columns (to output)</label><select multiple className="w-full border px-3 py-2 rounded h-24" value={leftColumns} onChange={(e) => setLeftColumns(Array.from(e.target.selectedOptions, o => o.value))}>{leftInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
-        <div><label className="block text-sm font-medium text-gray-700">Right Columns (to output)</label><select multiple className="w-full border px-3 py-2 rounded h-24" value={rightColumns} onChange={(e) => setRightColumns(Array.from(e.target.selectedOptions, o => o.value))}>{rightInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
+        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Left Columns (to output)</label><select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={leftColumns} onChange={(e) => setLeftColumns(Array.from(e.target.selectedOptions, o => o.value))}>{leftInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
+        <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Right Columns (to output)</label><select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={rightColumns} onChange={(e) => setRightColumns(Array.from(e.target.selectedOptions, o => o.value))}>{rightInputCols.map(col => <option key={col} value={col}>{col}</option>)}</select></div>
       </div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -314,11 +315,11 @@ const AggregateKpiConfigModal = ({ isOpen, onClose, onSave, initialData, availab
   const handleSave = () => { onSave({ columns, agg_type: aggType, kpi_name: kpiName }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Aggregate KPI</h2>
-      <div><label className="block text-sm font-medium text-gray-700">Columns to Aggregate</label><select multiple className="w-full border px-3 py-2 rounded h-24" value={columns} onChange={(e) => setColumns(Array.from(e.target.selectedOptions, o => o.value))}>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select></div>
-      <div><label className="block text-sm font-medium text-gray-700">Aggregation Type</label><select className="w-full border px-3 py-2 rounded" value={aggType} onChange={(e) => setAggType(e.target.value)}><option value="SUM">SUM</option><option value="AVG">AVG</option><option value="COUNT">COUNT</option><option value="MIN">MIN</option><option value="MAX">MAX</option></select></div>
-      <div><label className="block text-sm font-medium text-gray-700">New KPI Name</label><input type="text" className="w-full border px-3 py-2 rounded" value={kpiName} onChange={(e) => setKpiName(e.target.value)} /></div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Aggregate KPI</h2>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Columns to Aggregate</label><select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={columns} onChange={(e) => setColumns(Array.from(e.target.selectedOptions, o => o.value))}>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Aggregation Type</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={aggType} onChange={(e) => setAggType(e.target.value)}><option value="SUM">SUM</option><option value="AVG">AVG</option><option value="COUNT">COUNT</option><option value="MIN">MIN</option><option value="MAX">MAX</option></select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">New KPI Name</label><input type="text" className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={kpiName} onChange={(e) => setKpiName(e.target.value)} /></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -330,10 +331,10 @@ const SortConfigModal = ({ isOpen, onClose, onSave, initialData, availableInputC
   const handleSave = () => { onSave({ sort_column: sortColumn, sort_order: sortOrder }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Sort</h2>
-      <div><label className="block text-sm font-medium text-gray-700">Sort Column</label><select className="w-full border px-3 py-2 rounded" value={sortColumn} onChange={(e) => setSortColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select></div>
-      <div><label className="block text-sm font-medium text-gray-700">Sort Order</label><select className="w-full border px-3 py-2 rounded" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}><option value="ASC">ASC</option><option value="DESC">DESC</option></select></div>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Sort</h2>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Sort Column</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={sortColumn} onChange={(e) => setSortColumn(e.target.value)}><option value="">Select Column</option>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select></div>
+      <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Sort Order</label><select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}><option value="ASC">ASC</option><option value="DESC">DESC</option></select></div>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -382,22 +383,22 @@ const DestinationConfigModal = ({ isOpen, onClose, onSave, initialData, availabl
   const handleSave = () => { onSave({ database, schema, destination_table: destinationTable, columns: destinationColumns }); onClose(); };
   return (
     <Modal isOpen={isOpen} onClose={onClose} onDelete={onDelete} nodeId={nodeId}>
-      <h2 className="text-lg font-bold">Configure Destination</h2>
-      <select className="w-full border px-3 py-2 rounded" value={database} onChange={(e) => setDatabase(e.target.value)}><option value="">Select Database</option>{databases.map(db => <option key={db} value={db}>{db}</option>)}</select>
-      <select className="w-full border px-3 py-2 rounded" value={schema} onChange={(e) => setSchema(e.target.value)}><option value="">Select Schema</option>{schemas.map(s => <option key={s} value={s}>{s}</option>)}</select>
+      <h2 className="text-lg font-bold text-gray-900 dark:text-white">Configure Destination</h2>
+      <select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={database} onChange={(e) => setDatabase(e.target.value)}><option value="">Select Database</option>{databases.map(db => <option key={db} value={db}>{db}</option>)}</select>
+      <select className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={schema} onChange={(e) => setSchema(e.target.value)}><option value="">Select Schema</option>{schemas.map(s => <option key={s} value={s}>{s}</option>)}</select>
       <div>
-        <label className="block text-sm font-medium text-gray-700">table_name</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">table_name</label>
         <input
           type="text"
-          className="w-full border px-3 py-2 rounded"
+          className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
           value={destinationTable}
           onChange={(e) => setDestinationTable(e.target.value)}
           placeholder="Enter table name"
         />
       </div>
-      <label className="block text-sm font-medium text-gray-700 mt-2">Destination Columns (Select from available)</label>
-      <select multiple className="w-full border px-3 py-2 rounded h-24" value={destinationColumns} onChange={(e) => setDestinationColumns(Array.from(e.target.selectedOptions, o => o.value))}>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select>
-      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 text-white rounded">Save</button></div>
+      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">Destination Columns (Select from available)</label>
+      <select multiple className="w-full border border-gray-300 dark:border-gray-600 px-3 py-2 rounded h-24 bg-white dark:bg-gray-800 text-gray-900 dark:text-white" value={destinationColumns} onChange={(e) => setDestinationColumns(Array.from(e.target.selectedOptions, o => o.value))}>{availableInputColumns.map((col: string) => <option key={col} value={col}>{col}</option>)}</select>
+      <div className="flex justify-end mt-4"><button onClick={handleSave} className="px-4 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded">Save</button></div>
     </Modal>
   );
 };
@@ -680,15 +681,21 @@ export default function WorkflowBuilder({
     handleCloseModals();
   };
 
+  const [confirmDeleteNodeId, setConfirmDeleteNodeId] = useState<string | null>(null);
+
   const handleDeleteNode = useCallback((nodeIdToDelete: string) => {
-    if (window.confirm("Are you sure you want to delete this node and its connections?")) {
-      setNodes((nds) => nds.filter((node) => node.id !== nodeIdToDelete));
-      setEdges((eds) => eds.filter((edge) => edge.source !== nodeIdToDelete && edge.target !== nodeIdToDelete));
-      setIsWorkflowSaved(false); // Prop setter
-      handleCloseModals();
-      toast.success("Node and its connections deleted successfully!");
-    }
-  }, [setNodes, setEdges, setIsWorkflowSaved]);
+    setConfirmDeleteNodeId(nodeIdToDelete);
+  }, []);
+
+  const executeDeleteNode = useCallback(() => {
+    if (!confirmDeleteNodeId) return;
+    setNodes((nds) => nds.filter((node) => node.id !== confirmDeleteNodeId));
+    setEdges((eds) => eds.filter((edge) => edge.source !== confirmDeleteNodeId && edge.target !== confirmDeleteNodeId));
+    setIsWorkflowSaved(false); // Prop setter
+    setConfirmDeleteNodeId(null);
+    handleCloseModals();
+    toast.success("Node and its connections deleted successfully!");
+  }, [confirmDeleteNodeId, setNodes, setEdges, setIsWorkflowSaved]);
 
 
   const handleCloseModals = () => {
@@ -724,6 +731,23 @@ export default function WorkflowBuilder({
       >
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         <Controls />
+        {confirmDeleteNodeId && (
+          <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg p-3 shadow-lg border border-red-200 dark:border-red-800">
+            <span className="text-sm text-red-700 dark:text-red-300">Delete this node and its connections?</span>
+            <button
+              onClick={executeDeleteNode}
+              className="px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDeleteNodeId(null)}
+              className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         <MiniMap />
       </ReactFlow>
 

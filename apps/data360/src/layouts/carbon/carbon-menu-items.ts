@@ -20,6 +20,8 @@ import {
   PiCubeDuotone,
   PiChatCircleDuotone,
   PiChartLineDuotone,
+  PiFolderDuotone,
+  PiPresentationChartDuotone,
 } from 'react-icons/pi';
 import { atom } from 'jotai';
 
@@ -45,17 +47,32 @@ export interface MenuItemsType {
   name: string;
   title: string;
   icon: IconType;
+  color: string;
   menuItems: ItemType[];
-
 }
 
 export const carbonMenuItems: MenuItemsType[] = [
+  {
+    id: 1,
+    name: 'Account Overview',
+    title: 'Account Overview',
+    icon: PiHouseLineDuotone,
+    color: 'orange',
+    menuItems: [
+      {
+        name: 'Account Overview',
+        href: routes.accountOverview,
+        icon: PiHouseLineDuotone,
+      }
+    ]
+  },
   // 1. Connect Data
   {
     id: 1,
     name: 'Connect Data',
     title: 'Connect Data',
     icon: PiUserCircleDuotone,
+    color: 'blue',
     menuItems: [
       {
         name: 'Data Source Connection',
@@ -69,26 +86,14 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ]
   },
-  // 2. Mapping
-  {
-    id: 2,
-    name: 'Mapping',
-    title: 'Mapping',
-    icon: PiMapPinLineDuotone,
-    menuItems: [
-      {
-        name: 'View Mapping',
-        href: routes.exploreDesign.view,
-        icon: PiMapPinLineDuotone,
-      },
-    ],
-  },
+
   // 3. Explore & Design
   {
     id: 12,
     name: 'Explore & Design',
     title: 'Explore & Design',
     icon: PiGlobeDuotone,
+    color: 'violet',
     menuItems: [
       {
         name: 'Explore Design',
@@ -103,6 +108,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'Workflow',
     title: 'Workflow',
     icon: PiShootingStarDuotone,
+    color: 'amber',
     menuItems: [
       {
         name: 'View Workflow',
@@ -111,52 +117,69 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
+  // NOTE: "Deploy App" is intentionally NOT a top-level menu module.
+  // The deploy-app flow is reached from AI Intelligence → Snowpark Services
+  // (Container Services / Streamlit Apps), where app hosting + versioning
+  // actually live. The route /deploy-app still exists for deep-linking.
   // 5. Governance
   {
     id: 6,
     name: 'Governance',
     title: 'Governance',
     icon: PiUserGearDuotone,
+    color: 'rose',
     menuItems: [
       {
         name: 'Users',
-        href: routes.gouvernance.users,
+        href: routes.governance.users,
         icon: PiUserCircleDuotone,
       },
       {
         name: 'Roles',
-        href: routes.gouvernance.roles,
+        href: routes.governance.roles,
         icon: PiBriefcaseDuotone,
       },
       {
         name: 'Grants',
-        href: routes.gouvernance.grants,
+        href: routes.governance.grants,
         icon: PiCurrencyDollarDuotone,
       },
       {
         name: 'Policies',
         description: 'RLS, Network & Masking policies',
-        href: routes.gouvernance.policies,
+        href: routes.governance.policies,
         icon: PiShieldCheckDuotone,
       },
       {
         name: 'Security Matrix',
-        href: routes.gouvernance.securityMatrix,
+        href: routes.governance.securityMatrix,
         icon: PiShieldCheckDuotone,
+      },
+      {
+        name: 'Projects',
+        href: routes.governance.projects,
+        icon: PiFolderDuotone,
+      },
+      {
+        name: 'Authentication',
+        href: routes.governance.oauth,
+        icon: PiLockKeyDuotone,
       },
     ],
   },
-  // 6. Business Reporting
+  // 6. BI Dashboard
   {
     id: 4,
-    name: 'Business Reporting',
-    title: 'Business Reporting',
+    name: 'BI Dashboard',
+    title: 'BI Dashboard',
     icon: PiChartBarDuotone,
+    color: 'cyan',
     menuItems: [
       {
-        name: 'BI Reporting',
-        href: routes.biReporting.viewReporting,
-        icon: PiCurrencyDollarDuotone,
+        name: 'BI Dashboard',
+        description: 'Project-based BI dashboards',
+        href: routes.biDashboard.view,
+        icon: PiChartBarDuotone,
       },
     ],
   },
@@ -166,6 +189,7 @@ export const carbonMenuItems: MenuItemsType[] = [
     name: 'AI Intelligence',
     title: 'AI Intelligence',
     icon: PiBrainDuotone,
+    color: 'purple',
     menuItems: [
       {
         name: 'Semantic Models',
@@ -181,12 +205,13 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 8. Data Health
+  // 8. Data Quality
   {
     id: 5,
-    name: 'Data Health',
-    title: 'Data Health',
+    name: 'Data Quality',
+    title: 'Data Quality',
     icon: PiCheckCircleDuotone,
+    color: 'green',
     menuItems: [
       {
         name: 'Quality Reports',
@@ -195,12 +220,14 @@ export const carbonMenuItems: MenuItemsType[] = [
       },
     ],
   },
-  // 9. Observability
+  // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
+  // 11. Observability
   {
     id: 8,
     name: 'Observability',
     title: 'Observability',
     icon: PiChartLineDuotone,
+    color: 'orange',
     menuItems: [
       {
         name: 'Dashboard',

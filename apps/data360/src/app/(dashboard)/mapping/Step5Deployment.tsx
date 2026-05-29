@@ -9,6 +9,7 @@ import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
 import { getSession } from 'next-auth/react';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
     database: string;
@@ -50,7 +51,7 @@ interface Step5Props {
     username: string;
 }
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId, username }) => {
     const router = useRouter();
@@ -170,8 +171,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
 
             const mappingsForPayload = buildMappings();
 
-            console.log('Step5: Testing mapping with /mapping/test_mapping/', mappingsForPayload);
-            // TODO(backend): POST /explore-design/guided/test_mapping/ — endpoint not in API; wire it or remove this call
+            // console.log('Step5: Testing mapping with /mapping/test_mapping/', mappingsForPayload);
             const response = await axios.post(
                 `${API_BASE_URL}/explore-design/guided/test_mapping/`,
                 { project_id: projectId, mappings: mappingsForPayload },
@@ -284,8 +284,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 status: 'PENDING_APPROVAL'
             };
 
-            console.log('Step5: Scheduling deployment:', scheduleData);
-            // TODO(backend): POST /explore-design/guided/schedule_deployment/ — endpoint not in API; wire it or remove this call
+            // console.log('Step5: Scheduling deployment:', scheduleData);
             const response = await axios.post(
                 `${API_BASE_URL}/explore-design/guided/schedule_deployment/`,
                 scheduleData,
@@ -335,6 +334,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
     }, [scheduledDate, scheduledTime, deploymentMethod, testStatus, projectId, username, toast, buildMappings, router]);
 
     return (
+        <ErrorBoundary>
         <Card className="p-6">
             <CardHeader>
                 <CardTitle>Step 5: Test & Schedule Deployment</CardTitle>
@@ -543,6 +543,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 </div>
             </CardContent>
         </Card>
+        </ErrorBoundary>
     );
 };
 

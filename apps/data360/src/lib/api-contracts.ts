@@ -281,6 +281,33 @@ export const API_CONTRACTS = {
       getUrl: () => `${API_CONFIG.BASE_URL}/user/login/`,
     },
   },
+  user: {
+    getProfile: {
+      method: 'GET' as const,
+      path: '/user/profile',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile`,
+    },
+    updateProfile: {
+      method: 'PUT' as const,
+      path: '/user/profile',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile`,
+    },
+    changePassword: {
+      method: 'POST' as const,
+      path: '/user/profile/password',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/password`,
+    },
+    getUserRoles: {
+      method: 'GET' as const,
+      path: '/user/profile/roles',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/roles`,
+    },
+    changeUserRole: {
+      method: 'POST' as const,
+      path: '/user/profile/role',
+      getUrl: () => `${API_CONFIG.BASE_URL}/user/profile/role`,
+    },
+  },
   dashboard: {
     meModules: {
       method: 'GET' as const,
@@ -315,7 +342,7 @@ export const API_CONTRACTS = {
       method: 'POST' as const,
       path: '/connect/stages/{stage_name}/upload',
       getUrl: (stageName: string, overwrite?: boolean) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload`);
+        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${stageName}/upload`);
         if (overwrite !== undefined) {
           url.searchParams.set('overwrite', String(overwrite));
         }
@@ -335,7 +362,7 @@ export const API_CONTRACTS = {
           overwrite?: boolean;
         }
       ) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/upload-and-load`);
+        const url = new URL(`${API_CONFIG.BASE_URL}/connect/stages/${stageName}/upload-and-load`);
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined) {
             url.searchParams.set(key, String(value));
@@ -352,7 +379,7 @@ export const API_CONTRACTS = {
     listStageFiles: {
       method: 'GET' as const,
       path: '/connect/stages/{stage_name}/files',
-      getUrl: (stageName: string) => `${API_CONFIG.BASE_URL}/connect/stages/${encodeURIComponent(stageName)}/files`,
+      getUrl: (stageName: string) => `${API_CONFIG.BASE_URL}/connect/stages/${stageName}/files`,
     },
   },
   exploreDesign: {
@@ -408,6 +435,57 @@ export const API_CONTRACTS = {
       getUrl: (deploymentId: string) => `${API_CONFIG.BASE_URL}/explore-design/deployments/${encodeURIComponent(deploymentId)}/execute`,
     },
   },
+  /** New API v1 endpoints for unified project management + explore deploy */
+  exploreDesignV1: {
+    /** POST /explore-design — Create explore project */
+    createExploreProject: {
+      method: 'POST' as const,
+      path: '/explore-design',
+      getUrl: () => `${API_CONFIG.BASE_URL}/explore-design`,
+    },
+    /** POST /explore-design/{projectId}/deploy — Quick deploy */
+    quickDeploy: {
+      method: 'POST' as const,
+      path: '/explore-design/{projectId}/deploy',
+      getUrl: (projectId: string, versionId: string) =>
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deploy?version_id=${encodeURIComponent(versionId)}`,
+    },
+    /** POST /explore-design/{projectId}/deployments — Request deployment */
+    requestDeployment: {
+      method: 'POST' as const,
+      path: '/explore-design/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deployments`,
+    },
+    /** GET /explore-design/{projectId}/deployments — List deployments */
+    listDeployments: {
+      method: 'GET' as const,
+      path: '/explore-design/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/explore-design/${encodeURIComponent(projectId)}/deployments`,
+    },
+  },
+  projectsV1: {
+    /** POST /projects — Create project */
+    createProject: {
+      method: 'POST' as const,
+      path: '/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/projects`,
+    },
+    /** GET /projects — List projects */
+    listProjects: {
+      method: 'GET' as const,
+      path: '/projects',
+      getUrl: () => `${API_CONFIG.BASE_URL}/projects`,
+    },
+    /** POST /projects/{projectId}/deployments — Request unified deployment */
+    requestDeployment: {
+      method: 'POST' as const,
+      path: '/projects/{projectId}/deployments',
+      getUrl: (projectId: string) =>
+        `${API_CONFIG.BASE_URL}/projects/${encodeURIComponent(projectId)}/deployments`,
+    },
+  },
   mapping: {
     /** List projects: same as exploreDesign.getProjects (GET /explore-design/projects) for cross-module consistency. */
     getProjects: {
@@ -419,33 +497,31 @@ export const API_CONTRACTS = {
   workflow: {
     createWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/create_workflow/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/create_workflow/`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
     getWorkflows: {
       method: 'GET' as const,
-      path: '/workflow/get_workflows/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/get_workflows/`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
     executeWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/execute_workflow/',
-      getUrl: (workflowName: string) => {
-        const url = new URL(`${API_CONFIG.BASE_URL}/workflow/execute_workflow/`);
-        url.searchParams.set('workflow_name', workflowName);
-        return url.toString();
-      },
+      path: '/workflow/{workflow_id}/execute',
+      getUrl: (workflowId: string) =>
+        `${API_CONFIG.BASE_URL}/workflow/${encodeURIComponent(workflowId)}/execute`,
     },
     scheduleDeployment: {
       method: 'POST' as const,
-      path: '/workflow/deployments/schedule',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/deployments/schedule`,
+      path: '/workflow/{workflow_id}/deployments',
+      getUrl: (workflowId: string) =>
+        `${API_CONFIG.BASE_URL}/workflow/${encodeURIComponent(workflowId)}/deployments`,
     },
-    /** Backend: POST /workflow/rename_workflow/ */
+    /** Backend: POST /workflow */
     renameWorkflow: {
       method: 'POST' as const,
-      path: '/workflow/rename_workflow/',
-      getUrl: () => `${API_CONFIG.BASE_URL}/workflow/rename_workflow/`,
+      path: '/workflow',
+      getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
   },
   biRetail: {

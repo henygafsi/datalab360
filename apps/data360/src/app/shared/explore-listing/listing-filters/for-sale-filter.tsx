@@ -36,7 +36,7 @@ export default function ForSaleFilter({
             setOpen(false);
             applyFilter('for_sale', selected);
           }}
-          className="mt-5 w-full rounded-md dark:bg-gray-50 dark:text-white"
+          className="mt-5 w-full rounded-md dark:bg-gray-800 dark:text-white"
         >
           Apply
         </Button>

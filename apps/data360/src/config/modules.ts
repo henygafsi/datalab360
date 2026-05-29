@@ -119,6 +119,8 @@ export const MODULES: ModuleConfig[] = [
     visible: true
   },
 
+  // Data Engineering & Developer Tools — merged into Explore & Design and Workflow
+
   // Hidden modules (not shown in menu but can be granted)
   { 
     id: 2, 
@@ -144,9 +146,9 @@ export const MODULES: ModuleConfig[] = [
   { 
     id: 9, 
     name: 'Observability', 
-    apiName: 'observability', 
-    description: 'System monitoring',
-    visible: false
+    apiName: 'observability',
+    description: 'System monitoring & cross-module lineage',
+    visible: true
   },
 ];
 
@@ -207,9 +209,9 @@ export function expandModulesToIncludeSubModules(moduleApiNames: string[]): stri
   const expanded = new Set<string>(moduleApiNames);
   
   moduleApiNames.forEach(apiName => {
-    const module = moduleByApiName.get(apiName);
-    if (module?.subModules) {
-      module.subModules.forEach(sub => {
+    const mod = moduleByApiName.get(apiName);
+    if (mod?.subModules) {
+      mod.subModules.forEach(sub => {
         expanded.add(sub.apiName);
       });
     }

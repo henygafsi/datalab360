@@ -1,9 +1,13 @@
 'use client';
-// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + getProjectEvents/recordDesignEvents (explore-design) → API → backend
-// ////dependency//// page → services.mapping (getDatabases, getSchemas, getTables, getTableColumns), services.explore-design, services.gouvernance (policies)
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+// Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
+// ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
+import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import { useAtomValue } from 'jotai';
+import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { Button, Badge, Input, Modal, Text, Tooltip } from 'rizzui';
 import { toast } from 'react-hot-toast';
+import { motion } from 'framer-motion';
 import {
   Search, Database, Table2, Columns3, Key, Shield, RefreshCw,
   Settings, ChevronRight, ChevronDown, Filter, Download, Upload,
@@ -11,31 +15,63 @@ import {
   Clock, History, Lock, Eye, Play, Save, X, Plus, Minus, Trash2,
   FileText, BookOpen, Sparkles, Zap, GitBranch, ArrowRight, ArrowLeftRight,
   Workflow, Rocket, Undo2, Redo2, PanelLeft, PanelRight, Maximize2, Minimize2,
-  WifiOff, BarChart3, MinusCircle, Link2, TableIcon
+  WifiOff, BarChart3, MinusCircle, Link2, TableIcon, Bell, Cloud, Snowflake, Timer,
+  BookTemplate, Activity, AlertCircle, MoreVertical, FolderOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTables } from '@/app/services/mapping/getTables';
-import { getTableColumns } from '@/app/services/mapping/fetch_tables';
+import { getTableColumns, TableColumnsTimeoutError } from '@/app/services/mapping/fetch_tables';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
-import { getMaskingPolicies, MaskingPolicy } from '@/app/services/gouvernance/policies';
+import { getMaskingPolicies, MaskingPolicy } from '@/app/services/governance/policies';
 import {
-  getProjectEvents,
-  recordDesignEvents,
-  fetchRelationships,
   getRecentDeploymentErrors,
-  TableRelationship
+  TableRelationship,
+  getColumnClassification,
+  discoverRelationships,
+  listDynamicTables,
+  suspendDynamicTable,
+  resumeDynamicTable,
+  refreshDynamicTable,
+  dropDynamicTable,
+  listStreams,
+  getStreamData,
+  dropStream,
+  listAlerts,
+  dropAlert,
 } from '@/app/services/explore-design';
+import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeRename, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
+import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
+import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { getApiErrorMessage } from '@/lib/api-client';
+import ProjectGatePanel from '@/components/project-onboarding/ProjectGatePanel';
+import { useAuth } from '@/hooks/useAuth';
+import { useSession } from 'next-auth/react';
+import type { ContributorRole, SchemaHealthResult, ColumnMapping as BackendColumnMapping } from '@/app/services/api/types';
 import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/components/VirtualizedTableList';
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
-import ModelingCanvas from './components/ModelingCanvas';
+import dynamic from 'next/dynamic';
+const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
+const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
+const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
+import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
+import AiGuidedModelButton from './components/ai-guided/AiGuidedModelButton';
+import AiGuidedModelWizard from './components/ai-guided/AiGuidedModelWizard';
+import SelfServeIngestionModal from './components/SelfServeIngestionModal';
 import ProjectSelector from './components/ProjectSelector';
+import UnifiedProjectWizard, {
+  type UnifiedProjectWizardResult,
+} from '@/components/project-onboarding/UnifiedProjectWizard';
+import ManualAiTemplateFork, {
+  type BuildMode,
+} from '@/components/project-onboarding/ManualAiTemplateFork';
+import HistoryRail from './components/HistoryRail';
 import { ProjectContextPanel, SchemaVersionDisplaySwitch } from '@/app/shared/project-context';
-import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
   useEventStore,
   createPrimaryKeyEvent,
@@ -49,8 +85,43 @@ import SensitiveColumnModal from './components/SensitiveColumnModal';
 import ColumnExclusionModal from './components/ColumnExclusionModal';
 import TablePreviewModal from './components/TablePreviewModal';
 import TableProfileModal from './components/TableProfileModal';
-import CreateTableModal from './components/CreateTableModal';
+import CreateTableModal, { SnowflakeTableType } from './components/CreateTableModal';
 import RelationshipModal from './components/RelationshipModal';
+import AccessManagementSlot from './components/AccessManagementSlot';
+import ModelingTemplateModal, { type ModelingChoice } from './components/ModelingTemplateModal';
+import DwhLocationPickerModal from './components/DwhLocationPickerModal';
+// Data Engineering modals (merged from data-engineering module)
+import DynamicTableModal from './components/DynamicTableModal';
+import StreamModal from './components/StreamModal';
+import AlertModal from './components/AlertModal';
+import EventTableModal from './components/EventTableModal';
+import HybridTableModal from './components/HybridTableModal';
+import PolicyAssignmentPanel from './components/PolicyAssignmentPanel';
+import IngestionConfigPanel from './components/IngestionConfigPanel';
+import TemplateLibrary from './components/TemplateLibrary';
+import SqlDiffViewer from './components/SqlDiffViewer';
+import IngestionResultsPanel from './components/IngestionResultsPanel';
+import DagViewer from './components/DagViewer';
+import CascadeConfirmModal from './components/CascadeConfirmModal';
+import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
+// PreCheckGate, DryRunPanel, PostVerifyBanner are now integrated inside DeploymentValidation's step flow
+import WhereClauseBuilder from './components/WhereClauseBuilder';
+import QualityGatesPanel from './components/QualityGatesPanel';
+import IngestionDryRunPanel from './components/IngestionDryRunPanel';
+import ConflictResolutionModal, { EventConflict } from './components/ConflictResolutionModal';
+import AuditTrailPanel from './components/AuditTrailPanel';
+import EventTemplatePickerModal from './components/EventTemplatePickerModal';
+import AiFeatureToggle from './components/AiFeatureToggle';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { useAiAnalysis } from './hooks/useAiAnalysis';
+import { useAiFeatures } from './stores/ai-store';
+import {
+  DWH_TEMPLATE_TABLES,
+  DWH_TEMPLATE_RELATIONSHIPS,
+  buildTemplateTableItems,
+  buildTemplateColumnsMap,
+  buildTemplateRelationships,
+} from './data/dwh-template-data';
 
 // Types
 interface SourceConfig {
@@ -67,7 +138,9 @@ interface GlobalSearchResult {
   schema?: string;
 }
 
-// View modes
+// View modes — only `catalog` and `modeling` are actually rendered as tabs.
+// The legacy `'semantic'` member was kept around for an old experimental
+// view that was removed; dropping it here so the type matches the UI.
 type ViewMode = 'catalog' | 'modeling';
 
 // Type for masking policy display (mapped from MaskingPolicy)
@@ -90,6 +163,7 @@ const SchemaBadge: React.FC<{
       className="flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-xs group"
     >
       <button
+        aria-label={isExpanded ? 'Collapse schema details' : 'Expand schema details'}
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-transform"
         onClick={() => setIsExpanded(!isExpanded)}
       >
@@ -102,12 +176,14 @@ const SchemaBadge: React.FC<{
         <span className="font-medium">{schemaName}</span>
       </span>
       <button
+        aria-label="Schema settings"
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
         onClick={onSettings}
       >
         <Settings className="h-3 w-3" />
       </button>
       <button
+        aria-label="Remove schema"
         className="p-0.5 rounded hover:bg-blue-200 dark:hover:bg-blue-800"
         onClick={onRemove}
       >
@@ -135,11 +211,12 @@ const BulkActionsBar: React.FC<{
 }) => {
   const [showIngestionDropdown, setShowIngestionDropdown] = useState(false);
 
-  if (selectedCount === 0) return null;
+  // Only show batch action bar for multi-select (2+). Single table uses inline icon actions.
+  if (selectedCount < 2) return null;
 
   return (
-    <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50">
-      <div className="flex items-center gap-3 px-6 py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-full shadow-2xl">
+    <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 max-w-[95vw]">
+      <div className="flex items-center gap-2 sm:gap-3 px-4 sm:px-6 py-2.5 sm:py-3 bg-slate-900 dark:bg-slate-800 text-white rounded-full shadow-2xl flex-nowrap whitespace-nowrap overflow-x-auto scrollbar-hide">
         <span className="font-medium">{selectedCount} tables selected</span>
         <div className="w-px h-6 bg-slate-600" />
 
@@ -213,12 +290,100 @@ const BulkActionsBar: React.FC<{
         <div className="w-px h-6 bg-slate-600" />
 
         <button
+          aria-label="Clear selection"
           className="p-2 rounded-full hover:bg-slate-700 transition-colors"
           onClick={onClearSelection}
         >
           <X className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  );
+};
+
+// Overflow menu — holds secondary toolbar actions so the page header can
+// fit on one line. Click toggles a small popover; click outside closes it.
+// Each item is a {label, icon, onClick, active?, disabled?} entry rendered
+// as a row with optional active highlight (e.g. when a panel is currently
+// open) so the user still has a visual indicator of toggle state.
+interface OverflowItem {
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  onClick: () => void;
+  active?: boolean;
+  disabled?: boolean;
+  /** Optional accent color (`'violet' | 'teal' | 'purple'`) when active. */
+  activeColor?: 'violet' | 'teal' | 'purple' | 'blue';
+}
+const OverflowMenu: React.FC<{ items: OverflowItem[] }> = ({ items }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <Tooltip content="More actions">
+        <button
+          aria-label="More actions"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className={cn(
+            'flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700',
+            open && 'bg-slate-100 dark:bg-slate-700',
+          )}
+        >
+          <MoreVertical className="h-4 w-4" />
+        </button>
+      </Tooltip>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-full z-40 mt-1 min-w-[200px] overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        >
+          {items.map((it) => {
+            const Icon = it.icon;
+            const activeAccent =
+              it.active && it.activeColor
+                ? {
+                    violet: 'text-violet-600 dark:text-violet-400',
+                    teal: 'text-teal-600 dark:text-teal-400',
+                    purple: 'text-purple-600 dark:text-purple-400',
+                    blue: 'text-blue-600 dark:text-blue-400',
+                  }[it.activeColor]
+                : '';
+            return (
+              <button
+                key={it.label}
+                role="menuitem"
+                disabled={it.disabled}
+                onClick={() => {
+                  it.onClick();
+                  setOpen(false);
+                }}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                  it.active
+                    ? 'bg-slate-50 dark:bg-slate-800'
+                    : 'hover:bg-slate-50 dark:hover:bg-slate-800',
+                )}
+              >
+                <Icon className={cn('h-3.5 w-3.5 text-slate-500', activeAccent)} />
+                <span className={cn('text-slate-700 dark:text-slate-200', activeAccent)}>{it.label}</span>
+                {it.active && (
+                  <span className="ml-auto text-[10px] uppercase text-slate-400">on</span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };
@@ -235,6 +400,7 @@ const CompactSourceSelector: React.FC<{
   isLoadingDatabases: boolean;
   isLoadingSchemas: boolean;
   stats: { total: number; configured: number; pending: number };
+  projectId: string | null;
 }> = ({
   databases,
   selectedDatabase,
@@ -246,9 +412,35 @@ const CompactSourceSelector: React.FC<{
   isLoadingDatabases,
   isLoadingSchemas,
   stats,
+  projectId,
 }) => {
   const [showSchemaDropdown, setShowSchemaDropdown] = useState(false);
   const [schemaContextMenu, setSchemaContextMenu] = useState<{ schema: string; x: number; y: number } | null>(null);
+
+  // Schema Health
+  const { isEnabled: isAiEnabled } = useAiFeatures();
+  const [healthResult, setHealthResult] = useState<SchemaHealthResult | null>(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthOpen, setHealthOpen] = useState(false);
+
+  const handleSchemaHealth = useCallback(async () => {
+    if (!projectId || !selectedDatabase || selectedSchemas.size === 0) return;
+    const schemaName = Array.from(selectedSchemas.keys())[0];
+    setHealthLoading(true);
+    try {
+      const result = await aiSchemaHealth(projectId, {
+        database: selectedDatabase,
+        schema: schemaName,
+      });
+      if (process.env.NODE_ENV === 'development') console.log('[SchemaHealth] API response:', result);
+      setHealthResult(result);
+      setHealthOpen(true);
+    } catch (err: unknown) {
+      toast.error('Schema health analysis failed');
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [projectId, selectedDatabase, selectedSchemas]);
 
   const schemaActions: Array<{
     id: string;
@@ -263,7 +455,11 @@ const CompactSourceSelector: React.FC<{
     { id: 'divider', label: '' }, // No icon for dividers
     { id: 'clone_schema', label: 'Clone Schema', icon: Layers },
     { id: 'export_ddl', label: 'Export DDL', icon: Download },
-    { id: 'divider2', label: '' }, // No icon for dividers
+    { id: 'divider2', label: '' },
+    { id: 'list_dynamic_tables', label: 'List Dynamic Tables', icon: RefreshCw },
+    { id: 'list_streams', label: 'List Streams', icon: GitBranch },
+    { id: 'list_alerts', label: 'List Alerts', icon: AlertTriangle },
+    { id: 'divider3', label: '' },
     { id: 'drop_schema', label: 'Drop Schema', icon: Trash2, danger: true },
   ];
 
@@ -294,6 +490,7 @@ const CompactSourceSelector: React.FC<{
       {selectedDatabase && (
         <div className="relative flex-1 max-w-[300px]">
           <button
+            aria-label="Select schemas"
             className="w-full flex items-center justify-between gap-2 px-2 py-1.5 text-xs border rounded dark:bg-slate-800 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700"
             onClick={() => setShowSchemaDropdown(!showSchemaDropdown)}
           >
@@ -341,6 +538,7 @@ const CompactSourceSelector: React.FC<{
                         <span>{schema}</span>
                       </button>
                       <button
+                        aria-label={`Settings for ${schema}`}
                         className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-slate-200 dark:hover:bg-slate-600"
                         onClick={(e) => {
                           e.stopPropagation();
@@ -386,6 +584,148 @@ const CompactSourceSelector: React.FC<{
           <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[10px] px-1.5">
             {stats.configured} ok
           </Badge>
+        )}
+
+        {/* Schema Health Button */}
+        {isAiEnabled('schema_health_score') && selectedDatabase && selectedSchemas.size > 0 && (
+          <div className="relative">
+            <Tooltip content="AI Schema Health Score" placement="bottom">
+              <button
+                className={cn(
+                  'flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium transition-colors',
+                  healthResult
+                    ? healthResult.overall_score >= 80
+                      ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                      : healthResult.overall_score >= 50
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                        : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                    : 'bg-purple-50 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+                )}
+                onClick={() => healthResult ? setHealthOpen(!healthOpen) : handleSchemaHealth()}
+                disabled={healthLoading}
+              >
+                {healthLoading ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Activity className="h-3 w-3" />
+                )}
+                {healthResult ? `${healthResult.overall_score ?? '?'}` : 'Health'}
+              </button>
+            </Tooltip>
+
+            {/* Health Results Popover */}
+            {healthOpen && healthResult && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHealthOpen(false)} />
+                <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-lg shadow-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      Schema Health
+                    </span>
+                    <button onClick={() => setHealthOpen(false)} className="p-0.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded">
+                      <X className="h-3 w-3 text-slate-400" />
+                    </button>
+                  </div>
+
+                  {/* Overall Score */}
+                  {(healthResult.overall_score != null) ? (
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className={cn(
+                        'text-2xl font-bold',
+                        healthResult.overall_score >= 80 ? 'text-green-600' :
+                        healthResult.overall_score >= 50 ? 'text-amber-600' : 'text-red-600'
+                      )}>
+                        {healthResult.overall_score}
+                      </div>
+                      <div className="text-[10px] text-slate-500">/ 100</div>
+                      <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            healthResult.overall_score >= 80 ? 'bg-green-500' :
+                            healthResult.overall_score >= 50 ? 'bg-amber-500' : 'bg-red-500'
+                          )}
+                          style={{ width: `${healthResult.overall_score}%` }}
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-slate-500 mb-3">
+                      No score available — check console for API response shape
+                    </div>
+                  )}
+
+                  {/* Sub Scores — handle both object-of-objects and flat formats */}
+                  {healthResult.sub_scores && Object.keys(healthResult.sub_scores).length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {Object.entries(healthResult.sub_scores).map(([key, val]: [string, any]) => (
+                        <div key={key} className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-600 dark:text-slate-400 capitalize">
+                            {key.replace(/_/g, ' ')}
+                          </span>
+                          <span className={cn(
+                            'font-medium',
+                            (val?.score ?? val) >= 80 ? 'text-green-600 dark:text-green-400' :
+                            (val?.score ?? val) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+                          )}>
+                            {val?.score ?? val}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {healthResult.recommendations?.length > 0 && (
+                    <div className="border-t dark:border-slate-700 pt-2">
+                      <div className="text-[10px] font-medium text-slate-500 mb-1">Recommendations</div>
+                      <ul className="space-y-1">
+                        {healthResult.recommendations.slice(0, 3).map((rec: any, i: number) => (
+                          <li key={i} className="text-[10px] text-slate-600 dark:text-slate-400 flex gap-1">
+                            <span className="text-amber-500 mt-px flex-shrink-0">*</span>
+                            <span>{typeof rec === 'string' ? rec : JSON.stringify(rec)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Raw data fallback — show all top-level keys not yet displayed */}
+                  {Object.entries(healthResult)
+                    .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                    .filter(([, v]) => v != null && typeof v !== 'object')
+                    .length > 0 && (
+                    <div className="border-t dark:border-slate-700 pt-2 mt-2 space-y-1">
+                      {Object.entries(healthResult)
+                        .filter(([k]) => !['overall_score', 'sub_scores', 'recommendations', 'database', 'schema', 'cortex_credits'].includes(k))
+                        .filter(([, v]) => v != null && typeof v !== 'object')
+                        .map(([k, v]) => (
+                          <div key={k} className="flex items-center justify-between text-[10px]">
+                            <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}</span>
+                            <span className="text-slate-700 dark:text-slate-300 font-medium">{String(v)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+
+                  {/* Credits */}
+                  <div className="mt-2 pt-2 border-t dark:border-slate-700 flex items-center justify-between">
+                    <span className="text-[9px] text-slate-400">{healthResult.database || ''}.{healthResult.schema || ''}</span>
+                    <span className="text-[9px] text-slate-400">{healthResult.cortex_credits ?? ''} credits</span>
+                  </div>
+
+                  {/* Re-run */}
+                  <button
+                    className="mt-2 w-full text-[10px] text-center py-1 rounded bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300"
+                    onClick={handleSchemaHealth}
+                    disabled={healthLoading}
+                  >
+                    {healthLoading ? 'Analyzing...' : 'Re-analyze'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
 
@@ -443,6 +783,7 @@ const GlobalSearch: React.FC<{
         <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
         <input
           type="text"
+          aria-label="Search tables and columns"
           placeholder="Search tables, columns..."
           className="w-full pl-8 pr-3 py-1.5 text-sm border rounded dark:bg-slate-800 dark:border-slate-700 focus:ring-1 focus:ring-blue-500 focus:border-transparent"
           value={value}
@@ -452,6 +793,7 @@ const GlobalSearch: React.FC<{
         />
         {value && (
           <button
+            aria-label="Clear search"
             className="absolute right-2 top-1/2 transform -translate-y-1/2"
             onClick={() => onChange('')}
           >
@@ -497,7 +839,15 @@ function RecentDeploymentErrorsSlot() {
     }).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
-  if (loading) return <div className="p-4 text-sm text-slate-500">Loading…</div>;
+  if (loading) return (
+    <div className="space-y-4 p-6">
+      <div className="h-8 w-48 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+      <div className="grid grid-cols-3 gap-4">
+        {[1,2,3].map(i => <div key={i} className="h-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />)}
+      </div>
+      <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+    </div>
+  );
   if (errors.length === 0) return <div className="p-4 text-sm text-slate-500">No recent deployment errors.</div>;
   return (
     <div className="p-4 space-y-2 max-h-[300px] overflow-auto">
@@ -513,16 +863,104 @@ function RecentDeploymentErrorsSlot() {
   );
 }
 
+// Memoized classification badge (avoids IIFE closure per column in render loop)
+const ClassificationBadge = React.memo(function ClassificationBadge({
+  tableId, columnName, classifications,
+}: {
+  tableId: string;
+  columnName: string;
+  classifications: Map<string, Record<string, string>>;
+}) {
+  const cls = classifications.get(tableId)?.[columnName];
+  if (!cls) return null;
+  const upper = cls.toUpperCase();
+  if (upper === 'PII' || upper === 'PII_CANDIDATE') return <Badge className="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 text-[9px] font-medium">PII</Badge>;
+  if (upper === 'MEASURE') return <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[9px] font-medium">Measure</Badge>;
+  if (upper === 'DIMENSION') return <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 text-[9px] font-medium">Dimension</Badge>;
+  if (upper === 'DATE_KEY') return <Badge className="bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400 text-[9px] font-medium">Date</Badge>;
+  if (upper === 'IDENTIFIER' || upper === 'FOREIGN_KEY') return <Badge className="bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400 text-[9px] font-medium">FK</Badge>;
+  if (upper === 'FLAG') return <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[9px] font-medium">Flag</Badge>;
+  if (upper === 'AUDIT') return <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300 text-[9px] font-medium">Audit</Badge>;
+  return <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px]">{cls}</Badge>;
+});
+
+// Single-pass column categorization (avoids 3 separate filter+map chains)
+function categorizeColumns(columns: ColumnInfo[]) {
+  const primaryKeys: string[] = [];
+  const nullable: string[] = [];
+  const sensitive: string[] = [];
+  for (const c of columns) {
+    if (c.isPrimaryKey) primaryKeys.push(c.name);
+    if (c.isNullable) nullable.push(c.name);
+    if (c.isSensitive) sensitive.push(c.name);
+  }
+  return { primaryKeys, nullable, sensitive };
+}
+
 // Main Page Component
 export default function ExploreDesignPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { username: currentUsername } = useAuth();
+  const { data: sessionData } = useSession();
+  const sessionRole = (sessionData?.user as any)?.role as string | undefined;
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
 
-  // Project State
+  // SSE cache invalidation: increment key to trigger cascading data reloads
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  const [sseRefreshKey, setSseRefreshKey] = useState(0);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const relevantKeys = [CACHE_KEYS.PROJECTS, CACHE_KEYS.TABLES, CACHE_KEYS.DATABASES, CACHE_KEYS.SCHEMAS, CACHE_KEYS.DEPLOYMENTS, CACHE_KEYS.DYNAMIC_TABLES, CACHE_KEYS.STREAMS];
+    const shouldRefresh = lastInvalidation.keys.some((k: string) => relevantKeys.includes(k as any));
+    if (shouldRefresh) {
+      setSseRefreshKey(prev => prev + 1);
+    }
+  }, [lastInvalidation]);
+
+  // Project State — pre-fill from ?project_id= query param or last used project
+  const urlProjectId = searchParams.get('project_id');
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [selectedProjectName, setSelectedProjectName] = useState<string>('');
+  // Slide-1 redesign: inline wizard replaces the legacy project-creation popup.
+  const [showProjectWizard, setShowProjectWizard] = useState(false);
+
+  // Inline project gate: fetch the explore-design project list so the
+  // empty-state can show a real picker (no modal hand-off). Shares the
+  // CACHE_KEYS.PROJECTS invalidation key with the header ProjectSelector so
+  // an SSE invalidation refreshes both in sync.
+  const {
+    data: gateProjectsData,
+    loading: gateProjectsLoading,
+    error: gateProjectsErrorObj,
+    refetch: refetchGateProjects,
+  } = useCacheAwareQuery(
+    () => listProjects({ project_type: 'explore_design', mine_only: false }),
+    { cacheKeys: [CACHE_KEYS.PROJECTS], initialData: null },
+  );
+  const gateProjects = useMemo(
+    () =>
+      (gateProjectsData?.projects ?? []).map((p) => ({
+        id: p.project_id,
+        name: p.project_name,
+        created_by: p.created_by,
+        created_at: p.created_at,
+        tags: p.tags ?? null,
+      })),
+    [gateProjectsData],
+  );
+  const gateProjectsError = gateProjectsErrorObj
+    ? getApiErrorMessage(gateProjectsErrorObj) || 'Failed to load projects'
+    : null;
+
+  // Only auto-select from URL query param (deep-linking), NOT from localStorage
+  const autoProjectId = urlProjectId || null;
+
+  // Role-based access: viewer = read-only, editor/owner = full access
+  const [userRole, setUserRole] = useState<ContributorRole | null>(null);
+  const isReadOnly = userRole === 'viewer';
 
   // State
   const [databases, setDatabases] = useState<string[]>([]);
@@ -540,26 +978,44 @@ export default function ExploreDesignPage() {
   const [allTableConfigs, setAllTableConfigs] = useState<Map<string, TableConfig>>(new Map());
 
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const [searchResults, setSearchResults] = useState<GlobalSearchResult[]>([]);
 
   const [isLoadingDatabases, setIsLoadingDatabases] = useState(false);
   const [isLoadingSchemas, setIsLoadingSchemas] = useState(false);
   const [isLoadingTables, setIsLoadingTables] = useState(false);
   const [isLoadingColumns, setIsLoadingColumns] = useState(false);
+  const [columnsLoadError, setColumnsLoadError] = useState<null | { kind: 'timeout' | 'generic'; message: string }>(null);
+  const [columnsLoadAttempt, setColumnsLoadAttempt] = useState(0);
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(false);
 
   // Masking policies from API
   const [maskingPolicies, setMaskingPolicies] = useState<MaskingPolicyDisplay[]>([]);
 
-  // Check if offline and redirect to sign-in
-  const isOffline = !isConnected && !!connectionError;
+  // Backend-persisted column mappings (loaded via listMappings on project select)
+  const [backendMappings, setBackendMappings] = useState<BackendColumnMapping[]>([]);
+
+  // True only when the SSE stream was rejected with 401/403 — i.e. the user's
+  // JWT is actually invalid. All other SSE failures (network, 5xx, CORS) are
+  // soft-degraded by useCacheInvalidation so the banner doesn't fire on them.
+  const isOffline = connectionError === 'session_expired';
 
   const [showBulkPKModal, setShowBulkPKModal] = useState(false);
   const [showBulkMaskingModal, setShowBulkMaskingModal] = useState(false);
   const [showRelationsModal, setShowRelationsModal] = useState(false);
   const [showDeploymentModal, setShowDeploymentModal] = useState(false);
+  const [showAiGuidedWizard, setShowAiGuidedWizard] = useState(false);
+  // Plain-English description seeded into the AI model wizard when the user
+  // picked the AI fork in the UnifiedProjectWizard / "Change approach".
+  const [aiModelSeed, setAiModelSeed] = useState<string>('');
+  // "Change approach" affordance — re-opens the fork for an existing project.
+  const [showApproachFork, setShowApproachFork] = useState(false);
+  const [showIngestionModal, setShowIngestionModal] = useState(false);
+  const [showScaleTest, setShowScaleTest] = useState(false);
   const [showCreateTableModal, setShowCreateTableModal] = useState(false);
   const [showRelationshipModal, setShowRelationshipModal] = useState(false);
+  const [showCreateMenuCatalog, setShowCreateMenuCatalog] = useState(false);
+  const [showCreateMenuModeling, setShowCreateMenuModeling] = useState(false);
 
   // Column action modals
   const [columnPreviewModal, setColumnPreviewModal] = useState<{
@@ -575,22 +1031,116 @@ export default function ExploreDesignPage() {
     column: ColumnInfo | null;
   }>({ isOpen: false, column: null });
 
-  // Table preview modal
+  // Table preview modal (legacy — kept for fallback)
   const [tablePreviewModal, setTablePreviewModal] = useState(false);
 
-  // Table profile modal
+  // Table profile modal (legacy — kept for fallback)
   const [tableProfileModal, setTableProfileModal] = useState(false);
+
+  // Inline preview & profile panels (replace modals)
+  const [showInlinePreview, setShowInlinePreview] = useState(false);
+  const [showInlineProfile, setShowInlineProfile] = useState(false);
+  const [inlinePreviewData, setInlinePreviewData] = useState<{ columns: string[]; rows: Record<string, any>[]; total_rows: number } | null>(null);
+  const [inlineProfileData, setInlineProfileData] = useState<{ row_count: number; column_count: number; columns: any[]; aggregate_quality_score: number } | null>(null);
+  const [isLoadingInlinePreview, setIsLoadingInlinePreview] = useState(false);
+  const [isLoadingInlineProfile, setIsLoadingInlineProfile] = useState(false);
+
+  // Data Engineering modals
+  const [dynamicTableModal, setDynamicTableModal] = useState(false);
+  const [streamModal, setStreamModal] = useState(false);
+  const [alertModal, setAlertModal] = useState(false);
+  const [eventTableModal, setEventTableModal] = useState(false);
+  const [hybridTableModal, setHybridTableModal] = useState(false);
+
+  // AI column classification
+  const [columnClassifications, setColumnClassifications] = useState<Map<string, Record<string, string>>>(new Map());
+  const [isClassifying, setIsClassifying] = useState(false);
+
+  // Data engineering object listing modal
+  const [dataEngModal, setDataEngModal] = useState<{
+    isOpen: boolean;
+    type: 'dynamic_tables' | 'streams' | 'alerts';
+    schema: string;
+    items: any[];
+    loading: boolean;
+  }>({ isOpen: false, type: 'dynamic_tables', schema: '', items: [], loading: false });
+
+  // Inline confirmation for destructive drop actions (replaces browser confirm())
+  const [confirmDrop, setConfirmDrop] = useState<{
+    type: 'dynamic_table' | 'stream' | 'alert' | 'schema';
+    name: string;
+  } | null>(null);
 
   // Track excluded columns per table
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
 
   // View mode
   const [viewMode, setViewMode] = useState<ViewMode>('catalog');
-  const [showEventPanel, setShowEventPanel] = useState(true);
+  // Persist viewMode to localStorage
+  useEffect(() => {
+    localStorage.setItem('explore-design-view-mode', viewMode);
+  }, [viewMode]);
+
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
+  const [showEventTemplatePicker, setShowEventTemplatePicker] = useState(false);
+  const [showAuditTrail, setShowAuditTrail] = useState(false);
+  const [modelingChoice, setModelingChoice] = useState<ModelingChoice | null>(null);
+  // Persist modeling choice per project so re-selecting a project doesn't re-show the modal
+  const modelingChoicesByProject = useRef<Map<string, { choice: ModelingChoice; database?: string; schema?: string }>>(new Map());
+  // DWH template deployment target (chosen by user in location picker)
+  const [dwhTargetDatabase, setDwhTargetDatabase] = useState<string | null>(null);
+  const [dwhTargetSchema, setDwhTargetSchema] = useState<string | null>(null);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  // Right panels default to CLOSED: with the redesign they slide in as
+  // overlays instead of fixed sidebars, so leaving them open by default
+  // would block the canvas every time the user lands on the page.
+  const [showEventPanel, setShowEventPanel] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [showDetailPanel, setShowDetailPanel] = useState(true);
+  const [showHistoryRail, setShowHistoryRail] = useState(false);
   const [selectedColumns, setSelectedColumns] = useState<Set<string>>(new Set());
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [savedPanelState, setSavedPanelState] = useState({ sidebar: true, event: true });
+
+  // Create table type selector
+  const [createTableType, setCreateTableType] = useState<SnowflakeTableType>('standard');
+
+  // Catalog policy & ingestion panels
+  const [showCatalogPolicyPanel, setShowCatalogPolicyPanel] = useState(false);
+  const [showIngestionPanel, setShowIngestionPanel] = useState(false);
+  const [catalogIngestionMode, setCatalogIngestionMode] = useState<IngestionMode>('full_refresh');
+  const [showModelingIngestionPanel, setShowModelingIngestionPanel] = useState(false);
+  const [modelingIngestionMode, setModelingIngestionMode] = useState<IngestionMode>('full_refresh');
+
+  // Phase 2-6 panels
+  const [showDagViewer, setShowDagViewer] = useState(false);
+  const [showImpactAnalysis, setShowImpactAnalysis] = useState(false);
+  const [showDryRun, setShowDryRun] = useState(false);
+  const [showPreChecks, setShowPreChecks] = useState(false);
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [showIngestionResults, setShowIngestionResults] = useState(false);
+
+  // Input modals (replace browser prompt())
+  const [renameTableModal, setRenameTableModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
+  const [renameColumnModal, setRenameColumnModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
+  const [addColumnModal, setAddColumnModal] = useState(false);
+  const [rightRailAction, setRightRailAction] = useState<'add_column' | 'policies' | 'ingestion' | 'rename_table' | 'rename_column' | 'primary_key' | null>(null);
+  const [rightRailColumnTarget, setRightRailColumnTarget] = useState<string>('');
+  const [rightBarOpen, setRightBarOpen] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState<RightBarTab>('actions');
+  const [focusedAction, setFocusedAction] = useState<FocusedAction>(null);
+  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
+  const [addColName, setAddColName] = useState('');
+  const [addColType, setAddColType] = useState('VARCHAR');
+  const [addColComputed, setAddColComputed] = useState(false);
+  const [addColFormula, setAddColFormula] = useState('');
+  const [primaryKeyModal, setPrimaryKeyModal] = useState(false);
+
+  // Conflict detection modal
+  const [showConflictModal, setShowConflictModal] = useState(false);
+  const [currentConflict, setCurrentConflict] = useState<EventConflict | null>(null);
+  // Stores the pending action to resume after conflict resolution
+  const pendingConflictAction = useRef<{ type: 'deploy'; eventIds: string[] } | null>(null);
 
   // Modeling table selection - tracks which tables are included in the modeling view
   const [modelingTableIds, setModelingTableIds] = useState<Set<string>>(new Set());
@@ -614,6 +1164,7 @@ export default function ExploreDesignPage() {
     canUndo,
     canRedo,
     cleanupEmptyEvents,
+    clearEvents,
     addEvent,
     loadProjectEvents,
     saveProjectEvents,
@@ -621,13 +1172,231 @@ export default function ExploreDesignPage() {
     updateEventStatus
   } = useEventStore(selectedProjectId);
 
-  // Clean up empty events on mount (one-time cleanup of any legacy empty events)
+  // AI analysis — runs analyzers against events when toggles/events change
+  useAiAnalysis(events);
+
+  // ── Auto-sync DDL actions to backend ────────────────────────────────────
+  // Maps local event ID → backend DDL event_id for add/remove tracking
+  const ddlEventMapRef = useRef<Map<string, string>>(new Map());
+  const prevEventIdsRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
-    const removedCount = cleanupEmptyEvents();
-    if (removedCount > 0) {
-      console.log(`[Explore-Design] Cleaned up ${removedCount} empty events from localStorage`);
+    if (!selectedProjectId) return;
+
+    const currentEventIds = new Set(events.map((e) => e.id));
+    let cancelled = false;
+
+    // ── ADD: new DDL-relevant events → persist to backend ──
+    const newDDLEvents = events.filter(
+      (e) =>
+        DDL_EVENT_TYPES.includes(e.type) &&
+        e.status === 'pending' &&
+        !ddlEventMapRef.current.has(e.id) &&
+        !prevEventIdsRef.current.has(e.id) &&
+        !e.synced
+    );
+
+    // ─�� REMOVE: events that disappeared (undo/delete) → remove from backend ──
+    const removedIds = Array.from(prevEventIdsRef.current).filter(
+      (id) => !currentEventIds.has(id) && ddlEventMapRef.current.has(id)
+    );
+
+    const syncDDL = async () => {
+      // Add new DDL events
+      const addPromises = newDDLEvents.map(async (event) => {
+        ddlEventMapRef.current.set(event.id, '');
+        try {
+          const { sql } = generateSnowflakeSQL(event);
+          if (!sql || sql.startsWith('--')) return;
+
+          const tableRef = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+          const result = await addDDLAction(selectedProjectId, {
+            ddl_sql: sql,
+            ddl_type: inferDDLType(event.type),
+            target_table: tableRef,
+            description: `${event.type} on ${tableRef}`,
+          });
+          if (cancelled) return;
+          if (result?.event_id) {
+            ddlEventMapRef.current.set(event.id, result.event_id);
+          }
+          console.debug(`[DDL Sync] Added ${event.type} → ${tableRef}`);
+        } catch (err) {
+          if (cancelled) return;
+          console.warn(`[DDL Sync] Failed to add ${event.type}:`, err);
+          ddlEventMapRef.current.delete(event.id);
+        }
+      });
+
+      // Remove deleted DDL events
+      const removePromises = removedIds.map(async (localId) => {
+        const backendId = ddlEventMapRef.current.get(localId);
+        ddlEventMapRef.current.delete(localId);
+        if (!backendId) return;
+
+        try {
+          await removeDDLAction(selectedProjectId, backendId);
+          if (!cancelled) console.debug(`[DDL Sync] Removed DDL ${backendId} (event ${localId})`);
+        } catch (err) {
+          if (!cancelled) console.warn(`[DDL Sync] Failed to remove DDL ${backendId}:`, err);
+        }
+      });
+
+      await Promise.allSettled([...addPromises, ...removePromises]);
+    };
+
+    if (newDDLEvents.length > 0 || removedIds.length > 0) {
+      syncDDL();
     }
+
+    // Update previous snapshot
+    prevEventIdsRef.current = currentEventIds;
+
+    return () => { cancelled = true; };
+  }, [events, selectedProjectId]);
+
+  // Read-only guard: returns true (blocked) if user is a viewer
+  const readOnlyGuard = useCallback(() => {
+    if (isReadOnly) {
+      toast.error('You have view-only access to this project');
+      return true;
+    }
+    return false;
+  }, [isReadOnly]);
+
+  // ── Conflict Detection ────────────────────────────────────────────────────
+  // Checks pending events for conflicts before deploy. Returns true if conflicts
+  // were found (caller should abort and wait for resolution).
+  const checkForConflicts = useCallback(async (eventIds: string[]): Promise<boolean> => {
+    if (!selectedProjectId || eventIds.length === 0) return false;
+
+    try {
+      const result = await checkConflicts(selectedProjectId, { event_ids: eventIds });
+
+      if (result.has_conflicts && result.conflicts.length > 0) {
+        const first = result.conflicts[0];
+
+        // Find the local events for "yours" and "theirs" to build the diff view
+        const myEvent = events.find(e => e.id === first.event_id);
+        const theirEvent = first.conflicting_event_id
+          ? events.find(e => e.id === first.conflicting_event_id)
+          : null;
+
+        const buildChanges = (evt: typeof myEvent) => {
+          if (!evt) return {};
+          const changes: Record<string, { old: string; new: string }> = {};
+          if (evt.payload) {
+            Object.entries(evt.payload).forEach(([key, value]) => {
+              if (key !== 'isTemplate' && typeof value !== 'object') {
+                changes[key] = { old: '', new: String(value) };
+              }
+            });
+          }
+          return changes;
+        };
+
+        const conflict: EventConflict = {
+          eventId: first.event_id,
+          eventType: first.event_type,
+          objectName: first.object_name,
+          yours: {
+            user: currentUsername || 'You',
+            timestamp: myEvent?.timestamp
+              ? new Date(myEvent.timestamp).toISOString()
+              : new Date().toISOString(),
+            changes: buildChanges(myEvent),
+          },
+          theirs: {
+            user: theirEvent?.userId || 'Another user',
+            timestamp: theirEvent?.timestamp
+              ? new Date(theirEvent.timestamp).toISOString()
+              : new Date().toISOString(),
+            changes: buildChanges(theirEvent ?? undefined),
+          },
+        };
+
+        setCurrentConflict(conflict);
+        setShowConflictModal(true);
+
+        // Show a summary toast for all conflicts
+        if (result.conflicts.length > 1) {
+          toast.error(`${result.conflicts.length} conflicts detected — resolve them before deploying`);
+        }
+
+        return true; // conflicts found
+      }
+
+      return false; // no conflicts
+    } catch (error) {
+      // Non-blocking: if the conflict check API fails, allow the user to proceed
+      console.warn('[checkForConflicts] API call failed, proceeding without conflict check:', error);
+      return false;
+    }
+  }, [selectedProjectId, events, currentUsername]);
+
+  // Handle conflict resolution — apply chosen resolution and optionally resume the blocked action
+  const handleConflictResolve = useCallback((resolution: 'mine' | 'theirs' | 'manual', mergedChanges?: Record<string, string>) => {
+    if (!currentConflict) return;
+
+    const eventId = currentConflict.eventId;
+
+    if (resolution === 'mine') {
+      // Keep my event, no changes needed — just proceed
+      toast.success(`Conflict resolved: keeping your changes for "${currentConflict.objectName}"`);
+    } else if (resolution === 'theirs') {
+      // Accept theirs — remove my conflicting event
+      updateEventStatus({ eventId, status: 'failed' });
+      toast.success(`Conflict resolved: accepted other user's changes for "${currentConflict.objectName}"`);
+    } else if (resolution === 'manual') {
+      // Manual merge — update my event payload with merged values
+      const myEvent = events.find(e => e.id === eventId);
+      if (myEvent && mergedChanges) {
+        // Re-add a corrected event with merged payload
+        addEvent({
+          type: myEvent.type,
+          projectId: myEvent.projectId || selectedProjectId || '',
+          target: myEvent.target,
+          payload: { ...myEvent.payload, ...mergedChanges },
+        });
+        // Mark original as superseded
+        updateEventStatus({ eventId, status: 'failed' });
+        toast.success(`Conflict resolved with manual merge for "${currentConflict.objectName}"`);
+      }
+    }
+
+    // Resume the blocked action if there was one
+    const blocked = pendingConflictAction.current;
+    if (blocked?.type === 'deploy') {
+      pendingConflictAction.current = null;
+      // Re-open deployment modal now that conflict is resolved
+      setShowDeploymentModal(true);
+    }
+
+    setCurrentConflict(null);
+    setShowConflictModal(false);
+  }, [currentConflict, events, selectedProjectId, updateEventStatus, addEvent]);
+
+  // On mount: clear ALL stale state — events, selections, localStorage keys, DDL refs
+  useEffect(() => {
+    clearEvents();
+    setSelectedDatabase('');
+    setSchemas([]);
+    setSelectedSchemas(new Map());
+    setTables([]);
+    setSelectedTable(null);
+    setTableColumns([]);
+    localStorage.removeItem('explore-design-events');
+    localStorage.removeItem('explore-design-last-project-id');
+    localStorage.removeItem('explore-design-last-project-name');
+    localStorage.removeItem('d360_last_project_id');
+    ddlEventMapRef.current.clear();
+    prevEventIdsRef.current.clear();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Memoized derived values from selectedSchemas Map (avoids Array.from in render paths)
+  const schemaKeys = useMemo(() => Array.from(selectedSchemas.keys()), [selectedSchemas]);
+  const schemaEntries = useMemo(() => Array.from(selectedSchemas.entries()), [selectedSchemas]);
+  const firstSchemaName = useMemo(() => schemaKeys[0] || '', [schemaKeys]);
 
   // Stats - exclude default DWH tables from catalog stats
   const stats = useMemo(() => {
@@ -673,32 +1442,46 @@ export default function ExploreDesignPage() {
     return pendingEvents.filter(event => displayableEventTypes.includes(event.type));
   }, [pendingEvents]);
 
-  // Extract column mappings from COLUMN_MAPPING_CREATED events for ModelingCanvas
+  // Extract column mappings from COLUMN_MAPPING_CREATED events + backend-persisted mappings
   const initialColumnMappings = useMemo(() => {
+    // 1. Mappings from local event store
     const mappingEvents = events.filter(e => e.type === 'COLUMN_MAPPING_CREATED');
-    console.log('[initialColumnMappings] Found mapping events:', mappingEvents.length);
-    mappingEvents.forEach((e, i) => {
-      console.log(`[initialColumnMappings] Event ${i}:`, {
-        id: e.id,
-        type: e.type,
-        target: e.target,
-        payload: e.payload,
-        sourceColumn: e.payload?.sourceColumn,
-        targetTable: e.payload?.targetTable,
-        targetColumn: e.payload?.targetColumn,
-      });
-    });
-    return mappingEvents.map(e => ({
+    const eventMappings = mappingEvents.map(e => ({
       id: e.id,
-      sourceTable: e.target?.table || '',
-      sourceSchema: e.target?.schema || '',
-      sourceColumn: e.payload?.sourceColumn || '',
-      targetTable: e.payload?.targetTable?.table || '',
-      targetSchema: e.payload?.targetTable?.schema || '',
-      targetColumn: e.payload?.targetColumn || '',
+      sourceTable: e.payload?.source?.table || '',
+      sourceSchema: e.payload?.source?.schema || '',
+      sourceColumn: (e.payload?.source?.columns?.[0]) || '',
+      targetTable: e.payload?.target?.table || '',
+      targetSchema: e.payload?.target?.schema || '',
+      targetColumn: e.payload?.target?.column || '',
       transformation: e.payload?.transformation,
     }));
-  }, [events]);
+
+    // 2. Mappings from backend (listMappings) — one entry per source column
+    const backendFlat = backendMappings.flatMap(m =>
+      m.source_columns.map((col, idx) => ({
+        id: `${m.mapping_id}_${idx}`,
+        sourceTable: m.source.table,
+        sourceSchema: m.source.schema,
+        sourceColumn: col,
+        targetTable: m.target.table,
+        targetSchema: m.target.schema,
+        targetColumn: m.target_column,
+        transformation: m.transformation ?? undefined,
+      }))
+    );
+
+    // 3. Deduplicate: event-derived mappings take precedence over backend ones
+    const seen = new Set(
+      eventMappings.map(m => `${m.sourceSchema}.${m.sourceTable}.${m.sourceColumn}→${m.targetSchema}.${m.targetTable}.${m.targetColumn}`)
+    );
+    const uniqueBackend = backendFlat.filter(
+      m => !seen.has(`${m.sourceSchema}.${m.sourceTable}.${m.sourceColumn}→${m.targetSchema}.${m.targetTable}.${m.targetColumn}`)
+    );
+
+    const merged = [...eventMappings, ...uniqueBackend];
+    return merged;
+  }, [events, backendMappings]);
 
   // Redirect to sign-in when offline
   useEffect(() => {
@@ -708,21 +1491,36 @@ export default function ExploreDesignPage() {
     }
   }, [isOffline, connectionError, router]);
 
-  // Load databases on mount (only when connected)
+  // Load databases only after a project is selected (also re-triggers on SSE invalidation)
   useEffect(() => {
+    if (!selectedProjectId) return;
     const loadDatabases = async () => {
-      // Don't load if offline
       if (isOffline) {
-        console.log('[Explore-Design] Skipping database load - offline');
         return;
       }
 
-      console.log('[Explore-Design] Starting to load databases...');
       setIsLoadingDatabases(true);
       try {
         const dbList = await getDatabases();
-        console.log('[Explore-Design] Databases loaded:', dbList);
-        setDatabases(dbList || []);
+        setDatabases(Array.isArray(dbList) ? dbList : []);
+        if (Array.isArray(dbList) && dbList.length > 0) {
+          const firstDb = dbList[0];
+          setSelectedDatabase(prev => prev || firstDb);
+          // Auto-load schemas for ALL databases in parallel, skip system schemas
+          const allSchemasMap = new Map<string, string>();
+          const allSchemaNames: string[] = [];
+          await Promise.allSettled(dbList.map(async (db: string) => {
+            try {
+              const schemaList = await getSchemas(db);
+              if (schemaList) schemaList.forEach((s: string) => {
+                allSchemasMap.set(s, db);
+                allSchemaNames.push(s);
+              });
+            } catch { /* skip inaccessible db */ }
+          }));
+          setSchemas(allSchemaNames);
+          setSelectedSchemas(allSchemasMap);
+        }
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
         // Check if it's an auth error
@@ -737,16 +1535,14 @@ export default function ExploreDesignPage() {
       }
     };
     loadDatabases();
-  }, [isOffline, router]);
+  }, [selectedProjectId, isOffline, router, sseRefreshKey]);
 
   // Load masking policies on mount
   useEffect(() => {
     const loadMaskingPolicies = async () => {
-      console.log('[Explore-Design] Starting to load masking policies...');
       setIsLoadingPolicies(true);
       try {
         const policies = await getMaskingPolicies();
-        console.log('[Explore-Design] Masking policies loaded:', policies);
         // Map to display format
         const displayPolicies: MaskingPolicyDisplay[] = (policies || []).map(p => ({
           name: p.policy_name,
@@ -763,166 +1559,186 @@ export default function ExploreDesignPage() {
     loadMaskingPolicies();
   }, []);
 
-  // Load default tables for Modeling view (CP_DATA360.RETAIL_DW) - ALWAYS loaded
+  // Load DWH template tables from hardcoded DDL — only when DWH template chosen
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
   // Loading/error UI for the default DWH (target) model load in Modeling view
   const [isLoadingModelingTables, setIsLoadingModelingTables] = useState(false);
 
   useEffect(() => {
-    // Load default tables when switching to modeling view
-    // This ensures DWH tables are always present in modeling view
-    if (viewMode !== 'modeling') {
-      return;
+    // Only load when in modeling view AND DWH template was chosen
+    if (viewMode !== 'modeling' || modelingChoice !== 'dwh_template') return;
+    // Skip if already loaded and tables exist
+    if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) return;
+    // Need a target location
+    if (!dwhTargetDatabase || !dwhTargetSchema) return;
+
+    const db = dwhTargetDatabase;
+    const schema = dwhTargetSchema;
+
+
+    // 1. Build data from hardcoded template
+    const templateTables = buildTemplateTableItems(db, schema);
+    const templateColumnsMap = buildTemplateColumnsMap(db, schema);
+    const templateRelationships = buildTemplateRelationships(schema);
+    const newTableIds = new Set(templateTables.map(t => t.id));
+
+    // 2. Add tables to state
+    setTables(prev => {
+      const existingIds = new Set(prev.map(t => t.id));
+      const tablesToAdd = templateTables.filter(t => !existingIds.has(t.id));
+      return [...prev, ...tablesToAdd];
+    });
+
+    // 3. Add to modeling view
+    setModelingTableIds(prev => {
+      const merged = new Set(prev);
+      newTableIds.forEach(id => merged.add(id));
+      return merged;
+    });
+
+    // 4. Mark as target tables
+    setTargetTableIds(prev => {
+      const merged = new Set(prev);
+      newTableIds.forEach(id => merged.add(id));
+      return merged;
+    });
+
+    // 5. Set columns map
+    setTableColumnsMap(prev => {
+      const next = new Map(prev);
+      templateColumnsMap.forEach((cols, tableId) => next.set(tableId, cols));
+      return next;
+    });
+
+    // 6. Set FK relationships for canvas edges
+    setDefaultRelationships(templateRelationships);
+
+    // 7. Set database for UI
+    if (!selectedDatabase) {
+      setSelectedDatabase(db);
     }
 
-    // If already loaded and tables exist, skip
-    if (defaultModelingTablesLoaded && tables.some(t => targetTableIds.has(t.id))) {
-      return;
-    }
+    // 8. Fire SCHEMA_CREATED + TABLE_CREATED events for each template table (skip if already restored from backend)
+    const templateEventsExist = events.some(
+      e => (e.type === 'TABLE_CREATED' || e.type === 'SCHEMA_CREATED') && e.payload?.isTemplate && e.target.database === db && e.target.schema === schema
+    );
 
-    const loadDefaultModelingTables = async () => {
-      const DEFAULT_DB = 'CP_DATA360';
-      const DEFAULT_SCHEMA = 'RETAIL_DWH';
+    if (selectedProjectId && !templateEventsExist) {
+      // Fire SCHEMA_CREATED first — runs before all TABLE_CREATED via priority ordering
+      const schemaTarget = { database: db, schema, table: schema };
+      const schemaPayload = { schemaName: schema, database: db, isTemplate: true };
+      addEvent({
+        type: 'SCHEMA_CREATED',
+        projectId: selectedProjectId,
+        target: schemaTarget,
+        payload: schemaPayload,
+      });
 
-      console.log(`[Modeling] Loading default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
+      const tableEvents: { target: any; payload: any }[] = [];
+      DWH_TEMPLATE_TABLES.forEach(tmplTable => {
+        const target = { database: db, schema, table: tmplTable.tableName };
+        const payload = {
+          tableName: tmplTable.tableName,
+          columns: tmplTable.columns.map(col => ({
+            name: col.name,
+            dataType: col.dataType,
+            nullable: col.nullable,
+            primaryKey: col.primaryKey,
+            computedExpression: col.computedExpression,
+          })),
+          primaryKeys: tmplTable.primaryKeys,
+          isTemplate: true,
+        };
+        addEvent({ type: 'TABLE_CREATED', projectId: selectedProjectId, target, payload });
+        tableEvents.push({ target, payload });
+      });
 
-      setIsLoadingModelingTables(true);
-      try {
-        // Load tables from default schema
-        const tableList = await getTables(DEFAULT_DB, DEFAULT_SCHEMA);
+      // 9. Fire FOREIGN_KEY_ADDED events for each FK constraint
+      //    Validate FK type compatibility (A1) before adding — fire-and-forget
+      const fkEvents: { target: any; payload: any }[] = [];
+      for (const fk of DWH_TEMPLATE_RELATIONSHIPS) {
+        const target = { database: db, schema, table: fk.childTable };
+        const payload = {
+          constraintName: fk.constraintName,
+          columns: [fk.childColumn],
+          referencedTable: { database: db, schema, table: fk.parentTable },
+          referencedColumns: [fk.parentColumn],
+          isTemplate: true,
+        };
 
-        if (tableList && tableList.length > 0) {
-          const newTables: TableItem[] = [];
-          const newTableIds = new Set<string>();
-
-          tableList.forEach((tableName: string) => {
-            const tableId = `${DEFAULT_DB}.${DEFAULT_SCHEMA}.${tableName}`;
-            newTableIds.add(tableId);
-
-            newTables.push({
-              id: tableId,
-              database: DEFAULT_DB,
-              schema: DEFAULT_SCHEMA,
-              table: tableName,
-              columnCount: 0,
-              hasPrimaryKey: false,
-              status: 'pending',
-              sensitiveColumns: 0,
-            });
-          });
-
-          // Add tables to the main tables state
-          setTables(prev => {
-            const existingIds = new Set(prev.map(t => t.id));
-            const tablesToAdd = newTables.filter(t => !existingIds.has(t.id));
-            return [...prev, ...tablesToAdd];
-          });
-
-          // Add default tables to modeling view (merge with any existing)
-          setModelingTableIds(prev => {
-            const merged = new Set(prev);
-            newTableIds.forEach(id => merged.add(id));
-            return merged;
-          });
-
-          // Mark these default tables as TARGET tables (DWH)
-          // User-added source tables must map TO these target tables
-          setTargetTableIds(prev => {
-            const merged = new Set(prev);
-            newTableIds.forEach(id => merged.add(id));
-            return merged;
-          });
-
-          // Set database/schema for UI but DON'T add to selectedSchemas (no badge)
-          if (!selectedDatabase) {
-            setSelectedDatabase(DEFAULT_DB);
-            // Don't set selectedSchemas - we don't want the badge to show
-
-            // Load schemas for the database
-            const schemaList = await getSchemas(DEFAULT_DB);
-            setSchemas(schemaList || []);
-          }
-
-          console.log(`[Modeling] Loaded ${newTableIds.size} default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
-
-          // Load columns for each default table (for modeling view)
-          // TODO(ux): per-table column load uses Promise.all (parallel); left intact —
-          // consider surfacing per-table loading/error rows in the canvas instead of console.error.
-          console.log(`[Modeling] Loading columns for ${newTables.length} default tables...`);
-          const columnsPromises = newTables.map(async (table) => {
-            try {
-              const cols = await getTableColumns(table.database, table.schema, table.table);
-              if (cols && cols.length > 0) {
-                const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
-                  name: col.COLUMN_NAME || col.name,
-                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
-                  isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
-                  isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
-                  isSensitive: false,
-                }));
-                return { tableId: table.id, columns: formattedColumns };
-              }
-              return null;
-            } catch (err) {
-              console.error(`[Modeling] Failed to load columns for ${table.id}:`, err);
-              return null;
-            }
-          });
-
-          const columnsResults = await Promise.all(columnsPromises);
-
-          // Update tableColumnsMap with loaded columns
-          setTableColumnsMap(prev => {
-            const next = new Map(prev);
-            columnsResults.forEach(result => {
-              if (result) {
-                next.set(result.tableId, result.columns);
-              }
-            });
-            return next;
-          });
-
-          console.log(`[Modeling] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
-
-          // Load relationships for the default schema
-          // TODO(ux): relationships fetch is best-effort; surface a non-blocking
-          // "couldn't load relationships" badge instead of swallowing the error.
-          try {
-            const relationshipsData = await fetchRelationships(DEFAULT_DB, DEFAULT_SCHEMA);
-            if (relationshipsData.relationships && relationshipsData.relationships.length > 0) {
-              setDefaultRelationships(relationshipsData.relationships);
-              console.log(`[Modeling] Loaded ${relationshipsData.relationships.length} relationships`);
-            }
-          } catch (relError) {
-            console.error('[Modeling] Failed to load relationships:', relError);
-          }
-        }
-      } catch (error) {
-        console.error('[Modeling] Failed to load default tables:', error);
-        toast.error('Failed to load the data warehouse model. Check your connection and try again.');
-      } finally {
-        setIsLoadingModelingTables(false);
-        setDefaultModelingTablesLoaded(true);
+        addEvent({ type: 'FOREIGN_KEY_ADDED', projectId: selectedProjectId, target, payload });
+        fkEvents.push({ target, payload });
       }
-    };
 
-    loadDefaultModelingTables();
-  }, [viewMode, defaultModelingTablesLoaded, selectedDatabase, tables.length, targetTableIds.size]);
+      // 10. Persist all template events to backend so they restore on project select
+      const persistTemplateEvents = async () => {
+        try {
+          // Schema
+          await addProjectEvent(selectedProjectId, {
+            module_name: 'EXPLORE_DESIGN',
+            event_type: 'SCHEMA_CREATED',
+            status: 'pending',
+            details: { target: schemaTarget, payload: schemaPayload },
+            entity_id: `schema-${db}-${schema}`,
+            entity_type: 'design_event',
+          });
+          // Tables — sequential with individual error handling
+          for (const te of tableEvents) {
+            try {
+              await addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: 'TABLE_CREATED',
+                status: 'pending',
+                details: { target: te.target, payload: te.payload },
+                entity_id: `table-${te.target.table}`,
+                entity_type: 'design_event',
+              });
+            } catch { /* continue on error */ }
+          }
+          // Foreign keys — sequential with individual error handling
+          for (const fke of fkEvents) {
+            try {
+              await addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: 'FOREIGN_KEY_ADDED',
+                status: 'pending',
+                details: { target: fke.target, payload: fke.payload },
+                entity_id: `fk-${fke.payload.constraintName}`,
+                entity_type: 'design_event',
+              });
+              console.log(`[Template FK] ✅ Persisted: ${fke.payload.constraintName}`);
+            } catch (fkErr: any) {
+              console.error(`[Template FK] ❌ Failed: ${fke.payload.constraintName}`, fkErr?.response?.status, fkErr?.response?.data);
+            }
+          }
+        } catch (err) {
+          console.warn('[Template] Failed to persist template events to backend:', err);
+        }
+      };
+      persistTemplateEvents();
+    }
 
-  // Load schemas when database changes
+    setDefaultModelingTablesLoaded(true);
+  }, [viewMode, modelingChoice, defaultModelingTablesLoaded, dwhTargetDatabase, dwhTargetSchema, selectedProjectId, selectedDatabase, tables.length, targetTableIds.size, addEvent]);
+
+  // Load schemas when database changes (skip — all-DB load handles this now)
   useEffect(() => {
     if (!selectedDatabase) {
-      setSchemas([]);
-      return;
+      return; // schemas loaded by all-DB effect
     }
+    // Skip single-DB schema load — all-DB effect handles this
+    return;
 
     const loadSchemas = async () => {
-      console.log('[Explore-Design] Loading schemas for database:', selectedDatabase);
       setIsLoadingSchemas(true);
       try {
         const schemaList = await getSchemas(selectedDatabase);
-        console.log('[Explore-Design] Schemas loaded:', schemaList);
         setSchemas(schemaList || []);
+        if (schemaList && schemaList.length > 0) {
+          const allMap = new Map<string, string>();
+          schemaList.forEach((s: string) => allMap.set(s, selectedDatabase));
+          setSelectedSchemas(allMap);
+        }
       } catch (error) {
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
@@ -942,16 +1758,13 @@ export default function ExploreDesignPage() {
     }
 
     const loadTables = async () => {
-      console.log('[Explore-Design] Loading tables for schemas:', Object.fromEntries(selectedSchemas));
       setIsLoadingTables(true);
       try {
         const newTables: TableItem[] = [];
 
         // Iterate over schema->database map entries
         for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
-          console.log(`[Explore-Design] Fetching tables for ${dbName}.${schemaName}`);
           const tableList = await getTables(dbName, schemaName);
-          console.log(`[Explore-Design] Tables for ${schemaName}:`, tableList);
           if (tableList) {
             tableList.forEach((tableName: string) => {
               const tableId = `${dbName}.${schemaName}.${tableName}`;
@@ -982,21 +1795,24 @@ export default function ExploreDesignPage() {
           // Combine: existing DWH tables + new schema tables
           return [...uniqueTargetTables, ...newTables];
         });
-        // Expanded schemas is still Set<string> of schema names
-        setExpandedSchemas(new Set(selectedSchemas.keys()));
+        // Expand using DB.SCHEMA keys to match VirtualizedTableList grouping
+        const expandKeys = new Set<string>();
+        for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
+          expandKeys.add(`${dbName}.${schemaName}`);
+        }
+        setExpandedSchemas(expandKeys);
 
         // Load columns for new tables (for modeling view)
         // Only load for tables not already in tableColumnsMap
         const tablesToLoadColumns = newTables.filter(t => !tableColumnsMap.has(t.id));
         if (tablesToLoadColumns.length > 0) {
-          console.log(`[Explore-Design] Loading columns for ${tablesToLoadColumns.length} new tables...`);
           const columnsPromises = tablesToLoadColumns.map(async (table) => {
             try {
               const cols = await getTableColumns(table.database, table.schema, table.table);
               if (cols && cols.length > 0) {
                 const formattedColumns: ColumnInfo[] = cols.map((col: any) => ({
                   name: col.COLUMN_NAME || col.name,
-                  dataType: col.DATA_TYPE || col.dataType || 'VARCHAR',
+                  dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
                   isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false,
                   isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true,
                   isSensitive: false,
@@ -1023,7 +1839,6 @@ export default function ExploreDesignPage() {
             return next;
           });
 
-          console.log(`[Explore-Design] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
         }
       } catch (error) {
         toast.error('Failed to load tables');
@@ -1042,8 +1857,23 @@ export default function ExploreDesignPage() {
       return;
     }
 
+    // Check if columns already exist in the map (e.g. DWH template tables)
+    const cachedColumns = tableColumnsMap.get(selectedTable.id);
+    if (cachedColumns && cachedColumns.length > 0) {
+      setTableColumns(cachedColumns);
+      const existingConfig = allTableConfigs.get(selectedTable.id);
+      setTableConfig(existingConfig || {
+        tableId: selectedTable.id,
+        ingestion: { mode: 'full_refresh' },
+        masking: [],
+        ...categorizeColumns(cachedColumns),
+      });
+      return;
+    }
+
     const loadColumns = async () => {
       setIsLoadingColumns(true);
+      setColumnsLoadError(null);
       try {
         const columns = await getTableColumns(
           selectedTable.database,
@@ -1051,7 +1881,7 @@ export default function ExploreDesignPage() {
           selectedTable.table
         );
 
-        if (columns) {
+        if (columns && columns.length > 0) {
           const formattedColumns: ColumnInfo[] = columns.map((col: any) => {
             // Check for primary key - backend returns isPk: "Y" or "N"
             const isPK = col.isPk === 'Y' ||
@@ -1089,19 +1919,97 @@ export default function ExploreDesignPage() {
             tableId: selectedTable.id,
             ingestion: { mode: 'full_refresh' },
             masking: [],
-            primaryKeys: formattedColumns.filter(c => c.isPrimaryKey).map(c => c.name),
-            nullable: formattedColumns.filter(c => c.isNullable).map(c => c.name),
-            sensitive: formattedColumns.filter(c => c.isSensitive).map(c => c.name),
+            ...categorizeColumns(formattedColumns),
           });
         }
       } catch (error) {
-        toast.error('Failed to load columns');
+        // Don't show error for template/DWH tables that don't exist in Snowflake yet
+        if (!targetTableIds.has(selectedTable.id)) {
+          if (error instanceof TableColumnsTimeoutError) {
+            setColumnsLoadError({ kind: 'timeout', message: error.message });
+            toast.error('Snowflake query timed out');
+          } else {
+            const msg = (error as { message?: string })?.message || 'Failed to load columns';
+            setColumnsLoadError({ kind: 'generic', message: msg });
+            toast.error('Failed to load columns');
+          }
+        }
       } finally {
         setIsLoadingColumns(false);
       }
     };
     loadColumns();
-  }, [selectedTable, allTableConfigs]);
+  }, [selectedTable, allTableConfigs, targetTableIds, columnsLoadAttempt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset inline panels when selected table changes
+  useEffect(() => {
+    setShowInlinePreview(false);
+    setShowInlineProfile(false);
+    setInlinePreviewData(null);
+    setInlineProfileData(null);
+  }, [selectedTable?.id]);
+
+  // Auto-load preview when table is selected (no toggle needed)
+  const [inlinePreviewError, setInlinePreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedTable || !selectedProjectId) return;
+    setShowInlinePreview(true);
+    setShowInlineProfile(true);
+    setRightBarOpen(true);
+    setActiveRightTab('actions');
+  }, [selectedTable?.id, selectedProjectId]);
+  useEffect(() => {
+    if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingInlinePreview(true);
+      setInlinePreviewError(null);
+      try {
+        const data = await tablePreview(selectedProjectId, selectedTable.database, selectedTable.schema, selectedTable.table, { limit: 5 });
+        if (!cancelled) {
+          setInlinePreviewData({ columns: data.columns, rows: data.rows as Record<string, any>[], total_rows: data.row_count });
+        }
+      } catch (err) {
+        console.error('[E&D] Inline preview failed:', err);
+        if (!cancelled) {
+          setInlinePreviewData(null);
+          const msg = (err as { message?: string })?.message || 'Preview failed';
+          setInlinePreviewError(msg);
+        }
+      } finally {
+        if (!cancelled) setIsLoadingInlinePreview(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [showInlinePreview, selectedTable?.id, selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Fetch inline profile data when toggled on
+  useEffect(() => {
+    if (!showInlineProfile || !selectedTable || !selectedProjectId) return;
+    let cancelled = false;
+    const load = async () => {
+      setIsLoadingInlineProfile(true);
+      try {
+        const data = await fetchTableProfile(selectedProjectId, selectedTable.database, selectedTable.schema, selectedTable.table);
+        if (!cancelled) {
+          setInlineProfileData({
+            row_count: data.row_count,
+            column_count: data.column_count,
+            columns: data.columns ?? [],
+            aggregate_quality_score: (data as any).aggregate_quality_score ?? 100,
+          });
+        }
+      } catch (err) {
+        console.error('[E&D] Inline profile failed:', err);
+        if (!cancelled) setInlineProfileData(null);
+      } finally {
+        if (!cancelled) setIsLoadingInlineProfile(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [showInlineProfile, selectedTable?.id, selectedProjectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Detect sensitive columns by name patterns
   const detectSensitiveColumn = (name: string): boolean => {
@@ -1116,12 +2024,12 @@ export default function ExploreDesignPage() {
 
   // Search functionality
   useEffect(() => {
-    if (!searchQuery.trim()) {
+    if (!deferredSearchQuery.trim()) {
       setSearchResults([]);
       return;
     }
 
-    const query = searchQuery.toLowerCase();
+    const query = deferredSearchQuery.toLowerCase();
     const results: GlobalSearchResult[] = [];
 
     tables.forEach(table => {
@@ -1157,11 +2065,12 @@ export default function ExploreDesignPage() {
     });
 
     setSearchResults(results.slice(0, 20));
-  }, [searchQuery, tables, tableColumns, selectedTable, maskingPolicies]);
+  }, [deferredSearchQuery, tables, tableColumns, selectedTable, maskingPolicies]);
 
   // Handlers
   // handleSchemaToggle now stores schema with its database (selectedDatabase is the current DB in dropdown)
   const handleSchemaToggle = useCallback((schema: string) => {
+    if (readOnlyGuard()) return;
     // When user selects a schema, selectedDatabase is the database that schema belongs to
     // (because schemas dropdown only shows schemas for the currently selected database)
     const databaseForSchema = selectedDatabase;
@@ -1194,7 +2103,6 @@ export default function ExploreDesignPage() {
               database: databaseForSchema,
             },
           });
-          console.log('📌 SCHEMA_SELECTED event created for:', databaseForSchema + '.' + schema);
         }, 0);
       }
 
@@ -1252,41 +2160,82 @@ export default function ExploreDesignPage() {
       if (selectedProjectId && pendingEvents.length > 0) {
         const unsyncedEvents = await saveProjectEvents(selectedProjectId);
         if (unsyncedEvents.length > 0) {
-          // Transform events to API format
-          const apiEvents = unsyncedEvents.map(e => ({
-            event_id: e.id,
-            event_type: e.type,
-            target: e.target,
-            payload: e.payload,
-            status: e.status,
-            created_at: e.timestamp instanceof Date ? e.timestamp.toISOString() : String(e.timestamp),
-          }));
-          await recordDesignEvents(selectedProjectId, apiEvents as any);
+          // Persist each unsynced event via the new projects API
+          await Promise.all(
+            unsyncedEvents.map(e =>
+              addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: e.type,
+                status: e.status || 'pending',
+                details: { target: e.target, payload: e.payload },
+                entity_id: e.id,
+                entity_type: 'design_event',
+              })
+            )
+          );
           toast.success(`Saved ${unsyncedEvents.length} events for previous project`);
         }
       }
 
-      // Update selected project
+      // Clear ALL state from previous project BEFORE setting the new one
+      clearEvents();
+      ddlEventMapRef.current.clear();
+      prevEventIdsRef.current.clear();
+      setSelectedDatabase('');
+      setSchemas([]);
+      setSelectedSchemas(new Map());
+      setTables([]);
+      setSelectedTable(null);
+      setTableColumns([]);
+      setBackendMappings([]);
+      setModelingTableIds(new Set());
+      setTargetTableIds(new Set());
+      setDefaultRelationships([]);
+      setDefaultModelingTablesLoaded(false);
+      setModelingChoice(null);
+      setDwhTargetDatabase(null);
+      setDwhTargetSchema(null);
+      setTableColumnsMap(new Map());
+
+      // Set new project
       setSelectedProjectId(projectId);
       setSelectedProjectName(projectName);
+
+      // Kick off the events fetch in parallel with the contributors fetch —
+      // they're independent, so awaiting them sequentially wasted ~500ms per
+      // project switch. We fire listProjectEvents now and await its result
+      // later, where the events are actually consumed.
+      const projectEventsPromise = listProjectEvents(projectId, {});
+      // Swallow the rejection here so it isn't flagged as unhandled during the
+      // listContributors await window — the real error handling happens in the
+      // try/catch below where the promise is actually awaited.
+      projectEventsPromise.catch(() => {});
+
+      // Determine user's role for this project
+      try {
+        const contributors = await listContributors(projectId);
+        const me = contributors.find(
+          (c) => c.username.toLowerCase() === currentUsername.toLowerCase()
+        );
+        setUserRole(me?.role ?? 'owner'); // creator is always owner even if not in contributors table
+      } catch {
+        setUserRole('owner'); // fallback: assume owner if contributors fetch fails
+      }
+      // Restore modeling choice from cache (persisted per project)
+      const cached = modelingChoicesByProject.current.get(projectId);
+      setModelingChoice(cached?.choice || null);
+      setDwhTargetDatabase(cached?.database || null);
+      setDwhTargetSchema(cached?.schema || null);
+      setDefaultModelingTablesLoaded(!!cached?.choice);
 
       // Show loading toast while restoring project context
       const loadingToast = toast.loading(`Restoring project context...`);
 
       // Load events for the new project from backend
       try {
-        const eventsResponse = await getProjectEvents(projectId);
-        console.log('📥 Backend events response:', eventsResponse);
-        console.log('📥 Raw events details:', eventsResponse.events?.map((e: any) => ({
-          type: e.event_type,
-          schema: e.details?.schema,
-          schemaName: e.details?.schemaName,
-          table: e.details?.table
-        })));
-
-        // Log SCHEMA_SELECTED events specifically
-        const schemaEvents = eventsResponse.events?.filter((e: any) => e.event_type === 'SCHEMA_SELECTED');
-        console.log('📥 SCHEMA_SELECTED events:', schemaEvents);
+        // Use projectsApi.listEvents (same endpoint as addProjectEvent) to ensure we read from where we write.
+        // The request was started above, in parallel with listContributors.
+        const eventsResponse = await projectEventsPromise;
 
         // Extract unique database and schemas from ALL events
         // Track schemas per database: Map<database, Set<schema>>
@@ -1327,9 +2276,8 @@ export default function ExploreDesignPage() {
               payload: {
                 columns: payloadFromDetails.columns,
                 sql: payloadFromDetails.sql,
-                sourceColumn: payloadFromDetails.sourceColumn,
-                targetTable: payloadFromDetails.targetTable,
-                targetColumn: payloadFromDetails.targetColumn,
+                source: payloadFromDetails.source,
+                target: payloadFromDetails.target,
                 transformation: payloadFromDetails.transformation,
                 ...payloadFromDetails,
               },
@@ -1338,15 +2286,6 @@ export default function ExploreDesignPage() {
               userId: e.username,
               error: e.error_message,
             };
-
-            // Debug logging for COLUMN_MAPPING events
-            if (e.event_type === 'COLUMN_MAPPING_CREATED' || e.event_type === 'COLUMN_MAPPING_REMOVED') {
-              console.log('[handleProjectSelect] Converting COLUMN_MAPPING event:', {
-                rawEvent: e,
-                details,
-                convertedPayload: convertedEvent.payload,
-              });
-            }
 
             // Extract database and schema pairs from EVERY event
             const db = convertedEvent.target?.database;
@@ -1373,20 +2312,34 @@ export default function ExploreDesignPage() {
             return convertedEvent;
           });
 
-          console.log('📊 Total converted events:', backendEvents.length);
-          console.log('📊 Schemas by database:', Object.fromEntries(
-            Array.from(schemasByDatabase.entries()).map(([db, schemas]) => [db, Array.from(schemas)])
-          ));
         }
 
         await loadProjectEvents({ projectId, events: backendEvents });
+
+        // Load DDL actions from backend (for awareness / logging only)
+        // All events stay pending — DDL execution happens later in the deployment modal
+        try {
+          const ddlResponse = await listDDLActions(projectId);
+          const ddlActions = ddlResponse.actions || [];
+          void ddlActions; // loaded for awareness only
+        } catch (ddlErr) {
+          console.warn('[handleProjectSelect] Failed to load DDL actions:', ddlErr);
+        }
+
+        // Load saved column mappings from backend (legacy fallback for pre-event mappings)
+        /**try {
+          const mappingsResponse = await listMappings(projectId);
+          setBackendMappings(mappingsResponse.mappings || []);
+          // console.log('[handleProjectSelect] Loaded backend mappings:', mappingsResponse.mappings?.length || 0);
+        } catch (mappingErr) {
+          console.warn('[handleProjectSelect] Failed to load backend mappings:', mappingErr);
+          setBackendMappings([]);
+        }**/
 
         // If we found database/schema info, restore the selections
         if (schemasByDatabase.size > 0) {
           // Use the first database as the selected one (user can switch later)
           const dbToSelect = Array.from(schemasByDatabase.keys())[0];
-          console.log('🔄 Restoring database selection:', dbToSelect);
-          console.log('🔄 All databases with schemas:', Array.from(schemasByDatabase.keys()));
 
           try {
             // Set the database first
@@ -1404,7 +2357,6 @@ export default function ExploreDesignPage() {
               });
             });
 
-            console.log('🔄 Restoring ALL schema selections:', Object.fromEntries(allSchemasMap));
             setSelectedSchemas(allSchemasMap);
 
             // Expanded schemas - only those in the selected database's schema list
@@ -1423,31 +2375,194 @@ export default function ExploreDesignPage() {
             // These tables need to be in the modeling view for edges to render
             const mappingTableIds = new Set<string>();
 
+            // Rebuild tables + columns from TABLE_CREATED events (user-created tables)
+            const restoredTables: TableItem[] = [];
+            const restoredColumnsMap = new Map<string, ColumnInfo[]>();
+            // Collect ADD_COLUMN events to replay after TABLE_CREATED
+            const addColumnEvents: any[] = [];
+            // Collect FOREIGN_KEY_ADDED events to rebuild relationships
+            const restoredFkRelationships: TableRelationship[] = [];
+
+            // Restore modeling template choice from backend events
+            let restoredChoice: ModelingChoice | null = null;
+            let restoredTargetDb: string | null = null;
+            let restoredTargetSchema: string | null = null;
             backendEvents.forEach((event: any) => {
+              if (event.type === 'MODELING_TEMPLATE_CHOSEN' && event.payload?.choice) {
+                restoredChoice = event.payload.choice as ModelingChoice;
+                if (event.payload?.targetDatabase) {
+                  restoredTargetDb = event.payload.targetDatabase;
+                  restoredTargetSchema = event.payload.targetSchema;
+                }
+              }
               if (event.type === 'TABLE_ADDED_TO_MODELING' && event.payload?.tableId) {
                 addedTableIds.add(event.payload.tableId);
               }
               if (event.type === 'TABLE_REMOVED_FROM_MODELING' && event.payload?.tableId) {
                 removedTableIds.add(event.payload.tableId);
               }
-              // Extract source table from COLUMN_MAPPING events
+              // Extract source and target tables from COLUMN_MAPPING events
               if (event.type === 'COLUMN_MAPPING_CREATED') {
-                // Source table ID: database.schema.table from event.target
-                const srcDb = event.target?.database;
-                const srcSchema = event.target?.schema;
-                const srcTable = event.target?.table;
-                if (srcDb && srcSchema && srcTable) {
-                  mappingTableIds.add(`${srcDb}.${srcSchema}.${srcTable}`);
+                const src = event.payload?.source;
+                if (src?.database && src?.schema && src?.table) {
+                  mappingTableIds.add(`${src.database}.${src.schema}.${src.table}`);
+                  // Also add source schema to schemasByDatabase so it gets restored as selected
+                  if (!schemasByDatabase.has(src.database)) {
+                    schemasByDatabase.set(src.database, new Set());
+                  }
+                  schemasByDatabase.get(src.database)!.add(src.schema);
                 }
-                // Target table ID: database.schema.table from event.payload.targetTable
-                const tgtTable = event.payload?.targetTable;
-                if (tgtTable?.database && tgtTable?.schema && tgtTable?.table) {
-                  mappingTableIds.add(`${tgtTable.database}.${tgtTable.schema}.${tgtTable.table}`);
+                const tgt = event.payload?.target;
+                if (tgt?.database && tgt?.schema && tgt?.table) {
+                  mappingTableIds.add(`${tgt.database}.${tgt.schema}.${tgt.table}`);
+                  // Also add target schema to schemasByDatabase
+                  if (!schemasByDatabase.has(tgt.database)) {
+                    schemasByDatabase.set(tgt.database, new Set());
+                  }
+                  schemasByDatabase.get(tgt.database)!.add(tgt.schema);
+                }
+              }
+              // Rebuild user-created tables from TABLE_CREATED events
+              if (event.type === 'TABLE_CREATED' && event.target?.database && event.target?.schema && event.target?.table) {
+                const tableId = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+                const columns = (event.payload?.columns || []).map((col: any) => ({
+                  name: col.name,
+                  dataType: col.dataType || col.data_type || 'VARCHAR',
+                  isPrimaryKey: col.primaryKey || col.is_primary_key || false,
+                  isNullable: col.nullable !== false && col.is_nullable !== false,
+                }));
+                restoredTables.push({
+                  id: tableId,
+                  database: event.target.database,
+                  schema: event.target.schema,
+                  table: event.target.table,
+                  columnCount: columns.length,
+                  hasPrimaryKey: columns.some((c: any) => c.isPrimaryKey),
+                  status: event.status === 'applied' ? 'configured' : 'pending',
+                  sensitiveColumns: 0,
+                });
+                restoredColumnsMap.set(tableId, columns);
+                // Also add to modeling view
+                addedTableIds.add(tableId);
+              }
+              // Collect ADD_COLUMN events for replay
+              if (event.type === 'ADD_COLUMN' && event.target?.database && event.target?.table) {
+                addColumnEvents.push(event);
+              }
+              // Rebuild FK relationships
+              if (event.type === 'FOREIGN_KEY_ADDED' && event.target?.table) {
+                const refTable = event.payload?.referencedTable || event.payload?.targetTable;
+                if (refTable?.table) {
+                  restoredFkRelationships.push({
+                    constraint_name: event.payload?.constraintName || `FK_${event.target.table}`,
+                    child_schema: event.target.schema,
+                    child_table: event.target.table,
+                    child_column: event.payload?.columns?.[0] || event.payload?.sourceColumn || '',
+                    parent_schema: refTable.schema || event.target.schema,
+                    parent_table: refTable.table,
+                    parent_column: event.payload?.referencedColumns?.[0] || event.payload?.targetColumn || '',
+                  });
                 }
               }
             });
 
+            // Replay ADD_COLUMN events into restoredColumnsMap
+            addColumnEvents.forEach((event: any) => {
+              const tableId = `${event.target.database}.${event.target.schema}.${event.target.table}`;
+              const existing = restoredColumnsMap.get(tableId);
+              if (existing) {
+                const colName = event.payload?.columnName || event.payload?.name;
+                if (colName && !existing.some(c => c.name === colName)) {
+                  existing.push({
+                    name: colName,
+                    dataType: event.payload?.dataType || event.payload?.type || 'VARCHAR',
+                    isPrimaryKey: event.payload?.isPrimaryKey || false,
+                    isNullable: event.payload?.nullable !== false && event.payload?.isNullable !== false,
+                  });
+                }
+              }
+            });
+
+            // Apply restored tables to state
+            if (restoredTables.length > 0) {
+              setTables(prev => {
+                const existingIds = new Set(prev.map(t => t.id));
+                const newTables = restoredTables.filter(t => !existingIds.has(t.id));
+                return newTables.length > 0 ? [...prev, ...newTables] : prev;
+              });
+              setTableColumnsMap(prev => {
+                const next = new Map(prev);
+                restoredColumnsMap.forEach((cols, tableId) => {
+                  if (!next.has(tableId)) next.set(tableId, cols);
+                });
+                return next;
+              });
+              // Mark created tables as target tables (they're DWH-side)
+              setTargetTableIds(prev => {
+                const merged = new Set(prev);
+                restoredTables.forEach(t => merged.add(t.id));
+                return merged;
+              });
+              console.log('🔄 [Restore] Rebuilt tables from TABLE_CREATED:', restoredTables.map(t => t.id));
+            }
+
+            // Apply restored FK relationships
+            if (restoredFkRelationships.length > 0) {
+              setDefaultRelationships(prev => [...prev, ...restoredFkRelationships]);
+              console.log('🔄 [Restore] Rebuilt FK relationships:', restoredFkRelationships.length);
+            }
+
             console.log('🔄 Tables from COLUMN_MAPPING events:', Array.from(mappingTableIds));
+
+            // Fetch columns for mapping-referenced tables that aren't already in restoredColumnsMap
+            const mappingTablesNeedingColumns = Array.from(mappingTableIds).filter(id => !restoredColumnsMap.has(id));
+            if (mappingTablesNeedingColumns.length > 0) {
+              const colPromises = mappingTablesNeedingColumns.map(async (tableId) => {
+                const parts = tableId.split('.');
+                if (parts.length !== 3) return null;
+                const [db, schema, table] = parts;
+                try {
+                  const cols = await getTableColumns(db, schema, table);
+                  if (cols && cols.length > 0) {
+                    const formatted: ColumnInfo[] = cols.map((col: any) => ({
+                      name: col.COLUMN_NAME || col.name || col.column_name || 'unknown',
+                      dataType: col.data_type || col.DATA_TYPE || col.dataType || 'VARCHAR',
+                      isPrimaryKey: col.IS_PRIMARY_KEY === 'Y' || col.isPrimaryKey === true || col.is_primary_key === true,
+                      isNullable: col.IS_NULLABLE === 'YES' || col.isNullable !== false || col.is_nullable !== false,
+                      isSensitive: false,
+                    }));
+                    return { tableId, columns: formatted };
+                  }
+                  return null;
+                } catch (err) {
+                  console.error(`[Restore] Failed to load columns for mapping table ${tableId}:`, err);
+                  return null;
+                }
+              });
+              const colResults = await Promise.all(colPromises);
+              const restoredTableIds = new Set(restoredTables.map(t => t.id));
+              colResults.forEach(result => {
+                if (result) {
+                  restoredColumnsMap.set(result.tableId, result.columns);
+                  // Also add as a table entry if not already present (O(1) Set lookup)
+                  if (!restoredTableIds.has(result.tableId)) {
+                    restoredTableIds.add(result.tableId);
+                    const parts = result.tableId.split('.');
+                    restoredTables.push({
+                      id: result.tableId,
+                      database: parts[0],
+                      schema: parts[1],
+                      table: parts[2],
+                      columnCount: result.columns.length,
+                      hasPrimaryKey: result.columns.some((c: any) => c.isPrimaryKey),
+                      status: 'configured' as const,
+                      sensitiveColumns: 0,
+                    });
+                  }
+                }
+              });
+              console.log('🔄 [Restore] Fetched columns for mapping tables:', colResults.filter(Boolean).length);
+            }
 
             // Final modeling tables = added - removed + mapping tables
             const modelingTables = new Set([
@@ -1456,13 +2571,35 @@ export default function ExploreDesignPage() {
             ]);
 
             if (modelingTables.size > 0) {
-              console.log('🔄 Restoring modeling tables:', Array.from(modelingTables));
               // Merge with existing modeling tables (including default DWH tables)
               setModelingTableIds(prev => {
                 const merged = new Set(prev);
                 modelingTables.forEach(id => merged.add(id));
                 return merged;
               });
+            }
+
+            // Restore modeling template choice if found in events
+            if (restoredChoice) {
+              modelingChoicesByProject.current.set(projectId, {
+                choice: restoredChoice,
+                database: restoredTargetDb || undefined,
+                schema: restoredTargetSchema || undefined,
+              });
+              setModelingChoice(restoredChoice);
+              if (restoredChoice === 'dwh_template') {
+                if (restoredTargetDb) setDwhTargetDatabase(restoredTargetDb);
+                if (restoredTargetSchema) setDwhTargetSchema(restoredTargetSchema);
+                if (modelingTables.size > 0) {
+                  setDefaultModelingTablesLoaded(true);
+                }
+              }
+            } else if (modelingTables.size > 0 || backendEvents.some((e: any) => e.type === 'TABLE_CREATED' || e.type === 'SCHEMA_CREATED' || e.type === 'ADD_COLUMN')) {
+              // Project already has modeling work but no explicit MODELING_TEMPLATE_CHOSEN event
+              // Infer "from_scratch" so the template modal doesn't pop up again
+              const inferredChoice: ModelingChoice = 'scratch';
+              modelingChoicesByProject.current.set(projectId, { choice: inferredChoice });
+              setModelingChoice(inferredChoice);
             }
 
             // Count total schemas across all databases
@@ -1479,10 +2616,15 @@ export default function ExploreDesignPage() {
           }
         } else {
           toast.dismiss(loadingToast);
+          // No schema/database info from events — auto-select first available database
+          if (databases.length > 0 && !selectedDatabase) {
+            const defaultDb = databases[0];
+            setSelectedDatabase(defaultDb);
+          }
           if (backendEvents.length > 0) {
             toast.success(`Loaded ${backendEvents.length} events for "${projectName}"`);
           } else {
-            toast.error(`Project "${projectName}" selected (no saved data)`);
+            toast.success(`Project "${projectName}" selected — choose a database to start`);
           }
         }
       } catch (error) {
@@ -1497,6 +2639,37 @@ export default function ExploreDesignPage() {
       toast.error('Failed to switch projects');
     }
   }, [selectedProjectId, pendingEvents, saveProjectEvents, loadProjectEvents]);
+
+  // UnifiedProjectWizard handoff — branches on the explicit build mode.
+  //   manual   → select the project, blank modeling canvas (Start from Scratch).
+  //   ai       → select the project, open the AI model wizard seeded.
+  //   template → select the project, apply the DWH template.
+  const handleProjectCreated = useCallback(
+    async (result: UnifiedProjectWizardResult) => {
+      // Pre-seed the per-project modeling cache from the recorded build mode
+      // so ModelingTemplateModal won't re-prompt a project created with a
+      // deliberate choice.
+      const choice: ModelingChoice =
+        result.buildMode === 'template' ? 'dwh_template' : 'scratch';
+      modelingChoicesByProject.current.set(result.projectId, { choice });
+
+      await handleProjectSelect(result.projectId, result.projectName);
+
+      if (result.buildMode === 'ai') {
+        setAiModelSeed(result.aiDescription ?? '');
+        setShowAiGuidedWizard(true);
+      } else if (result.buildMode === 'template') {
+        // Apply the DWH template path — same as ModelingTemplateModal's
+        // "dwh_template" branch: pick a location, then enter modeling.
+        setShowLocationPicker(true);
+      } else {
+        // manual → blank modeling canvas.
+        setModelingChoice('scratch');
+        setViewMode('modeling');
+      }
+    },
+    [handleProjectSelect],
+  );
 
   const handleConfigChange = useCallback((configUpdate: Partial<TableConfig>) => {
     if (!selectedTable) return;
@@ -1571,6 +2744,7 @@ export default function ExploreDesignPage() {
 
   // Add selected tables to modeling view
   const handleAddToModeling = useCallback(() => {
+    if (readOnlyGuard()) return;
     if (selectedTables.size === 0) {
       toast.error('No tables selected');
       return;
@@ -1616,6 +2790,7 @@ export default function ExploreDesignPage() {
 
   // Remove table from modeling view
   const handleRemoveFromModeling = useCallback((tableId: string) => {
+    if (readOnlyGuard()) return;
     const table = tables.find(t => t.id === tableId);
     if (!table) return;
 
@@ -1650,6 +2825,7 @@ export default function ExploreDesignPage() {
     tableName: string,
     columns: string[]
   ) => {
+    if (readOnlyGuard()) return;
     if (columns.length === 0) {
       toast.error('Please select at least one column for the primary key');
       return;
@@ -1685,6 +2861,7 @@ export default function ExploreDesignPage() {
     tableName: string,
     newName: string
   ) => {
+    if (readOnlyGuard()) return;
     if (!newName || newName === tableName) {
       toast.error('Please provide a different name');
       return;
@@ -1705,6 +2882,20 @@ export default function ExploreDesignPage() {
       },
     });
 
+    // Cascade rename: update references in other events (A2)
+    if (selectedProjectId) {
+      cascadeRename(selectedProjectId, {
+        old_table_name: `${database}.${schema}.${tableName}`,
+        new_table_name: `${database}.${schema}.${newName}`,
+      }).then((res) => {
+        if (res.events_updated > 0) {
+          toast.success(`Cascade: ${res.events_updated} dependent event(s) updated`);
+        }
+      }).catch(() => {
+        // Non-blocking — rename event is still registered
+      });
+    }
+
     toast.success(`Table rename "${tableName}" → "${newName}" added to pending changes`);
   }, [addEvent, selectedProjectId]);
 
@@ -1716,6 +2907,7 @@ export default function ExploreDesignPage() {
     columnName: string,
     newName: string
   ) => {
+    if (readOnlyGuard()) return;
     if (!newName || newName === columnName) {
       toast.error('Please provide a different name');
       return;
@@ -1740,8 +2932,169 @@ export default function ExploreDesignPage() {
     toast.success(`Column rename "${columnName}" → "${newName}" added to pending changes`);
   }, [addEvent, selectedProjectId]);
 
+  // AI Column Classification handler
+  const handleAIClassify = useCallback(async () => {
+    if (!selectedTable || !selectedProjectId) {
+      toast.error('Select a project and table first');
+      return;
+    }
+    setIsClassifying(true);
+    try {
+      const result = await getColumnClassification(
+        selectedProjectId,
+        selectedTable.database,
+        selectedTable.schema,
+        selectedTable.table
+      );
+      // Convert array response to Record<columnName, category>
+      const classArray = result?.classifications || result?.data?.classifications || [];
+      const classRecord: Record<string, string> = {};
+      if (Array.isArray(classArray)) {
+        classArray.forEach((c: any) => {
+          if (c.column && c.category) classRecord[c.column] = c.category;
+        });
+      }
+      setColumnClassifications(prev => {
+        const next = new Map(prev);
+        next.set(selectedTable.id, classRecord);
+        return next;
+      });
+      const details = Array.isArray(classArray) ? classArray.map((c: any) => ({
+        column: c.column || '',
+        category: c.category || 'UNKNOWN',
+        tags: c.tags || c.semantic_tags || [c.category?.toLowerCase()].filter(Boolean),
+        confidence: c.confidence ?? c.score ?? 0.85,
+        description: c.description || c.explanation || `Detected as ${(c.category || 'unknown').toLowerCase().replace(/_/g, ' ')}`,
+        piiRisk: c.pii_risk || c.pii_type || (c.category === 'PII_CANDIDATE' ? 'high' : undefined),
+        suggestion: c.suggestion || c.recommended_action || null,
+      })) : [];
+      setClassificationDetails(details);
+      setActiveRightTab('ai');
+      if (!rightBarOpen) setRightBarOpen(true);
+      toast.success(`AI classified ${Object.keys(classRecord).length} columns`);
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
+      toast.error(typeof errMsg === 'string' ? errMsg : 'AI classification failed');
+    } finally {
+      setIsClassifying(false);
+    }
+  }, [selectedTable, selectedProjectId]);
+
+  // AI Discover Relationships handler
+  const handleDiscoverRelationships = useCallback(async () => {
+    if (!selectedProjectId || tables.length === 0) {
+      toast.error('Select a project with tables first');
+      return;
+    }
+    const toastId = toast.loading('Discovering relationships...');
+    try {
+      const result = await discoverRelationships(selectedProjectId, {
+        tables: tables.map(t => ({
+          database: t.database,
+          schema: t.schema,
+          table_name: t.table,
+        })),
+      });
+      toast.dismiss(toastId);
+      const count = result?.relationships?.length || 0;
+      toast.success(`Discovered ${count} potential relationships`);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || 'Relationship discovery failed');
+    }
+  }, [selectedProjectId, tables]);
+
+  // Load data engineering objects (dynamic tables, streams, alerts)
+  const handleListDataEngObjects = useCallback(async (schema: string, type: 'dynamic_tables' | 'streams' | 'alerts') => {
+    if (!selectedDatabase) {
+      toast.error('Select a database first');
+      return;
+    }
+    setDataEngModal({ isOpen: true, type, schema, items: [], loading: true });
+    try {
+      let result: any;
+      if (type === 'dynamic_tables') result = await listDynamicTables(selectedDatabase, schema);
+      else if (type === 'streams') result = await listStreams(selectedDatabase, schema);
+      else result = await listAlerts(selectedDatabase, schema);
+      const items = result?.data || result?.items || (Array.isArray(result) ? result : []);
+      setDataEngModal(prev => ({ ...prev, items, loading: false }));
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || `Failed to list ${type.replace('_', ' ')}`);
+      setDataEngModal(prev => ({ ...prev, loading: false }));
+    }
+  }, [selectedDatabase]);
+
+  // Data engineering action handlers
+  const handleDataEngAction = useCallback(async (objectName: string, action: string) => {
+    if (!selectedDatabase || !dataEngModal.schema) return;
+    // For drop actions, show inline confirmation instead of browser confirm()
+    if (action === 'drop') {
+      const typeMap: Record<string, 'dynamic_table' | 'stream' | 'alert'> = {
+        dynamic_tables: 'dynamic_table',
+        streams: 'stream',
+        alerts: 'alert',
+      };
+      setConfirmDrop({ type: typeMap[dataEngModal.type], name: objectName });
+      return;
+    }
+    const db = selectedDatabase;
+    const schema = dataEngModal.schema;
+    const toastId = toast.loading(`${action} ${objectName}...`);
+    try {
+      if (dataEngModal.type === 'dynamic_tables') {
+        if (action === 'suspend') await suspendDynamicTable(objectName, db, schema);
+        else if (action === 'resume') await resumeDynamicTable(objectName, db, schema);
+        else if (action === 'refresh') await refreshDynamicTable(objectName, db, schema);
+      } else if (dataEngModal.type === 'streams') {
+        if (action === 'view_data') {
+          const data = await getStreamData(objectName, db, schema);
+          toast.dismiss(toastId);
+          toast.success(`Stream has ${data?.rows?.length || 0} change records`);
+          return;
+        }
+      }
+      toast.dismiss(toastId);
+      toast.success(`${action} "${objectName}" completed`);
+      // Refresh list
+      handleListDataEngObjects(schema, dataEngModal.type);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || `${action} failed`);
+    }
+  }, [selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
+
+  // Execute a confirmed drop action (called from the inline confirmation bar)
+  const executeConfirmedDrop = useCallback(async () => {
+    if (!confirmDrop) return;
+    const { type, name } = confirmDrop;
+    setConfirmDrop(null);
+
+    if (type === 'schema') {
+      // Schema drop is a placeholder — just queue it
+      toast.error(`Drop schema ${name} - operation queued`);
+      return;
+    }
+
+    if (!selectedDatabase || !dataEngModal.schema) return;
+    const db = selectedDatabase;
+    const schema = dataEngModal.schema;
+    const toastId = toast.loading(`Dropping ${type.replace('_', ' ')} "${name}"...`);
+    try {
+      if (type === 'dynamic_table') await dropDynamicTable(name, db, schema);
+      else if (type === 'stream') await dropStream(name, db, schema);
+      else if (type === 'alert') await dropAlert(name, db, schema);
+      toast.dismiss(toastId);
+      toast.success(`drop "${name}" completed`);
+      handleListDataEngObjects(schema, dataEngModal.type);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || `drop failed`);
+    }
+  }, [confirmDrop, selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
+
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
+    if (readOnlyGuard()) return;
     switch (action) {
       case 'transfer_ownership':
         toast.loading(`Transferring ownership for schema ${schema}...`);
@@ -1778,41 +3131,48 @@ export default function ExploreDesignPage() {
       case 'export_ddl':
         toast.success(`Exporting DDL for ${schema}...`);
         break;
+      case 'list_dynamic_tables':
+        handleListDataEngObjects(schema, 'dynamic_tables');
+        break;
+      case 'list_streams':
+        handleListDataEngObjects(schema, 'streams');
+        break;
+      case 'list_alerts':
+        handleListDataEngObjects(schema, 'alerts');
+        break;
       case 'drop_schema':
-        if (confirm(`Are you sure you want to drop schema ${schema}? This action cannot be undone.`)) {
-          toast.error(`Drop schema ${schema} - operation queued`);
-        }
+        setConfirmDrop({ type: 'schema', name: schema });
         break;
       default:
         toast.error(`Unknown action: ${action}`);
     }
-  }, []);
+  }, [handleListDataEngObjects]);
 
   // Toggle fullscreen mode
   const toggleFullscreen = useCallback(() => {
     setIsFullscreen(prev => {
       if (!prev) {
-        // Entering fullscreen - hide all panels
+        // Save current panel state before entering fullscreen
+        setSavedPanelState({ sidebar: showSidebar, event: showEventPanel });
         setShowSidebar(false);
-        setShowDetailPanel(false);
         setShowEventPanel(false);
       }
       return !prev;
     });
-  }, []);
+  }, [showSidebar, showEventPanel]);
 
   // Exit fullscreen and restore panels
   const exitFullscreen = useCallback(() => {
     setIsFullscreen(false);
-    setShowSidebar(true);
-    setShowDetailPanel(true);
-    setShowEventPanel(true);
-  }, []);
+    setShowSidebar(savedPanelState.sidebar);
+    setShowEventPanel(savedPanelState.event);
+  }, [savedPanelState]);
 
   return (
+    <ErrorBoundary>
     <div className={cn(
-      "flex flex-col",
-      isFullscreen ? "h-screen" : "h-[calc(100vh-80px)]"
+      "flex flex-col -mx-6 -mt-6 -mb-12 md:-mx-8 lg:-mx-10 lg:-mb-16 xl:-mx-12 2xl:-mx-16",
+      isFullscreen ? "h-screen" : "h-[calc(100dvh-64px)]"
     )}>
       {/* Offline Warning Banner */}
       {isOffline && (
@@ -1821,10 +3181,11 @@ export default function ExploreDesignPage() {
             <WifiOff className="h-5 w-5 text-red-500 flex-shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-red-800 dark:text-red-200">
-                Connection Lost - Sync Offline
+                Session expired
               </p>
               <p className="text-xs text-red-600 dark:text-red-400 mt-0.5">
-                You are not connected to Snowflake. Data shown may be cached. Please sign in again.
+                Your authentication token is no longer valid. Sign in again to
+                resume saving changes.
               </p>
             </div>
             <Button
@@ -1839,30 +3200,77 @@ export default function ExploreDesignPage() {
         </div>
       )}
 
-      {/* Header - Compact (hidden in fullscreen) */}
+      {/* Inline confirmation bar for schema drops */}
+      {confirmDrop?.type === 'schema' && (
+        <div className="flex items-center gap-3 border-b border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+          <p className="flex-1 text-sm text-red-800 dark:text-red-200">
+            Drop schema <span className="font-semibold">{confirmDrop.name}</span>? This action cannot be undone.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmDrop(null)}
+            className="text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={executeConfirmedDrop}
+            className="text-xs bg-red-600 hover:bg-red-700 text-white border-red-600"
+          >
+            Confirm Drop
+          </Button>
+        </div>
+      )}
+
+      {/* ── Unified header ─────────────────────────────────────────────
+          Previously 3 stacked rows (breadcrumb + title-toolbar + search-
+          panels). Collapsed into ONE sticky row: Project | Tabs | Search
+          | Deploy + overflow ⋮. The breadcrumb is rebuilt as a tiny strip
+          inside the row, secondary actions live in the overflow menu, and
+          panel-toggle buttons moved to the canvas edge. */}
       {!isFullscreen && (
-      <div className="px-3 lg:px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-          <div className="min-w-0 flex items-center gap-3">
-            <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-              Explore & Design
-              <Badge className="bg-blue-100 text-blue-600 text-[10px] px-1.5 py-0">NEW</Badge>
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-3 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95 lg:px-4">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* LEFT: project context + view-mode tabs */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <h1 className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-white">
+              Explore &amp; Design
+              <Badge className="bg-blue-100 px-1.5 py-0 text-[10px] text-blue-600">NEW</Badge>
             </h1>
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+            <span className="hidden h-5 w-px bg-slate-200 dark:bg-slate-700 sm:inline-block" />
             <ProjectSelector
               selectedProjectId={selectedProjectId}
               onProjectSelect={handleProjectSelect}
+              autoSelectProjectId={autoProjectId}
+              onCreateRequested={() => setShowProjectWizard(true)}
             />
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
-            {/* View Mode Toggle */}
-            <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded p-0.5">
+            {selectedProjectId && (
+              <button
+                type="button"
+                onClick={() => setShowApproachFork(true)}
+                className="text-[10px] font-medium text-indigo-500 hover:text-indigo-700 hover:underline dark:text-indigo-400"
+                title="Switch how this project is built"
+              >
+                Change approach
+              </button>
+            )}
+            {isReadOnly && (
+              <Badge className="flex items-center gap-1 bg-amber-100 px-2 py-0.5 text-[10px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                <Eye className="h-3 w-3" />
+                View Only
+              </Badge>
+            )}
+            {/* View-mode tabs — feel native, not crammed */}
+            <div className="ml-1 flex items-center rounded-md bg-slate-100 p-0.5 dark:bg-slate-800">
               <button
                 className={cn(
-                  'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
                   viewMode === 'catalog'
-                    ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
                 onClick={() => setViewMode('catalog')}
               >
@@ -1871,186 +3279,288 @@ export default function ExploreDesignPage() {
               </button>
               <button
                 className={cn(
-                  'px-2 py-1 rounded text-xs font-medium transition-colors flex items-center gap-1',
+                  'flex items-center gap-1 rounded px-2.5 py-1 text-xs font-medium transition-colors',
                   viewMode === 'modeling'
-                    ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-700'
+                    ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
                 )}
-                onClick={() => setViewMode('modeling')}
+                onClick={() => {
+                  if (!modelingChoice && readOnlyGuard()) return;
+                  if (!modelingChoice) {
+                    setShowTemplateModal(true);
+                  } else {
+                    setViewMode('modeling');
+                  }
+                }}
               >
                 <Workflow className="h-3.5 w-3.5" />
                 Modeling
               </button>
             </div>
+          </div>
 
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+          {/* RIGHT: search + deploy + overflow */}
+          <div className="flex items-center gap-2">
+            <GlobalSearch
+              value={searchQuery}
+              onChange={setSearchQuery}
+              results={searchResults}
+              onResultClick={handleSearchResultClick}
+            />
 
-            {/* Undo/Redo */}
-            <Tooltip content="Undo">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => undoEvent()}
-                disabled={!canUndo}
-                className="p-1.5"
-              >
-                <Undo2 className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-            <Tooltip content="Redo">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => redoEvent()}
-                disabled={!canRedo}
-                className="p-1.5"
-              >
-                <Redo2 className="h-3.5 w-3.5" />
-              </Button>
-            </Tooltip>
-
-            <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-
-            {/* Refresh Data Button */}
-            <Tooltip content="Refresh data">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  if (!selectedDatabase) return;
-                  toast.loading('Refreshing...');
-                  setIsLoadingSchemas(true);
-                  setIsLoadingTables(true);
-                  try {
-                    const schemaList = await getSchemas(selectedDatabase);
-                    setSchemas(schemaList || []);
-                    toast.dismiss();
-                    toast.success('Refreshed');
-                  } catch {
-                    toast.dismiss();
-                    toast.error('Failed');
-                  } finally {
-                    setIsLoadingSchemas(false);
-                  }
-                }}
-                className="p-1.5"
-                disabled={!selectedDatabase || isLoadingSchemas || isLoadingTables}
-              >
-                <RefreshCw className={cn('h-3.5 w-3.5', (isLoadingSchemas || isLoadingTables) && 'animate-spin')} />
-              </Button>
-            </Tooltip>
-
-            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1">
-              <Upload className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline text-xs">Import</span>
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1 hidden lg:flex px-2 py-1">
-              <Download className="h-3.5 w-3.5" />
-              <span className="hidden xl:inline text-xs">Export</span>
-            </Button>
-
-            {/* Deploy Button - Always accessible when project selected */}
-            <Button
-              size="sm"
-              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 px-2.5 py-1"
+            {/* AI-guided modeling — magic CTA that orchestrates connect →
+                detect → sample → validate → approve → deploy. */}
+            <AiGuidedModelButton
               onClick={() => {
+                if (readOnlyGuard()) return;
                 if (!selectedProjectId) {
                   toast.error('Please select a project first');
                   return;
                 }
-                setShowDeploymentModal(true);
+                setShowAiGuidedWizard(true);
               }}
-              disabled={!selectedProjectId}
+              disabled={!selectedProjectId || isReadOnly}
+            />
+
+            {/* Primary action: Deploy — only thing besides search that stays
+                always-visible. Everything else lives in the overflow menu. */}
+            <Button
+              size="sm"
+              className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:from-blue-700 hover:to-indigo-700"
+              onClick={async () => {
+                if (readOnlyGuard()) return;
+                if (!selectedProjectId) {
+                  toast.error('Please select a project first');
+                  return;
+                }
+                const eventIds = pendingEvents.map((e) => e.id);
+                if (eventIds.length > 0) {
+                  const hasConflicts = await checkForConflicts(eventIds);
+                  if (hasConflicts) {
+                    pendingConflictAction.current = { type: 'deploy', eventIds };
+                    return;
+                  }
+                }
+                setActiveRightTab('deploy');
+                if (!rightBarOpen) setRightBarOpen(true);
+              }}
+              disabled={!selectedProjectId || isReadOnly}
             >
               <Rocket className="h-3.5 w-3.5" />
-              <span className="text-xs">Deploy</span>
+              Deploy
               {displayablePendingEvents.length > 0 && (
-                <Badge className="bg-white/20 text-white text-[10px] px-1 py-0">{displayablePendingEvents.length}</Badge>
+                <Badge className="bg-white/20 px-1 py-0 text-[10px] text-white">
+                  {displayablePendingEvents.length}
+                </Badge>
               )}
             </Button>
+
+            {/* Overflow menu — Undo/Redo + Templates + DAG + Ingestion + AI +
+                Refresh + Import + Export + Filters + panel toggles. Replaces
+                ~10 visible buttons with one ⋮. Active toggles still glow so
+                users see at-a-glance which panels are open. */}
+            <OverflowMenu
+              items={[
+                {
+                  label: 'Undo',
+                  icon: Undo2,
+                  onClick: () => undoEvent(),
+                  disabled: !canUndo || isReadOnly,
+                },
+                {
+                  label: 'Redo',
+                  icon: Redo2,
+                  onClick: () => redoEvent(),
+                  disabled: !canRedo || isReadOnly,
+                },
+                {
+                  label: 'Event Templates',
+                  icon: BookTemplate,
+                  onClick: () => setShowTemplateLibrary(true),
+                },
+                {
+                  label: 'DAG Viewer',
+                  icon: Workflow,
+                  onClick: () => setShowDagViewer(!showDagViewer),
+                  active: showDagViewer,
+                  activeColor: 'violet',
+                },
+                {
+                  label: 'Ingestion Runs',
+                  icon: BarChart3,
+                  onClick: () => setShowIngestionResults(!showIngestionResults),
+                  active: showIngestionResults,
+                  activeColor: 'teal',
+                },
+                {
+                  label: 'AI Intelligence',
+                  icon: Sparkles,
+                  onClick: () => setShowAiPanel(!showAiPanel),
+                  active: showAiPanel,
+                  activeColor: 'purple',
+                },
+                {
+                  label: 'Refresh data',
+                  icon: RefreshCw,
+                  disabled: !selectedDatabase || isLoadingSchemas || isLoadingTables,
+                  onClick: async () => {
+                    if (!selectedDatabase) return;
+                    toast.loading('Refreshing...');
+                    setIsLoadingSchemas(true);
+                    setIsLoadingTables(true);
+                    try {
+                      const schemaList = await getSchemas(selectedDatabase);
+                      setSchemas(schemaList || []);
+                      toast.dismiss();
+                      toast.success('Refreshed');
+                    } catch {
+                      toast.dismiss();
+                      toast.error('Failed');
+                    } finally {
+                      setIsLoadingSchemas(false);
+                    }
+                  },
+                },
+                {
+                  label: 'Import',
+                  icon: Upload,
+                  onClick: () => {},
+                  disabled: isReadOnly,
+                },
+                {
+                  label: 'Export',
+                  icon: Download,
+                  onClick: () => {},
+                },
+                {
+                  label: showSidebar ? 'Hide Sources' : 'Show Sources',
+                  icon: PanelLeft,
+                  onClick: () => setShowSidebar(!showSidebar),
+                  active: showSidebar,
+                  activeColor: 'blue',
+                },
+                {
+                  label: 'History',
+                  icon: PanelRight,
+                  onClick: () => { setActiveRightTab('history'); if (!rightBarOpen) setRightBarOpen(true); },
+                  active: activeRightTab === 'history' && rightBarOpen,
+                  activeColor: 'blue',
+                },
+              ]}
+            />
           </div>
         </div>
-
-        {/* Search and Filters - Compact */}
-        <div className="flex flex-wrap items-center gap-1.5 lg:gap-2">
-          <GlobalSearch
-            value={searchQuery}
-            onChange={setSearchQuery}
-            results={searchResults}
-            onResultClick={handleSearchResultClick}
-          />
-          <Button variant="outline" size="sm" className="gap-1 hidden sm:flex px-2 py-1">
-            <Filter className="h-3.5 w-3.5" />
-            <span className="hidden md:inline text-xs">Filters</span>
-          </Button>
-
-          {/* Panel visibility toggles */}
-          <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-800 rounded p-0.5">
-            <Tooltip content={showSidebar ? 'Hide Sources' : 'Show Sources'}>
-              <button
-                onClick={() => setShowSidebar(!showSidebar)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showSidebar
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <PanelLeft className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-            <Tooltip content={showDetailPanel ? 'Hide Details' : 'Show Details'}>
-              <button
-                onClick={() => setShowDetailPanel(!showDetailPanel)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showDetailPanel
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <Table2 className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-            <Tooltip content={showEventPanel ? 'Hide Events' : 'Show Events'}>
-              <button
-                onClick={() => setShowEventPanel(!showEventPanel)}
-                className={cn(
-                  'p-1 rounded transition-colors',
-                  showEventPanel
-                    ? 'bg-white dark:bg-slate-700 shadow text-blue-600'
-                    : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                <PanelRight className="h-3.5 w-3.5" />
-              </button>
-            </Tooltip>
-          </div>
-        </div>
-      </div>
+      </header>
       )}
 
-      {/* Unified Project Context (Deployment / History / Grants / Errors / Recos) - hideable */}
+      {/* Wizard overlay — appears centred over the workspace ONLY when the
+          user explicitly clicks "New project". Backdrop click cancels. The
+          workspace stays mounted underneath so it's not destroyed each time
+          the wizard opens. */}
       {!isFullscreen && (
+        <UnifiedProjectWizard
+          open={showProjectWizard}
+          onOpenChange={setShowProjectWizard}
+          module="explore-design"
+          onCreated={(result) => {
+            void handleProjectCreated(result);
+          }}
+        />
+      )}
+
+      {/* "Change approach" — re-opens the manual/AI/template fork for an
+          existing project so the build choice is reversible. */}
+      {showApproachFork && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Change approach"
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+        >
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => setShowApproachFork(false)}
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+          />
+          <div className="relative w-full max-w-2xl rounded-xl border border-slate-200 bg-white p-5 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="text-base font-semibold text-slate-900 dark:text-white">
+              Change how you build this data model
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Switch to AI to scaffold from a description, apply the DWH
+              template, or keep modeling manually.
+            </p>
+            <div className="mt-4">
+              <ManualAiTemplateFork
+                value={null}
+                ariaLabel="Change how you build this data model"
+                descriptions={{
+                  manual: 'Continue modeling on the canvas. Full control.',
+                  ai: 'Describe your data model, AI scaffolds the schema.',
+                  template: 'Apply the proven DWH starter scaffold.',
+                }}
+                onChange={(mode: BuildMode) => {
+                  setShowApproachFork(false);
+                  if (mode === 'ai') {
+                    setAiModelSeed('');
+                    setShowAiGuidedWizard(true);
+                  } else if (mode === 'template') {
+                    setShowLocationPicker(true);
+                  } else {
+                    setModelingChoice('scratch');
+                    setViewMode('modeling');
+                  }
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unified Project Context (Deployment / History / Grants / Errors / Recos).
+          Hidden entirely when no project is selected so the workspace empty
+          state below gets the full vertical space. */}
+      {/* ProjectContextPanel removed — all tabs now in ContextRightBar */}
+      {false && !isFullscreen && selectedProjectId && (
         <ProjectContextPanel
           projectId={selectedProjectId}
           projectName={selectedProjectName}
           variant="explore-design"
           defaultExpanded={false}
-          hideWhenEmpty={!selectedProjectId}
+          hideWhenEmpty={false}
           deploymentSlot={selectedProjectId ? (
             <div className="p-4 space-y-3">
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Pending events: {displayablePendingEvents.length}. Validate and deploy from the Deploy button above.
-              </p>
-              <Button
-                size="sm"
-                className="gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                onClick={() => setShowDeploymentModal(true)}
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Pending events: <span className="font-semibold text-slate-900 dark:text-white">{displayablePendingEvents.length}</span>
+                </p>
+                {displayablePendingEvents.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Ready to deploy
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={async () => {
+                  if (readOnlyGuard()) return;
+                  const eventIds = pendingEvents.map((e) => e.id);
+                  if (eventIds.length > 0) {
+                    const hasConflicts = await checkForConflicts(eventIds);
+                    if (hasConflicts) {
+                      pendingConflictAction.current = { type: 'deploy', eventIds };
+                      return;
+                    }
+                  }
+                  setActiveRightTab('deploy');
+                  if (!rightBarOpen) setRightBarOpen(true);
+                }}
+                disabled={isReadOnly}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors disabled:opacity-50"
               >
                 <Rocket className="h-3.5 w-3.5" />
-                Open Deploy & Validation
-              </Button>
+                Open Deployment Pipeline
+              </button>
             </div>
           ) : undefined}
           versionsSlot={selectedProjectId ? (
@@ -2066,12 +3576,15 @@ export default function ExploreDesignPage() {
               <EventTable compact projectId={selectedProjectId} className="m-2" />
             </div>
           ) : undefined}
+          grantsSlot={selectedProjectId ? (
+            <AccessManagementSlot projectId={selectedProjectId!} />
+          ) : undefined}
           errorsSlot={<RecentDeploymentErrorsSlot />}
         />
       )}
 
-      {/* Compact Source Selector - Horizontal bar */}
-      {!isFullscreen && (
+      {/* Compact Source Selector — hidden, auto-load replaces it */}
+      {false && !isFullscreen && selectedProjectId && (
         <CompactSourceSelector
           databases={databases}
           selectedDatabase={selectedDatabase}
@@ -2083,78 +3596,147 @@ export default function ExploreDesignPage() {
           isLoadingDatabases={isLoadingDatabases}
           isLoadingSchemas={isLoadingSchemas}
           stats={stats}
+          projectId={selectedProjectId}
         />
       )}
 
       {/* Main Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* LEFT Panel - Tables List (collapsible) */}
-        {showSidebar && viewMode === 'catalog' && (
+      <div className="flex-1 flex overflow-hidden min-h-0">
+        {/* Empty state: NO project selected. Renders the shared inline
+            ProjectGatePanel — a real in-page picker, no modal hand-off — so
+            this matches the Workflow module's gate exactly. The header
+            ProjectSelector dropdown stays for mid-session switching. */}
+        {!selectedProjectId && !isFullscreen && (
+          <ProjectGatePanel
+            module="explore-design"
+            projects={gateProjects}
+            loading={gateProjectsLoading}
+            error={gateProjectsError}
+            onRetry={() => { void refetchGateProjects(); }}
+            onSelect={(projectId, projectName) => {
+              void handleProjectSelect(projectId, projectName);
+            }}
+            onCreateNew={() => setShowProjectWizard(true)}
+          />
+        )}
+
+        {/* LEFT Panel - Tables List (collapsible) — workspace hidden until a
+            project is selected so the empty state above can take full space. */}
+        {selectedProjectId && showSidebar && viewMode === 'catalog' && (() => {
+          const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
+          const allSelected = selectedTables.size === catalogTables.length && catalogTables.length > 0;
+          return (
           <div className="w-64 lg:w-72 xl:w-80 border-r dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col overflow-hidden flex-shrink-0">
             {/* Table List Header */}
-            <div className="px-3 py-2 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
-              <div className="flex items-center justify-between mb-2">
+            <div className="px-3 py-2.5 border-b dark:border-slate-800 bg-gradient-to-b from-slate-50 to-white dark:from-slate-800/60 dark:to-slate-900 space-y-2">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Table2 className="h-4 w-4 text-slate-500" />
-                  <span className="font-medium text-sm">{tables.filter(t => !targetTableIds.has(t.id)).length} Tables</span>
+                  <div className="p-1 bg-blue-100 dark:bg-blue-900/30 rounded">
+                    <Table2 className="h-3.5 w-3.5 text-blue-600 dark:text-blue-400" />
+                  </div>
+                  <span className="font-semibold text-base text-slate-800 dark:text-slate-200">
+                    Source Tables
+                  </span>
+                  <Badge className="bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] px-1.5 py-0 font-medium">
+                    {catalogTables.length}
+                  </Badge>
                   {selectedTables.size > 0 && (
-                    <Badge className="bg-blue-100 text-blue-700 text-xs px-1.5">
-                      {selectedTables.size}
+                    <Badge className="bg-blue-500 text-white text-[10px] px-1.5 py-0 font-medium">
+                      {selectedTables.size} selected
                     </Badge>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
-                  <Tooltip content={selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? 'Deselect All' : 'Select All'}>
+                <div className="flex items-center gap-0.5">
+                  <Tooltip content={allSelected ? 'Deselect All' : 'Select All'}>
                     <button
-                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                      aria-label={allSelected ? 'Deselect all tables' : 'Select all tables'}
+                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => {
-                        const catalogTables = tables.filter(t => !targetTableIds.has(t.id));
-                        if (selectedTables.size === catalogTables.length) {
+                        if (allSelected) {
                           setSelectedTables(new Set());
                         } else {
                           setSelectedTables(new Set(catalogTables.map(t => t.id)));
                         }
                       }}
                     >
-                      {selectedTables.size > 0 && selectedTables.size === tables.filter(t => !targetTableIds.has(t.id)).length ? (
-                        <CheckSquare className="h-4 w-4 text-blue-500" />
+                      {allSelected ? (
+                        <CheckSquare className="h-3.5 w-3.5 text-blue-500" />
                       ) : (
-                        <Square className="h-4 w-4 text-slate-400" />
+                        <Square className="h-3.5 w-3.5 text-slate-400" />
                       )}
                     </button>
                   </Tooltip>
-                  <Tooltip content="Hide Tables Panel">
+                  <Tooltip content="Hide Panel">
                     <button
-                      className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                      aria-label="Hide sources panel"
+                      className="p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       onClick={() => setShowSidebar(false)}
                     >
-                      <PanelLeft className="h-4 w-4 text-slate-400" />
+                      <PanelLeft className="h-3.5 w-3.5 text-slate-400" />
                     </button>
                   </Tooltip>
                 </div>
               </div>
-              {/* Add to Modeling Button */}
-              {selectedTables.size > 0 && (
-                <Button
+
+              {/* Search */}
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                <Input
                   size="sm"
-                  onClick={handleAddToModeling}
-                  className="w-full gap-2"
+                  aria-label="Search tables"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search tables..."
+                  className="pl-7 text-xs"
+                />
+                {searchQuery && (
+                  <button
+                    aria-label="Clear table search"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                    onClick={() => setSearchQuery('')}
+                  >
+                    <X className="h-3 w-3 text-slate-400" />
+                  </button>
+                )}
+              </div>
+
+              {/* Add to Modeling — animated entrance, shimmer on hover */}
+              {selectedTables.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                 >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add to Modeling ({selectedTables.size})
-                </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleAddToModeling}
+                    className="group relative w-full gap-2 overflow-hidden bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-indigo-700 hover:shadow-lg hover:shadow-blue-500/40"
+                  >
+                    {/* Shimmer sweep */}
+                    <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
+                    <Plus className="h-3.5 w-3.5" />
+                    Add {selectedTables.size} to Modeling
+                    <ArrowRight className="ml-auto h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                  </Button>
+                </motion.div>
               )}
             </div>
 
             {/* Virtualized Table List */}
             <div className="flex-1 overflow-hidden">
               {isLoadingTables ? (
-                <div className="flex items-center justify-center h-full">
-                  <RefreshCw className="h-6 w-6 animate-spin text-slate-400" />
+                <div className="flex flex-col items-center justify-center h-full gap-3">
+                  <div className="relative">
+                    <div className="h-10 w-10 rounded-full border-2 border-blue-200 dark:border-blue-800" />
+                    <RefreshCw className="h-5 w-5 animate-spin text-blue-500 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                  </div>
+                  <span className="text-xs text-slate-400">Loading tables...</span>
                 </div>
-              ) : tables.filter(t => !targetTableIds.has(t.id)).length > 0 ? (
+              ) : catalogTables.length > 0 ? (
                 <VirtualizedTableList
-                  tables={tables.filter(t => !targetTableIds.has(t.id))}
+                  tables={catalogTables}
                   selectedTables={selectedTables}
                   onSelectionChange={handleTableSelection}
                   onSelectAll={handleSelectAllTables}
@@ -2165,21 +3747,32 @@ export default function ExploreDesignPage() {
                   className="h-full"
                 />
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-slate-500 p-4">
-                  <Database className="h-10 w-10 mb-3 text-slate-300" />
-                  <p className="font-medium text-sm">No tables</p>
-                  <p className="text-xs mt-1 text-center">Select a database and schema above</p>
+                <div className="flex flex-col items-center justify-center h-full text-center p-6">
+                  <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded-xl mb-3">
+                    <Database className="h-8 w-8 text-slate-400 dark:text-slate-500" />
+                  </div>
+                  <p className="font-medium text-sm text-slate-600 dark:text-slate-400">No tables loaded</p>
+                  <p className="text-xs mt-1 text-slate-400 dark:text-slate-500 max-w-[200px]">
+                    Select a database and schema from the toolbar above to browse tables
+                  </p>
                 </div>
               )}
             </div>
           </div>
-        )}
+          );
+        })()}
 
-        {/* CENTER Panel - Catalog or Modeling View */}
-        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          {viewMode === 'catalog' ? (
+        {/* CENTER Panel - Catalog or Modeling View. Only rendered when a
+            project is selected — otherwise the empty-state card above takes
+            the full workspace area. */}
+        {selectedProjectId && (
+        <div className={cn(
+          "flex-1 flex flex-col overflow-hidden min-w-0",
+          viewMode === 'catalog' && "bg-slate-50 dark:bg-slate-900/50"
+        )}>
+          {viewMode === 'catalog' && (
             // Catalog View - Table Details in CENTER
-            <div className="flex-1 flex flex-col overflow-hidden min-w-0 bg-slate-50 dark:bg-slate-900/50">
+            <>
               {/* Show sidebar toggle when hidden */}
               {!showSidebar && (
                 <div className="px-3 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900">
@@ -2197,8 +3790,101 @@ export default function ExploreDesignPage() {
                 </div>
               )}
 
+              {/* Catalog Toolbar - Create Dropdown */}
+              <div className="px-4 py-2 border-b dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center gap-2">
+                <div className="relative">
+                  <Tooltip content={isReadOnly ? 'View-only access' : 'Create new Snowflake object'}>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={isReadOnly}
+                      onClick={() => {
+                        if (readOnlyGuard()) return;
+                        setShowCreateMenuCatalog(!showCreateMenuCatalog);
+                      }}
+                      className="gap-1.5"
+                    >
+                      <Plus className="h-4 w-4" />
+                      Create
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </Tooltip>
+                  {showCreateMenuCatalog && (
+                    <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Table2 className="w-4 h-4" /> Standard Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Clock className="w-4 h-4" /> Temporary Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Timer className="w-4 h-4" /> Transient Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Cloud className="w-4 h-4" /> External Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Snowflake className="w-4 h-4" /> Iceberg Table
+                      </button>
+                      <div className="border-t dark:border-slate-700 my-1" />
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setDynamicTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <RefreshCw className="w-4 h-4" /> Dynamic Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setEventTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Bell className="w-4 h-4" /> Event Table
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setHybridTableModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <Layers className="w-4 h-4" /> Hybrid Table
+                      </button>
+                      <div className="border-t dark:border-slate-700 my-1" />
+                      <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setStreamModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <GitBranch className="w-4 h-4" /> Stream (CDC)
+                      </button>
+                      <button
+                        className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                        onClick={() => { setAlertModal(true); setShowCreateMenuCatalog(false); }}
+                      >
+                        <AlertTriangle className="w-4 h-4" /> Alert
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Center + Right Bar row */}
+              <div className="flex flex-1 overflow-hidden min-h-0">
               {/* Table Detail Panel - Now in CENTER */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-auto min-w-0">
                 {selectedTable ? (
                   <div className="p-4 max-w-4xl mx-auto">
                     {/* Table Header with Name & Status */}
@@ -2210,7 +3896,7 @@ export default function ExploreDesignPage() {
                               <Table2 className="h-5 w-5 text-blue-600" />
                             </div>
                             <div>
-                              <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                              <h2 className="text-xl font-bold text-slate-900 dark:text-white">
                                 {selectedTable.table}
                               </h2>
                               <p className="text-sm text-slate-500">
@@ -2229,365 +3915,291 @@ export default function ExploreDesignPage() {
                         </div>
                       </div>
 
-                      {/* Quick Actions Grid */}
-                      <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800"
-                            onClick={() => setTablePreviewModal(true)}
-                          >
-                            <Eye className="h-5 w-5 text-blue-600" />
-                            <span className="text-xs font-medium text-blue-700 dark:text-blue-400">Preview Data</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors bg-purple-50 dark:bg-purple-900/20 border-purple-200 dark:border-purple-800"
-                            onClick={() => setTableProfileModal(true)}
-                          >
-                            <BarChart3 className="h-5 w-5 text-purple-600" />
-                            <span className="text-xs font-medium text-purple-700 dark:text-purple-400">Data Profile</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => {
-                              const newName = prompt('Enter new table name:', selectedTable.table);
-                              if (newName && newName !== selectedTable.table) {
-                                handleRenameTable(
-                                  selectedTable.database,
-                                  selectedTable.schema,
-                                  selectedTable.table,
-                                  newName
-                                );
-                              }
-                            }}
-                          >
-                            <FileText className="h-5 w-5 text-slate-600 dark:text-slate-400" />
-                            <span className="text-xs font-medium">Rename</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Ingestion configuration opened')}
-                          >
-                            <RefreshCw className="h-5 w-5 text-blue-500" />
-                            <span className="text-xs font-medium">Ingestion</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Masking configuration opened')}
-                          >
-                            <Shield className="h-5 w-5 text-green-500" />
-                            <span className="text-xs font-medium">Masking</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Aggregation configuration opened')}
-                          >
-                            <Layers className="h-5 w-5 text-purple-500" />
-                            <span className="text-xs font-medium">Aggregation</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => {
-                              if (!selectedTable) return;
-
-                              // Allow user to select multiple columns for composite PK
-                              const columnsString = prompt(
-                                'Enter column name(s) for primary key.\nFor composite key, separate with commas (e.g., "id,code"):',
-                                tableColumns.find(c => c.isPrimaryKey)?.name || ''
-                              );
-
-                              if (columnsString) {
-                                const columns = columnsString.split(',').map(c => c.trim()).filter(c => c);
-                                if (columns.length > 0) {
-                                  handleAddPrimaryKey(
-                                    selectedTable.database,
-                                    selectedTable.schema,
-                                    selectedTable.table,
-                                    columns
-                                  );
-                                }
-                              }
-                            }}
-                          >
-                            <Key className="h-5 w-5 text-amber-500" />
-                            <span className="text-xs font-medium">Primary Key</span>
-                          </button>
-                          <button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                            onClick={() => toast.success('Column naming rules opened')}
-                          >
-                            <Columns3 className="h-5 w-5 text-slate-500" />
-                            <span className="text-xs font-medium">Column Names</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Columns Section */}
-                    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800">
-                      <div className="px-5 py-3 border-b dark:border-slate-800 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Columns3 className="h-4 w-4 text-slate-500" />
-                          <span className="font-medium">{tableColumns.length} Columns</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1 text-xs"
-                            onClick={() => {
-                              if (!selectedTable) return;
-                              if (!selectedProjectId) {
-                                toast.error('Please select a project first');
-                                return;
-                              }
-
-                              // Prompt for column name and type
-                              const columnName = prompt('Enter column name:');
-                              if (!columnName) return;
-
-                              const columnType = prompt('Enter column type (e.g., VARCHAR, NUMBER, DATE, BOOLEAN):', 'VARCHAR');
-                              if (!columnType) return;
-
-                              // Create ADD_COLUMN event
-                              addEvent({
-                                type: 'ADD_COLUMN',
-                                projectId: selectedProjectId,
-                                target: {
-                                  database: selectedTable.database,
-                                  schema: selectedTable.schema,
-                                  table: selectedTable.table,
-                                },
-                                payload: {
-                                  columnName: columnName.trim(),
-                                  columnType: columnType.trim().toUpperCase(),
-                                },
-                              });
-
-                              toast.success(`Add column "${columnName}" added to pending changes`);
-                            }}
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add Column
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Column List */}
-                      <div className="divide-y dark:divide-slate-800">
-                        {isLoadingColumns ? (
-                          <div className="flex items-center justify-center py-8">
-                            <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
-                          </div>
-                        ) : tableColumns.length > 0 ? (
-                          tableColumns.map((col, idx) => (
-                            <div
-                              key={col.name}
-                              className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 group"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-2 min-w-[200px]">
-                                  {col.isPrimaryKey && (
-                                    <Tooltip content="Primary Key">
-                                      <div className="p-1 bg-amber-100 dark:bg-amber-900/30 rounded">
-                                        <Key className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                                      </div>
-                                    </Tooltip>
-                                  )}
-                                  {col.isSensitive && !col.isPrimaryKey && (
-                                    <Tooltip content="Sensitive Column">
-                                      <div className="p-1 bg-red-100 dark:bg-red-900/30 rounded">
-                                        <Shield className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                                      </div>
-                                    </Tooltip>
-                                  )}
-                                  {!col.isPrimaryKey && !col.isSensitive && (
-                                    <div className="w-6" />
-                                  )}
-                                  <span className="font-mono text-xs">{col.name}</span>
-                                </div>
-                                {col.isPrimaryKey && (
-                                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-medium">
-                                    PK
-                                  </Badge>
-                                )}
-                                <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-mono px-1 py-0">
-                                  {col.dataType}
-                                </Badge>
-                                {!col.isNullable && (
-                                  <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs">
-                                    NOT NULL
-                                  </Badge>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {/* Preview & Profile Button */}
-                                <Tooltip content="Preview Data & Profile">
-                                  <button
-                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                    onClick={() => setColumnPreviewModal({ isOpen: true, column: col })}
-                                  >
-                                    <BarChart3 className="h-4 w-4 text-slate-400 hover:text-purple-500" />
-                                  </button>
-                                </Tooltip>
-                                {/* Primary Key Button */}
-                                <Tooltip content={col.isPrimaryKey ? "Remove Primary Key" : "Set as Primary Key"}>
-                                  <button
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      col.isPrimaryKey && "bg-amber-100 dark:bg-amber-900/30"
-                                    )}
-                                    onClick={() => {
-                                      if (!selectedTable) return;
-
-                                      if (!col.isPrimaryKey) {
-                                        handleAddPrimaryKey(
-                                          selectedTable.database,
-                                          selectedTable.schema,
-                                          selectedTable.table,
-                                          [col.name]
-                                        );
-                                      } else {
-                                        const target = {
-                                          database: selectedTable.database,
-                                          schema: selectedTable.schema,
-                                          table: selectedTable.table,
-                                        };
-                                        addEvent(createPrimaryKeyEvent(target, [col.name], false));
-                                        toast.success(`Remove PK "${col.name}" added to pending changes`);
-                                      }
-                                    }}
-                                  >
-                                    <Key className={cn("h-4 w-4", col.isPrimaryKey ? "text-amber-500" : "text-slate-400 hover:text-amber-500")} />
-                                  </button>
-                                </Tooltip>
-                                {/* Sensitive Column Button */}
-                                <Tooltip content={col.isSensitive ? "Manage Sensitive Marking" : "Mark as Sensitive"}>
-                                  <button
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      col.isSensitive && "bg-red-100 dark:bg-red-900/30"
-                                    )}
-                                    onClick={() => setSensitiveColumnModal({ isOpen: true, column: col })}
-                                  >
-                                    <Shield className={cn("h-4 w-4", col.isSensitive ? "text-red-500" : "text-slate-400 hover:text-red-500")} />
-                                  </button>
-                                </Tooltip>
-                                {/* Exclude from Modeling Button */}
-                                <Tooltip content={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in Modeling" : "Exclude from Modeling"}>
-                                  <button
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name) && "bg-slate-200 dark:bg-slate-700"
-                                    )}
-                                    onClick={() => setColumnExclusionModal({ isOpen: true, column: col })}
-                                  >
-                                    <MinusCircle className={cn(
-                                      "h-4 w-4",
-                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name)
-                                        ? "text-slate-600"
-                                        : "text-slate-400 hover:text-slate-600"
-                                    )} />
-                                  </button>
-                                </Tooltip>
-                                {/* Rename Column Button */}
-                                <Tooltip content="Rename Column">
-                                  <button
-                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                    onClick={() => {
-                                      if (!selectedTable) return;
-                                      const newName = prompt(`Rename column "${col.name}" to:`, col.name);
-                                      if (newName && newName !== col.name) {
-                                        handleRenameColumn(
-                                          selectedTable.database,
-                                          selectedTable.schema,
-                                          selectedTable.table,
-                                          col.name,
-                                          newName
-                                        );
-                                      }
-                                    }}
-                                  >
-                                    <FileText className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                                  </button>
-                                </Tooltip>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="py-8 text-center text-slate-500">
-                            <Columns3 className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                            <p className="text-sm">No columns loaded</p>
-                          </div>
+                      {/* Compact KPI strip — profile stats inline */}
+                      <div className="px-5 py-2.5 flex items-center gap-3 flex-wrap">
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <Columns3 className="h-3.5 w-3.5" />
+                          {tableColumns.length} cols
+                        </span>
+                        {inlineProfileData && (
+                          <>
+                            <span className="text-xs text-slate-500">{inlineProfileData.row_count.toLocaleString()} rows</span>
+                            <span className={cn('text-xs font-medium', inlineProfileData.aggregate_quality_score >= 80 ? 'text-green-600' : inlineProfileData.aggregate_quality_score >= 60 ? 'text-amber-600' : 'text-red-600')}>
+                              Quality {inlineProfileData.aggregate_quality_score}%
+                            </span>
+                          </>
                         )}
+                        {tableColumns.some((c) => c.isPrimaryKey) && (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-amber-600"><Key className="h-3 w-3" />{tableColumns.filter((c) => c.isPrimaryKey).length} PK</span>
+                        )}
+                        {tableColumns.some((c) => c.isSensitive) && (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-red-500"><Shield className="h-3 w-3" />{tableColumns.filter((c) => c.isSensitive).length} PII</span>
+                        )}
+                        <span className="flex-1" />
+                        {/* Quick actions → open right bar tabs */}
+                        <button
+                          onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          disabled={isReadOnly}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                        >
+                          <Plus className="h-3 w-3" /> Add Column
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('actions'); setFocusedAction('policies'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+                        >
+                          <Shield className="h-3 w-3" /> Policies
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('actions'); setFocusedAction('ingestion'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-900/30 transition-colors"
+                        >
+                          <RefreshCw className="h-3 w-3" /> Ingestion
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('ai'); if (!rightBarOpen) setRightBarOpen(true); handleAIClassify(); }}
+                          disabled={isClassifying || !selectedProjectId}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors disabled:opacity-50"
+                        >
+                          {isClassifying ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Classify
+                        </button>
                       </div>
                     </div>
+
+                    {/* Unified Data Preview — columns, types, badges and data in one table */}
+                    {showInlinePreview && (
+                      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-2.5 flex items-center justify-between border-b border-blue-100 dark:border-blue-800">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Eye className="h-4 w-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Data Preview</span>
+                            {inlinePreviewData && (
+                              <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 text-[10px]">
+                                {inlinePreviewData.total_rows.toLocaleString()} rows
+                              </Badge>
+                            )}
+                            <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[10px] gap-1">
+                              <Lock className="h-2.5 w-2.5" />as {sessionRole || userRole || 'accountadmin'}
+                            </Badge>
+                            {tableColumns.some((c) => c.isSensitive) && (
+                              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] gap-1">
+                                <Shield className="h-2.5 w-2.5" />{tableColumns.filter((c) => c.isSensitive).length} masked
+                              </Badge>
+                            )}
+                          </div>
+                          <button
+                            aria-label="Close preview"
+                            onClick={() => setShowInlinePreview(false)}
+                            className="p-1 rounded hover:bg-blue-100 dark:hover:bg-blue-800/50 text-blue-400 hover:text-blue-600 transition-colors"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <div className="overflow-x-auto">
+                          {isLoadingInlinePreview ? (
+                            <div className="flex items-center justify-center py-8">
+                              <RefreshCw className="h-5 w-5 animate-spin text-blue-400" />
+                              <span className="ml-2 text-sm text-slate-500">Loading preview...</span>
+                            </div>
+                          ) : inlinePreviewData && inlinePreviewData.rows.length > 0 ? (
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="bg-slate-50 dark:bg-slate-800 border-b dark:border-slate-700">
+                                  <th className="px-2.5 py-1.5 text-left font-medium text-slate-500 w-8">#</th>
+                                  {inlinePreviewData.columns.map((col: string) => {
+                                    const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                    return (
+                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          {colMeta?.isPrimaryKey && <Key className="h-3 w-3 text-amber-500 shrink-0" />}
+                                          {colMeta?.isSensitive && <Shield className="h-3 w-3 text-red-400 shrink-0" />}
+                                          <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                        </div>
+                                      </th>
+                                    );
+                                  })}
+                                  <th className="px-1 py-1.5 w-8" />
+                                </tr>
+                                {/* Row 2 — type + constraint badges */}
+                                <tr className="bg-slate-100/60 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700">
+                                  <td className="px-2.5 py-0.5 text-[9px] text-slate-400">type</td>
+                                  {inlinePreviewData.columns.map((col: string) => {
+                                    const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                    return (
+                                      <td key={col} className="px-2.5 py-0.5 whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          {colMeta?.dataType && (
+                                            <span className="px-1.5 py-0 rounded bg-slate-200/80 dark:bg-slate-700 text-[9px] font-mono text-slate-500 dark:text-slate-400">{colMeta.dataType}</span>
+                                          )}
+                                          {colMeta?.isPrimaryKey && <span className="px-1 py-0 rounded bg-amber-100 dark:bg-amber-900/30 text-[9px] font-semibold text-amber-700 dark:text-amber-400">PK</span>}
+                                          {!colMeta?.isNullable && colMeta && <span className="px-1 py-0 rounded bg-blue-100 dark:bg-blue-900/30 text-[9px] font-semibold text-blue-600 dark:text-blue-400">NN</span>}
+                                          {colMeta?.isSensitive && <span className="px-1 py-0 rounded bg-red-100 dark:bg-red-900/30 text-[9px] font-semibold text-red-600 dark:text-red-400">PII</span>}
+                                          <ClassificationBadge tableId={selectedTable?.id || ''} columnName={col} classifications={columnClassifications} />
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="px-1 py-0.5" />
+                                </tr>
+                                {/* Row 3 — quality profile: nulls, distinct, quality score */}
+                                {inlineProfileData && inlineProfileData.columns.length > 0 && (
+                                  <tr className="bg-purple-50/40 dark:bg-purple-900/10 border-b border-slate-200/80 dark:border-slate-700">
+                                    <td className="px-2.5 py-0.5 text-[9px] text-purple-400">quality</td>
+                                    {inlinePreviewData.columns.map((col: string) => {
+                                      const pc = inlineProfileData.columns.find((p: any) => (p.column_name || '').toUpperCase() === col.toUpperCase());
+                                      if (!pc) return <td key={col} className="px-2.5 py-0.5 text-[9px] text-slate-300">—</td>;
+                                      const nullPct = inlineProfileData.row_count > 0 ? ((pc.null_count ?? 0) / inlineProfileData.row_count * 100) : 0;
+                                      const qScore = pc.quality_score ?? 100;
+                                      return (
+                                        <td key={col} className="px-2.5 py-0.5 whitespace-nowrap">
+                                          <div className="flex items-center gap-1.5">
+                                            {nullPct > 0 ? (
+                                              <span className={cn("text-[9px] font-medium", nullPct > 50 ? "text-red-500" : nullPct > 10 ? "text-amber-500" : "text-slate-500")}>{nullPct.toFixed(0)}% null</span>
+                                            ) : (
+                                              <span className="text-[9px] text-green-500">0% null</span>
+                                            )}
+                                            <span className="text-[9px] text-slate-400">{(pc.distinct_count ?? 0).toLocaleString()} uniq</span>
+                                            <span className="flex items-center gap-0.5">
+                                              <span className="w-6 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden inline-block">
+                                                <span className={cn("block h-full rounded-full", qScore >= 80 ? "bg-green-500" : qScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: `${qScore}%` }} />
+                                              </span>
+                                              <span className={cn("text-[9px] font-semibold", qScore >= 80 ? "text-green-600" : qScore >= 60 ? "text-amber-600" : "text-red-600")}>{qScore}%</span>
+                                            </span>
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-1 py-0.5" />
+                                  </tr>
+                                )}
+                                {/* Row 4 (loading) — profile loading indicator */}
+                                {isLoadingInlineProfile && (
+                                  <tr className="bg-purple-50/30 dark:bg-purple-900/5 border-b border-slate-200/80 dark:border-slate-700">
+                                    <td className="px-2.5 py-0.5 text-[9px] text-purple-400">quality</td>
+                                    <td colSpan={inlinePreviewData.columns.length + 1} className="px-2.5 py-0.5">
+                                      <div className="flex items-center gap-1.5 text-[9px] text-purple-400">
+                                        <RefreshCw className="h-3 w-3 animate-spin" /> Profiling...
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {/* Add-column row */}
+                                <tr className="border-b border-slate-100 dark:border-slate-700">
+                                  <td className="px-2.5 py-0.5" />
+                                  <td colSpan={inlinePreviewData.columns.length} className="px-2.5 py-0.5">
+                                    <button
+                                      onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                                      disabled={isReadOnly}
+                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-40"
+                                    >
+                                      <Plus className="h-3 w-3" /> Add column / calculated field
+                                    </button>
+                                  </td>
+                                  <td />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {inlinePreviewData.rows.slice(0, 5).map((row: Record<string, any>, i: number) => (
+                                  <tr key={i} className={cn("border-t border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50", i % 2 === 1 && "bg-slate-50/50 dark:bg-slate-800/20")}>
+                                    <td className="px-2.5 py-1.5 text-slate-400 font-mono">{i + 1}</td>
+                                    {inlinePreviewData.columns.map((col: string) => {
+                                      const val = row[col];
+                                      const isNull = val === null || val === undefined;
+                                      const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                      const isMasked = colMeta?.isSensitive;
+                                      const maskedVal = isMasked && !isNull ? '••••••' : null;
+                                      return (
+                                        <td key={col} className={cn("px-2.5 py-1.5 font-mono truncate max-w-[180px]", isNull ? "text-slate-400 italic" : isMasked ? "text-amber-500/70" : "text-slate-700 dark:text-slate-300")} title={isNull ? 'NULL' : isMasked ? `Masked (${colMeta?.name})` : String(val)}>
+                                          {isNull ? <span className="text-slate-400 italic">null</span> : maskedVal ? <span className="flex items-center gap-1"><Lock className="h-2.5 w-2.5 text-amber-400 inline shrink-0" />{maskedVal}</span> : String(val)}
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-1 py-1.5" />
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          ) : inlinePreviewError ? (
+                            <div className="py-6 text-center text-sm">
+                              <AlertCircle className="h-5 w-5 mx-auto mb-1.5 text-amber-500" />
+                              <p className="text-slate-700 dark:text-slate-200 font-medium">Preview failed</p>
+                              <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">{inlinePreviewError}</p>
+                            </div>
+                          ) : (
+                            <div className="py-6 text-center text-sm text-slate-400">No rows returned (table is empty)</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Profile data is now integrated into the preview table above */}
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                    <Table2 className="h-16 w-16 mb-4 text-slate-300" />
-                    <p className="font-medium text-lg">Select a table</p>
-                    <p className="text-sm mt-1">Choose a table from the list to view and edit columns</p>
+                  <div className="h-full w-full">
+                    {tables.length > 0 ? (
+                      <SourceMindMap
+                        databases={databases}
+                        schemas={schemas}
+                        tables={tables}
+                        selectedDatabase={selectedDatabase}
+                        onSelectTable={(t) => setSelectedTable(t)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                        <Table2 className="h-16 w-16 mb-4 text-slate-300" />
+                        <p className="font-medium text-lg">Select a database & schema</p>
+                        <p className="text-sm mt-1">Choose from the toolbar above to browse tables</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
-            </div>
-          ) : (
+
+              {/* Context Right Bar — multi-tab cockpit */}
+              <ContextRightBar
+                selectedTable={selectedTable}
+                tableColumns={tableColumns}
+                projectId={selectedProjectId}
+                isOpen={rightBarOpen}
+                onToggle={() => setRightBarOpen(!rightBarOpen)}
+                activeTab={activeRightTab}
+                onTabChange={setActiveRightTab}
+                focusedAction={focusedAction}
+                onFocusAction={setFocusedAction}
+                columnClassifications={columnClassifications}
+                classificationDetails={classificationDetails}
+                isClassifying={isClassifying}
+                onRunClassify={handleAIClassify}
+                onAddEvent={addEvent}
+                profileData={inlineProfileData}
+                historyEvents={events.slice(0, 50).map((e: any) => ({
+                  id: e.id || String(Math.random()),
+                  type: e.type || 'Event',
+                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
+                  actor: e.createdBy || e.actor || currentUsername || 'System',
+                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
+                  object: e.target?.table || e.target?.schema || '—',
+                  message: e.error || undefined,
+                }))}
+                pendingEventsCount={displayablePendingEvents.length}
+                pendingEvents={displayablePendingEvents}
+                selectedDatabase={selectedDatabase}
+                selectedSchema={schemas[0] || ''}
+                userRole={sessionRole || (userRole as string) || undefined}
+                onOpenDeployModal={() => setShowDeploymentModal(true)}
+                onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+              />
+              </div>{/* end center+right row */}
+            </>
+          )}
+
+
+          {viewMode === 'modeling' && (
             // Modeling View
             <div className="flex-1 overflow-hidden relative">
-              {/* Fullscreen Controls */}
-              <div className={cn(
-                "absolute top-3 right-3 z-20 flex items-center gap-2",
-                isFullscreen && "top-16"
-              )}>
-                <Tooltip content={isFullscreen ? "Exit Fullscreen" : "Fullscreen Mode"}>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={isFullscreen ? exitFullscreen : toggleFullscreen}
-                    className="bg-white dark:bg-slate-800 shadow-lg"
-                  >
-                    {isFullscreen ? (
-                      <Minimize2 className="h-4 w-4" />
-                    ) : (
-                      <Maximize2 className="h-4 w-4" />
-                    )}
-                  </Button>
-                </Tooltip>
-                {!isFullscreen && (
-                  <>
-                    <Tooltip content={showSidebar ? "Hide Tables List" : "Show Tables List"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowSidebar(!showSidebar)}
-                        className={cn(
-                          "bg-white dark:bg-slate-800 shadow-lg",
-                          !showSidebar && "text-blue-600"
-                        )}
-                      >
-                        <PanelLeft className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip content={showEventPanel ? "Hide Events" : "Show Events"}>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setShowEventPanel(!showEventPanel)}
-                        className={cn(
-                          "bg-white dark:bg-slate-800 shadow-lg",
-                          !showEventPanel && "text-blue-600"
-                        )}
-                      >
-                        <PanelRight className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                  </>
-                )}
-              </div>
-
               {/* Fullscreen Header */}
               {isFullscreen && (
-                <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
+                <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-between px-4 py-2 bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b dark:border-slate-800">
                   <div className="flex items-center gap-3">
                     <h2 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                       <Workflow className="h-5 w-5 text-blue-600" />
@@ -2598,48 +4210,141 @@ export default function ExploreDesignPage() {
                     </Badge>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Tooltip content={selectedProjectId ? "Create Table" : "Select a project first"}>
+                    <div className="relative">
+                      <Tooltip content={isReadOnly ? 'View-only access' : selectedProjectId ? "Create Table" : "Select a project first"}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isReadOnly}
+                          onClick={() => {
+                            if (readOnlyGuard()) return;
+                            if (!selectedProjectId) {
+                              toast.error('Please select a project first');
+                              return;
+                            }
+                            setShowCreateMenuModeling(!showCreateMenuModeling);
+                          }}
+                          className="gap-1.5"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create
+                          <ChevronDown className="h-3 w-3" />
+                        </Button>
+                      </Tooltip>
+                      {showCreateMenuModeling && (
+                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-50 min-w-[220px]">
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Tables</div>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('standard'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <TableIcon className="w-4 h-4" /> Standard Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('temporary'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Clock className="w-4 h-4" /> Temporary Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('transient'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Timer className="w-4 h-4" /> Transient Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('external'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Cloud className="w-4 h-4" /> External Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setCreateTableType('iceberg'); setShowCreateTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Snowflake className="w-4 h-4" /> Iceberg Table
+                          </button>
+                          <div className="border-t dark:border-slate-700 my-1" />
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Specialized</div>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setDynamicTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <RefreshCw className="w-4 h-4" /> Dynamic Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setEventTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Bell className="w-4 h-4" /> Event Table
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setHybridTableModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <Layers className="w-4 h-4" /> Hybrid Table
+                          </button>
+                          <div className="border-t dark:border-slate-700 my-1" />
+                          <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">Data Integration</div>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setStreamModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <GitBranch className="w-4 h-4" /> Stream (CDC)
+                          </button>
+                          <button
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 text-slate-700 dark:text-slate-300"
+                            onClick={() => { setAlertModal(true); setShowCreateMenuModeling(false); }}
+                          >
+                            <AlertTriangle className="w-4 h-4" /> Alert
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <Tooltip content={isReadOnly ? 'View-only access' : "Ingestion Config"}>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
-                          if (!selectedProjectId) {
-                            toast.error('Please select a project first');
+                          if (readOnlyGuard()) return;
+                          if (!selectedTable) {
+                            toast.error('Please select a table first');
                             return;
                           }
-                          setShowCreateTableModal(true);
+                          setShowModelingIngestionPanel(true);
                         }}
+                        disabled={!selectedTable || isReadOnly}
                         className="gap-2"
                       >
-                        <Plus className="h-4 w-4" />
-                        <TableIcon className="h-4 w-4" />
+                        <Upload className="h-4 w-4" />
                       </Button>
                     </Tooltip>
-                    <Tooltip content="Manage Relationships">
+                    <Tooltip content={isReadOnly ? 'View-only access' : "Manage Relationships"}>
                       <Button
                         variant="outline"
                         size="sm"
                         onClick={() => {
+                          if (readOnlyGuard()) return;
                           if (!selectedTable) {
                             toast.error('Please select a table first');
                             return;
                           }
                           setShowRelationshipModal(true);
                         }}
-                        disabled={!selectedTable}
+                        disabled={!selectedTable || isReadOnly}
                         className="gap-2"
                       >
                         <Link2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
                     <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
-                    <Tooltip content="Undo">
-                      <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo}>
+                    <Tooltip content={isReadOnly ? 'View-only access' : 'Undo'}>
+                      <Button variant="outline" size="sm" onClick={() => undoEvent()} disabled={!canUndo || isReadOnly}>
                         <Undo2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
-                    <Tooltip content="Redo">
-                      <Button variant="outline" size="sm" onClick={() => redoEvent()} disabled={!canRedo}>
+                    <Tooltip content={isReadOnly ? 'View-only access' : 'Redo'}>
+                      <Button variant="outline" size="sm" onClick={() => redoEvent()} disabled={!canRedo || isReadOnly}>
                         <Redo2 className="h-4 w-4" />
                       </Button>
                     </Tooltip>
@@ -2647,14 +4352,24 @@ export default function ExploreDesignPage() {
                     <Button
                       size="sm"
                       className="gap-1 bg-gradient-to-r from-blue-600 to-indigo-600"
-                      onClick={() => {
+                      onClick={async () => {
+                        if (readOnlyGuard()) return;
                         if (!selectedProjectId) {
                           toast.error('Please select a project first');
                           return;
                         }
+                        // Check for conflicts before opening the deployment modal
+                        const eventIds = pendingEvents.map(e => e.id);
+                        if (eventIds.length > 0) {
+                          const hasConflicts = await checkForConflicts(eventIds);
+                          if (hasConflicts) {
+                            pendingConflictAction.current = { type: 'deploy', eventIds };
+                            return;
+                          }
+                        }
                         setShowDeploymentModal(true);
                       }}
-                      disabled={!selectedProjectId}
+                      disabled={!selectedProjectId || isReadOnly}
                     >
                       <Rocket className="h-4 w-4" />
                       Deploy
@@ -2666,19 +4381,16 @@ export default function ExploreDesignPage() {
                 </div>
               )}
 
-              {isLoadingModelingTables && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm">
-                  <RefreshCw className="h-7 w-7 animate-spin text-blue-500" />
-                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Loading data warehouse model…</p>
-                </div>
-              )}
-
+              <ErrorBoundary>
               <ModelingCanvas
                 tables={tables.filter(t => modelingTableIds.has(t.id))}
                 tableColumns={tableColumnsMap}
+                onColumnsMapUpdate={setTableColumnsMap}
                 onTableSelect={handleTableClick}
                 onTableExclude={handleRemoveFromModeling}
+                isReadOnly={isReadOnly}
                 onRelationCreate={async (source, target, sourceCol, targetCol, transformation) => {
+                  if (readOnlyGuard()) return;
                   // Parse table IDs to get database.schema.table components
                   const sourceParts = source.split('.');
                   const targetParts = target.split('.');
@@ -2696,97 +4408,66 @@ export default function ExploreDesignPage() {
                   // Create events for column mapping
                   const eventTimestamp = Date.now();
 
-                  // Determine if this is a multi-column transformation or individual mappings
                   const hasTransformation = transformation && transformation !== 'none';
-                  const isMultiColumn = sourceColumns.length > 1;
 
-                  if (hasTransformation || isMultiColumn) {
-                    // Multi-column mapping with transformation - create single event with all source columns
-                    addEvent({
-                      type: 'COLUMN_MAPPING_CREATED',
-                      projectId: selectedProjectId || undefined,
-                      target: {
+                  // Create column mapping event with explicit source/target
+                  addEvent({
+                    type: 'COLUMN_MAPPING_CREATED',
+                    projectId: selectedProjectId || undefined,
+                    target: {
+                      database: sourceDb,
+                      schema: sourceSchema,
+                      table: sourceTable,
+                      column: sourceColumns[0],
+                    },
+                    payload: {
+                      source: {
                         database: sourceDb,
                         schema: sourceSchema,
                         table: sourceTable,
-                        column: sourceColumns[0], // Primary column for event target
+                        columns: sourceColumns,
                       },
-                      payload: {
-                        sourceColumn: sourceColumns[0], // Keep for backward compatibility
-                        sourceColumns: sourceColumns, // NEW: Array of all source columns
-                        targetTable: {
-                          database: targetDb,
-                          schema: targetSchema,
-                          table: targetTable,
-                        },
-                        targetColumn: targetCol,
-                        transformation: hasTransformation ? transformation : null, // NEW: transformation function
-                      },
-                    });
-                  } else {
-                    // Single column mapping without transformation - create one event
-                    addEvent({
-                      type: 'COLUMN_MAPPING_CREATED',
-                      projectId: selectedProjectId || undefined,
                       target: {
-                        database: sourceDb,
-                        schema: sourceSchema,
-                        table: sourceTable,
-                        column: sourceColumns[0],
+                        database: targetDb,
+                        schema: targetSchema,
+                        table: targetTable,
+                        column: targetCol,
                       },
-                      payload: {
-                        sourceColumn: sourceColumns[0],
-                        sourceColumns: sourceColumns,
-                        targetTable: {
-                          database: targetDb,
-                          schema: targetSchema,
-                          table: targetTable,
-                        },
-                        targetColumn: targetCol,
-                        transformation: null,
-                      },
-                    });
-                  }
+                      transformation: hasTransformation ? transformation : null,
+                    },
+                  });
 
-                  // Save mapping event(s) to backend
+                  // Save mapping event to backend
                   if (selectedProjectId) {
                     try {
-                      const eventToSave = {
-                        event_id: `mapping-${eventTimestamp}-${sourceColumns.join('-')}`,
-                        event_type: 'COLUMN_MAPPING_CREATED' as const,
-                        target: {
-                          database: sourceDb,
-                          schema: sourceSchema,
-                          table: sourceTable,
-                          column: sourceColumns[0],
-                        },
-                        payload: {
-                          sourceColumn: sourceColumns[0],
-                          sourceColumns: sourceColumns,
-                          targetTable: {
-                            database: targetDb,
-                            schema: targetSchema,
-                            table: targetTable,
+                      await addProjectEvent(selectedProjectId, {
+                        module_name: 'EXPLORE_DESIGN',
+                        event_type: 'COLUMN_MAPPING_CREATED',
+                        status: 'pending',
+                        details: {
+                          target: { database: sourceDb, schema: sourceSchema, table: sourceTable, column: sourceColumns[0] },
+                          payload: {
+                            source: {
+                              database: sourceDb,
+                              schema: sourceSchema,
+                              table: sourceTable,
+                              columns: sourceColumns,
+                            },
+                            target: {
+                              database: targetDb,
+                              schema: targetSchema,
+                              table: targetTable,
+                              column: targetCol,
+                            },
+                            transformation: hasTransformation ? transformation : null,
                           },
-                          targetColumn: targetCol,
-                          transformation: hasTransformation ? transformation : null,
                         },
-                        status: 'pending' as const,
-                        created_at: new Date().toISOString(),
-                      };
+                        entity_id: `mapping-${eventTimestamp}-${sourceColumns.join('-')}`,
+                        entity_type: 'column_mapping',
+                      });
 
-                      console.log('[onRelationCreate] Saving mapping event to backend:', eventToSave);
-
-                      const result = await recordDesignEvents(selectedProjectId, [eventToSave]);
-
-                      if (result.success) {
-                        console.log('[onRelationCreate] Event saved to backend:', result);
-                        const transformLabel = hasTransformation ? ` (${transformation})` : '';
-                        toast.success(`Mapping saved: ${sourceColumns.join(', ')}${transformLabel} → ${targetCol}`);
-                      } else {
-                        console.warn('[onRelationCreate] No events were saved to backend');
-                        toast.success('Mapping created locally');
-                      }
+                      const transformLabel = hasTransformation ? ` (${transformation})` : '';
+                      toast.success(`Mapping saved: ${sourceColumns.join(', ')}${transformLabel} → ${targetCol}`);
                     } catch (error) {
                       console.error('[onRelationCreate] Failed to save mapping to backend:', error);
                       toast.success('Mapping created locally (backend sync failed)');
@@ -2795,40 +4476,63 @@ export default function ExploreDesignPage() {
                     toast.success('Mapping created (select a project to sync)');
                   }
                 }}
-                className={cn("h-full", isFullscreen && "pt-14")}
+                onDynamicTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setDynamicTableModal(true);
+                }}
+                onEventTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setEventTableModal(true);
+                }}
+                onHybridTableCreate={(table) => {
+                  setSelectedTable(table);
+                  setHybridTableModal(true);
+                }}
+                onStreamCreate={(table) => {
+                  setSelectedTable(table);
+                  setStreamModal(true);
+                }}
+                onAlertCreate={(table) => {
+                  setSelectedTable(table);
+                  setAlertModal(true);
+                }}
+                className={cn("h-full", isFullscreen && "pt-16")}
                 projectId={selectedProjectId}
                 defaultRelationships={defaultRelationships}
+                isFullscreen={isFullscreen}
+                onToggleFullscreen={isFullscreen ? exitFullscreen : toggleFullscreen}
+                showSidebar={showSidebar}
+                onToggleSidebar={() => setShowSidebar(!showSidebar)}
+                showEventPanel={showEventPanel}
+                onToggleEventPanel={() => setShowEventPanel(!showEventPanel)}
                 targetTableIds={targetTableIds}
                 initialMappings={initialColumnMappings}
               />
+              </ErrorBoundary>
             </div>
           )}
         </div>
-
-        {/* Right Event Panel (collapsible) - hidden in fullscreen */}
-        {showEventPanel && !isFullscreen && (
-          <div className="w-44 lg:w-52 xl:w-60 border-l dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 overflow-hidden flex flex-col flex-shrink-0">
-            <EventTable
-              compact
-              className="flex-1 m-1.5 overflow-hidden"
-              projectId={selectedProjectId}
-            />
-          </div>
         )}
+
+        {/* Right Events drawer — slides over the canvas instead of stealing
+            a fixed column. Same toggle, same data, but the canvas stays full
+            width when it's closed (which is the default). Backdrop click
+            closes it. */}
+        {/* EventPanel + HistoryRail removed — all in ContextRightBar */}
       </div>
 
       {/* Bulk Actions Bar */}
       <BulkActionsBar
         selectedCount={selectedTables.size}
-        onSetPrimaryKey={() => setShowBulkPKModal(true)}
-        onSetIngestionMode={handleBulkIngestionMode}
-        onApplyMasking={() => setShowBulkMaskingModal(true)}
+        onSetPrimaryKey={() => { if (readOnlyGuard()) return; setShowBulkPKModal(true); }}
+        onSetIngestionMode={(mode) => { if (readOnlyGuard()) return; handleBulkIngestionMode(mode); }}
+        onApplyMasking={() => { if (readOnlyGuard()) return; setShowBulkMaskingModal(true); }}
         onClearSelection={() => setSelectedTables(new Set())}
-        onConfigureRelations={() => setShowRelationsModal(true)}
+        onConfigureRelations={() => { if (readOnlyGuard()) return; setShowRelationsModal(true); }}
       />
 
       {/* Bulk PK Modal */}
-      <Modal isOpen={showBulkPKModal} onClose={() => setShowBulkPKModal(false)}>
+      <Modal isOpen={false && showBulkPKModal} onClose={() => setShowBulkPKModal(false)}>
         <div className="p-6">
           <h3 className="text-lg font-bold mb-4">Configure Primary Keys</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -2866,7 +4570,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Bulk Masking Modal */}
-      <Modal isOpen={showBulkMaskingModal} onClose={() => setShowBulkMaskingModal(false)}>
+      <Modal isOpen={false && showBulkMaskingModal} onClose={() => setShowBulkMaskingModal(false)}>
         <div className="p-6">
           <h3 className="text-lg font-bold mb-4">Apply Masking Policy</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -2899,7 +4603,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Relations Modal */}
-      <Modal isOpen={showRelationsModal} onClose={() => setShowRelationsModal(false)}>
+      <Modal isOpen={false && showRelationsModal} onClose={() => setShowRelationsModal(false)}>
         <div className="p-6 max-w-2xl">
           <h3 className="text-lg font-bold mb-4">Configure Relations</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -2921,7 +4625,7 @@ export default function ExploreDesignPage() {
           <Button
             className="w-full gap-2"
             onClick={() => {
-              toast.success('Auto-detecting relations...');
+              handleDiscoverRelationships();
               setShowRelationsModal(false);
             }}
           >
@@ -2936,25 +4640,103 @@ export default function ExploreDesignPage() {
         </div>
       </Modal>
 
-      {/* Deployment Modal */}
+      {/* DAG Dependency Graph Modal */}
+      <Modal isOpen={showDagViewer && !!selectedProjectId} onClose={() => setShowDagViewer(false)} size="full" className="max-w-6xl">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Workflow className="h-5 w-5 text-violet-600" />
+              Dependency Graph (DAG)
+            </h3>
+            <button onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          {selectedProjectId && <DagViewer projectId={selectedProjectId} className="h-[70vh]" />}
+        </div>
+      </Modal>
+
+      {/* Ingestion Results Modal */}
+      <Modal isOpen={showIngestionResults && !!selectedProjectId} onClose={() => setShowIngestionResults(false)} size="full" className="max-w-5xl">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-teal-500" />
+              Ingestion Runs
+            </h3>
+            <button onClick={() => setShowIngestionResults(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          {selectedProjectId && <IngestionResultsPanel projectId={selectedProjectId} className="max-h-[70vh] overflow-auto" />}
+        </div>
+      </Modal>
+
+      {/* AI Intelligence Modal */}
+      <Modal isOpen={false && showAiPanel} onClose={() => setShowAiPanel(false)} size="lg">
+        <div className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-purple-500" />
+              AI Intelligence
+            </h3>
+            <button onClick={() => setShowAiPanel(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+          <AiFeatureToggle />
+        </div>
+      </Modal>
+
+      {/* Deployment Modal — B1-B5 pipeline is now inside DeploymentValidation */}
       <Modal
         isOpen={showDeploymentModal}
         onClose={() => setShowDeploymentModal(false)}
-        customSize="900px"
+        customSize="1050px"
       >
-        <DeploymentValidation
-          onClose={() => setShowDeploymentModal(false)}
-          database={selectedDatabase || 'CP_DATA360'}
-          schemas={Array.from(selectedSchemas.keys())}
-          projectId={selectedProjectId!}
-        />
+        <ErrorBoundary>
+          <DeploymentValidation
+            onClose={() => setShowDeploymentModal(false)}
+            database={selectedDatabase /*|| 'CP_DATA360'*/}
+            schemas={schemaKeys}
+            projectId={selectedProjectId!}
+          />
+        </ErrorBoundary>
       </Modal>
+
+      {/* AI-Guided Modeling Wizard — on approval it emits model events into the
+          event store, then hands off to the existing DeploymentValidation
+          wizard (which opens at its default Review step, seeded by the store). */}
+      {showAiGuidedWizard && selectedProjectId && (
+        <AiGuidedModelWizard
+          projectId={selectedProjectId}
+          persona={userRole === 'owner' ? 'superadmin' : 'admin'}
+          initialDescription={aiModelSeed}
+          onClose={() => {
+            setShowAiGuidedWizard(false);
+            setAiModelSeed('');
+          }}
+          onApproved={() => {
+            setShowAiGuidedWizard(false);
+            setAiModelSeed('');
+            setShowDeploymentModal(true);
+          }}
+        />
+      )}
+
+      {/* Self-Serve Ingestion Modal */}
+      <SelfServeIngestionModal
+        isOpen={showIngestionModal}
+        onClose={() => setShowIngestionModal(false)}
+        projectId={selectedProjectId}
+      />
 
       {/* Column Preview Modal */}
       {columnPreviewModal.column && selectedTable && (
         <ColumnPreviewModal
-          isOpen={columnPreviewModal.isOpen}
+          isOpen={false && columnPreviewModal.isOpen}
           onClose={() => setColumnPreviewModal({ isOpen: false, column: null })}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
@@ -2966,7 +4748,7 @@ export default function ExploreDesignPage() {
       {/* Sensitive Column Modal */}
       {sensitiveColumnModal.column && selectedTable && (
         <SensitiveColumnModal
-          isOpen={sensitiveColumnModal.isOpen}
+          isOpen={false && sensitiveColumnModal.isOpen}
           onClose={() => setSensitiveColumnModal({ isOpen: false, column: null })}
           database={selectedTable.database}
           schema={selectedTable.schema}
@@ -3032,7 +4814,7 @@ export default function ExploreDesignPage() {
       {/* Column Exclusion Modal */}
       {columnExclusionModal.column && selectedTable && (
         <ColumnExclusionModal
-          isOpen={columnExclusionModal.isOpen}
+          isOpen={false && columnExclusionModal.isOpen}
           onClose={() => setColumnExclusionModal({ isOpen: false, column: null })}
           database={selectedTable.database}
           schema={selectedTable.schema}
@@ -3098,8 +4880,9 @@ export default function ExploreDesignPage() {
       {/* Table Preview Modal */}
       {selectedTable && (
         <TablePreviewModal
-          isOpen={tablePreviewModal}
+          isOpen={false && tablePreviewModal}
           onClose={() => setTablePreviewModal(false)}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
@@ -3109,22 +4892,64 @@ export default function ExploreDesignPage() {
       {/* Table Profile Modal */}
       {selectedTable && (
         <TableProfileModal
-          isOpen={tableProfileModal}
+          isOpen={false && tableProfileModal}
           onClose={() => setTableProfileModal(false)}
+          projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
           schema={selectedTable.schema}
           table={selectedTable.table}
+          onAcceptSuggestion={(evt) => {
+            if (!selectedTable) return;
+            const suggestion = evt.suggestion.toUpperCase();
+            if (suggestion.startsWith('CHANGE TO') || suggestion.startsWith('RESIZE')) {
+              const newType = evt.suggestion.replace(/^change to\s+/i, '').replace(/^resize to\s+/i, '').trim();
+              addEvent({
+                type: 'COLUMN_TYPE_CHANGED',
+                projectId: selectedProjectId ?? undefined,
+                target: {
+                  database: selectedTable.database,
+                  schema: selectedTable.schema,
+                  table: selectedTable.table,
+                  column: evt.column,
+                },
+                payload: {
+                  oldType: evt.currentType,
+                  newType,
+                  source: 'ai_optimization',
+                  aiClass: evt.aiClass,
+                },
+              });
+            } else if (suggestion.includes('MASKING') || evt.aiClass === 'PII_CANDIDATE') {
+              addEvent({
+                type: 'MASKING_POLICY_APPLIED',
+                projectId: selectedProjectId ?? undefined,
+                target: {
+                  database: selectedTable.database,
+                  schema: selectedTable.schema,
+                  table: selectedTable.table,
+                  column: evt.column,
+                },
+                payload: {
+                  policyName: 'pii_mask',
+                  columns: [evt.column],
+                  source: 'ai_optimization',
+                  aiClass: evt.aiClass,
+                },
+              });
+            }
+          }}
         />
       )}
 
-      {/* Create Table Modal - Always creates in DWH (CP_DATA360.RETAIL_DW) */}
+      {/* Create Table Modal - Creates in user's chosen DWH target schema */}
       {/* Note: Modal only opens if selectedProjectId is set (checked in onClick handler) */}
       <CreateTableModal
         isOpen={showCreateTableModal}
         onClose={() => setShowCreateTableModal(false)}
-        database="CP_DATA360"
-        schema="RETAIL_DWH"
+        database={dwhTargetDatabase || selectedDatabase || ''}
+        schema={dwhTargetSchema || ''}
         projectId={selectedProjectId!}
+        initialTableType={createTableType}
         onTableCreated={(tableName: string, database: string, schema: string, columns: any[]) => {
           // Add the new table to the modeling view immediately
           const tableId = `${database}.${schema}.${tableName}`;
@@ -3205,6 +5030,423 @@ export default function ExploreDesignPage() {
           }}
         />
       )}
+
+      {/* Modeling Template Choice Modal */}
+      <ModelingTemplateModal
+        isOpen={showTemplateModal}
+        projectName={selectedProjectName || undefined}
+        onSelect={(choice) => {
+          setShowTemplateModal(false);
+          if (choice === 'dwh_template') {
+            // Show location picker as a second step
+            setShowLocationPicker(true);
+          } else {
+            setModelingChoice(choice);
+            setViewMode('modeling');
+            if (selectedProjectId) {
+              modelingChoicesByProject.current.set(selectedProjectId, { choice });
+              addProjectEvent(selectedProjectId, {
+                module_name: 'EXPLORE_DESIGN',
+                event_type: 'MODELING_TEMPLATE_CHOSEN',
+                status: 'completed',
+                details: { choice },
+                entity_id: `template-${choice}`,
+                entity_type: 'modeling_config',
+              }).catch(() => {});
+            }
+          }
+        }}
+      />
+
+      {/* Event Template Library (local) */}
+      <TemplateLibrary
+        isOpen={showTemplateLibrary}
+        onClose={() => setShowTemplateLibrary(false)}
+        projectId={selectedProjectId}
+        currentDatabase={dwhTargetDatabase || undefined}
+        currentSchema={dwhTargetSchema || undefined}
+      />
+
+      {/* Event Template Picker (server-side API) */}
+      {selectedProjectId && (
+        <EventTemplatePickerModal
+          isOpen={showEventTemplatePicker}
+          onClose={() => setShowEventTemplatePicker(false)}
+          projectId={selectedProjectId}
+          targetDatabase={dwhTargetDatabase || selectedDatabase || ''}
+          targetSchema={dwhTargetSchema || ''}
+          onApplied={(result) => {
+            toast.success(`Template applied: ${result.events_created} events created`);
+            // Refresh events after template apply
+          }}
+        />
+      )}
+
+      {/* Audit Trail Panel (modal overlay) */}
+      {showAuditTrail && selectedProjectId && (
+        <Modal isOpen={false && showAuditTrail} onClose={() => setShowAuditTrail(false)} size="xl">
+          <div className="p-4">
+            <AuditTrailPanel projectId={selectedProjectId} />
+          </div>
+        </Modal>
+      )}
+
+      {/* Conflict Resolution Modal */}
+      <ConflictResolutionModal
+        isOpen={showConflictModal}
+        onClose={() => {
+          setShowConflictModal(false);
+          setCurrentConflict(null);
+          pendingConflictAction.current = null;
+        }}
+        conflict={currentConflict}
+        onResolve={handleConflictResolve}
+      />
+
+      {/* DWH Location Picker Modal */}
+      <DwhLocationPickerModal
+        isOpen={showLocationPicker}
+        onClose={() => setShowLocationPicker(false)}
+        projectName={selectedProjectName || undefined}
+        onConfirm={(database, schema) => {
+          setDwhTargetDatabase(database);
+          setDwhTargetSchema(schema);
+          setShowLocationPicker(false);
+          setModelingChoice('dwh_template');
+          setViewMode('modeling');
+          if (selectedProjectId) {
+            modelingChoicesByProject.current.set(selectedProjectId, {
+              choice: 'dwh_template',
+              database,
+              schema,
+            });
+            addProjectEvent(selectedProjectId, {
+              module_name: 'EXPLORE_DESIGN',
+              event_type: 'MODELING_TEMPLATE_CHOSEN',
+              status: 'completed',
+              details: { choice: 'dwh_template', targetDatabase: database, targetSchema: schema },
+              entity_id: `template-dwh_template`,
+              entity_type: 'modeling_config',
+            }).catch(() => {});
+          }
+        }}
+      />
+
+      {/* Data Engineering Modals */}
+      <DynamicTableModal
+        isOpen={dynamicTableModal}
+        onClose={() => setDynamicTableModal(false)}
+        sourceTable={selectedTable || undefined}
+        warehouses={[]}
+      />
+      <StreamModal
+        isOpen={streamModal}
+        onClose={() => setStreamModal(false)}
+        sourceTable={selectedTable || undefined}
+      />
+      <AlertModal
+        isOpen={alertModal}
+        onClose={() => setAlertModal(false)}
+        sourceTable={selectedTable || undefined}
+        warehouses={[]}
+      />
+      <EventTableModal
+        isOpen={eventTableModal}
+        onClose={() => setEventTableModal(false)}
+        context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+      />
+      <HybridTableModal
+        isOpen={hybridTableModal}
+        onClose={() => setHybridTableModal(false)}
+        context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
+      />
+
+      {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}
+
+      {/* Modeling Ingestion Config Panel */}
+      {showModelingIngestionPanel && selectedTable && (
+        <Modal isOpen={false} onClose={() => setShowModelingIngestionPanel(false)} size="xl">
+          <IngestionConfigPanel
+            table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
+            projectId={selectedProjectId ?? undefined}
+            columns={tableColumns}
+            ingestionMode={modelingIngestionMode}
+            onModeChange={setModelingIngestionMode}
+          />
+        </Modal>
+      )}
+
+      {/* Data Engineering Objects Modal */}
+      <Modal
+        isOpen={dataEngModal.isOpen}
+        onClose={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))}
+        size="lg"
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
+              {dataEngModal.type === 'dynamic_tables' && <><RefreshCw className="h-5 w-5 text-blue-500" /> Dynamic Tables</>}
+              {dataEngModal.type === 'streams' && <><GitBranch className="h-5 w-5 text-green-500" /> Streams</>}
+              {dataEngModal.type === 'alerts' && <><AlertTriangle className="h-5 w-5 text-amber-500" /> Alerts</>}
+              <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs ml-2">
+                {selectedDatabase}.{dataEngModal.schema}
+              </Badge>
+            </h3>
+            <button aria-label="Close dialog" onClick={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
+              <X className="h-5 w-5 text-slate-400" />
+            </button>
+          </div>
+
+          {/* Inline drop confirmation bar */}
+          {confirmDrop && confirmDrop.type !== 'schema' && (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+              <p className="flex-1 text-sm text-red-800 dark:text-red-200">
+                Drop {confirmDrop.type.replace('_', ' ')} <span className="font-semibold">&quot;{confirmDrop.name}&quot;</span>? This cannot be undone.
+              </p>
+              <button
+                onClick={() => setConfirmDrop(null)}
+                className="rounded px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeConfirmedDrop}
+                className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                Confirm Drop
+              </button>
+            </div>
+          )}
+
+          {dataEngModal.loading ? (
+            <div className="space-y-3 py-6 px-2">
+              <div className="h-4 w-32 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+              <div className="h-20 bg-gray-200 dark:bg-gray-700 rounded animate-pulse" />
+            </div>
+          ) : dataEngModal.items.length === 0 ? (
+            <div className="text-center py-12 text-slate-500 dark:text-slate-400">
+              <p className="text-sm">No {dataEngModal.type.replace('_', ' ')} found in this schema</p>
+            </div>
+          ) : (
+            <div className="divide-y dark:divide-slate-700 border rounded-lg dark:border-slate-700">
+              {dataEngModal.items.map((item: any, idx: number) => {
+                const name = item.name || item.TABLE_NAME || item.STREAM_NAME || item.ALERT_NAME || `item-${idx}`;
+                return (
+                  <div key={name} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="font-mono text-sm text-slate-900 dark:text-white truncate">{name}</span>
+                      {item.scheduling_state && (
+                        <Badge className={cn(
+                          'text-[9px]',
+                          item.scheduling_state === 'RUNNING' || item.scheduling_state === 'ACTIVE'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                        )}>
+                          {item.scheduling_state}
+                        </Badge>
+                      )}
+                      {item.stale_after && (
+                        <span className="text-[10px] text-slate-400">lag: {item.stale_after}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      {/* Dynamic Table actions */}
+                      {dataEngModal.type === 'dynamic_tables' && (
+                        <>
+                          <Tooltip content="Suspend">
+                            <button
+                              aria-label="Suspend dynamic table"
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'suspend')}
+                            >
+                              <Square className="h-3.5 w-3.5 text-yellow-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Resume">
+                            <button
+                              aria-label="Resume dynamic table"
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'resume')}
+                            >
+                              <Play className="h-3.5 w-3.5 text-green-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Refresh Now">
+                            <button
+                              aria-label="Refresh dynamic table"
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'refresh')}
+                            >
+                              <RefreshCw className="h-3.5 w-3.5 text-blue-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Drop">
+                            <button
+                              aria-label="Drop dynamic table"
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              onClick={() => handleDataEngAction(name, 'drop')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
+                      {/* Stream actions */}
+                      {dataEngModal.type === 'streams' && (
+                        <>
+                          <Tooltip content="View Change Data">
+                            <button
+                              aria-label="View change data"
+                              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                              onClick={() => handleDataEngAction(name, 'view_data')}
+                            >
+                              <Eye className="h-3.5 w-3.5 text-blue-500" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip content="Drop">
+                            <button
+                              aria-label="Drop stream"
+                              className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                              onClick={() => handleDataEngAction(name, 'drop')}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                            </button>
+                          </Tooltip>
+                        </>
+                      )}
+                      {/* Alert actions */}
+                      {dataEngModal.type === 'alerts' && (
+                        <Tooltip content="Drop">
+                          <button
+                            aria-label="Drop alert"
+                            className="p-1.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                            onClick={() => handleDataEngAction(name, 'drop')}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 text-red-500" />
+                          </button>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </Modal>
+      {/* Rename Table Modal */}
+      <Modal isOpen={false && renameTableModal.open} onClose={() => setRenameTableModal({ open: false, currentName: '' })}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-4">Rename Table</h3>
+          <Input
+            label="New table name"
+            defaultValue={renameTableModal.currentName}
+            placeholder="Enter new table name"
+            autoFocus
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                const newName = (e.target as HTMLInputElement).value.trim();
+                if (newName && newName !== renameTableModal.currentName && selectedTable) {
+                  handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
+                  setRenameTableModal({ open: false, currentName: '' });
+                }
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setRenameTableModal({ open: false, currentName: '' })}>Cancel</Button>
+            <Button onClick={() => {
+              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new table name"]');
+              const newName = input?.value?.trim();
+              if (newName && newName !== renameTableModal.currentName && selectedTable) {
+                handleRenameTable(selectedTable.database, selectedTable.schema, selectedTable.table, newName);
+                setRenameTableModal({ open: false, currentName: '' });
+              }
+            }}>Rename</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Rename Column Modal */}
+      <Modal isOpen={false && renameColumnModal.open} onClose={() => setRenameColumnModal({ open: false, currentName: '' })}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-1">Rename Column</h3>
+          <p className="text-sm text-slate-500 mb-4">Rename &quot;{renameColumnModal.currentName}&quot;</p>
+          <Input
+            label="New column name"
+            defaultValue={renameColumnModal.currentName}
+            placeholder="Enter new column name"
+            autoFocus
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === 'Enter') {
+                const newName = (e.target as HTMLInputElement).value.trim();
+                if (newName && newName !== renameColumnModal.currentName && selectedTable) {
+                  handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
+                  setRenameColumnModal({ open: false, currentName: '' });
+                }
+              }
+            }}
+          />
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setRenameColumnModal({ open: false, currentName: '' })}>Cancel</Button>
+            <Button onClick={() => {
+              const input = document.querySelector<HTMLInputElement>('[placeholder="Enter new column name"]');
+              const newName = input?.value?.trim();
+              if (newName && newName !== renameColumnModal.currentName && selectedTable) {
+                handleRenameColumn(selectedTable.database, selectedTable.schema, selectedTable.table, renameColumnModal.currentName, newName);
+                setRenameColumnModal({ open: false, currentName: '' });
+              }
+            }}>Rename</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Add Column Modal */}
+      {/* Add Column modal removed — now inline in right rail */}
+
+      {/* Primary Key Modal */}
+      <Modal isOpen={false && primaryKeyModal} onClose={() => setPrimaryKeyModal(false)}>
+        <div className="p-6 max-w-sm">
+          <h3 className="text-lg font-bold mb-1">Set Primary Key</h3>
+          <p className="text-sm text-slate-500 mb-4">Select columns for the primary key</p>
+          <div className="space-y-1.5 max-h-60 overflow-auto mb-4">
+            {tableColumns.map((col) => (
+              <label key={col.name} className="flex items-center gap-2 px-3 py-2 rounded-lg border dark:border-slate-700 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                <input
+                  type="checkbox"
+                  defaultChecked={col.isPrimaryKey}
+                  value={col.name}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  data-pk-checkbox
+                />
+                <span className="text-sm font-mono">{col.name}</span>
+                <span className="text-xs text-slate-400 ml-auto">{col.dataType}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setPrimaryKeyModal(false)}>Cancel</Button>
+            <Button onClick={() => {
+              const checkboxes = document.querySelectorAll<HTMLInputElement>('[data-pk-checkbox]:checked');
+              const columns = Array.from(checkboxes).map(cb => cb.value);
+              if (columns.length === 0) { toast.error('Select at least one column'); return; }
+              if (!selectedTable) return;
+              handleAddPrimaryKey(selectedTable.database, selectedTable.schema, selectedTable.table, columns);
+              setPrimaryKeyModal(false);
+            }}>Set Primary Key</Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Cross-module links */}
+      <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
+        <span>Related:</span>
+        <a href="/workflow" className="text-blue-600 dark:text-blue-400 hover:underline">Workflow (ETL Pipelines)</a>
+        <a href="/data-quality" className="text-blue-600 dark:text-blue-400 hover:underline">Data Quality (Checks)</a>
+        <a href="/governance" className="text-blue-600 dark:text-blue-400 hover:underline">Governance (Policies)</a>
+      </div>
     </div>
+    </ErrorBoundary>
   );
 }

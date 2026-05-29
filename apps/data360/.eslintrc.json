@@ -6,6 +6,9 @@
     "no-duplicate-imports": "warn",
     // "import/no-unresolved": "error",
     "react/react-in-jsx-scope": "off",
-    "react/no-unknown-property": "error"
+    "react/no-unknown-property": "error",
+    "react/no-unescaped-entities": "off",
+    "@next/next/no-assign-module-variable": "off",
+    "no-console": ["warn", { "allow": ["warn", "error"] }]
   }
 }

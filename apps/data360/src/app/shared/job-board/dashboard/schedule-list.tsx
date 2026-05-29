@@ -153,7 +153,7 @@ export default function JobScheduleList({ className }: { className?: string }) {
                 ))}
               </Box>
             </SimpleBar>
-            <Box className="absolute -end-0 -start-1 bottom-0 h-6 w-[101%] bg-gradient-to-t from-gray-0 via-gray-50 to-transparent dark:from-gray-50 dark:via-gray-50" />
+            <Box className="absolute -end-0 -start-1 bottom-0 h-6 w-[101%] bg-gradient-to-t from-gray-0 via-gray-50 to-transparent dark:from-gray-800 dark:via-gray-800" />
           </Box>
           <JobUpgradeStorage />
         </Box>

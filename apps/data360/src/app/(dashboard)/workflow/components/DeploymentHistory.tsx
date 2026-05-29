@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
   Rocket,
   CheckCircle,
@@ -22,14 +22,16 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  WorkflowDeployment,
-  DeploymentStatus,
-  WorkflowStep,
-  getWorkflowDeployments,
+  listDeployments,
   approveDeployment,
   rejectDeployment,
-  activateDeployment,
-} from '@/app/services/workflow';
+  executeDeployment,
+} from '@/app/services/api/workflowApi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import type { WorkflowDeployment, WorkflowStep } from '@/app/services/api/types';
+
+type DeploymentStatus = 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'ACTIVE' | 'SCHEDULED';
 
 // Local storage key for workflow deployments
 const WORKFLOW_DEPLOYMENTS_KEY = 'workflow-deployments';
@@ -124,68 +126,53 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   onRefresh,
   className,
 }) => {
-  const [deployments, setDeployments] = useState<LocalDeployment[]>([]);
-  const [allDeploymentsForStats, setAllDeploymentsForStats] = useState<LocalDeployment[]>([]);
-  const [totalDeployments, setTotalDeployments] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedDeployments, setExpandedDeployments] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<DeploymentStatus | ''>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const fetchDeployments = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const apiDeployments: LocalDeployment[] = [];
-      if (workflowId) {
-        const res = await getWorkflowDeployments({
-          projectId: workflowId,
-          limit: 100,
-        });
-        apiDeployments.push(
-          ...res.deployments.map((d: WorkflowDeployment) => ({
-            event_id: d.event_id,
-            workflow_id: d.workflow_id,
-            workflow_name: d.workflow_name,
-            status: d.status,
-            deployment_type: 'scheduled' as const,
-            scheduled_date: d.scheduled_date,
-            steps: d.steps ?? [],
-            created_by: d.created_by ?? '',
-            created_at: d.created_at ?? '',
-            approved_by: d.approved_by,
-            approved_at: d.approved_at,
-          }))
-        );
-      }
-      let localDeployments = getLocalDeployments().filter(
-        (d) => d.workflow_id === workflowId || d.workflow_name === workflowName
-      );
-      const byEventId = new Map<string, LocalDeployment>();
-      apiDeployments.forEach((d) => byEventId.set(d.event_id, d));
-      localDeployments.forEach((d) => {
-        if (!byEventId.has(d.event_id)) byEventId.set(d.event_id, d);
-      });
-      const merged = Array.from(byEventId.values()).sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-      setAllDeploymentsForStats(merged);
-      const filtered = statusFilter ? merged.filter((d) => d.status === statusFilter) : merged;
-      setDeployments(filtered);
-      setTotalDeployments(filtered.length);
-    } catch (err: any) {
-      console.error('Failed to fetch deployments:', err);
-      setError(extractErrorMessage(err) || 'Failed to load deployment history');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [workflowId, workflowName, statusFilter]);
+  const fetchDeploymentsFn = useCallback(
+    () => listDeployments(workflowId, { limit: 100 }),
+    [workflowId]
+  );
 
-  useEffect(() => {
-    fetchDeployments();
-  }, [fetchDeployments]);
+  const { data: apiData, loading: isLoading, error: fetchError, refetch: fetchDeployments } = useCacheAwareQuery(
+    fetchDeploymentsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
+  );
+
+  // Merge API deployments with localStorage deployments
+  const { deployments, allDeploymentsForStats, totalDeployments } = useMemo(() => {
+    const apiDeployments: LocalDeployment[] = (apiData?.deployments ?? []).map((d: WorkflowDeployment) => ({
+      event_id: d.deployment_id,
+      workflow_id: d.project_id,
+      workflow_name: workflowName,
+      status: (d.status?.toUpperCase() ?? 'PENDING_APPROVAL') as DeploymentStatus,
+      deployment_type: (d.deployment_type === 'with_approval' ? 'approval' : d.deployment_type ?? 'scheduled') as 'immediate' | 'scheduled' | 'approval',
+      steps: [] as WorkflowStep[],
+      created_by: d.requested_by ?? '',
+      created_at: d.created_at ?? '',
+      approved_by: d.approved_by ?? undefined,
+      approved_at: d.deployed_at ?? undefined,
+    }));
+
+    const localDeployments = getLocalDeployments().filter(
+      (d) => d.workflow_id === workflowId || d.workflow_name === workflowName
+    );
+    const byEventId = new Map<string, LocalDeployment>();
+    apiDeployments.forEach((d) => byEventId.set(d.event_id, d));
+    localDeployments.forEach((d) => {
+      if (!byEventId.has(d.event_id)) byEventId.set(d.event_id, d);
+    });
+    const merged = Array.from(byEventId.values()).sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+    const filtered = statusFilter ? merged.filter((d) => d.status === statusFilter) : merged;
+    return { deployments: filtered, allDeploymentsForStats: merged, totalDeployments: filtered.length };
+  }, [apiData, workflowId, workflowName, statusFilter]);
+
+  const error = fetchError ? extractErrorMessage(fetchError) : actionError;
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -209,14 +196,14 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleApprove = async (eventId: string) => {
     setActionLoading(eventId);
     try {
-      await approveDeployment(eventId);
+      await approveDeployment(workflowId, eventId);
       updateLocalDeploymentStatus(eventId, 'APPROVED', {
         approved_by: 'Current User',
         approved_at: new Date().toISOString(),
       });
       await fetchDeployments();
     } catch (err: any) {
-      setError(extractErrorMessage(err) || 'Failed to approve deployment');
+      setActionError(extractErrorMessage(err) || 'Failed to approve deployment');
     } finally {
       setActionLoading(null);
     }
@@ -226,11 +213,11 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
     const reason = prompt('Please provide a reason for rejection (optional):');
     setActionLoading(eventId);
     try {
-      await rejectDeployment(eventId, reason ?? undefined);
+      await rejectDeployment(workflowId, eventId, { reason: reason ?? undefined });
       updateLocalDeploymentStatus(eventId, 'REJECTED');
       await fetchDeployments();
     } catch (err: any) {
-      setError(extractErrorMessage(err) || 'Failed to reject deployment');
+      setActionError(extractErrorMessage(err) || 'Failed to reject deployment');
     } finally {
       setActionLoading(null);
     }
@@ -239,13 +226,13 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
   const handleActivate = async (eventId: string) => {
     setActionLoading(eventId);
     try {
-      await activateDeployment(eventId);
+      await executeDeployment(workflowId, eventId);
       updateLocalDeploymentStatus(eventId, 'ACTIVE', {
         executed_at: new Date().toISOString(),
       });
       await fetchDeployments();
     } catch (err: any) {
-      setError(extractErrorMessage(err) || 'Failed to activate deployment');
+      setActionError(extractErrorMessage(err) || 'Failed to activate deployment');
     } finally {
       setActionLoading(null);
     }
@@ -584,9 +571,9 @@ const DeploymentHistory: React.FC<DeploymentHistoryProps> = ({
                           Workflow Steps ({deployment.steps.length})
                         </div>
                         <div className="space-y-1 max-h-40 overflow-y-auto">
-                          {deployment.steps.map((step: WorkflowStep, index: number) => (
+                          {deployment.steps.map((step: WorkflowStep) => (
                             <div
-                              key={index}
+                              key={step.step_order}
                               className="flex items-center gap-2 p-2 bg-white dark:bg-slate-900 rounded border border-slate-200 dark:border-slate-700 text-xs"
                             >
                               <span className="flex-shrink-0 w-6 h-6 flex items-center justify-center bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full font-medium">

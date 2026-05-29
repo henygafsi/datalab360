@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   History,
   RotateCcw,
@@ -18,12 +18,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  getWorkflowVersions,
-  createWorkflowVersion,
-  rollbackWorkflow,
-  WorkflowVersion,
-  formatDuration,
-} from '@/app/services/workflow';
+  listVersions,
+  rollbackVersion,
+} from '@/app/services/api/workflowApi';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import type { WorkflowVersion } from '@/app/services/api/types';
 
 // Helper to extract error message (ApiResponse.error, FastAPI detail, etc.)
 const extractErrorMessage = (err: any): string => {
@@ -56,47 +56,35 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
   onVersionChange,
   className,
 }) => {
-  const [versions, setVersions] = useState<WorkflowVersion[]>([]);
-  const [currentVersion, setCurrentVersion] = useState<WorkflowVersion | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedVersions, setExpandedVersions] = useState<Set<string>>(new Set());
   const [isCreatingVersion, setIsCreatingVersion] = useState(false);
   const [isRollingBack, setIsRollingBack] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newVersionName, setNewVersionName] = useState('');
   const [newVersionDescription, setNewVersionDescription] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const fetchVersions = useCallback(async () => {
-    if (!workflowId) return;
+  const fetchVersionsFn = useCallback(
+    () => listVersions(workflowId, { limit: 20, include_superseded: true }),
+    [workflowId]
+  );
 
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await getWorkflowVersions(workflowId, { limit: 20, include_rolled_back: true });
-      setVersions(data.versions || []);
-      setCurrentVersion(data.current_version);
-    } catch (err: any) {
-      console.error('Failed to fetch versions:', err);
-      setError(extractErrorMessage(err) || 'Failed to load version history');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [workflowId]);
+  const { data: versionsData, loading: isLoading, error: fetchError, refetch: fetchVersions } = useCacheAwareQuery(
+    fetchVersionsFn,
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!workflowId, initialData: null }
+  );
 
-  useEffect(() => {
-    fetchVersions();
-  }, [fetchVersions]);
+  const versions = versionsData?.versions ?? [];
+  const currentVersion = versions.length > 0 ? versions[0] : null;
+  const error = fetchError ? extractErrorMessage(fetchError) : actionError;
 
   const handleCreateVersion = async () => {
     if (!workflowId) return;
 
     setIsCreatingVersion(true);
     try {
-      await createWorkflowVersion(workflowId, {
-        version_name: newVersionName || undefined,
-        description: newVersionDescription || undefined,
-      });
+      // Versions are auto-created on step add/update/delete/reorder.
+      // Refreshing the list to pick up the latest version.
       setNewVersionName('');
       setNewVersionDescription('');
       setShowCreateForm(false);
@@ -104,7 +92,7 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
       onVersionChange?.();
     } catch (err: any) {
       console.error('Failed to create version:', err);
-      setError(extractErrorMessage(err) || 'Failed to create version');
+      setActionError(extractErrorMessage(err) || 'Failed to create version');
     } finally {
       setIsCreatingVersion(false);
     }
@@ -117,12 +105,12 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
 
     setIsRollingBack(versionId);
     try {
-      await rollbackWorkflow(workflowId, versionId, reason || undefined);
+      await rollbackVersion(workflowId, { target_version_id: versionId, reason: reason || undefined });
       await fetchVersions();
       onVersionChange?.();
     } catch (err: any) {
       console.error('Failed to rollback:', err);
-      setError(extractErrorMessage(err) || 'Failed to rollback to version');
+      setActionError(extractErrorMessage(err) || 'Failed to rollback to version');
     } finally {
       setIsRollingBack(null);
     }
@@ -278,7 +266,7 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
                 <span className="font-medium text-slate-800 dark:text-slate-200">
                   Current: {currentVersion.version_name || `Version ${currentVersion.version_number}`}
                 </span>
-                {getStatusBadge(currentVersion.status)}
+                {getStatusBadge(currentVersion.status || 'active')}
               </div>
               <div className="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
                 <span className="flex items-center gap-1">
@@ -336,7 +324,7 @@ const VersionHistory: React.FC<VersionHistoryProps> = ({
                       <span className="font-medium text-slate-800 dark:text-slate-200">
                         {version.version_name || `Version ${version.version_number}`}
                       </span>
-                      {getStatusBadge(version.status)}
+                      {getStatusBadge(version.status || 'active')}
                     </div>
                     <div className="flex items-center gap-4 mt-1 ml-6 text-xs text-slate-500 dark:text-slate-400">
                       <span className="flex items-center gap-1">

@@ -56,6 +56,7 @@ export interface JoinConfig {
 }
 
 export interface FilterCondition {
+  _key?: string;
   column: string;
   operator: '=' | '!=' | '>' | '<' | '>=' | '<=' | 'LIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
   value: string | number | boolean | null;
@@ -67,6 +68,7 @@ export interface FilterConfig {
 }
 
 export interface AggregationDef {
+  _key?: string;
   column: string;
   function: 'SUM' | 'AVG' | 'COUNT' | 'MIN' | 'MAX' | 'COUNT_DISTINCT' | 'LISTAGG';
   alias: string;
@@ -90,6 +92,7 @@ export interface CastConfig {
 }
 
 export interface FormulaDef {
+  _key?: string;
   name: string;
   expression: string;
 }
@@ -99,6 +102,7 @@ export interface FormulaConfig {
 }
 
 export interface SortOrderDef {
+  _key?: string;
   column: string;
   direction: 'ASC' | 'DESC';
 }
@@ -124,6 +128,10 @@ export interface LimitConfig {
 export interface RecommendationConfig {
   score_column: string;
   model_type?: 'cortex' | 'custom';
+  score_expression?: string;
+  cortex_model?: string;
+  input_column?: string;
+  prompt?: string;
   input_id_column?: string;
   output_table?: string;
 }
@@ -132,7 +140,7 @@ export interface RecommendationConfig {
 export interface SegmentationConfig {
   segment_column: string;
   method: 'rules' | 'rfm' | 'model';
-  rules?: Array<{ name: string; condition: string }>;
+  rules?: Array<{ _key?: string; name: string; condition: string }>;
 }
 
 /** Clustering: assign cluster (Cortex ML or SQL). Default capability for workflow. */

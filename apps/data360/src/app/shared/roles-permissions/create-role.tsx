@@ -21,13 +21,13 @@ export default function CreateRole() {
   const [isCopied, setIsCopied] = useState(false);
   const [state, copyToClipboard] = useCopyToClipboard();
 
-  console.log('state', state);
+  // console.log('state', state);
 
   const onSubmit: SubmitHandler<CreateRoleInput> = (data) => {
     // set timeout ony required to display loading state of the create category button
     setLoading(true);
     setTimeout(() => {
-      console.log('data', data);
+      // console.log('data', data);
       setLoading(false);
       setReset({
         roleName: '',

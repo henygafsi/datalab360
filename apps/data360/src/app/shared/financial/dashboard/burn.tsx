@@ -24,7 +24,7 @@ export default function Burn({ className }: { className?: string }) {
   return (
     <WidgetCard
       title="Burn"
-      titleClassName="text-gray-0 dark:text-gray-900 mt-[6px] font-normal sm:text-sm font-inter"
+      titleClassName="text-gray-0 dark:text-white mt-[6px] font-normal sm:text-sm font-inter"
       className={cn(
         'flex h-full flex-col @container [background:linear-gradient(29deg,#0E1012_12.96%,#6C4F3E_94.88%)]',
         className

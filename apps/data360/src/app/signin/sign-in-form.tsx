@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { SubmitHandler } from 'react-hook-form';
 import { PiArrowRightBold, PiUserBold, PiIdentificationBadgeBold, PiLockKeyBold, PiWarningCircleBold } from 'react-icons/pi';
 import { Checkbox, Password, Button, Input, Text } from 'rizzui';
@@ -28,8 +28,8 @@ export default function SignInForm() {
   const [reset, setReset] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const router = useRouter();
   const searchParams = useSearchParams();
+  const callbackUrl = searchParams.get('callbackUrl') || routes.accountOverview;
 
   useEffect(() => {
     const errorParam = searchParams.get('error');
@@ -48,13 +48,27 @@ export default function SignInForm() {
         account_name: data.account_name,
         username: data.username,
         password: data.password,
+        callbackUrl,
         redirect: false,
       });
 
       if (result?.error) {
         setError(typeof result.error === 'string' ? result.error : 'Invalid credentials. Check account name, username and password.');
       } else if (result?.ok) {
-        router.push('/account-overview');
+        // Store access_token in localStorage for modules that read it directly
+        try {
+          const sessionRes = await fetch('/api/auth/session');
+          const session = await sessionRes.json() as { user?: { access_token?: string } };
+          const token = session?.user?.access_token;
+          if (token) {
+            localStorage.setItem('access_token', token);
+            localStorage.setItem('snowflake_token', token);
+          }
+        } catch {
+          // Non-blocking — modules will fall back to getSession()
+        }
+        const targetUrl = result.url || callbackUrl;
+        window.location.assign(targetUrl);
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
@@ -161,7 +175,7 @@ export default function SignInForm() {
 
       <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800 text-center">
         <Text className="text-sm text-gray-500 dark:text-gray-400">
-          Don't have an account?{' '}
+          Don&apos;t have an account?{' '}
           <Link
             href={routes.auth.signUp1}
             className="font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 transition-colors"

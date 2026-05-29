@@ -10,7 +10,7 @@ type FormValues = {
 
 export default function OtpForm() {
   const onSubmit: SubmitHandler<FormValues> = (data) => {
-    console.log(data);
+    // console.log(data);
   };
 
   return (

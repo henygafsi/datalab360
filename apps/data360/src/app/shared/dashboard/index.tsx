@@ -1,29 +1,30 @@
 'use client';
-// Data journey: dashboard → hooks (gouvernance) + ExploreDesignService/WorkflowService/GouvernanceService/axios → GET workflows, scheduled-deployments, approve/reject/activate
-// ////dependency//// page → hooks.use-gouvernance, hooks.useCache*, services.explore-design, services.workflow, services.gouvernance, services.cortex, lib.api-client
+// Data journey: dashboard → hooks (governance) + projectsApi/exploreDesignApi/workflowApi/GouvernanceService → GET projects, deployments, approve/reject/activate
+// ////dependency//// page → hooks.use-governance, hooks.useCache*, services.explore-design, services.workflow, services.governance, services.cortex, lib.api-client
 import Link from 'next/link';
 import { Badge, Button, Select, Modal, Text } from 'rizzui';
-import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-gouvernance';
-import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
+import { useClientDashboard, useStageStorageInfo, useClientDashboardAll } from '@/hooks/use-governance';
+import { PiDatabase, PiUsers, PiChartLine, PiCheckCircle, PiXCircle, PiWarning, PiClock, PiEye, PiPlayCircle, PiCalendarCheck, PiRocketLaunch, PiClockCountdown, PiPackage } from 'react-icons/pi';
 import { HiOutlineRefresh } from 'react-icons/hi';
 import { RefreshCw } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, CartesianGrid } from 'recharts';
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { useCacheInvalidationWatcher } from '@/hooks/useCacheAwareQuery';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import { useSession } from 'next-auth/react';
 import KPICard from '@/components/analytics/KPICard';
 import axios from 'axios';
 import * as ExploreDesignService from '@/app/services/explore-design';
-import * as WorkflowService from '@/app/services/workflow';
+import * as projectsApi from '@/app/services/api/projectsApi';
+import toast from 'react-hot-toast';
 import DataEngineerHub from '@/app/shared/data-engineer-hub/DataEngineerHub';
 import { routes } from '@/config/routes';
-import * as GouvernanceService from '@/app/services/gouvernance';
+import * as GouvernanceService from '@/app/services/governance';
 import { getCortexRecommend } from '@/app/services/cortex';
 import { redirectToLogin, shouldRedirectToLoginOnError } from '@/lib/api-client';
 
 const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#06B6D4', '#EC4899', '#84CC16'];
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 /** Links to all platform modules for Account Overview "Features across modules" section */
 const MODULE_FEATURES: { href: string; name: string; description: string; eventKey?: string }[] = [
@@ -31,11 +32,11 @@ const MODULE_FEATURES: { href: string; name: string; description: string; eventK
   { href: routes.exploreDesign.view, name: 'Explore & Design', description: 'Explore and design data models', eventKey: 'EXPLORE_DESIGN' },
   { href: routes.mapping.viewMap, name: 'Mapping', description: 'View and manage mappings', eventKey: 'MAPPING' },
   { href: routes.workflow.ViewWorkflow, name: 'Workflow', description: 'Workflow and ETL pipelines', eventKey: 'WORKFLOW' },
-  { href: routes.gouvernance.users, name: 'Governance', description: 'Users, roles, and policies', eventKey: 'GOUVERNANCE' },
-  { href: routes.dataQuality.viewReports, name: 'Data Health', description: 'Data quality reports', eventKey: 'DATA_QUALITY' },
+  { href: routes.governance.users, name: 'Governance', description: 'Users, roles, and policies', eventKey: 'GOUVERNANCE' },
+  { href: routes.dataQuality.viewReports, name: 'Data Quality', description: 'Data quality reports', eventKey: 'DATA_QUALITY' },
   { href: routes.intelligent.dashboard, name: 'AI Intelligence', description: 'Cortex AI and semantic models', eventKey: 'CORTEX' },
   { href: routes.observability.dashboard, name: 'Observability', description: 'System monitoring', eventKey: 'OBSERVABILITY' },
-  { href: routes.biReporting.viewReporting, name: 'Business Reporting', description: 'BI reports and dashboards', eventKey: 'BI_REPORTING' },
+  { href: routes.biReporting.viewReporting, name: 'BI Dashboard', description: 'BI reports and dashboards', eventKey: 'BI_REPORTING' },
   { href: routes.clientAccounts.dashboard, name: 'Client Accounts', description: 'Manage client Snowflake accounts' },
 ];
 
@@ -44,20 +45,22 @@ interface ScheduledWorkflow {
   scheduled_date?: string;
   deployment_method?: string;
   project_id?: string;
+  deployment_id?: string; // For new API approve/reject/execute calls
   created_by: string;
   created_at?: string;
   status?: string; // PENDING_APPROVAL, APPROVED, ACTIVE, REJECTED
-  cron_schedule?: string; // For backward compatibility with regular workflows
+  cron_schedule?: string;
   schedule_interval_str?: string;
-  source?: 'workflow' | 'mapping' | 'explore_design'; // Track origin
-  schedule_id?: string; // For explore-design deployments
-  event_id?: string; // For workflow deployments (new unified API)
-  workflow_id?: string; // For workflow deployments
-  module?: 'WORKFLOW' | 'MAPPING' | 'EXPLORE_DESIGN'; // Unified module identifier
+  source?: 'workflow' | 'mapping' | 'explore_design';
+  schedule_id?: string;
+  event_id?: string;
+  workflow_id?: string;
+  module?: 'WORKFLOW' | 'MAPPING' | 'EXPLORE_DESIGN';
+  config?: Record<string, unknown> | null; // Deployment config (contains events, sql_queries, etc.)
 }
 
 export default function GouvernanceDashboard() {
-  const { data: session, getSession } = useSession();
+  const { data: session, update: updateSession } = useSession();
   const currentUsername = session?.user?.username || '';
 
   // Helper to get auth headers with Snowflake account context
@@ -76,14 +79,20 @@ export default function GouvernanceDashboard() {
   const { data: dashboardData, loading: dashboardLoading, refetch: refetchDashboard } = useClientDashboard();
   const { data: stagesData, loading: stagesLoading, refetch: refetchStages } = useStageStorageInfo();
 
-  // SSE cache invalidation
-  const { wasInvalidated } = useCacheInvalidationWatcher([
-    CACHE_KEYS.DASHBOARD,
-    CACHE_KEYS.ACTIVITY,
-    CACHE_KEYS.DWH_STORAGE,
-  ]);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const mountedRef = useRef(true);
+  // SSE cache invalidation — useCacheAwareQuery auto-refreshes when keys are invalidated.
+  // The fetch function triggers governance hook refetches + scheduled items refresh.
+  const refreshAllFn = useCallback(async () => {
+    await Promise.all([
+      refetchDashboard?.(),
+      refetchStages?.(),
+    ]);
+    return true;
+  }, [refetchDashboard, refetchStages]);
+
+  const { isStale: isRefreshing, refetch: triggerRefreshAll } = useCacheAwareQuery<boolean>(
+    refreshAllFn,
+    { cacheKeys: [CACHE_KEYS.DASHBOARD, CACHE_KEYS.ACTIVITY, CACHE_KEYS.DWH_STORAGE], initialData: false }
+  );
 
   // Default to last 30 days to avoid loading too much data
   const defaultStartDate = useMemo(() => {
@@ -107,186 +116,115 @@ export default function GouvernanceDashboard() {
 
   // Admin / data modeler view: no default user filter so all users' activity is shown
 
-  // Auto-refresh when SSE cache invalidation event is received
-  useEffect(() => {
-    if (wasInvalidated && !dashboardLoading && !stagesLoading) {
-      setIsRefreshing(true);
-      Promise.all([
-        refetchDashboard?.(),
-        refetchStages?.(),
-        // Also refresh scheduled deployments silently
-        fetchScheduledItems(false),
-      ]).finally(() => {
-        if (mountedRef.current) {
-          setIsRefreshing(false);
-        }
-      });
-    }
-  }, [wasInvalidated, dashboardLoading, stagesLoading, refetchDashboard, refetchStages]);
-
-  // Cleanup on unmount
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
+  // Note: SSE auto-refresh is handled by useCacheAwareQuery above.
 
   // Track previous deployment count for smart refresh
   const prevDeploymentCountRef = useRef(0);
+  const hasFetchedScheduledRef = useRef(false);
   // Track if we've already fetched to prevent infinite loops
   const hasFetchedRef = useRef(false);
   // Store access token as stable reference
   const accessToken = session?.user?.access_token;
 
-  // Fetch scheduled workflows, mapping deployments, and explore-design deployments.
-  // Optional sessionOverride: use latest session when refreshing to avoid 401 (e.g. after token refresh).
-  // Sequential requests reduce "cursor closed" / connection issues when backend runs with a single worker.
-  const fetchScheduledItems = async (showLoadingIndicator = true, sessionOverride?: { user?: { access_token?: string; account_name?: string; username?: string } } | null) => {
-    const sess = sessionOverride ?? session;
-    const token = sess?.user?.access_token ?? accessToken;
+  // Fetch deployments across all projects using new v1 APIs.
+  // 1. listProjects() → get all project IDs
+  // 2. For each project, fetch explore-design + workflow deployments in parallel
+  // 3. Merge and deduplicate
+  const fetchScheduledItems = async (showLoadingIndicator = true) => {
+    const token = session?.user?.access_token ?? accessToken;
     if (!token) return;
 
     if (showLoadingIndicator) {
       setScheduledWorkflowsLoading(true);
     }
     try {
-      const snowflakeAccount = sess?.user?.account_name || session?.user?.account_name || '';
-      const authHeaders = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'X-Account-Name': snowflakeAccount,
-        'X-Username': sess?.user?.username || session?.user?.username || '',
-      };
+      // Fetch all projects
+      const projectsRes = await projectsApi.listProjects().catch((err: any) => {
+        if (shouldRedirectToLoginOnError(err)) { redirectToLogin(); }
+        console.warn('Failed to list projects:', err?.message);
+        return { projects: [], total: 0, limit: 100, offset: 0 };
+      });
 
-      const withAuth = (req: () => Promise<any>, fallback: any) =>
-        req().catch((err: any) => {
-          if (shouldRedirectToLoginOnError(err)) {
-            redirectToLogin();
-            return fallback;
-          }
-          console.warn('Scheduled items fetch error:', err?.message || err);
-          return fallback;
-        });
+      const projects = projectsRes.projects || [];
+      const allScheduled: ScheduledWorkflow[] = [];
 
-      // Sequential fetch to avoid connection/cursor issues (backend recommended: --workers 1 for Account Overview)
-      // TODO(ux): kept on raw axios (not apiClient) for the per-call 8s timeout + withAuth silent-fallback.
-      // apiClient's fixed 120s timeout + redirect-on-401 would change the degrade-to-empty behavior here.
-      const workflowsResponse = await withAuth(
-        // TODO(backend): GET /workflow/get_workflows/ — endpoint not in API; wire it or remove this call
-        () => axios.get(`${API_BASE_URL}/workflow/get_workflows/`, { headers: authHeaders, timeout: 8000 }),
-        { data: { workflows: [] } }
-      );
-      const deploymentsResponse = await withAuth(
-        // TODO(backend): GET /explore-design/guided/get_scheduled_deployments/ — endpoint not in API; wire it or remove this call
-        // TODO(ux): raw axios retained for the 8s timeout + withAuth fallback (see note above).
-        () => axios.get(`${API_BASE_URL}/explore-design/guided/get_scheduled_deployments/`, { headers: authHeaders, timeout: 8000 }),
-        { data: { deployments: [] } }
-      );
-      const exploreDesignResponse = await withAuth(
-        () => ExploreDesignService.getScheduledDeployments(),
-        { scheduled_deployments: [] }
-      );
-      const workflowDeploymentsResponse = await withAuth(
-        () => WorkflowService.getWorkflowDeployments(),
-        { deployments: [], total: 0 }
-      );
+      // Fetch deployments for each project in parallel
+      const deploymentPromises = projects.map(async (project) => {
+        const pid = project.project_id;
+        const items: ScheduledWorkflow[] = [];
 
-        const allScheduled: ScheduledWorkflow[] = [];
-
-        // Add regular workflows with schedules
-        if (workflowsResponse.data?.workflows) {
-          const scheduledWorkflows = workflowsResponse.data.workflows
-            .filter((wf: any) => wf.schedule_interval_str)
-            .map((wf: any) => ({ ...wf, source: 'workflow' as const }));
-          allScheduled.push(...scheduledWorkflows);
-        }
-
-        // Add workflow deployments from new deployment API (approval workflow)
-        if (workflowDeploymentsResponse && (workflowDeploymentsResponse as any).deployments) {
-          const workflowDeployments = (workflowDeploymentsResponse as any).deployments.map((d: any) => ({
-            workflow_name: d.workflow_name,
-            scheduled_date: d.scheduled_date,
-            deployment_method: 'WORKFLOW_DEPLOYMENT',
-            project_id: d.project_id,
-            created_by: d.created_by,
-            created_at: d.created_at,
-            status: d.status,
-            source: 'workflow' as const,
-            event_id: d.event_id,
-            workflow_id: d.workflow_id,
-            module: 'WORKFLOW' as const,
-          }));
-          allScheduled.push(...workflowDeployments);
-        }
-
-        // Add mapping deployments
-        if (deploymentsResponse.data?.deployments) {
-          const mappingDeployments = deploymentsResponse.data.deployments
-            .map((d: any) => ({ ...d, source: 'mapping' as const }));
-          allScheduled.push(...mappingDeployments);
-        }
-
-        // Add explore-design scheduled deployments
-        if (exploreDesignResponse && (exploreDesignResponse as any).scheduled_deployments) {
-          const exploreDeployments = (exploreDesignResponse as any).scheduled_deployments.map((d: any) => ({
-            workflow_name: d.workflow_name || `model_deployment_${d.schedule_id}`,
-            scheduled_date: d.scheduled_date,
-            deployment_method: d.deployment_method,
-            project_id: d.project_id,
-            created_by: d.created_by,
-            created_at: d.created_at,
-            status: d.status,
-            source: 'explore_design' as const,
-            schedule_id: d.schedule_id,
-          }));
-          allScheduled.push(...exploreDeployments);
-        }
-
-        // Remove duplicates by workflow_name, keeping the most recent one
-        const uniqueWorkflows = allScheduled.reduce((acc, workflow) => {
-          const existing = acc.find(w => w.workflow_name === workflow.workflow_name);
-          if (!existing) {
-            acc.push(workflow);
-          } else {
-            const existingTime = new Date(existing.created_at || existing.scheduled_date || 0).getTime();
-            const currentTime = new Date(workflow.created_at || workflow.scheduled_date || 0).getTime();
-            if (currentTime > existingTime) {
-              const index = acc.indexOf(existing);
-              acc[index] = workflow;
-            }
-          }
-          return acc;
-        }, [] as ScheduledWorkflow[]);
-
-        prevDeploymentCountRef.current = uniqueWorkflows.length;
-        setScheduledWorkflows(uniqueWorkflows);
-        hasFetchedScheduledRef.current = true;
-
-        // Fetch recent deployment errors (schema deploy failures) for display and Cortex recommendations
+        // Fetch project deployments (project_deployments table)
         try {
-          const errRes = await ExploreDesignService.getRecentDeploymentErrors(20);
-          setRecentDeploymentErrors(errRes.errors || []);
-        } catch (e) {
-          setRecentDeploymentErrors([]);
+          const depRes = await projectsApi.listDeployments(pid);
+          (depRes.deployments || []).forEach((d) => {
+            items.push({
+              workflow_name: project.project_name || `deployment_${d.deployment_id}`,
+              deployment_id: d.deployment_id,
+              project_id: d.project_id || pid,
+              scheduled_date: d.deployed_at || d.scheduled_at || d.created_at,
+              deployment_method: d.deployment_method || undefined,
+              created_by: d.requested_by || '',
+              created_at: d.created_at,
+              status: d.status?.toUpperCase(),
+              source: 'explore_design',
+              schedule_id: d.deployment_id,
+              config: d.config,
+            });
+          });
+        } catch (err: any) {
+          if (shouldRedirectToLoginOnError(err)) { redirectToLogin(); return items; }
+          // Silently skip projects without deployments
         }
-      } catch (error: any) {
-        console.error('Error fetching scheduled items:', error);
-      } finally {
-        if (showLoadingIndicator) {
-          setScheduledWorkflowsLoading(false);
-        }
-      }
-    };
 
-  // Refetch scheduled deployments when SSE invalidation fires (e.g. after schedule/approve/reject/activate from workflow or explore-design).
-  // So approval/schedule/execute handling is identical: backend invalidates → we refetch so list stays in sync.
-  const hasFetchedScheduledRef = useRef(false);
-  useEffect(() => {
-    if (wasInvalidated && accessToken) {
-      fetchScheduledItems(false);
+        return items;
+      });
+
+      const results = await Promise.allSettled(deploymentPromises);
+      results.forEach((r) => {
+        if (r.status === 'fulfilled' && r.value) {
+          allScheduled.push(...r.value);
+        }
+      });
+
+      // Remove duplicates by deployment_id, keeping the most recent one
+      const uniqueWorkflows = allScheduled.reduce((acc, workflow) => {
+        const key = workflow.deployment_id || workflow.workflow_name;
+        const existing = acc.find(w => (w.deployment_id || w.workflow_name) === key);
+        if (!existing) {
+          acc.push(workflow);
+        } else {
+          const existingTime = new Date(existing.created_at || existing.scheduled_date || 0).getTime();
+          const currentTime = new Date(workflow.created_at || workflow.scheduled_date || 0).getTime();
+          if (currentTime > existingTime) {
+            const index = acc.indexOf(existing);
+            acc[index] = workflow;
+          }
+        }
+        return acc;
+      }, [] as ScheduledWorkflow[]);
+
+      prevDeploymentCountRef.current = uniqueWorkflows.length;
+      setScheduledWorkflows(uniqueWorkflows);
+      hasFetchedScheduledRef.current = true;
+
+      // Fetch recent deployment errors (no new API equivalent yet)
+      try {
+        const errRes = await ExploreDesignService.getRecentDeploymentErrors(20);
+        setRecentDeploymentErrors(errRes.errors || []);
+      } catch (e) {
+        setRecentDeploymentErrors([]);
+      }
+    } catch (error: any) {
+      console.error('Error fetching scheduled items:', error);
+    } finally {
+      if (showLoadingIndicator) {
+        setScheduledWorkflowsLoading(false);
+      }
     }
-  }, [wasInvalidated, accessToken]);
+  };
+
+  // SSE invalidation auto-triggers refetch via useCacheAwareQuery; fetchScheduledItems
+  // is also called after approve/reject/activate actions below.
 
   // Build complete filters object for API call
   const apiFilters = useMemo(() => {
@@ -314,12 +252,19 @@ export default function GouvernanceDashboard() {
   const [scheduledWorkflows, setScheduledWorkflows] = useState<ScheduledWorkflow[]>([]);
   const [scheduledWorkflowsLoading, setScheduledWorkflowsLoading] = useState(false);
   const [approvingWorkflow, setApprovingWorkflow] = useState<string | null>(null);
+  const [rejectingWorkflow, setRejectingWorkflow] = useState<string | null>(null);
   const [activatingWorkflow, setActivatingWorkflow] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'mappings' | 'workflows' | 'modeling'>('mappings');
+  const [activeTab, setActiveTab] = useState<'deployments' | 'modeling'>('deployments');
   const [deploymentError, setDeploymentError] = useState<{ workflow: string; message: string } | null>(null);
   const [recentDeploymentErrors, setRecentDeploymentErrors] = useState<ExploreDesignService.RecentDeploymentError[]>([]);
   const [recommendationsForError, setRecommendationsForError] = useState<{ id: string; text: string } | null>(null);
   const [deploymentRecommendationsLoading, setDeploymentRecommendationsLoading] = useState(false);
+
+  // Model preview modal state (shows deployment config: events + SQL)
+  const [modelPreview, setModelPreview] = useState<{
+    workflowName: string;
+    config: Record<string, unknown>;
+  } | null>(null);
 
   // Quick filter presets
   const applyQuickFilter = (preset: string) => {
@@ -372,207 +317,109 @@ export default function GouvernanceDashboard() {
     }
   };
 
-  // Approve scheduled deployment (modeler action)
-  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
-  const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
-    const headers = getAuthHeaders();
-    if (!headers) return;
+  // Helper: extract error message from API errors
+  const extractErrorMsg = (error: any): string => {
+    if (error.response?.data?.detail) {
+      const detail = error.response.data.detail;
+      if (typeof detail === 'string') return detail;
+      if (Array.isArray(detail)) return detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ');
+      return JSON.stringify(detail);
+    }
+    return error.message || 'Unknown error';
+  };
+
+  // Approve deployment using new v1 API
+  const handleApproveDeployment = async (workflowName: string, scheduleId?: string, source?: string, _eventId?: string) => {
+    // Find the workflow to get project_id + deployment_id
+    const wf = scheduledWorkflows.find(w => w.workflow_name === workflowName);
+    if (!wf?.project_id || !wf?.deployment_id) {
+      toast.error('Missing project or deployment ID');
+      return;
+    }
 
     setApprovingWorkflow(workflowName);
     try {
-      // Handle different deployment types based on source/module
-      if (source === 'workflow' && eventId) {
-        // New workflow deployment API
-        await WorkflowService.approveDeployment(eventId);
-      } else if (source === 'explore_design' && scheduleId) {
-        await ExploreDesignService.approveScheduledDeployment(scheduleId);
-      } else {
-        // Default: mapping deployment
-        // TODO(backend): POST /explore-design/guided/approve_deployment/ — endpoint not in API; wire it or remove this call
-        // TODO(ux): raw axios kept for the 10s timeout (apiClient is fixed at 120s); migrate once the endpoint exists.
-        await axios.post(
-          `${API_BASE_URL}/explore-design/guided/approve_deployment/`,
-          { workflow_name: workflowName },
-          { headers, timeout: 10000 }
-        );
-      }
+      await projectsApi.approveDeployment(wf.project_id, wf.deployment_id);
 
-      // Update local state and refetch so get_workflows + get_scheduled_deployments are fresh (backend invalidates cache)
       setScheduledWorkflows((prev) =>
-        prev.map((wf) =>
-          wf.workflow_name === workflowName ? { ...wf, status: 'APPROVED' } : wf
-        )
+        prev.map((w) => w.workflow_name === workflowName ? { ...w, status: 'APPROVED' } : w)
       );
       await fetchScheduledItems(false);
-
-      alert(`Successfully approved deployment: ${workflowName}`);
+      toast.success(`Deployment approved: ${workflowName}`);
     } catch (error: any) {
       console.error('Error approving deployment:', error);
-      let errorMsg = 'Unknown error';
-      if (error.code === 'ECONNABORTED') {
-        errorMsg = 'Request timed out. The backend endpoint may not be implemented yet.';
-      } else if (error.response?.data?.detail) {
-        errorMsg = typeof error.response.data.detail === 'string'
-          ? error.response.data.detail
-          : Array.isArray(error.response.data.detail)
-            ? error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
-            : JSON.stringify(error.response.data.detail);
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-      alert(`Failed to approve: ${errorMsg}`);
+      toast.error(`Failed to approve: ${extractErrorMsg(error)}`);
     } finally {
       setApprovingWorkflow(null);
     }
   };
 
-  // Reject scheduled deployment
-  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
-  const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
-    const headers = getAuthHeaders();
-    if (!headers) return;
+  // Reject deployment using new v1 API
+  const handleRejectDeployment = async (workflowName: string, scheduleId?: string, source?: string, _eventId?: string) => {
+    const wf = scheduledWorkflows.find(w => w.workflow_name === workflowName);
+    if (!wf?.project_id || !wf?.deployment_id) {
+      toast.error('Missing project or deployment ID');
+      return;
+    }
 
     const reason = prompt('Please provide a reason for rejection:');
     if (!reason) return;
 
-    setApprovingWorkflow(workflowName);
+    setRejectingWorkflow(workflowName);
     try {
-      if (source === 'workflow' && eventId) {
-        // New workflow deployment API
-        await WorkflowService.rejectDeployment(eventId, reason);
-      } else if (source === 'explore_design' && scheduleId) {
-        await ExploreDesignService.rejectScheduledDeployment(scheduleId, reason);
-      } else {
-        // Default: mapping deployment
-        // TODO(backend): POST /explore-design/guided/reject_deployment/ — endpoint not in API; wire it or remove this call
-        // TODO(ux): raw axios kept for the 10s timeout (apiClient is fixed at 120s); migrate once the endpoint exists.
-        await axios.post(
-          `${API_BASE_URL}/explore-design/guided/reject_deployment/`,
-          { workflow_name: workflowName, reason },
-          { headers, timeout: 10000 }
-        );
-      }
+      await projectsApi.rejectDeployment(wf.project_id, wf.deployment_id, { reason });
 
-      // Update local state and refetch (backend invalidates cache on reject)
       setScheduledWorkflows((prev) =>
-        prev.map((wf) =>
-          wf.workflow_name === workflowName ? { ...wf, status: 'REJECTED' } : wf
-        )
+        prev.map((w) => w.workflow_name === workflowName ? { ...w, status: 'REJECTED' } : w)
       );
       await fetchScheduledItems(false);
-
-      alert(`Deployment rejected: ${workflowName}`);
+      toast.success(`Deployment rejected: ${workflowName}`);
     } catch (error: any) {
       console.error('Error rejecting deployment:', error);
-      let errorMsg = 'Unknown error';
-      if (error.response?.data?.detail) {
-        errorMsg = typeof error.response.data.detail === 'string'
-          ? error.response.data.detail
-          : Array.isArray(error.response.data.detail)
-            ? error.response.data.detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ')
-            : JSON.stringify(error.response.data.detail);
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-      alert(`Failed to reject: ${errorMsg}`);
+      toast.error(`Failed to reject: ${extractErrorMsg(error)}`);
     } finally {
-      setApprovingWorkflow(null);
+      setRejectingWorkflow(null);
     }
   };
 
-  // Activate approved deployment (final execution)
-  // Supports: workflow (event_id), explore_design (schedule_id), mapping (workflow_name)
-  const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string, eventId?: string) => {
-    const headers = getAuthHeaders();
-    if (!headers) return;
+  // Execute/activate approved deployment using new v1 API
+  const handleActivateDeployment = async (workflowName: string, scheduleId?: string, source?: string, _eventId?: string) => {
+    const wf = scheduledWorkflows.find(w => w.workflow_name === workflowName);
+    if (!wf?.project_id || !wf?.deployment_id) {
+      toast.error('Missing project or deployment ID');
+      return;
+    }
 
     setActivatingWorkflow(workflowName);
-    setDeploymentError(null); // Clear previous errors
+    setDeploymentError(null);
     try {
-      // Handle workflow deployments (new API with event_id)
-      if (source === 'workflow' && eventId) {
-        await WorkflowService.activateDeployment(eventId);
+      await projectsApi.executeDeployment(wf.project_id, wf.deployment_id);
 
-        setScheduledWorkflows((prev) =>
-          prev.map((wf) =>
-            wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
-          )
-        );
-        await fetchScheduledItems(false);
-
-        alert(`Successfully activated workflow deployment: ${workflowName}`);
-        setActivatingWorkflow(null);
-        return;
-      }
-
-      // Handle explore-design deployments
-      if (source === 'explore_design' && scheduleId) {
-        await ExploreDesignService.executeScheduledDeploymentNow(scheduleId);
-
-        setScheduledWorkflows((prev) =>
-          prev.map((wf) =>
-            wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
-          )
-        );
-        await fetchScheduledItems(false);
-
-        alert(`Successfully activated model deployment: ${workflowName}`);
-        setActivatingWorkflow(null);
-        return;
-      }
-
-      // Determine if it's a mapping deployment or legacy workflow
-      const isMappingDeployment = workflowName.startsWith('mapping_deployment_');
-      const endpoint = isMappingDeployment
-        ? `${API_BASE_URL}/explore-design/guided/activate_deployment/`
-        : `${API_BASE_URL}/workflow/activate_workflow/`;
-
-      // TODO(ux): raw axios kept for the 30s timeout (deployment can take longer than apiClient defaults imply)
-      // and the explicit deploymentError surface below; migrate to apiClient once these endpoints exist in the API.
-      await axios.post(
-        endpoint,
-        { workflow_name: workflowName },
-        { headers, timeout: 30000 } // 30 second timeout (deployment can take longer)
-      );
-
-      // Update local state and refetch (backend invalidates cache on activate)
       setScheduledWorkflows((prev) =>
-        prev.map((wf) =>
-          wf.workflow_name === workflowName ? { ...wf, status: 'ACTIVE' } : wf
-        )
+        prev.map((w) => w.workflow_name === workflowName ? { ...w, status: 'ACTIVE' } : w)
       );
       await fetchScheduledItems(false);
-
-      alert(`Successfully activated ${isMappingDeployment ? 'mapping deployment' : 'workflow'}: ${workflowName}`);
+      toast.success(`Deployment activated: ${workflowName}`);
     } catch (error: any) {
       console.error('Error activating deployment:', error);
-
-      // Extract detailed error message
-      let errorMsg = 'Unknown error';
-      if (error.response?.status === 500) {
-        errorMsg = 'Backend Error (500): ';
-        if (error.response?.data?.detail) {
-          errorMsg += typeof error.response.data.detail === 'string'
-            ? error.response.data.detail
-            : JSON.stringify(error.response.data.detail);
-        } else {
-          errorMsg += 'The activate_deployment endpoint encountered an error.';
-        }
-      } else if (error.code === 'ECONNABORTED') {
-        errorMsg = 'Request timed out. The backend endpoint may not be implemented yet or the deployment is taking too long.';
-      } else if (error.response?.data?.detail) {
-        errorMsg = typeof error.response.data.detail === 'string'
-          ? error.response.data.detail
-          : JSON.stringify(error.response.data.detail);
-      } else if (error.message) {
-        errorMsg = error.message;
-      }
-
-      // Set error state to display in UI
+      const errorMsg = extractErrorMsg(error);
       setDeploymentError({ workflow: workflowName, message: errorMsg });
+      toast.error(`Failed to activate: ${errorMsg}`);
     } finally {
       setActivatingWorkflow(null);
     }
+  };
+
+  // View model for a deployment (reads from deployment config — no API call needed)
+  const handleViewModel = (workflow: ScheduledWorkflow) => {
+    if (!workflow.config) {
+      toast.error('No deployment config available');
+      return;
+    }
+    setModelPreview({
+      workflowName: workflow.workflow_name,
+      config: workflow.config,
+    });
   };
 
   // Transform events_by_module for pie chart
@@ -604,16 +451,10 @@ export default function GouvernanceDashboard() {
     return stagesData.filter(stage => stage.error || stage.total_mb === null).length;
   }, [stagesData]);
 
-  // Separate and compute deployment metrics
+  // Compute deployment metrics (Explore & Design only — workflows don't have approval)
   const deploymentMetrics = useMemo(() => {
     const mappingDeployments = scheduledWorkflows.filter(wf =>
-      wf.source === 'mapping' || wf.workflow_name.startsWith('mapping_deployment_')
-    );
-    const exploreDesignDeployments = scheduledWorkflows.filter(wf =>
-      wf.source === 'explore_design' || wf.workflow_name.startsWith('model_deployment_')
-    );
-    const regularWorkflows = scheduledWorkflows.filter(wf =>
-      wf.source === 'workflow' || (!wf.workflow_name.startsWith('mapping_deployment_') && !wf.workflow_name.startsWith('model_deployment_'))
+      wf.source === 'mapping' || wf.source === 'explore_design'
     );
 
     const pendingApprovals = scheduledWorkflows.filter(wf =>
@@ -639,8 +480,6 @@ export default function GouvernanceDashboard() {
 
     return {
       mappingDeployments,
-      exploreDesignDeployments,
-      regularWorkflows,
       pendingApprovals,
       activeDeployments,
       approvedPending,
@@ -751,17 +590,11 @@ export default function GouvernanceDashboard() {
         </div>
         <Button
           onClick={async () => {
-            setIsRefreshing(true);
-            try {
-              const latestSession = await getSession?.();
-              await Promise.all([
-                refetchDashboard?.(),
-                refetchStages?.(),
-                fetchScheduledItems(false, latestSession ?? undefined),
-              ]);
-            } finally {
-              setIsRefreshing(false);
-            }
+            await updateSession();
+            await Promise.all([
+              triggerRefreshAll(),
+              fetchScheduledItems(false),
+            ]);
           }}
           variant="outline"
           className="gap-2"
@@ -1016,7 +849,7 @@ export default function GouvernanceDashboard() {
                   Deployment Plans
                 </h3>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Manage mapping deployments and workflow schedules
+                  Manage Explore & Design deployments and workflow schedules
                 </p>
               </div>
             </div>
@@ -1034,10 +867,7 @@ export default function GouvernanceDashboard() {
                 )}
               </Button>
               <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 text-base px-3 py-1.5">
-                {deploymentMetrics.mappingDeployments.length} Mappings
-              </Badge>
-              <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400 text-base px-3 py-1.5">
-                {deploymentMetrics.regularWorkflows.length} Workflows
+                {deploymentMetrics.mappingDeployments.length} Explore & Design
               </Badge>
             </div>
           </div>
@@ -1128,51 +958,25 @@ export default function GouvernanceDashboard() {
             </div>
           ) : (
             <div>
-              {/* Custom Tab Buttons */}
-              <div className="flex gap-2 mb-6 border-b border-slate-200 dark:border-slate-700">
-                <button
-                  onClick={() => setActiveTab('mappings')}
-                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all duration-200 border-b-2 ${
-                    activeTab === 'mappings'
-                      ? 'border-purple-600 text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-900/20'
-                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <PiDatabase className="w-4 h-4" />
-                  Mapping Deployments ({deploymentMetrics.mappingDeployments.length})
-                </button>
-                <button
-                  onClick={() => setActiveTab('workflows')}
-                  className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-all duration-200 border-b-2 ${
-                    activeTab === 'workflows'
-                      ? 'border-green-600 text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-                      : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-                  }`}
-                >
-                  <PiPlayCircle className="w-4 h-4" />
-                  Scheduled Workflows ({deploymentMetrics.regularWorkflows.length})
-                </button>
-              </div>
-
-              {/* Tab Content */}
+              {/* Explore & Design Deployments */}
               <div>
-                {/* Mapping Deployments Panel */}
-                {activeTab === 'mappings' && (
                   <div>
                   {deploymentMetrics.mappingDeployments.length === 0 ? (
                     <div className="text-center py-12 text-slate-400">
                       <PiDatabase className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                      <p>No mapping deployments scheduled</p>
+                      <p>No Explore & Design deployments</p>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                       {deploymentMetrics.mappingDeployments.map((workflow, index) => {
                         const isApproving = approvingWorkflow === workflow.workflow_name;
+                        const isRejecting = rejectingWorkflow === workflow.workflow_name;
                         const isActivating = activatingWorkflow === workflow.workflow_name;
                         const status = workflow.status || 'PENDING_APPROVAL';
 
                         const statusColor = status === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
                           : status === 'APPROVED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+                          : status === 'REJECTED' ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                           : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
 
                         return (
@@ -1186,7 +990,7 @@ export default function GouvernanceDashboard() {
                                   <PiDatabase className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                                 </div>
                                 <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400">
-                                  Mapping
+                                  Explore & Design
                                 </Badge>
                               </div>
                               <Badge className={statusColor}>
@@ -1227,57 +1031,70 @@ export default function GouvernanceDashboard() {
                               )}
                             </div>
 
-                            {/* Mapping Deployment Actions */}
-                            <div className="flex gap-2">
+                            {/* View Model Button */}
+                            {workflow.config && (
+                              <Button
+                                onClick={() => handleViewModel(workflow)}
+                                variant="outline"
+                                className="w-full mb-2 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-600 dark:text-purple-400 dark:hover:bg-purple-900/20"
+                                size="sm"
+                              >
+                                <PiEye className="mr-2 h-4 w-4" />
+                                View Model
+                              </Button>
+                            )}
+
+                            {/* Explore & Design Deployment Actions */}
+                            <div className="flex flex-col gap-2">
+                              {/* Go to Project — always visible so approvers can review before deciding */}
+                              {workflow.project_id && (
+                                <Link
+                                  href={`${routes.exploreDesign.view}?project_id=${workflow.project_id}`}
+                                  className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1.5 transition-colors"
+                                >
+                                  <PiRocketLaunch className="h-4 w-4" />
+                                  Go to Project
+                                </Link>
+                              )}
                               {status === 'PENDING_APPROVAL' && (
-                                <Button
-                                  onClick={() => handleApproveDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
-                                  disabled={isApproving}
-                                  className="flex-1 bg-blue-600 hover:bg-blue-700"
-                                  size="sm"
-                                >
-                                  {isApproving ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                                      Approving...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <PiCheckCircle className="mr-2 h-4 w-4" />
-                                      Approve
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {status === 'APPROVED' && (
-                                <Button
-                                  onClick={() => handleActivateDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
-                                  disabled={isActivating}
-                                  className="flex-1 bg-green-600 hover:bg-green-700"
-                                  size="sm"
-                                >
-                                  {isActivating ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                                      Activating...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <PiPlayCircle className="mr-2 h-4 w-4" />
-                                      Activate
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {status === 'ACTIVE' && (
-                                <Button
-                                  disabled
-                                  className="flex-1 bg-gray-400 cursor-not-allowed"
-                                  size="sm"
-                                >
-                                  <PiCheckCircle className="mr-2 h-4 w-4" />
-                                  Active
-                                </Button>
+                                <div className="flex gap-2">
+                                  <Button
+                                    onClick={() => handleApproveDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
+                                    disabled={isApproving || isRejecting}
+                                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                                    size="sm"
+                                  >
+                                    {isApproving ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                        Approving...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <PiCheckCircle className="mr-2 h-4 w-4" />
+                                        Approve
+                                      </>
+                                    )}
+                                  </Button>
+                                  <Button
+                                    onClick={() => handleRejectDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
+                                    disabled={isRejecting || isApproving}
+                                    className="flex-1 bg-red-600 hover:bg-red-700"
+                                    size="sm"
+                                  >
+                                    {isRejecting ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                                        Rejecting...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <PiXCircle className="mr-2 h-4 w-4" />
+                                        Reject
+                                      </>
+                                    )}
+                                  </Button>
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1286,127 +1103,6 @@ export default function GouvernanceDashboard() {
                     </div>
                   )}
                   </div>
-                )}
-
-                {/* Scheduled Workflows Panel */}
-                {activeTab === 'workflows' && (
-                  <div>
-                  {deploymentMetrics.regularWorkflows.length === 0 ? (
-                    <div className="text-center py-12 text-slate-400">
-                      <PiPlayCircle className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                      <p>No workflows scheduled</p>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {deploymentMetrics.regularWorkflows.map((workflow, index) => {
-                        const isApproving = approvingWorkflow === workflow.workflow_name;
-                        const isActivating = activatingWorkflow === workflow.workflow_name;
-                        const status = workflow.status || 'PENDING_APPROVAL';
-
-                        const statusColor = status === 'ACTIVE' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                          : status === 'APPROVED' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-                          : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
-
-                        return (
-                          <div
-                            key={index}
-                            className="border-2 border-green-200 dark:border-green-700 rounded-xl p-5 hover:shadow-lg transition-all duration-200 bg-gradient-to-br from-green-50 to-white dark:from-green-900/20 dark:to-slate-900"
-                          >
-                            <div className="flex items-start justify-between mb-3">
-                              <div className="flex items-center gap-2">
-                                <div className="p-2 rounded-lg bg-green-100 dark:bg-green-900/30">
-                                  <PiPlayCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
-                                </div>
-                                <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                                  Workflow
-                                </Badge>
-                              </div>
-                              <Badge className={statusColor}>
-                                {status.replace('_', ' ')}
-                              </Badge>
-                            </div>
-
-                            <h4 className="font-semibold text-slate-900 dark:text-white mb-2 truncate" title={workflow.workflow_name}>
-                              {workflow.workflow_name}
-                            </h4>
-
-                            <div className="space-y-2 mb-4">
-                              {(workflow.cron_schedule || workflow.schedule_interval_str) && (
-                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                                  <PiClock className="w-4 h-4" />
-                                  <span className="font-mono text-xs">
-                                    {workflow.cron_schedule || workflow.schedule_interval_str}
-                                  </span>
-                                </div>
-                              )}
-                              {workflow.created_by && (
-                                <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-                                  <PiUsers className="w-4 h-4" />
-                                  <span>By: {workflow.created_by}</span>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Workflow Deployment Actions */}
-                            <div className="flex gap-2">
-                              {status === 'PENDING_APPROVAL' && (
-                                <Button
-                                  onClick={() => handleApproveDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
-                                  disabled={isApproving}
-                                  className="flex-1 bg-blue-600 hover:bg-blue-700"
-                                  size="sm"
-                                >
-                                  {isApproving ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                                      Approving...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <PiCheckCircle className="mr-2 h-4 w-4" />
-                                      Approve
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {status === 'APPROVED' && (
-                                <Button
-                                  onClick={() => handleActivateDeployment(workflow.workflow_name, workflow.schedule_id, workflow.source, workflow.event_id)}
-                                  disabled={isActivating}
-                                  className="flex-1 bg-green-600 hover:bg-green-700"
-                                  size="sm"
-                                >
-                                  {isActivating ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                                      Activating...
-                                    </>
-                                  ) : (
-                                    <>
-                                      <PiPlayCircle className="mr-2 h-4 w-4" />
-                                      Activate
-                                    </>
-                                  )}
-                                </Button>
-                              )}
-                              {status === 'ACTIVE' && (
-                                <Button
-                                  disabled
-                                  className="flex-1 bg-gray-400 cursor-not-allowed"
-                                  size="sm"
-                                >
-                                  <PiCheckCircle className="mr-2 h-4 w-4" />
-                                  Active
-                                </Button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                  </div>
-                )}
               </div>
             </div>
           )}
@@ -1935,6 +1631,203 @@ export default function GouvernanceDashboard() {
                 setSelectedQuery(null);
               }}
             >
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Model Preview Modal (deployment config: events + SQL) */}
+      <Modal
+        isOpen={!!modelPreview}
+        onClose={() => setModelPreview(null)}
+        size="xl"
+      >
+        <div className="p-6 max-h-[80vh] overflow-y-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+              Deployment Model
+            </h3>
+            <Badge className="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 font-mono text-xs">
+              {modelPreview?.workflowName}
+            </Badge>
+          </div>
+
+          {(() => {
+            const cfg = modelPreview?.config;
+            if (!cfg) return null;
+            const events = (cfg.events as any[]) || [];
+            const sqlQueries = (cfg.sql_queries as string[]) || [];
+            const createdBy = cfg.created_by as string | undefined;
+            const deploymentMethod = cfg.deployment_method as string | undefined;
+            const approvers = (cfg.approvers as string[]) || [];
+
+            const tables = events.filter((e: any) => e.event_type === 'TABLE_CREATED');
+            const mappings = events.filter((e: any) => e.event_type === 'COLUMN_MAPPING_CREATED');
+            const foreignKeys = events.filter((e: any) => e.event_type === 'FOREIGN_KEY_ADDED');
+            const otherEvents = events.filter((e: any) =>
+              !['TABLE_CREATED', 'COLUMN_MAPPING_CREATED', 'FOREIGN_KEY_ADDED'].includes(e.event_type)
+            );
+
+            return (
+              <div className="space-y-5">
+                {/* Deployment Info */}
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {createdBy && (
+                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      By: {createdBy}
+                    </Badge>
+                  )}
+                  {deploymentMethod && (
+                    <Badge className="bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                      {deploymentMethod.replace(/_/g, ' ')}
+                    </Badge>
+                  )}
+                  {approvers.length > 0 && (
+                    <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      Approvers: {approvers.join(', ')}
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Tables */}
+                {tables.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                      <PiDatabase className="w-4 h-4" />
+                      Tables ({tables.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {tables.map((t: any, i: number) => {
+                        const target = t.target || {};
+                        const cols = t.payload?.columns || [];
+                        const pks = t.payload?.primaryKeys || [];
+                        return (
+                          <div key={i} className="p-3 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-200 dark:border-green-800">
+                            <div className="font-mono text-sm font-semibold text-green-800 dark:text-green-400">
+                              {target.database}.{target.schema}.{target.table || t.payload?.tableName}
+                            </div>
+                            <div className="mt-2 grid grid-cols-1 gap-1">
+                              {cols.map((col: any, ci: number) => (
+                                <div key={ci} className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+                                  <span className={`font-mono ${pks.includes(col.name) ? 'font-bold text-amber-700 dark:text-amber-400' : ''}`}>
+                                    {col.name}
+                                  </span>
+                                  <span className="text-slate-400">{col.dataType}</span>
+                                  {pks.includes(col.name) && <Badge className="bg-amber-100 text-amber-700 text-[10px] px-1 py-0">PK</Badge>}
+                                  {col.nullable === false && !pks.includes(col.name) && <span className="text-red-400 text-[10px]">NOT NULL</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Mappings */}
+                {mappings.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                      <PiChartLine className="w-4 h-4" />
+                      Column Mappings ({mappings.length})
+                    </h4>
+                    <div className="space-y-1">
+                      {mappings.map((m: any, i: number) => {
+                        const src = m.payload?.source || {};
+                        const tgt = m.payload?.target || {};
+                        return (
+                          <div key={i} className="p-2 bg-blue-50 dark:bg-blue-900/10 rounded border border-blue-200 dark:border-blue-800 text-xs font-mono">
+                            <span className="text-blue-700 dark:text-blue-400">{src.database}.{src.schema}.{src.table}</span>
+                            <span className="text-slate-400 mx-1">({(src.columns || []).join(', ')})</span>
+                            <span className="text-slate-500 mx-1">&rarr;</span>
+                            <span className="text-purple-700 dark:text-purple-400">{tgt.database}.{tgt.schema}.{tgt.table}</span>
+                            <span className="text-slate-400 mx-1">({tgt.column})</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Foreign Keys */}
+                {foreignKeys.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-2">
+                      <PiRocketLaunch className="w-4 h-4" />
+                      Foreign Keys ({foreignKeys.length})
+                    </h4>
+                    <div className="space-y-1">
+                      {foreignKeys.map((fk: any, i: number) => {
+                        const p = fk.payload || {};
+                        const ref = p.referencedTable || {};
+                        const target = fk.target || {};
+                        return (
+                          <div key={i} className="p-2 bg-amber-50 dark:bg-amber-900/10 rounded border border-amber-200 dark:border-amber-800 text-xs font-mono">
+                            <span className="font-semibold text-amber-800 dark:text-amber-400">{p.constraintName}</span>
+                            <span className="text-slate-500 ml-2">
+                              {target.table}.({(p.columns || []).join(', ')}) &rarr; {ref.table}.({(p.referencedColumns || []).join(', ')})
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Other Events */}
+                {otherEvents.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                      Other Events ({otherEvents.length})
+                    </h4>
+                    <div className="space-y-1">
+                      {otherEvents.map((e: any, i: number) => (
+                        <div key={i} className="p-2 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 text-xs">
+                          <Badge className="bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-300 text-[10px]">
+                            {e.event_type?.replace(/_/g, ' ')}
+                          </Badge>
+                          {e.payload && (
+                            <span className="ml-2 text-slate-500 font-mono">
+                              {JSON.stringify(e.payload).slice(0, 120)}
+                              {JSON.stringify(e.payload).length > 120 ? '...' : ''}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* SQL Queries */}
+                {sqlQueries.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">
+                      SQL Queries ({sqlQueries.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {sqlQueries.map((sql: string, i: number) => (
+                        <pre key={i} className="text-xs bg-slate-900 dark:bg-slate-950 text-green-400 dark:text-green-300 rounded p-3 overflow-x-auto font-mono whitespace-pre-wrap">
+                          {sql}
+                        </pre>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {events.length === 0 && sqlQueries.length === 0 && (
+                  <div className="text-center py-8 text-slate-400">
+                    <PiDatabase className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                    <p>No model data in deployment config</p>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          <div className="flex justify-end mt-4">
+            <Button onClick={() => setModelPreview(null)}>
               Close
             </Button>
           </div>

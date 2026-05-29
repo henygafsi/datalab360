@@ -49,7 +49,7 @@ export default function StepTwo() {
   });
 
   const onSubmit: SubmitHandler<FormStep7Schema> = (data) => {
-    console.log('data', data);
+    // console.log('data', data);
     setFormData((prev) => ({
       ...prev,
       propertyName: data.propertyName,
@@ -57,7 +57,7 @@ export default function StepTwo() {
       priceRange: data.priceRange,
       photos: data.photos,
     }));
-    console.log('formData', formData);
+    // console.log('formData', formData);
     gotoNextStep();
   };
 

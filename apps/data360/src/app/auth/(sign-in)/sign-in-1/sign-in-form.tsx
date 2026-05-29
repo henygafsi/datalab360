@@ -30,7 +30,7 @@ export default function SignInForm() {
     setReset({ email: "", password: "", isRememberMe: false });
   };*/
   const onSubmit: SubmitHandler<LoginSchema> = async (data) => {
-    console.log(data);
+    // console.log(data);
     // Call NextAuth's signIn method (which internally handles credentials verification)
     const response = await signIn('credentials', {
       redirect: false, // Optionally, prevent redirect on success
@@ -41,7 +41,7 @@ export default function SignInForm() {
       console.error('Login failed:', response.error);
     } else {
       // Optionally handle redirect or set a successful login state here
-      console.log('Login successful:', response);
+      // console.log('Login successful:', response);
       try {
         if (typeof window !== 'undefined') {
           const accountName = (data as any).account_name || '';

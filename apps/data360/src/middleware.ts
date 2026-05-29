@@ -19,12 +19,22 @@ export const config = {
   matcher: [
     '/',
     '/account-overview',
+    '/client-accounts',
     '/data-source-connection/:path*',
-    '/explore-design/guided/:path*',
+    '/explore-design/:path*',
+    '/explore-design',
     '/workflow/:path*',
+    '/governance/:path*',
+    // Legacy French slug — harmless safety net; next.config redirects() fires
+    // before middleware so requests to /gouvernance/* are already 308'd to
+    // /governance/* by the time middleware would have run.
     '/gouvernance/:path*',
-    '/bi-reporting/:path*',
+    '/bi-dashboard/:path*',
     '/data-quality/:path*',
+    '/intelligent/:path*',
+    '/intelligent',
+    '/observability/:path*',
+    '/observability',
     '/executive',
     '/financial',
     '/analytics',

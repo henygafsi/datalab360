@@ -16,10 +16,31 @@ const nextConfig = {
     ignoreBuildErrors: true,
   },
   async rewrites() {
+    const upstream = process.env.API_PROXY_UPSTREAM || 'http://api.datalab360.io';
     return [
       {
         source: '/api/mapping/:path*',
-        destination: 'http://127.0.0.1:8000/mapping/:path*',
+        destination: `${upstream}/mapping/:path*`,
+      },
+      {
+        source: '/api-proxy/:path*',
+        destination: `${upstream}/:path*`,
+      },
+    ];
+  },
+  // Permanent 308 redirects keep the old French slug stable for bookmarks
+  // and external links after the rename to /governance.
+  async redirects() {
+    return [
+      {
+        source: '/gouvernance',
+        destination: '/governance',
+        permanent: true,
+      },
+      {
+        source: '/gouvernance/:path*',
+        destination: '/governance/:path*',
+        permanent: true,
       },
     ];
   },

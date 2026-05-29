@@ -1,28 +1,11 @@
 // app/services/mapping/getTablesTarget.ts
 'use client';
 
-import axios from "axios";
-import { getSession } from "next-auth/react";
+import apiClient from '@/lib/api-client';
+import axios from 'axios';
 
 interface TableObject {
     name: string;
-}
-
-/**
- * Helper to get authentication headers with Snowflake account context
- */
-async function getAuthHeaders() {
-  const session = await getSession() as any;
-  if (!session?.user?.access_token) {
-    throw new Error('No access token available');
-  }
-  const snowflakeAccount = session.user.account_name || '';
-  return {
-    'Authorization': `Bearer ${session.user.access_token}`,
-    'Content-Type': 'application/json',
-    'X-Account-Name': snowflakeAccount,
-    'X-Username': session.user.username || '',
-  };
 }
 
 function isTableObject(obj: unknown): obj is TableObject {
@@ -37,11 +20,8 @@ function isTableObject(obj: unknown): obj is TableObject {
  * @returns {Promise<string[]>} - A promise that resolves to an array of table names.
  */
 export const getTablesTarget = async (databaseName: string, schemaName: string): Promise<string[]> => {
-    const headers = await getAuthHeaders();
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/tables/${databaseName}/${schemaName}`;
-
     try {
-        const response = await axios.get(url, { headers });
+        const response = await apiClient.get(`/common/tables/${databaseName}/${schemaName}`);
 
         const data = response.data;
 
@@ -55,7 +35,7 @@ export const getTablesTarget = async (databaseName: string, schemaName: string):
             }
             return [];
         }
-        
+
         // Handle format [{ "name": "T1" }]
         if (Array.isArray(data) && data.length > 0 && isTableObject(data[0])) {
             return (data as TableObject[]).map((table) => table.name);

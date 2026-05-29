@@ -3,7 +3,7 @@ import axios from 'axios';
 import { getAuthSession } from '@/lib/auth';
 import { formatApiDetail } from '@/lib/utils';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://www.api.datalab360.io:8443';
+const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 interface LatestStepEventResponse {
     project_id: string;
@@ -30,8 +30,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
     const token = session.user.access_token;
 
     try {
-        console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
-        // TODO(backend): POST /explore-design/guided/get-steps-event/ — endpoint not in API; wire it or remove this call
+        // console.log(`Service: getLatestStepEvent - Fetching latest event for project ${projectId}, step ${stepType}`);
         const response = await axios.post<LatestStepEventResponse>(
             `${API_BASE_URL}/explore-design/guided/get-steps-event/`,
             null, // POST request with empty body as per your Swagger
@@ -46,7 +45,7 @@ export const getLatestStepEvent = async (projectId: string, stepType: string): P
                 }
             }
         );
-        console.log(`Service: getLatestStepEvent - Response for step ${stepType}:`, response.data);
+        // console.log(`Service: getLatestStepEvent - Response for step ${stepType}:`, response.data);
         return response.data.latest_event;
     } catch (error) {
         console.error(`Service: getLatestStepEvent - Error fetching latest event for step ${stepType}:`, error);

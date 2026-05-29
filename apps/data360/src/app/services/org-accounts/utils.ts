@@ -42,6 +42,7 @@ export function formatDate(dateString: string): string {
     day: 'numeric',
   });
 }
+
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms.toFixed(0)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
@@ -56,6 +57,7 @@ export function formatNumber(value: number): string {
   }
   return value.toLocaleString();
 }
+
 export function getHealthColor(score: number): string {
   if (score >= 80) return 'text-green-500';
   if (score >= 60) return 'text-yellow-500';

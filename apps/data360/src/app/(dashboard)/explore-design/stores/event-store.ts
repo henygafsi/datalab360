@@ -4,11 +4,11 @@
  */
 
 import { atom, useAtom, useAtomValue, useSetAtom } from 'jotai';
-import { atomWithStorage } from 'jotai/utils';
 import { IngestionMode } from '../../mapping/components/TableDetailPanel';
 
 // Event Types
 export type EventType =
+  | 'SCHEMA_CREATED'
   | 'TABLE_CREATED'
   | 'TABLE_SELECTED'
   | 'TABLE_RENAMED'
@@ -41,7 +41,23 @@ export type EventType =
   | 'BATCH_OPERATION'
   | 'SCHEMA_SELECTED'
   | 'TABLE_ADDED_TO_MODELING'
-  | 'TABLE_REMOVED_FROM_MODELING';
+  | 'TABLE_REMOVED_FROM_MODELING'
+  // Data Engineering events
+  | 'DYNAMIC_TABLE_CREATED'
+  | 'STREAM_CREATED'
+  | 'EVENT_TABLE_CREATED'
+  | 'HYBRID_TABLE_CREATED'
+  | 'ALERT_CREATED'
+  // AI-assisted events
+  | 'AI_CLASSIFICATION_APPLIED'
+  | 'AI_TYPE_CHANGE_APPLIED'
+  | 'AI_RELATION_ACCEPTED'
+  | 'AI_TEMPLATE_APPLIED'
+  | 'AI_COLUMNS_ADDED'
+  // Advanced configuration events
+  | 'SCD_CONFIG_SET'
+  | 'WHERE_CLAUSE_SET'
+  | 'QUALITY_GATE_SET';
 
 // Event Status
 export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
@@ -161,14 +177,18 @@ export interface ForeignKeyEvent extends DesignEvent {
 export interface ColumnMappingEvent extends DesignEvent {
   type: 'COLUMN_MAPPING_CREATED' | 'COLUMN_MAPPING_REMOVED';
   payload: {
-    sourceColumn: string; // Backward compatibility - first column for single mappings
-    sourceColumns?: string[]; // Array of source columns for multi-column transformations
-    targetTable: {
+    source: {
       database: string;
       schema: string;
       table: string;
+      columns: string[];
     };
-    targetColumn: string;
+    target: {
+      database: string;
+      schema: string;
+      table: string;
+      column: string;
+    };
     transformation?: string | null; // Optional transformation: CONCAT, UPPER, TRIM, etc.
   };
 }
@@ -298,12 +318,12 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
 
     case 'COLUMN_MAPPING_CREATED':
     case 'COLUMN_MAPPING_REMOVED':
-      // ETL mapping: source column → target column
-      if (!payload.sourceColumn) {
-        console.debug(`[EventStore] Rejecting ${type}: no source column`);
+      // ETL mapping: source → target
+      if (!payload.source?.columns?.length) {
+        console.debug(`[EventStore] Rejecting ${type}: no source columns`);
         return false;
       }
-      if (!payload.targetTable || !payload.targetColumn) {
+      if (!payload.target?.table || !payload.target?.column) {
         console.debug(`[EventStore] Rejecting ${type}: missing target info`);
         return false;
       }
@@ -388,8 +408,9 @@ const isSignificantEvent = (type: EventType, payload: Record<string, any>): bool
   }
 };
 
-// Atoms with localStorage persistence for caching
-export const eventStoreAtom = atomWithStorage<EventStoreState>('explore-design-events', {
+// In-memory event store — events are loaded from the backend on project select,
+// NOT persisted to localStorage to prevent stale events bleeding across projects/refreshes.
+export const eventStoreAtom = atom<EventStoreState>({
   events: [],
   undoStack: [],
   redoStack: [],
@@ -448,8 +469,16 @@ const findMergeableEvent = (
     if (existing.status !== 'pending') continue;
     if (!isSameTarget(existing.target, newEvent.target)) continue;
 
-    // Same type events can be consolidated
+    // Same type events can be consolidated (except FK events — each constraint is unique)
     if (existing.type === newEvent.type) {
+      if (existing.type === 'FOREIGN_KEY_ADDED' || existing.type === 'FOREIGN_KEY_REMOVED') {
+        // FK events are unique per constraint name, not per target table
+        if (existing.payload?.constraintName && newEvent.payload?.constraintName &&
+            existing.payload.constraintName === newEvent.payload.constraintName) {
+          return { index: i, event: existing };
+        }
+        continue; // Different FK constraint — don't merge
+      }
       return { index: i, event: existing };
     }
 
@@ -553,9 +582,55 @@ export const addEventAtom = atom(
       timestamp: new Date(),
       status: 'pending',
     };
+
+    // Cascade logic: propagate side effects to existing pending events
+    let currentEvents = [...store.events];
+
+    if (newEvent.type === 'TABLE_RENAMED') {
+      const oldName = newEvent.payload?.oldName;
+      const newName = newEvent.payload?.newName;
+      if (oldName && newName) {
+        // Update all pending events that reference the old table name in their target
+        currentEvents = currentEvents.map(e => {
+          if (e.status === 'pending' && e.target.table === oldName &&
+              e.target.database === newEvent.target.database &&
+              e.target.schema === newEvent.target.schema) {
+            return { ...e, target: { ...e.target, table: newName } };
+          }
+          return e;
+        });
+        console.debug(`[EventStore] Cascade: updated pending events referencing table ${oldName} → ${newName}`);
+      }
+    }
+
+    if (newEvent.type === 'TABLE_REMOVED_FROM_MODELING' || newEvent.type === 'COLUMN_EXCLUDED') {
+      // Check if any pending FK events reference the removed table or excluded column
+      const removedTable = newEvent.target.table;
+      const removedColumn = newEvent.target.column;
+      const affectedFKEvents = currentEvents.filter(e => {
+        if (e.status !== 'pending') return false;
+        if (e.type !== 'FOREIGN_KEY_ADDED' && e.type !== 'RELATION_CREATED') return false;
+        const refTable = e.payload?.referencedTable?.table || e.payload?.targetTable?.table;
+        const refColumns = e.payload?.referencedColumns || (e.payload?.targetColumn ? [e.payload.targetColumn] : []);
+        if (newEvent.type === 'TABLE_REMOVED_FROM_MODELING' && refTable === removedTable) return true;
+        if (newEvent.type === 'COLUMN_EXCLUDED' && refTable === removedTable && removedColumn && refColumns.includes(removedColumn)) return true;
+        return false;
+      });
+      if (affectedFKEvents.length > 0) {
+        console.warn(`[EventStore] Warning: ${affectedFKEvents.length} pending FK/relation event(s) reference ${newEvent.type === 'TABLE_REMOVED_FROM_MODELING' ? 'removed table' : 'excluded column'} ${removedTable}${removedColumn ? '.' + removedColumn : ''}`);
+        // Add warning to affected events
+        currentEvents = currentEvents.map(e => {
+          if (affectedFKEvents.some(fk => fk.id === e.id)) {
+            return { ...e, error: `References ${newEvent.type === 'TABLE_REMOVED_FROM_MODELING' ? 'removed table' : 'excluded column'}: ${removedTable}${removedColumn ? '.' + removedColumn : ''}` };
+          }
+          return e;
+        });
+      }
+    }
+
     set(eventStoreAtom, {
       ...store,
-      events: [...store.events, newEvent],
+      events: [...currentEvents, newEvent],
       redoStack: [], // Clear redo stack on new action
     });
     console.debug(`[EventStore] Event added: ${event.type} (${newEvent.id})`);
@@ -720,7 +795,7 @@ export const loadProjectEventsAtom = atom(
       redoStack: [],
     });
 
-    console.log(`[EventStore] Loaded ${events.length} events for project ${projectId}`);
+    // console.log(`[EventStore] Loaded ${events.length} events for project ${projectId}`);
   }
 );
 
@@ -886,26 +961,20 @@ export const createPrimaryKeyEvent = (
 
 // Create column mapping event (ETL: Source → Target)
 export const createColumnMappingEvent = (
-  sourceTarget: DesignEvent['target'], // Source table info
-  sourceColumns: string | string[], // Single column or array of columns
-  targetTable: ColumnMappingEvent['payload']['targetTable'],
-  targetColumn: string,
+  sourceTarget: DesignEvent['target'], // Event target (source table)
+  source: ColumnMappingEvent['payload']['source'],
+  target: ColumnMappingEvent['payload']['target'],
   created: boolean,
   transformation?: string | null
-): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => {
-  const columnsArray = Array.isArray(sourceColumns) ? sourceColumns : [sourceColumns];
-  return {
-    type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
-    target: sourceTarget,
-    payload: {
-      sourceColumn: columnsArray[0], // Backward compatibility
-      sourceColumns: columnsArray, // New array format
-      targetTable,
-      targetColumn,
-      transformation: transformation || undefined,
-    },
-  };
-};
+): Omit<ColumnMappingEvent, 'id' | 'timestamp' | 'status'> => ({
+  type: created ? 'COLUMN_MAPPING_CREATED' : 'COLUMN_MAPPING_REMOVED',
+  target: sourceTarget,
+  payload: {
+    source,
+    target,
+    transformation: transformation || undefined,
+  },
+});
 
 // Create column exclusion event
 export const createColumnExclusionEvent = (

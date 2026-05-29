@@ -1,12 +1,17 @@
 export const routes = {
   home: '/',
   accountOverview: '/account-overview',
+  sources: {
+    catalog: '/sources',
+  },
+  dataProducts: {
+    list: '/data-products',
+  },
   connexion: {
     dataSourceConnection: '/data-source-connection',
   },
-  
   mapping: {
-    viewMap: '/mapping', // Redirects to explore-design (migrated)
+    viewMap: '/mapping',
   },
   exploreDesign: {
     view: '/explore-design',
@@ -14,15 +19,23 @@ export const routes = {
   workflow:{
     ViewWorkflow: '/workflow'
   },
-  gouvernance: {
-    users: '/gouvernance/users',
-    roles: '/gouvernance/roles',
-    grants: '/gouvernance/grants',
-    policies: '/gouvernance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
-    securityMatrix: '/gouvernance/security-matrix',
+  deployApp: {
+    home: '/deploy-app',
+  },
+  governance: {
+    users: '/governance/users',
+    roles: '/governance/roles',
+    grants: '/governance/grants',
+    policies: '/governance/policies', // Unified policies page (RLS, Masking, Aggregation, Tags, Network, Password, Session)
+    securityMatrix: '/governance/security-matrix',
+    oauth: '/governance/oauth',
+    projects: '/governance/projects',
   },
   biReporting: {
-    viewReporting: '/bi-reporting'
+    viewReporting: '/bi-dashboard'
+  },
+  biDashboard: {
+    view: '/bi-dashboard',
   },
   dataQuality: {
     viewReports: '/data-quality'
@@ -36,6 +49,7 @@ export const routes = {
   observability: {
     dashboard: '/observability',
   },
+  // dataEngineering & developer modules merged into explore-design & workflow
   data360Config: {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
     view: '/admin/data360-config',

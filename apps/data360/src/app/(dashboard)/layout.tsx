@@ -4,6 +4,7 @@ import { useIsMounted } from '@core/hooks/use-is-mounted';
 import CarbonLayout from '@/layouts/carbon/carbon-layout';
 import SessionGuard from '@/components/auth/SessionGuard';
 import { CacheInvalidationProvider } from '@/components/providers/CacheInvalidationProvider';
+import AiSessionCounter from '@/app/(dashboard)/intelligent/components/AiSessionCounter';
 
 type LayoutProps = {
   children: React.ReactNode;
@@ -12,7 +13,7 @@ type LayoutProps = {
 export default function DefaultLayout({ children }: LayoutProps) {
   return (
     <SessionGuard>
-      <CacheInvalidationProvider debug showIndicator>
+      <CacheInvalidationProvider showIndicator>
         <LayoutProvider>{children}</LayoutProvider>
       </CacheInvalidationProvider>
     </SessionGuard>
@@ -26,5 +27,10 @@ function LayoutProvider({ children }: LayoutProps) {
     return null;
   }
 
-  return <CarbonLayout>{children}</CarbonLayout>;
+  return (
+    <CarbonLayout>
+      {children}
+      <AiSessionCounter />
+    </CarbonLayout>
+  );
 }

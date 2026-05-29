@@ -58,7 +58,7 @@ export default function ConversionRates({ className }: { className?: string }) {
           className="-ms-2 mb-3 @lg:mb-0 @lg:ms-0"
         />
       }
-      descriptionClassName="text-gray-500 mt-1.5 mb-3 @md:mb-0"
+      descriptionClassName="text-gray-500 dark:text-gray-400 mt-1.5 mb-3 @md:mb-0"
       headerClassName="flex-col @md:flex-row"
       className={className}
     >
@@ -68,7 +68,7 @@ export default function ConversionRates({ className }: { className?: string }) {
             layout="vertical"
             margin={{ left: -2 }}
             data={data}
-            className="[&_.recharts-cartesian-axis-tick-value]:fill-gray-500 rtl:[&_.recharts-cartesian-axis.yAxis]:-translate-x-12"
+            className="[&_.recharts-cartesian-axis-tick-value]:fill-gray-500 dark:[&_.recharts-cartesian-axis-tick-value]:fill-gray-400 rtl:[&_.recharts-cartesian-axis.yAxis]:-translate-x-12"
           >
             <XAxis type="number" axisLine={false} tickLine={false} />
             <YAxis
