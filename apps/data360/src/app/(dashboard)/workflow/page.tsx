@@ -68,6 +68,11 @@ const WorkflowHomePage: React.FC = () => {
   const [activeEdges, setActiveEdges] = useState<ReactFlowEdge[]>([]);
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
+  // Save / execute status states (drive the "Saving…" / "Running… Ns" affordances).
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [isExecuting, setIsExecuting] = useState<boolean>(false);
+  const [executeStartedAt, setExecuteStartedAt] = useState<number | null>(null);
+  const [executeElapsed, setExecuteElapsed] = useState<number>(0);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const initialLoadDoneRef = useRef(false);
 
@@ -621,6 +626,8 @@ const WorkflowHomePage: React.FC = () => {
       console.error('Error saving workflow:', err);
       toast.error(`Failed to save workflow: ${getApiErrorMessage(err)}`);
       setIsWorkflowSaved(false);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -642,6 +649,11 @@ const WorkflowHomePage: React.FC = () => {
     } catch (err: any) {
       console.error('Error executing workflow:', err);
       toast.error(`Failed to execute workflow: ${getApiErrorMessage(err)}`);
+    } finally {
+      // Execution is initiated async on Snowflake; stop the local ticker once the
+      // initiate call returns (run status is tracked in the runs panel).
+      setIsExecuting(false);
+      setExecuteStartedAt(null);
     }
   };
 
