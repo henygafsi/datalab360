@@ -18,10 +18,9 @@ const nextConfig = {
   async rewrites() {
     const upstream = process.env.API_PROXY_UPSTREAM || 'http://api.datalab360.io';
     return [
-      {
-        source: '/api/mapping/:path*',
-        destination: `${upstream}/mapping/:path*`,
-      },
+      // NOTE: the former '/api/mapping/:path*' rewrite was removed (2026-05-29) —
+      // the backend has no '/mapping' router; the mapping wizard calls
+      // '/explore-design/guided/*' directly via apiClient. See AsBuilt — Contract Coverage.
       {
         source: '/api-proxy/:path*',
         destination: `${upstream}/:path*`,

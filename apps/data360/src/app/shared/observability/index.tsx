@@ -47,6 +47,8 @@ import type {
 
 // Existing Components
 import ComplianceCard from './compliance-card';
+import EmptyState from '@/components/ui/EmptyState';
+import TableSkeleton from '@/components/ui/TableSkeleton';
 
 // React Flow views
 import { DependencyFlowView, LineageFlowView } from './cross-module-flow';
@@ -300,7 +302,7 @@ function CrossModuleLineageTab() {
       </div>
 
       {loading && activeView !== 'dependency-flow' && activeView !== 'lineage-flow' && (
-        <div className="flex items-center justify-center py-12"><Loader size="lg" /></div>
+        <TableSkeleton rows={6} columns={4} />
       )}
 
       {/* ── DEPENDENCY FLOW (React Flow Canvas) ── */}
@@ -323,7 +325,11 @@ function CrossModuleLineageTab() {
       {!loading && activeView === 'projects' && data && (
         <div className="space-y-3">
           {(data.projects || []).length === 0 ? (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">No projects found.</div>
+            <EmptyState
+              icon={PiTreeStructureDuotone}
+              title="No projects found"
+              description="Project lineage will appear here once modules emit events for a project."
+            />
           ) : (
             (data.projects || []).map((proj: any) => {
               const projKey = `proj-${proj.project_id}`;
@@ -502,7 +508,11 @@ function CrossModuleLineageTab() {
               <span className="text-xs text-gray-400 font-normal ml-2">{nodes.length} objects, {edges.length} dependencies</span>
             </h4>
             {Object.keys(nodesByDb).length === 0 ? (
-              <div className="text-center py-12 text-gray-500 dark:text-gray-400">No dependency data found. Ensure ACCOUNT_USAGE.OBJECT_DEPENDENCIES is accessible.</div>
+              <EmptyState
+              icon={PiGitBranch}
+              title="No dependency data found"
+              description="Ensure ACCOUNT_USAGE.OBJECT_DEPENDENCIES is accessible for this role."
+            />
             ) : (
               <div className="space-y-1">
                 {Object.entries(nodesByDb).sort(([a], [b]) => a.localeCompare(b)).map(([dbName, schemas]) => {
@@ -1029,11 +1039,7 @@ function TasksLineageTab() {
   };
 
   if (taskLineageLoading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <Loader size="lg" />
-      </div>
-    );
+    return <TableSkeleton rows={6} columns={4} />;
   }
 
   if (showGraph) {
@@ -1159,14 +1165,14 @@ function ImpactAnalysisTab() {
     setImpactResult(null);
     try {
       // Fetch downstream lineage for the specified object
-      const lineageRes = await apiClient.get('/observability/data-lineage', {
+      const lineageRes = await apiClient.get('/observability/lineage', {
         params: { database: impactDb, schema: impactSchema, table: impactObject, days: 30 },
       });
       const lineageData = lineageRes.data?.data || lineageRes.data?.lineage || lineageRes.data || [];
       const rows = Array.isArray(lineageData) ? lineageData : [];
 
       // Fetch object dependencies
-      const depsRes = await apiClient.get('/observability/object-dependencies', {
+      const depsRes = await apiClient.get('/observability/dependencies', {
         params: { database: impactDb },
       }).catch(() => ({ data: { dependencies: [] } }));
       const deps = depsRes.data?.dependencies || depsRes.data?.data || [];
@@ -1292,11 +1298,11 @@ function ImpactAnalysisTab() {
             <Loader variant="spinner" size="lg" />
           </div>
         ) : !impactResult ? (
-          <div className="p-8 text-center">
-            <PiTreeStructureDuotone className="h-12 w-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-            <p className="text-gray-500 dark:text-gray-400 font-medium">No analysis run yet</p>
-            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Select an object and click &quot;Analyze Change&quot; to see downstream dependencies, affected queries, and impacted users.</p>
-          </div>
+          <EmptyState
+            icon={PiTreeStructureDuotone}
+            title="No analysis run yet"
+            description='Select an object and click "Analyze Change" to see downstream dependencies, affected queries, and impacted users.'
+          />
         ) : (
           <div className="space-y-0">
             {/* Downstream objects list */}
@@ -1388,8 +1394,8 @@ export default function ObservabilityDashboard() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader size="lg" />
+      <div className="space-y-4 py-4">
+        <TableSkeleton rows={6} columns={4} />
       </div>
     );
   }
