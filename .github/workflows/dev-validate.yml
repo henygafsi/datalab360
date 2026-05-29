@@ -28,6 +28,18 @@ on:
       - "package.json"
       - "turbo.json"
       - ".github/workflows/dev-validate.yml"
+  # Gate PRs into dev/prod BEFORE merge — closes the gap where a broken build
+  # could only be caught post-merge on the dev push (e.g. the api-contracts
+  # JSDoc syntax error that reached the dev preview in PR #2).
+  pull_request:
+    branches: [dev, prod]
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "pnpm-lock.yaml"
+      - "package.json"
+      - "turbo.json"
+      - ".github/workflows/dev-validate.yml"
   workflow_dispatch: {}
 
 # Cancel superseded runs on the same branch — only the latest dev push matters.
