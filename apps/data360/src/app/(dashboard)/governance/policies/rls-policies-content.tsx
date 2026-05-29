@@ -9,8 +9,8 @@ import {
   HiOutlineLockClosed,
   HiOutlinePlus,
   HiOutlineTrash,
-  HiOutlineCheckCircle,
-  HiOutlineXCircle,
+  HiOutlineCircleStack,
+  HiOutlineUserGroup,
   HiOutlinePlay,
 } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -304,7 +304,7 @@ export default function RLSPoliciesContent() {
               <p className="text-3xl font-bold text-green-600">{stats.grantedObjects}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-green-100 to-emerald-100 dark:from-green-900/30 dark:to-emerald-900/30 flex items-center justify-center">
-              <HiOutlineCheckCircle className="w-6 h-6 text-green-600 dark:text-green-400" />
+              <HiOutlineCircleStack className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
           </div>
         </ModernCard>
@@ -316,7 +316,7 @@ export default function RLSPoliciesContent() {
               <p className="text-3xl font-bold text-slate-600">{stats.grantedRoles}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-700 dark:to-slate-600 flex items-center justify-center">
-              <HiOutlineXCircle className="w-6 h-6 text-slate-600 dark:text-slate-400" />
+              <HiOutlineUserGroup className="w-6 h-6 text-slate-600 dark:text-slate-400" />
             </div>
           </div>
         </ModernCard>
@@ -360,8 +360,8 @@ export default function RLSPoliciesContent() {
                 policy={policy}
                 accentColor="purple"
                 policyType="row-access"
-                onApply={(p) => {
-                  setSelectedPolicy({ policy_name: p.name, schema: p.schema_name } as any);
+                onApply={() => {
+                  setSelectedPolicy(policy);
                   setShowApplyModal(true);
                 }}
                 onDelete={handleDeletePolicy}
