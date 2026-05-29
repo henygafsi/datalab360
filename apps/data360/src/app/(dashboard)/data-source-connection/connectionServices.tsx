@@ -1,5 +1,6 @@
 // src/app/services/data-source-connection/connectionServices.ts
 
+import apiClient from '@/lib/api-client';
 import { getAuthHeaders } from '@/lib/auth';
 import { API_CONTRACTS } from '@/lib/api-contracts';
 import { API_CONFIG } from '@/config/database.config';
@@ -8,6 +9,22 @@ const API_BASE_URL = API_CONFIG.BASE_URL;
 
 interface ApiResponse {
     message: string;
+}
+
+/**
+ * Normalize an apiClient (axios) error into the same `Error(message)` contract
+ * the raw-fetch helpers used to throw, so callers' `catch (e) { e.message }`
+ * keep working unchanged. apiClient already injects auth + X-Account-Name +
+ * X-Username and rejects on non-2xx (see lib/api-client.ts).
+ */
+function toApiError(err: unknown, fallback: string): Error {
+    const detail = (err as { response?: { data?: { detail?: unknown; message?: unknown } } })?.response?.data;
+    if (detail) {
+        if (typeof detail.detail === 'string') return new Error(detail.detail);
+        if (typeof detail.message === 'string') return new Error(detail.message);
+    }
+    if (err instanceof Error && err.message) return new Error(err.message);
+    return new Error(fallback);
 }
 
 /** Response from Azure storage integration creation: may include consent URL for wait flow */
@@ -51,26 +68,21 @@ export async function setupAzureStorageIntegration(
     tenant_id: string,
     url: string
 ): Promise<AzureStorageIntegrationResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/azure/storage_integration`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_name, tenant_id, url }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to set up Azure Storage Integration';
-        throw new Error(errorMessage);
+    try {
+        const { data } = await apiClient.post<any>('/connect/azure/storage_integration', {
+            integration_name,
+            tenant_id,
+            url,
+        });
+        return {
+            message: data.message ?? 'Azure Storage integration created.',
+            requires_consent: data.requires_consent ?? true,
+            azure_consent_url: data.azure_consent_url ?? null,
+            azure_multi_tenant_app_name: data.azure_multi_tenant_app_name ?? null,
+        };
+    } catch (err) {
+        throw toApiError(err, 'Failed to set up Azure Storage Integration');
     }
-    const data: any = await response.json();
-    return {
-        message: data.message ?? 'Azure Storage integration created.',
-        requires_consent: data.requires_consent ?? true,
-        azure_consent_url: data.azure_consent_url ?? null,
-        azure_multi_tenant_app_name: data.azure_multi_tenant_app_name ?? null,
-    };
 }
 
 export async function setupAzureNotificationIntegration(
@@ -78,45 +90,17 @@ export async function setupAzureNotificationIntegration(
     tenant_id: string,
     queue_url: string
 ): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/azure/notification_integration`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_name, tenant_id, queue_url }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to set up Azure Notification Integration';
-        throw new Error(errorMessage);
+    try {
+        const { data } = await apiClient.post<any>('/connect/azure/notification_integration', {
+            integration_name,
+            tenant_id,
+            queue_url,
+        });
+        return { message: data };
+    } catch (err) {
+        throw toApiError(err, 'Failed to set up Azure Notification Integration');
     }
-    const data: any = await response.json();
-    return { message: data };
 }
-
-export async function setupAzureSnowpipe(
-    integration_name: string,
-    tenant_id: string,
-    queue_url: string
-): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/azure/snowpipe`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_name, tenant_id, queue_url }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to set up Azure Snowpipe';
-        throw new Error(errorMessage);
-    }
-    const data: any = await response.json();
-    return { message: data };
-}
-
 export async function createAzureStage(
     stage_name: string,
     url: string,
@@ -125,28 +109,19 @@ export async function createAzureStage(
     auto_update: boolean,
     notification_integration?: string | null
 ): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/azure/stage`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    try {
+        const { data } = await apiClient.post<any>('/connect/azure/stage', {
             stage_name,
             url,
             integration_name,
             load_data,
             auto_update,
             ...(notification_integration != null && { notification_integration }),
-        }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to create Azure Stage';
-        throw new Error(errorMessage);
+        });
+        return { message: data };
+    } catch (err) {
+        throw toApiError(err, 'Failed to create Azure Stage');
     }
-    const data: any = await response.json();
-    return { message: data };
 }
 
 
@@ -158,21 +133,17 @@ export async function setupAwsStorageIntegration(
     aws_role_arn: string,
     external_id: string
 ): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/aws/storage_integration`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ integration_name, bucket_name, aws_role_arn, external_id }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to set up AWS Storage Integration';
-        throw new Error(errorMessage);
+    try {
+        const { data } = await apiClient.post<any>('/connect/aws/storage_integration', {
+            integration_name,
+            bucket_name,
+            aws_role_arn,
+            external_id,
+        });
+        return { message: data };
+    } catch (err) {
+        throw toApiError(err, 'Failed to set up AWS Storage Integration');
     }
-    const data: any = await response.json();
-    return { message: data };
 }
 
 export async function createAwsStage(
@@ -182,21 +153,18 @@ export async function createAwsStage(
     load_data: boolean,
     auto_update: boolean
 ): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/aws/stage`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage_name, bucket_name, integration_name, load_data, auto_update }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to create AWS Stage';
-        throw new Error(errorMessage);
+    try {
+        const { data } = await apiClient.post<any>('/connect/aws/stage', {
+            stage_name,
+            bucket_name,
+            integration_name,
+            load_data,
+            auto_update,
+        });
+        return { message: data };
+    } catch (err) {
+        throw toApiError(err, 'Failed to create AWS Stage');
     }
-    const data: any = await response.json();
-    return { message: data };
 }
 
 // --- Internal stage (raw zone, no Azure/AWS) ---
@@ -228,26 +196,17 @@ export async function connectSnowflakeDatalake(
     datalake_account: string,
     datalake_role: string
 ): Promise<ApiResponse> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/snowflake_lake/datalake/connect`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+    try {
+        const { data } = await apiClient.post<any>('/connect/snowflake_lake/datalake/connect', {
             datalake_username,
             datalake_password,
             datalake_account,
             datalake_role,
-        }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json();
-        const errorMessage = typeof errorData.detail === 'string'
-            ? errorData.detail
-            : errorData.message || 'Failed to connect to Snowflake Datalake';
-        throw new Error(errorMessage);
+        });
+        return { message: data };
+    } catch (err) {
+        throw toApiError(err, 'Failed to connect to Snowflake Datalake');
     }
-    const data: any = await response.json();
-    return { message: data };
 }
 
 export async function listSnowflakeStages(): Promise<any> {
@@ -460,14 +419,6 @@ export interface ConnectorInfo {
     capabilities: string[];
     has_stages?: boolean;
 }
-
-export async function listConnectors(): Promise<{ connectors: ConnectorInfo[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/connectors`, { method: 'GET', headers });
-    if (!response.ok) throw new Error('Failed to list connectors');
-    return await response.json();
-}
-
 // --- PostgreSQL ---
 export async function postgresIngest(body: {
     host: string;
@@ -477,17 +428,15 @@ export async function postgresIngest(body: {
     password?: string;
     tables?: string[];
 }): Promise<{ message: string; tables?: number }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/postgres/ingest`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: 5432, password: '', ...body }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'PostgreSQL ingest failed');
+    try {
+        const { data } = await apiClient.post<{ message: string; tables?: number }>(
+            '/connect/postgres/ingest',
+            { port: 5432, password: '', ...body }
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'PostgreSQL ingest failed');
     }
-    return await response.json();
 }
 
 // --- MySQL ---
@@ -499,63 +448,50 @@ export async function mysqlIngest(body: {
     password?: string;
     tables?: string[];
 }): Promise<{ message: string }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/mysql/ingest`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ port: 3306, password: '', ...body }),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'MySQL ingest failed');
+    try {
+        const { data } = await apiClient.post<{ message: string }>('/connect/mysql/ingest', {
+            port: 3306,
+            password: '',
+            ...body,
+        });
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'MySQL ingest failed');
     }
-    return await response.json();
 }
 
 // --- Databricks ---
 export async function databricksTest(body: { host: string; http_path: string; access_token: string }): Promise<{ ok: boolean }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/databricks/test`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Databricks connection failed');
+    try {
+        const { data } = await apiClient.post<{ ok: boolean }>('/connect/databricks/test', body);
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Databricks connection failed');
     }
-    return await response.json();
 }
 
 export async function databricksCatalogs(body: { host: string; http_path: string; access_token: string }): Promise<{ catalogs: string[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/databricks/catalogs`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list catalogs');
+    try {
+        const { data } = await apiClient.post<{ catalogs: string[] }>('/connect/databricks/catalogs', body);
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Failed to list catalogs');
     }
-    return await response.json();
 }
 
 export async function databricksSchemas(
     body: { host: string; http_path: string; access_token: string },
     catalog: string
 ): Promise<{ schemas: string[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/databricks/schemas?catalog=${encodeURIComponent(catalog)}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list schemas');
+    try {
+        const { data } = await apiClient.post<{ schemas: string[] }>(
+            `/connect/databricks/schemas?catalog=${encodeURIComponent(catalog)}`,
+            body
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Failed to list schemas');
     }
-    return await response.json();
 }
 
 export async function databricksTables(
@@ -563,18 +499,16 @@ export async function databricksTables(
     catalog: string,
     schema_name: string
 ): Promise<{ tables: string[] }> {
-    const headers = await getAuthHeaders();
-    const params = new URLSearchParams({ catalog, schema_name });
-    const response = await fetch(`${API_BASE_URL}/connect/databricks/tables?${params}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list tables');
+    try {
+        const params = new URLSearchParams({ catalog, schema_name });
+        const { data } = await apiClient.post<{ tables: string[] }>(
+            `/connect/databricks/tables?${params}`,
+            body
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Failed to list tables');
     }
-    return await response.json();
 }
 
 export async function databricksIngest(body: {
@@ -585,63 +519,49 @@ export async function databricksIngest(body: {
     schema_name: string;
     tables?: string[];
 }): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/databricks/ingest`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Databricks ingest failed');
+    try {
+        const { data } = await apiClient.post<{ message: string; tables?: { table: string; rows: number }[] }>(
+            '/connect/databricks/ingest',
+            body
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Databricks ingest failed');
     }
-    return await response.json();
 }
 
 // --- Iceberg ---
 export async function icebergTest(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ ok: boolean }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/iceberg/test`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Iceberg connection failed');
+    try {
+        const { data } = await apiClient.post<{ ok: boolean }>('/connect/iceberg/test', body);
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Iceberg connection failed');
     }
-    return await response.json();
 }
 
 export async function icebergNamespaces(body: { uri: string; warehouse?: string; credential?: string }): Promise<{ namespaces: string[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/iceberg/namespaces`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list namespaces');
+    try {
+        const { data } = await apiClient.post<{ namespaces: string[] }>('/connect/iceberg/namespaces', body);
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Failed to list namespaces');
     }
-    return await response.json();
 }
 
 export async function icebergTables(
     body: { uri: string; warehouse?: string; credential?: string },
     namespace: string
 ): Promise<{ tables: string[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/iceberg/tables?namespace=${encodeURIComponent(namespace)}`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Failed to list tables');
+    try {
+        const { data } = await apiClient.post<{ tables: string[] }>(
+            `/connect/iceberg/tables?namespace=${encodeURIComponent(namespace)}`,
+            body
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Failed to list tables');
     }
-    return await response.json();
 }
 
 export async function icebergIngest(body: {
@@ -651,15 +571,13 @@ export async function icebergIngest(body: {
     namespace: string;
     tables?: string[];
 }): Promise<{ message: string; tables?: { table: string; rows: number }[] }> {
-    const headers = await getAuthHeaders();
-    const response = await fetch(`${API_BASE_URL}/connect/iceberg/ingest`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    if (!response.ok) {
-        const errorData: any = await response.json().catch(() => ({}));
-        throw new Error(typeof errorData.detail === 'string' ? errorData.detail : 'Iceberg ingest failed');
+    try {
+        const { data } = await apiClient.post<{ message: string; tables?: { table: string; rows: number }[] }>(
+            '/connect/iceberg/ingest',
+            body
+        );
+        return data;
+    } catch (err) {
+        throw toApiError(err, 'Iceberg ingest failed');
     }
-    return await response.json();
 }

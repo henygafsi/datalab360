@@ -1,13 +1,3 @@
-/**
- * Organization Accounts API Services
- * Client account monitoring for Snowflake organizations
- */
-
-// Export all types
-export * from './types';
-
-// Export all hooks
-export * from './hooks';
-
-// Export utilities
-export * from './utils';
+// Removed: dead frontend service — no page/component imports this module.
+// Cleanup 2026-05 (see docs/BACKEND_ENDPOINT_AUDIT_2026-05.md). Safe to git rm.
+export {};

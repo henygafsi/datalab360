@@ -765,6 +765,8 @@ export default function ExploreDesignPage() {
 
   // Load default tables for Modeling view (CP_DATA360.RETAIL_DW) - ALWAYS loaded
   const [defaultModelingTablesLoaded, setDefaultModelingTablesLoaded] = useState(false);
+  // Loading/error UI for the default DWH (target) model load in Modeling view
+  const [isLoadingModelingTables, setIsLoadingModelingTables] = useState(false);
 
   useEffect(() => {
     // Load default tables when switching to modeling view
@@ -784,6 +786,7 @@ export default function ExploreDesignPage() {
 
       console.log(`[Modeling] Loading default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
 
+      setIsLoadingModelingTables(true);
       try {
         // Load tables from default schema
         const tableList = await getTables(DEFAULT_DB, DEFAULT_SCHEMA);
@@ -843,6 +846,8 @@ export default function ExploreDesignPage() {
           console.log(`[Modeling] Loaded ${newTableIds.size} default tables from ${DEFAULT_DB}.${DEFAULT_SCHEMA}`);
 
           // Load columns for each default table (for modeling view)
+          // TODO(ux): per-table column load uses Promise.all (parallel); left intact —
+          // consider surfacing per-table loading/error rows in the canvas instead of console.error.
           console.log(`[Modeling] Loading columns for ${newTables.length} default tables...`);
           const columnsPromises = newTables.map(async (table) => {
             try {
@@ -880,6 +885,8 @@ export default function ExploreDesignPage() {
           console.log(`[Modeling] Loaded columns for ${columnsResults.filter(r => r !== null).length} tables`);
 
           // Load relationships for the default schema
+          // TODO(ux): relationships fetch is best-effort; surface a non-blocking
+          // "couldn't load relationships" badge instead of swallowing the error.
           try {
             const relationshipsData = await fetchRelationships(DEFAULT_DB, DEFAULT_SCHEMA);
             if (relationshipsData.relationships && relationshipsData.relationships.length > 0) {
@@ -892,9 +899,11 @@ export default function ExploreDesignPage() {
         }
       } catch (error) {
         console.error('[Modeling] Failed to load default tables:', error);
+        toast.error('Failed to load the data warehouse model. Check your connection and try again.');
+      } finally {
+        setIsLoadingModelingTables(false);
+        setDefaultModelingTablesLoaded(true);
       }
-
-      setDefaultModelingTablesLoaded(true);
     };
 
     loadDefaultModelingTables();
@@ -2654,6 +2663,13 @@ export default function ExploreDesignPage() {
                       )}
                     </Button>
                   </div>
+                </div>
+              )}
+
+              {isLoadingModelingTables && (
+                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-slate-900/70 backdrop-blur-sm">
+                  <RefreshCw className="h-7 w-7 animate-spin text-blue-500" />
+                  <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Loading data warehouse model…</p>
                 </div>
               )}
 

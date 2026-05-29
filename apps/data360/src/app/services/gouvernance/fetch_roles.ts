@@ -42,21 +42,6 @@ export async function addRole(roleName: string): Promise<string> {
     throw error;
   }
 }
-
-/**
- * Fetches roles for a specific user from the backend.
- * @param username The username to fetch roles for.
- */
-export async function getRolesForUser(username: string): Promise<string[]> {
-  try {
-    const response = await apiClient.get(`/gouvernance/roles-for-user/${username}`);
-    return response.data as string[];
-  } catch (error) {
-    console.error('Error fetching roles for user:', error);
-    throw error;
-  }
-}
-
 /**
  * Fetches details for a specific role.
  * @param roleName The name of the role to fetch.

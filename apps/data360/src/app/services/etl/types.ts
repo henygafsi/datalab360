@@ -432,29 +432,3 @@ export function pipelineToReactFlow(pipeline: Pipeline): { nodes: ETLNode[]; edg
 
   return { nodes, edges };
 }
-
-// Convert ReactFlow to Pipeline format
-export function reactFlowToPipeline(
-  nodes: ETLNode[],
-  edges: ETLEdge[],
-  name: string,
-  description?: string,
-  tags?: string[]
-): CreatePipelineRequest {
-  const components: PipelineComponent[] = nodes.map((node) => {
-    const inputs = edges
-      .filter((edge) => edge.target === node.id)
-      .map((edge) => edge.source);
-
-    return {
-      id: node.id,
-      type: node.type,
-      name: node.data.component?.name,
-      config: node.data.component?.config || {},
-      inputs,
-      position: node.position,
-    };
-  });
-
-  return { name, description, components, tags };
-}

@@ -171,6 +171,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             const mappingsForPayload = buildMappings();
 
             console.log('Step5: Testing mapping with /mapping/test_mapping/', mappingsForPayload);
+            // TODO(backend): POST /explore-design/guided/test_mapping/ — endpoint not in API; wire it or remove this call
             const response = await axios.post(
                 `${API_BASE_URL}/explore-design/guided/test_mapping/`,
                 { project_id: projectId, mappings: mappingsForPayload },
@@ -284,6 +285,7 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
             };
 
             console.log('Step5: Scheduling deployment:', scheduleData);
+            // TODO(backend): POST /explore-design/guided/schedule_deployment/ — endpoint not in API; wire it or remove this call
             const response = await axios.post(
                 `${API_BASE_URL}/explore-design/guided/schedule_deployment/`,
                 scheduleData,

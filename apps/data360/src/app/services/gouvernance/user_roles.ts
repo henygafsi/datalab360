@@ -52,23 +52,6 @@ export async function getUserRoles(username: string): Promise<string[]> {
     throw error;
   }
 }
-
-/**
- * Get all roles available for a specific user
- * According to API v111: GET /gouvernance/roles-for-user/{username}
- * @param username The username to fetch available roles for
- * @returns Array of available role names
- */
-export async function getAvailableRolesForUser(username: string): Promise<string[]> {
-  try {
-    const response = await apiClient.get(`/gouvernance/roles-for-user/${username}`);
-    return Array.isArray(response.data) ? (response.data as string[]) : [];
-  } catch (error) {
-    console.error(`Error fetching available roles for user ${username}:`, error);
-    throw error;
-  }
-}
-
 /**
  * Assign a role to a user
  * @param username The username to assign the role to

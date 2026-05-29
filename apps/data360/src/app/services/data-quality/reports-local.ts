@@ -187,31 +187,6 @@ export const getQualityReports = async (token?: string): Promise<QualityReport[]
     }
   });
 };
-
-/**
- * Get a single quality report by ID
- */
-export const getQualityReport = async (
-  id: string,
-  token?: string
-): Promise<QualityReport> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const reports = getAllReports();
-      const report = reports.find((r) => r.id === id);
-
-      if (!report) {
-        reject(new Error('Quality report not found'));
-        return;
-      }
-
-      resolve(report);
-    } catch (error: any) {
-      reject(new Error(error.message || 'Failed to fetch quality report'));
-    }
-  });
-};
-
 /**
  * Update an existing quality report
  */
@@ -354,57 +329,6 @@ export const exportQualityReport = async (
     }
   });
 };
-
-/**
- * Import quality report from JSON
- */
-export const importQualityReport = async (
-  jsonData: string,
-  token?: string
-): Promise<QualityReport> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const parsed: any = JSON.parse(jsonData);
-
-      if (!parsed.report) {
-        reject(new Error('Invalid quality report export format'));
-        return;
-      }
-
-      const reports = getAllReports();
-
-      const imported: QualityReport = {
-        ...parsed.report,
-        id: generateId(),
-        createdBy: getCurrentUser(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        name: `${parsed.report.name} (Imported)`,
-      };
-
-      reports.push(imported);
-      saveAllReports(reports);
-
-      resolve(imported);
-    } catch (error: any) {
-      reject(new Error(error.message || 'Failed to import quality report'));
-    }
-  });
-};
-
-/**
- * Clear all quality reports (use with caution!)
- */
-export const clearAllQualityReports = (): void => {
-  if (typeof window === 'undefined') return;
-
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (error) {
-    console.error('Failed to clear quality reports:', error);
-  }
-};
-
 /**
  * Get storage info
  */

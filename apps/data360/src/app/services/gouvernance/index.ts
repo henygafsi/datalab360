@@ -67,23 +67,6 @@ export async function getDwhStorageInfo(
   });
   return apiCall<DwhStorageSummary>(`/gouvernance/get_dwh_storage_info?${params}`);
 }
-
-/**
- * Get storage for tables loaded from stages
- * GET /gouvernance/get_src_table_storage_info
- */
-export async function getSrcTableStorageInfo(): Promise<StagedTableStorage> {
-  return apiCall<StagedTableStorage>('/gouvernance/get_src_table_storage_info');
-}
-
-/**
- * Get list of DWH schemas
- * GET /gouvernance/get_dwh_schemas
- */
-export async function getDwhSchemas(): Promise<string[]> {
-  return apiCall<string[]>('/gouvernance/get_dwh_schemas');
-}
-
 /**
  * Get DWH health info (freshness, row counts, storage)
  * GET /gouvernance/get_dwh_health_info
@@ -134,17 +117,6 @@ export async function getAllUsersActivity(
   // API returns array directly
   return apiCall<UserActivityWithQuery[]>(endpoint);
 }
-
-/**
- * Alias for getAllUsersActivity for backward compatibility
- * @deprecated Use getAllUsersActivity instead
- */
-export async function getClientDashboardAll(
-  filters: ActivityFilterParams = {}
-): Promise<UserActivityWithQuery[]> {
-  return getAllUsersActivity(filters);
-}
-
 /**
  * Get recent ERROR events for audit and AI recommendations
  * GET /gouvernance/dashboard/errors
@@ -163,23 +135,5 @@ export async function getDashboardErrors(params?: {
   const qs = search.toString();
   return apiCall(qs ? `/gouvernance/dashboard/errors?${qs}` : '/gouvernance/dashboard/errors');
 }
-
-/**
- * Set user MFA status
- * POST /gouvernance/user/mfa/set
- */
-export async function setUserMfa(username: string, enable: boolean): Promise<MfaStatus> {
-  return apiCall<MfaStatus>('/gouvernance/user/mfa/set', 'POST', { username, enable });
-}
-
-/**
- * Get user MFA status
- * GET /gouvernance/user/mfa/status
- */
-export async function getUserMfaStatus(username: string): Promise<MfaStatus> {
-  const params = new URLSearchParams({ username });
-  return apiCall<MfaStatus>(`/gouvernance/user/mfa/status?${params}`);
-}
-
 // Re-export types for convenience
 export * from './types';

@@ -170,11 +170,16 @@ export default function GouvernanceDashboard() {
         });
 
       // Sequential fetch to avoid connection/cursor issues (backend recommended: --workers 1 for Account Overview)
+      // TODO(ux): kept on raw axios (not apiClient) for the per-call 8s timeout + withAuth silent-fallback.
+      // apiClient's fixed 120s timeout + redirect-on-401 would change the degrade-to-empty behavior here.
       const workflowsResponse = await withAuth(
+        // TODO(backend): GET /workflow/get_workflows/ — endpoint not in API; wire it or remove this call
         () => axios.get(`${API_BASE_URL}/workflow/get_workflows/`, { headers: authHeaders, timeout: 8000 }),
         { data: { workflows: [] } }
       );
       const deploymentsResponse = await withAuth(
+        // TODO(backend): GET /explore-design/guided/get_scheduled_deployments/ — endpoint not in API; wire it or remove this call
+        // TODO(ux): raw axios retained for the 8s timeout + withAuth fallback (see note above).
         () => axios.get(`${API_BASE_URL}/explore-design/guided/get_scheduled_deployments/`, { headers: authHeaders, timeout: 8000 }),
         { data: { deployments: [] } }
       );
@@ -383,6 +388,8 @@ export default function GouvernanceDashboard() {
         await ExploreDesignService.approveScheduledDeployment(scheduleId);
       } else {
         // Default: mapping deployment
+        // TODO(backend): POST /explore-design/guided/approve_deployment/ — endpoint not in API; wire it or remove this call
+        // TODO(ux): raw axios kept for the 10s timeout (apiClient is fixed at 120s); migrate once the endpoint exists.
         await axios.post(
           `${API_BASE_URL}/explore-design/guided/approve_deployment/`,
           { workflow_name: workflowName },
@@ -437,6 +444,8 @@ export default function GouvernanceDashboard() {
         await ExploreDesignService.rejectScheduledDeployment(scheduleId, reason);
       } else {
         // Default: mapping deployment
+        // TODO(backend): POST /explore-design/guided/reject_deployment/ — endpoint not in API; wire it or remove this call
+        // TODO(ux): raw axios kept for the 10s timeout (apiClient is fixed at 120s); migrate once the endpoint exists.
         await axios.post(
           `${API_BASE_URL}/explore-design/guided/reject_deployment/`,
           { workflow_name: workflowName, reason },
@@ -518,6 +527,8 @@ export default function GouvernanceDashboard() {
         ? `${API_BASE_URL}/explore-design/guided/activate_deployment/`
         : `${API_BASE_URL}/workflow/activate_workflow/`;
 
+      // TODO(ux): raw axios kept for the 30s timeout (deployment can take longer than apiClient defaults imply)
+      // and the explicit deploymentError surface below; migrate to apiClient once these endpoints exist in the API.
       await axios.post(
         endpoint,
         { workflow_name: workflowName },

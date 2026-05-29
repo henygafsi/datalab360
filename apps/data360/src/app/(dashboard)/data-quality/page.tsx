@@ -145,6 +145,9 @@ export default function DataQualityPage() {
   const [savedLayouts, setSavedLayouts] = useState<QualityReportItem[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningChecks, setIsRunningChecks] = useState(false);
+  // Explicit RUNNING(elapsed)/ERROR state for the Run Checks action (runs real SQL on Snowflake).
+  const [checksElapsedMs, setChecksElapsedMs] = useState(0);
+  const [checksError, setChecksError] = useState<string | null>(null);
   const [currentReportId, setCurrentReportId] = useState<string | null>(null);
   const [reportName, setReportName] = useState('My Quality Report');
   const [reportDescription, setReportDescription] = useState('');
@@ -312,13 +315,22 @@ export default function DataQualityPage() {
       return;
     }
     setIsRunningChecks(true);
+    setChecksError(null);
+    setChecksElapsedMs(0);
+    const startedAt = Date.now();
+    // Tick the elapsed-time readout while Snowflake runs the COUNT/DISTINCT/DATEDIFF checks.
+    const timer = setInterval(() => setChecksElapsedMs(Date.now() - startedAt), 200);
     try {
       const metrics = await runQualityChecks(currentReportId || 'temp', token, { table });
       setQualityMetrics(metrics);
       toast.success(metrics.length ? '✅ Quality checks completed!' : 'No checks run (configure columns or rules).');
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to run quality checks');
+      const message = error?.message || 'Failed to run quality checks';
+      setChecksError(message);
+      toast.error(message);
     } finally {
+      clearInterval(timer);
+      setChecksElapsedMs(Date.now() - startedAt);
       setIsRunningChecks(false);
     }
   };
@@ -395,7 +407,9 @@ export default function DataQualityPage() {
               className="bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-700 hover:to-red-700 text-white px-6 py-3 rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
             >
               <HiOutlinePlay className="w-5 h-5 mr-2" />
-              {isRunningChecks ? 'Running...' : 'Run Checks'}
+              {isRunningChecks
+                ? `Running on Snowflake... ${(checksElapsedMs / 1000).toFixed(1)}s`
+                : 'Run Checks'}
             </Button>
 
             <div className="flex items-center space-x-2 ml-auto">
@@ -409,6 +423,25 @@ export default function DataQualityPage() {
             </div>
           </div>
         </div>
+
+        {/* Run Checks error (inline, carries backend/Snowflake detail) */}
+        {checksError && !isRunningChecks && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-2xl p-5 mb-8 flex items-start gap-3">
+            <HiOutlineXCircle className="w-6 h-6 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="font-semibold text-red-800 dark:text-red-300">Quality checks failed</p>
+              <p className="text-sm text-red-700 dark:text-red-400 mt-1 break-words">{checksError}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleRunQualityChecks}
+                className="mt-3 border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300"
+              >
+                Retry
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Quality Metrics Summary */}
         {qualityMetrics.length > 0 && (

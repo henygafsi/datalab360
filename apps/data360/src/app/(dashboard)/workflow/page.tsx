@@ -55,6 +55,11 @@ const WorkflowHomePage: React.FC = () => {
   const [activeSchedule, setActiveSchedule] = useState<string>('');
   const [isWorkflowSaved, setIsWorkflowSaved] = useState<boolean>(false);
   const [showScheduleDropdown, setShowScheduleDropdown] = useState(false);
+  // Explicit in-flight states so long ops (save / execute) surface progress instead of being fire-and-forget.
+  const [isSaving, setIsSaving] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executeStartedAt, setExecuteStartedAt] = useState<number | null>(null);
+  const [executeElapsed, setExecuteElapsed] = useState(0);
   const workflowCardsScrollContainerRef = useRef<HTMLDivElement>(null);
   const fetchWorkflowsRef = useRef<((token: string) => Promise<void>) | null>(null);
 
@@ -94,6 +99,7 @@ const WorkflowHomePage: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // TODO(backend): FETCH /workflow/get_workflows/ — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/get_workflows/`, {
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -148,6 +154,15 @@ const WorkflowHomePage: React.FC = () => {
 
   // Store the function in ref to avoid circular dependency
   fetchWorkflowsRef.current = fetchWorkflows;
+
+  // Elapsed-time ticker while a workflow execution is in flight (RUNNING on Snowflake).
+  useEffect(() => {
+    if (!isExecuting || executeStartedAt == null) return;
+    const tick = setInterval(() => {
+      setExecuteElapsed(Math.max(0, Math.round((Date.now() - executeStartedAt) / 1000)));
+    }, 1000);
+    return () => clearInterval(tick);
+  }, [isExecuting, executeStartedAt]);
 
   const convertBackendToReactFlow = useCallback((backendSteps: BackendStep[]): { nodes: ReactFlowNode[]; edges: ReactFlowEdge[] } => {
     const newNodes: ReactFlowNode[] = [];
@@ -265,6 +280,7 @@ const WorkflowHomePage: React.FC = () => {
       return;
     }
     try {
+      // TODO(backend): FETCH /workflow/rename_workflow/ — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/rename_workflow/`, {
         method: 'POST',
         headers: {
@@ -546,6 +562,7 @@ const WorkflowHomePage: React.FC = () => {
       ? `${process.env.NEXT_PUBLIC_API_URL}/workflow/update_workflow/`
       : `${process.env.NEXT_PUBLIC_API_URL}/workflow/create_workflow/`;
 
+    setIsSaving(true);
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -569,6 +586,8 @@ const WorkflowHomePage: React.FC = () => {
     } catch (error) {
       console.error('Error saving workflow:', error);
       toast.error('An error occurred while saving the workflow.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -581,7 +600,11 @@ const WorkflowHomePage: React.FC = () => {
       toast.error("Authentication token missing. Please log in.");
       return;
     }
+    setIsExecuting(true);
+    setExecuteStartedAt(Date.now());
+    setExecuteElapsed(0);
     try {
+      // TODO(backend): FETCH /workflow/execute_workflow/?workflow_name={param} — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/execute_workflow/?workflow_name=${encodeURIComponent(activeWorkflowName)}`, {
         method: 'POST',
         headers: {
@@ -589,8 +612,10 @@ const WorkflowHomePage: React.FC = () => {
         },
       });
       if (response.ok) {
-        const result = await response.json();
-        toast.success(`Workflow execution initiated: ${result}`);
+        const result = await response.json() as any;
+        // result is an object (run_id/status/…); stringify safely instead of rendering "[object Object]".
+        const detail = typeof result === 'string' ? result : (result?.run_id || result?.status || result?.message || 'started');
+        toast.success(`Workflow execution initiated: ${detail}`);
       } else {
         const errorData = await response.json();
         toast.error(`Failed to execute workflow: ${JSON.stringify(errorData)}`);
@@ -598,6 +623,9 @@ const WorkflowHomePage: React.FC = () => {
     } catch (error) {
       console.error('Error executing workflow:', error);
       toast.error('An error occurred while executing the workflow.');
+    } finally {
+      setIsExecuting(false);
+      setExecuteStartedAt(null);
     }
   };
 
@@ -616,6 +644,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to schedule workflow: '${activeWorkflowName}' with cron_schedule: '${cron_schedule_value}'`);
     try {
+      // TODO(backend): FETCH /workflow/schedule_workflow/ — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/schedule_workflow/`, {
         method: 'POST',
         headers: {
@@ -656,6 +685,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to suspend workflow: '${activeWorkflowName}'`);
     try {
+      // TODO(backend): FETCH /workflow/suspend_task/?task_name={param} — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/suspend_task/?task_name=${encodeURIComponent(activeWorkflowName)}`, {
         method: 'POST',
         headers: {
@@ -690,6 +720,7 @@ const WorkflowHomePage: React.FC = () => {
     }
     console.log(`Attempting to resume workflow: '${activeWorkflowName}'`);
     try {
+      // TODO(backend): FETCH /workflow/resume_task/?task_name={param} — endpoint not in API; wire it or remove this call
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/workflow/resume_task/?task_name=${encodeURIComponent('execute_workflow_'+ activeWorkflowName)}`, {
         method: 'POST',
         headers: {
@@ -782,25 +813,28 @@ const WorkflowHomePage: React.FC = () => {
               onClick={saveWorkflow}
               className={cn(
                 "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
-                activeWorkflowName
+                activeWorkflowName && !isSaving
                   ? "bg-indigo-600 text-white hover:bg-indigo-700"
                   : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
               )}
-              disabled={!activeWorkflowName}
+              disabled={!activeWorkflowName || isSaving}
             >
-              {workflows.some(w => w.workflow_name === activeWorkflowName) ? 'Update' : 'Save'}
+              {isSaving
+                ? 'Saving…'
+                : workflows.some(w => w.workflow_name === activeWorkflowName) ? 'Update' : 'Save'}
             </button>
             <button
               onClick={executeWorkflow}
               className={cn(
                 "flex-1 py-2 px-3 rounded-lg font-semibold text-sm transition",
-                isWorkflowSaved && activeWorkflowName
+                isWorkflowSaved && activeWorkflowName && !isExecuting
                   ? "bg-green-600 text-white hover:bg-green-700"
                   : "bg-slate-200 dark:bg-slate-700 text-slate-400 cursor-not-allowed"
               )}
-              disabled={!isWorkflowSaved || !activeWorkflowName}
+              disabled={!isWorkflowSaved || !activeWorkflowName || isExecuting}
+              title={isExecuting ? 'Running on Snowflake…' : undefined}
             >
-              Execute
+              {isExecuting ? `Running… ${executeElapsed}s` : 'Execute'}
             </button>
           </div>
 

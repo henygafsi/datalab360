@@ -133,91 +133,6 @@ export async function deleteSecurityAxis(id: number): Promise<void> {
     throw error;
   }
 }
-
-// ============= USER SECURITY PROFILES =============
-
-/**
- * Get security profile for a user
- */
-export async function getUserSecurityProfile(username: string): Promise<UserSecurityProfile> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(`${API_BASE_URL}/gouvernance/users/${username}/security-profile`, { headers });
-    return response.data;
-  } catch (error: any) {
-    console.error('Error fetching user security profile:', error);
-    throw error;
-  }
-}
-
-/**
- * Update user security profile
- */
-export async function updateUserSecurityProfile(username: string, profile: Partial<UserSecurityProfile>): Promise<UserSecurityProfile> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.put(`${API_BASE_URL}/gouvernance/users/${username}/security-profile`, profile, { headers });
-    return response.data;
-  } catch (error: any) {
-    console.error('Error updating user security profile:', error);
-    throw error;
-  }
-}
-
-// ============= POLICY ASSIGNMENTS =============
-
-/**
- * Get all policy assignments
- */
-export async function getPolicyAssignments(filters?: {
-  policy_type?: string;
-  assigned_to?: string;
-}): Promise<PolicyAssignment[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const params = new URLSearchParams();
-    if (filters?.policy_type) params.append('policy_type', filters.policy_type);
-    if (filters?.assigned_to) params.append('assigned_to', filters.assigned_to);
-
-    const url = params.toString()
-      ? `${API_BASE_URL}/gouvernance/policy-assignments?${params}`
-      : `${API_BASE_URL}/gouvernance/policy-assignments`;
-
-    const response = await axios.get(url, { headers });
-    return response.data;
-  } catch (error: any) {
-    console.error('Error fetching policy assignments:', error);
-    throw error;
-  }
-}
-
-/**
- * Create policy assignment with security filters
- */
-export async function createPolicyAssignment(assignment: Omit<PolicyAssignment, 'id'>): Promise<PolicyAssignment> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(`${API_BASE_URL}/gouvernance/policy-assignments`, assignment, { headers });
-    return response.data;
-  } catch (error: any) {
-    console.error('Error creating policy assignment:', error);
-    throw error;
-  }
-}
-
-/**
- * Delete policy assignment
- */
-export async function deletePolicyAssignment(id: string): Promise<void> {
-  try {
-    const headers = await getAuthHeaders();
-    await axios.delete(`${API_BASE_URL}/gouvernance/policy-assignments/${id}`, { headers });
-  } catch (error: any) {
-    console.error('Error deleting policy assignment:', error);
-    throw error;
-  }
-}
-
 // ============= RLS POLICIES =============
 
 /**
@@ -309,23 +224,6 @@ export async function createNetworkPolicy(policy: Omit<NetworkPolicy, 'active'>)
     return response.data;
   } catch (error: any) {
     console.error('Error creating network policy:', error);
-    throw error;
-  }
-}
-
-/**
- * Apply network policy to user/role
- */
-export async function applyNetworkPolicy(policyName: string, targetType: 'user' | 'role', targetName: string): Promise<void> {
-  try {
-    const headers = await getAuthHeaders();
-    await axios.post(`${API_BASE_URL}/gouvernance/network-policies/apply`, {
-      policy_name: policyName,
-      target_type: targetType,
-      target_name: targetName
-    }, { headers });
-  } catch (error: any) {
-    console.error('Error applying network policy:', error);
     throw error;
   }
 }

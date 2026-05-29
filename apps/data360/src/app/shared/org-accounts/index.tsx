@@ -104,6 +104,11 @@ export default function OrgAccountsDashboard() {
 
   // Refreshing state
   const [refreshing, setRefreshing] = useState(false);
+  // Elapsed seconds while a refresh is RUNNING (drives "Refreshing… 4s" affordance)
+  const [refreshElapsed, setRefreshElapsed] = useState(0);
+  // Top-level error (only set when the primary overview call fails — secondary
+  // calls degrade silently into empty arrays, see fetchSecondaryData)
+  const [overviewError, setOverviewError] = useState<string | null>(null);
 
   // Selected account for detail modal
   const [selectedAccount, setSelectedAccount] = useState<ClientAccount | null>(null);
@@ -119,8 +124,11 @@ export default function OrgAccountsDashboard() {
       setOverview(data.overview);
       setAccounts(Array.isArray(data.accounts) ? data.accounts : []);
       setLastUpdated(new Date());
+      setOverviewError(null);
     } catch (error) {
       console.error('Failed to fetch overview:', error);
+      const message = error instanceof Error ? error.message : 'Failed to load dashboard';
+      setOverviewError(message);
       toast.error('Failed to load dashboard');
     } finally {
       setOverviewLoading(false);
@@ -251,6 +259,9 @@ export default function OrgAccountsDashboard() {
   }, [fetchOverview, fetchSecondaryData]);
 
   // Auto-refresh
+  // TODO(ux): drive off /cache-stream invalidation (SSE) instead of a fixed 5-min
+  // setInterval so the dashboard refreshes exactly when org-accounts data changes
+  // (CacheKey.ORG_ACCOUNTS) rather than on a blind timer. See [[Cache Standardization]].
   useEffect(() => {
     const interval = setInterval(() => {
       refreshAll(true);
@@ -258,6 +269,21 @@ export default function OrgAccountsDashboard() {
 
     return () => clearInterval(interval);
   }, [refreshAll]);
+
+  // Elapsed-time ticker: while a refresh is RUNNING, count seconds so the UI can
+  // show "Refreshing… Ns" (several org-accounts calls hit Snowflake compute and
+  // can take 30-60s — see the 60s timeouts in services/org-accounts/hooks.ts).
+  useEffect(() => {
+    if (!refreshing) {
+      setRefreshElapsed(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const ticker = setInterval(() => {
+      setRefreshElapsed(Math.floor((Date.now() - startedAt) / 1000));
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [refreshing]);
 
   // Create credit usage map for the table (account_name -> total_credits)
   const creditUsageMap = useMemo(() => {
@@ -282,6 +308,9 @@ export default function OrgAccountsDashboard() {
     setSelectedAccount(account);
     setIsDetailModalOpen(true);
   };
+
+  // EMPTY: overview finished loading, no top-level error, and zero accounts.
+  const isEmpty = !overviewLoading && !overviewError && accounts.length === 0;
 
   return (
     <div className="@container">
@@ -313,10 +342,43 @@ export default function OrgAccountsDashboard() {
             disabled={refreshing}
           >
             <PiArrowClockwiseBold className={cn('h-4 w-4 mr-2', refreshing && 'animate-spin')} />
-            {refreshing ? 'Refreshing...' : 'Refresh'}
+            {refreshing ? `Refreshing… ${refreshElapsed}s` : 'Refresh'}
           </Button>
         </div>
       </div>
+
+      {/* ERROR: primary overview call failed — secondary calls degrade silently */}
+      {overviewError && (
+        <div className="mb-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-700 dark:bg-red-900/20">
+          <Text className="text-sm font-medium text-red-800 dark:text-red-300">
+            Failed to load the accounts dashboard
+          </Text>
+          <Text className="mt-1 text-xs text-red-700 dark:text-red-400">{overviewError}</Text>
+          <Button
+            variant="outline"
+            size="sm"
+            className="mt-3"
+            onClick={() => refreshAll(false)}
+            disabled={refreshing}
+          >
+            Retry
+          </Button>
+        </div>
+      )}
+
+      {/* EMPTY: loaded successfully but no accounts visible to this role */}
+      {isEmpty && (
+        <div className="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-8 text-center dark:border-gray-700 dark:bg-gray-800/40">
+          <PiBuildingsDuotone className="mx-auto mb-3 h-10 w-10 text-gray-400" />
+          <Text className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            No client accounts found
+          </Text>
+          <Text className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            This organization has no visible accounts, or your role lacks ORGADMIN access to
+            SNOWFLAKE.ORGANIZATION_USAGE.
+          </Text>
+        </div>
+      )}
 
       {/* Overview Cards - shows immediately with overview data, then updates with usage data */}
       <OverviewCards

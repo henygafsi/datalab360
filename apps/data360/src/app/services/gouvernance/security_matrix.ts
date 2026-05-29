@@ -54,21 +54,6 @@ export type SecurityMatrixResponse = {
   total_entries: number;
   available_axes: SecurityAxes;
 };
-
-/**
- * Initialize the security matrix schema with retail DDL + sample data
- * POST /gouvernance/security-matrix/init
- */
-export async function initializeSecurityMatrix(): Promise<{ message: string }> {
-  try {
-    const response = await apiClient.post('/gouvernance/security-matrix/init');
-    return response.data;
-  } catch (error) {
-    console.error('Error initializing security matrix:', error);
-    throw error;
-  }
-}
-
 /**
  * Get all security matrix entries with available axes
  * GET /gouvernance/security-matrix
@@ -113,24 +98,6 @@ export async function createSecurityMatrixEntry(
     throw error;
   }
 }
-
-/**
- * Bulk create security matrix entries for a role
- * POST /gouvernance/security-matrix/bulk
- */
-export async function bulkCreateSecurityMatrixEntries(entries: {
-  role_name: string;
-  entries: Array<Omit<SecurityMatrixEntry, 'id' | 'role_name' | 'created_at' | 'updated_at'>>;
-}): Promise<{ created: number; entries: SecurityMatrixEntry[] }> {
-  try {
-    const response = await apiClient.post('/gouvernance/security-matrix/bulk', entries);
-    return response.data;
-  } catch (error) {
-    console.error('Error bulk creating security matrix entries:', error);
-    throw error;
-  }
-}
-
 /**
  * Payload to update one matrix entry (backend: axes dict + access_level)
  */
@@ -172,22 +139,6 @@ export async function deleteSecurityMatrixEntry(id: number): Promise<{ message: 
     return response.data;
   } catch (error) {
     console.error(`Error deleting security matrix entry ${id}:`, error);
-    throw error;
-  }
-}
-
-/**
- * Delete all security matrix entries for a role
- * DELETE /gouvernance/security-matrix/role/{role}
- */
-export async function deleteSecurityMatrixByRole(
-  roleName: string
-): Promise<{ message: string; deleted: number }> {
-  try {
-    const response = await apiClient.delete(`/gouvernance/security-matrix/role/${roleName}`);
-    return response.data;
-  } catch (error) {
-    console.error(`Error deleting security matrix entries for role ${roleName}:`, error);
     throw error;
   }
 }

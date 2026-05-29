@@ -160,31 +160,6 @@ export const getDashboards = async (token?: string): Promise<Dashboard[]> => {
     }
   });
 };
-
-/**
- * Get a single dashboard by ID
- */
-export const getDashboard = async (
-  id: string,
-  token?: string
-): Promise<Dashboard> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const dashboards = getAllDashboards();
-      const dashboard = dashboards.find((d) => d.id === id);
-
-      if (!dashboard) {
-        reject(new Error('Dashboard not found'));
-        return;
-      }
-
-      resolve(dashboard);
-    } catch (error: any) {
-      reject(new Error(error.message || 'Failed to fetch dashboard'));
-    }
-  });
-};
-
 /**
  * Update an existing dashboard
  */
@@ -327,57 +302,6 @@ export const exportDashboard = async (
     }
   });
 };
-
-/**
- * Import dashboard from JSON
- */
-export const importDashboard = async (
-  jsonData: string,
-  token?: string
-): Promise<Dashboard> => {
-  return new Promise((resolve, reject) => {
-    try {
-      const parsed: any = JSON.parse(jsonData);
-
-      if (!parsed.dashboard) {
-        reject(new Error('Invalid dashboard export format'));
-        return;
-      }
-
-      const dashboards = getAllDashboards();
-
-      const imported: Dashboard = {
-        ...parsed.dashboard,
-        id: generateId(),
-        createdBy: getCurrentUser(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        name: `${parsed.dashboard.name} (Imported)`,
-      };
-
-      dashboards.push(imported);
-      saveAllDashboards(dashboards);
-
-      resolve(imported);
-    } catch (error: any) {
-      reject(new Error(error.message || 'Failed to import dashboard'));
-    }
-  });
-};
-
-/**
- * Clear all dashboards (use with caution!)
- */
-export const clearAllDashboards = (): void => {
-  if (typeof window === 'undefined') return;
-
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-  } catch (error) {
-    console.error('Failed to clear dashboards:', error);
-  }
-};
-
 /**
  * Get storage info
  */

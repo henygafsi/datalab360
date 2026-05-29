@@ -87,15 +87,6 @@ async function apiCallWithTransform<T>(endpoint: string, method: 'GET' | 'POST' 
 export async function getIntelligentKpis(): Promise<IntelligentKpis> {
   return apiCallWithTransform<IntelligentKpis>('/observability/kpis');
 }
-
-/**
- * Get aggregated observability dashboard data
- * GET /observability/dashboard
- */
-export async function getObservabilityDashboard(): Promise<DashboardSummary> {
-  return apiCallWithTransform<DashboardSummary>('/observability/dashboard');
-}
-
 // =============================================================================
 // COMPLIANCE ENDPOINTS - GDPR & SOC 2
 // =============================================================================
@@ -115,39 +106,6 @@ export async function getGdprComplianceReport(): Promise<GdprReport> {
 export async function getSoc2ComplianceReport(): Promise<Soc2Report> {
   return apiCallWithTransform<Soc2Report>('/observability/compliance/soc2');
 }
-
-// =============================================================================
-// DATA LINEAGE ENDPOINTS
-// =============================================================================
-
-/**
- * Get data lineage information
- * GET /observability/lineage
- */
-export async function getDataLineage(params?: {
-  database?: string;
-  schema?: string;
-  table?: string;
-  days?: number;
-}): Promise<LineageResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.database) searchParams.append('database', params.database);
-  if (params?.schema) searchParams.append('schema', params.schema);
-  if (params?.table) searchParams.append('table', params.table);
-  if (params?.days) searchParams.append('days', params.days.toString());
-
-  const queryString = searchParams.toString();
-  return apiCall<LineageResponse>(queryString ? `/observability/lineage?${queryString}` : '/observability/lineage');
-}
-
-/**
- * Get table access patterns
- * GET /observability/lineage/access-patterns
- */
-export async function getAccessPatterns(days: number = 30): Promise<AccessPatternsResponse> {
-  return apiCall<AccessPatternsResponse>(`/observability/lineage/access-patterns?days=${days}`);
-}
-
 // =============================================================================
 // USER ACTIVITY ENDPOINTS
 // =============================================================================
@@ -159,31 +117,6 @@ export async function getAccessPatterns(days: number = 30): Promise<AccessPatter
 export async function getActivitySummary(days: number = 7): Promise<UserActivitySummary> {
   return apiCallWithTransform<UserActivitySummary>(`/observability/activity/summary?days=${days}`);
 }
-
-/**
- * Get activity heatmap data (hour x day of week)
- * GET /observability/activity/heatmap
- */
-export async function getActivityHeatmap(days: number = 7): Promise<HeatmapResponse> {
-  return apiCall<HeatmapResponse>(`/observability/activity/heatmap?days=${days}`);
-}
-
-/**
- * Get login history from LOGIN_HISTORY
- * GET /observability/activity/logins
- */
-export async function getLoginHistory(params?: {
-  username?: string;
-  days?: number;
-}): Promise<LoginsResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.username) searchParams.append('username', params.username);
-  if (params?.days) searchParams.append('days', params.days.toString());
-
-  const queryString = searchParams.toString();
-  return apiCall<LoginsResponse>(queryString ? `/observability/activity/logins?${queryString}` : '/observability/activity/logins');
-}
-
 // =============================================================================
 // SECURITY ENDPOINTS
 // =============================================================================
@@ -195,35 +128,6 @@ export async function getLoginHistory(params?: {
 export async function getSecurityPosture(): Promise<SecurityPosture> {
   return apiCallWithTransform<SecurityPosture>('/observability/security/posture');
 }
-
-/**
- * Get summary of tables potentially containing PII
- * GET /observability/security/sensitive-data
- */
-export async function getSensitiveDataSummary(): Promise<SensitiveDataSummary> {
-  return apiCall<SensitiveDataSummary>('/observability/security/sensitive-data');
-}
-
-// =============================================================================
-// UNUSED RESOURCES ENDPOINTS
-// =============================================================================
-
-/**
- * Find tables that haven't been accessed in N days
- * GET /observability/resources/unused-tables
- */
-export async function getUnusedTables(daysThreshold: number = 30): Promise<UnusedTablesResponse> {
-  return apiCall<UnusedTablesResponse>(`/observability/resources/unused-tables?days_threshold=${daysThreshold}`);
-}
-
-/**
- * Find users who haven't logged in for N days
- * GET /observability/resources/dormant-users
- */
-export async function getDormantUsers(daysThreshold: number = 90): Promise<DormantUsersResponse> {
-  return apiCall<DormantUsersResponse>(`/observability/resources/dormant-users?days_threshold=${daysThreshold}`);
-}
-
 // =============================================================================
 // COST & WAREHOUSE ENDPOINTS
 // =============================================================================
@@ -279,18 +183,5 @@ export async function getSlowQueries(params?: {
   const queryString = searchParams.toString();
   return apiCallWithTransform<SlowQueriesResponse>(queryString ? `/observability/performance/slow-queries?${queryString}` : '/observability/performance/slow-queries');
 }
-
-// =============================================================================
-// HEALTH CHECK
-// =============================================================================
-
-/**
- * Simple health check endpoint
- * GET /observability/health
- */
-export async function getHealthStatus(): Promise<HealthStatus> {
-  return apiCall<HealthStatus>('/observability/health');
-}
-
 // Re-export types for convenience
 export * from './types';

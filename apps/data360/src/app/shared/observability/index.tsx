@@ -74,6 +74,9 @@ const tabs: TabItem[] = [
 export default function ObservabilityDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const [isLoading, setIsLoading] = useState(true);
+  // Explicit error state for the Overview KPIs so a failed fetch is not rendered as a real
+  // "degraded" health score (the cards otherwise fall back to 0 / 'warning' silently).
+  const [kpisError, setKpisError] = useState<string | null>(null);
 
   // Data states
   const [kpis, setKpis] = useState<IntelligentKpis | null>(null);
@@ -118,10 +121,17 @@ export default function ObservabilityDashboard() {
   async function fetchKpis() {
     try {
       setLoadingStates((prev) => ({ ...prev, kpis: true }));
+      setKpisError(null);
       const data = await getIntelligentKpis();
       setKpis(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch KPIs:', error);
+      setKpisError(
+        error?.response?.data?.error?.message ||
+          error?.response?.data?.detail ||
+          error?.message ||
+          'Failed to load KPIs'
+      );
       toast.error('Failed to load KPIs');
     } finally {
       setLoadingStates((prev) => ({ ...prev, kpis: false }));
@@ -132,6 +142,7 @@ export default function ObservabilityDashboard() {
   async function fetchComplianceData() {
     setLoadingStates((prev) => ({ ...prev, compliance: true }));
     try {
+      // TODO(ux): Promise.all left intact; add per-report error/elapsed state when refactoring.
       const [gdpr, soc2] = await Promise.all([
         getGdprComplianceReport(),
         getSoc2ComplianceReport(),
@@ -149,6 +160,7 @@ export default function ObservabilityDashboard() {
   async function fetchActivityData() {
     setLoadingStates((prev) => ({ ...prev, activity: true }));
     try {
+      // TODO(ux): Promise.all left intact; add per-call error/elapsed state when refactoring.
       const [activity, security] = await Promise.all([
         getActivitySummary(7),
         getSecurityPosture(),
@@ -166,6 +178,7 @@ export default function ObservabilityDashboard() {
   async function fetchCostData() {
     setLoadingStates((prev) => ({ ...prev, cost: true }));
     try {
+      // TODO(ux): Promise.all left intact; add per-call error/elapsed state when refactoring.
       const [warehouse, storage, credits, performance, slow] = await Promise.all([
         getWarehouseUsage(30),
         getStorageMetrics(),
@@ -226,7 +239,28 @@ export default function ObservabilityDashboard() {
       {/* Tab Content */}
       <div className="space-y-6">
         {/* Overview Tab */}
-        {activeTab === 'overview' && (
+        {activeTab === 'overview' && kpisError && !loadingStates.kpis && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-6 dark:border-red-800 dark:bg-red-900/20">
+            <Title as="h3" className="text-base font-semibold text-red-800 dark:text-red-300">
+              Failed to load KPIs
+            </Title>
+            <Text className="mt-1 text-sm text-red-700 dark:text-red-400">{kpisError}</Text>
+            <button
+              onClick={fetchKpis}
+              className="mt-3 rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-700 dark:text-red-300"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {activeTab === 'overview' && !kpisError && !loadingStates.kpis && !kpis && (
+          <div className="rounded-lg border border-gray-200 bg-white p-10 text-center dark:border-gray-700 dark:bg-gray-800">
+            <Text className="text-gray-500">No observability KPIs available yet.</Text>
+          </div>
+        )}
+
+        {activeTab === 'overview' && !kpisError && (
           <div className="grid grid-cols-1 gap-6 @4xl:grid-cols-12">
             {/* Health Score */}
             <HealthScoreCard

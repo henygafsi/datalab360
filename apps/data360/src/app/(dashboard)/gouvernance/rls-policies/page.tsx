@@ -38,6 +38,11 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 export default function RLSPoliciesPage() {
   const [policies, setPolicies] = useState<RLSPolicy[]>([]);
   const [loading, setLoading] = useState(true);
+  // Explicit error state so a failed list load is surfaced instead of an empty list.
+  const [error, setError] = useState<string | null>(null);
+  // Apply runs `ALTER TABLE ... ADD ROW ACCESS POLICY` on Snowflake — track RUNNING + elapsed.
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyElapsedMs, setApplyElapsedMs] = useState(0);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
@@ -105,13 +110,26 @@ export default function RLSPoliciesPage() {
     }
   };
 
+  // Extract the most useful message from the centralized error envelope
+  // ({ error: { message }, detail, snowflake{...} }) or a plain Error.
+  const extractError = (err: any, fallback: string): string =>
+    err?.response?.data?.error?.message ||
+    err?.response?.data?.detail ||
+    err?.response?.data?.message ||
+    err?.message ||
+    fallback;
+
   const loadPolicies = async () => {
     try {
       setLoading(true);
+      setError(null);
       const data = await getRLSPolicies();
       setPolicies(data);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to load RLS policies');
+    } catch (err: any) {
+      const message = extractError(err, 'Failed to load RLS policies');
+      setError(message);
+      setPolicies([]);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -138,6 +156,11 @@ export default function RLSPoliciesPage() {
 
   const handleApply = async () => {
     if (!selectedPolicy) return;
+    setIsApplying(true);
+    setApplyElapsedMs(0);
+    const startedAt = Date.now();
+    // Tick elapsed time while Snowflake executes the ALTER TABLE ... ADD ROW ACCESS POLICY DDL.
+    const timer = setInterval(() => setApplyElapsedMs(Date.now() - startedAt), 200);
     try {
       await applyRLSPolicy(
         selectedPolicy.policy_name,
@@ -150,8 +173,11 @@ export default function RLSPoliciesPage() {
       setSelectedPolicy(null);
       resetApplyForm();
       loadPolicies();
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to apply RLS policy');
+    } catch (err: any) {
+      toast.error(extractError(err, 'Failed to apply RLS policy'));
+    } finally {
+      clearInterval(timer);
+      setIsApplying(false);
     }
   };
 
@@ -286,6 +312,15 @@ export default function RLSPoliciesPage() {
           <div className="text-center py-12">
             <div className="inline-block w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
             <p className="mt-4 text-slate-600 dark:text-slate-400">Loading RLS policies...</p>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center dark:border-red-800 dark:bg-red-900/20">
+            <HiOutlineXCircle className="mx-auto mb-3 h-12 w-12 text-red-500" />
+            <p className="font-semibold text-red-800 dark:text-red-300">Failed to load RLS policies</p>
+            <p className="mt-1 text-sm text-red-700 dark:text-red-400 break-words">{error}</p>
+            <Button onClick={loadPolicies} variant="outline" className="mt-4 border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300">
+              Retry
+            </Button>
           </div>
         ) : policies.length === 0 ? (
           <div className="text-center py-12">
@@ -528,15 +563,17 @@ export default function RLSPoliciesPage() {
           </div>
 
           <div className="flex justify-end space-x-3">
-            <Button variant="outline" onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
+            <Button variant="outline" disabled={isApplying} onClick={() => { setShowApplyModal(false); setSelectedPolicy(null); resetApplyForm(); }}>
               Cancel
             </Button>
             <Button
               onClick={handleApply}
-              disabled={!applyForm.table_name}
-              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
+              disabled={!applyForm.table_name || isApplying}
+              className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white disabled:opacity-60"
             >
-              Apply Policy
+              {isApplying
+                ? `Applying on Snowflake... ${(applyElapsedMs / 1000).toFixed(1)}s`
+                : 'Apply Policy'}
             </Button>
           </div>
         </div>

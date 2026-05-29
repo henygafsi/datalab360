@@ -30,6 +30,7 @@ export const addPrimaryKey = async (payload: AddPrimaryKeyPayload): Promise<AddP
     const token = session.user.access_token;
 
     try {
+        // TODO(backend): POST /explore-design/guided/primary-key — endpoint not in API; wire it or remove this call
         const response = await axios.post<AddPrimaryKeyResponse>(
             `${API_BASE_URL}/explore-design/guided/primary-key`,
             payload,

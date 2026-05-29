@@ -53,6 +53,8 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const [statusFilter, setStatusFilter] = useState<RunStatus | ''>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [copiedSql, setCopiedSql] = useState<string | null>(null);
+  // Live clock so RUNNING rows can show elapsed time without re-fetching.
+  const [now, setNow] = useState<number>(() => Date.now());
 
   const fetchRuns = useCallback(async () => {
     if (!pipelineId) {
@@ -101,7 +103,9 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     fetchRuns();
   }, [fetchRuns]);
 
-  // Auto-refresh for running pipelines
+  // Auto-refresh for running pipelines.
+  // TODO(ux): drive off /cache-stream invalidation (WORKFLOWS key) instead of a fixed 5s poll —
+  // see [[Cache Standardization]]. Polling is a stopgap; SSE would avoid stale/over-fetching.
   useEffect(() => {
     const hasRunning = runs.some((r) => r.status === 'running');
     if (!hasRunning) return;
@@ -109,6 +113,15 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     const interval = setInterval(fetchRuns, 5000);
     return () => clearInterval(interval);
   }, [runs, fetchRuns]);
+
+  // 1s elapsed-time ticker — only mounted while a run is actually RUNNING.
+  useEffect(() => {
+    const hasRunning = runs.some((r) => r.status === 'running');
+    if (!hasRunning) return;
+
+    const tick = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(tick);
+  }, [runs]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -337,6 +350,12 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
                         <span className="flex items-center gap-1">
                           <Timer className="h-3 w-3" />
                           {etlService.formatDuration(run.duration_seconds)}
+                        </span>
+                      )}
+                      {run.status === 'running' && (run.duration_seconds === undefined || run.duration_seconds === null) && (
+                        <span className="flex items-center gap-1 text-blue-600 dark:text-blue-400" title="Running on Snowflake">
+                          <Timer className="h-3 w-3 animate-pulse" />
+                          {etlService.formatDuration(Math.max(0, Math.round((now - new Date(run.started_at).getTime()) / 1000)))} elapsed
                         </span>
                       )}
                       {run.components_executed !== undefined && (

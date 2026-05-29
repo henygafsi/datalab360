@@ -5,50 +5,6 @@
 import apiClient from '@/lib/api-client';
 import { GrantTableDataType } from '@/app/shared/gouvernance/grants/table';
 import { getRoles } from '@/app/services/gouvernance/fetch_roles';
-
-/**
- * Fetches permissions/grants from the backend.
- * This is an aggregation based on available roles and their grants.
- * @returns A promise that resolves to an array of GrantTableDataType.
- */
-export async function getPermissions(): Promise<GrantTableDataType[]> {
-  try {
-    const allRoles = await getRoles();
-    const grantsMap = new Map<string, Set<string>>();
-
-    for (const roleData of allRoles) {
-      const roleName = roleData.role;
-      try {
-        const roleGrants = await getGrantsForRole(roleName);
-        for (const grantString of roleGrants) {
-          const parts = grantString.split(' on ');
-          let privilege = parts[0];
-          let objectDetails = parts[1] || 'GLOBAL';
-
-          const fullGrantIdentifier = `${privilege} on ${objectDetails}`;
-          if (!grantsMap.has(fullGrantIdentifier)) {
-            grantsMap.set(fullGrantIdentifier, new Set<string>());
-          }
-          grantsMap.get(fullGrantIdentifier)?.add(roleName);
-        }
-      } catch (roleError: any) {
-        console.warn(`Could not fetch grants for role "${roleName}":`, roleError.message);
-      }
-    }
-
-    const mappedPermissions: GrantTableDataType[] = Array.from(grantsMap.entries()).map(([grantIdentifier, rolesSet]) => ({
-      id: grantIdentifier,
-      name: grantIdentifier,
-      roles: Array.from(rolesSet).sort(),
-    }));
-
-    return mappedPermissions;
-  } catch (error) {
-    console.error('Error fetching aggregated permissions:', error);
-    throw error;
-  }
-}
-
 /**
  * Returns grants for a single role (alias for getGrantsForRole for matrix/view usage).
  * @param roleName The name of the role.
@@ -72,38 +28,3 @@ export async function getGrantsForRole(roleName: string): Promise<string[]> {
     throw error;
   }
 }
-
-/**
- * Grants a specific permission to a role on an object in the backend.
- */
-export async function grantPermission(
-  privileges: string[],
-  object_type: string,
-  object_name: string,
-  role_name: string
-): Promise<string> {
-  try {
-    const params = new URLSearchParams();
-    privileges.forEach(p => params.append('privileges', p));
-    params.append('object_type', object_type);
-    params.append('object_name', object_name);
-    params.append('role_name', role_name);
-
-    const response = await apiClient.post(`/gouvernance/grant-permission?${params.toString()}`);
-    return response.data;
-  } catch (error: any) {
-    console.error('Error granting permission:', error.response?.data || error.message);
-    throw error;
-  }
-}
-
-export const availablePrivileges = [
-  'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'USAGE', 'CREATE', 'MODIFY',
-  'MONITOR', 'OWNERSHIP', 'REFERENCES', 'READ', 'WRITE', 'TRUNCATE',
-  'OPERATE', 'EXECUTE', 'ALL PRIVILEGES'
-];
-
-export const availableObjectTypes = [
-  'DATABASE', 'SCHEMA', 'TABLE', 'VIEW', 'STAGE', 'PIPE', 'FUNCTION',
-  'PROCEDURE', 'WAREHOUSE', 'STREAM', 'TASK', 'FILE FORMAT', 'SEQUENCE'
-];

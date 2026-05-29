@@ -173,43 +173,6 @@ export async function analyzeSentiment(texts: string[]): Promise<SentimentResult
     throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze sentiment');
   }
 }
-
-/**
- * Analyze sentiment of a database table column
- */
-export async function analyzeTableSentiment(
-  tableName: string,
-  textColumn: string,
-  database?: string,
-  schema?: string
-): Promise<SentimentResult[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/ml/sentiment`,
-      {
-        table_name: tableName,
-        text_column: textColumn,
-        database,
-        schema,
-      },
-      { headers }
-    );
-
-    const data = response.data?.data || response.data;
-    const results = data.results || data;
-
-    return (Array.isArray(results) ? results : []).map((result: any) => ({
-      text: result.text,
-      sentiment: result.sentiment,
-      category: categorizeSentiment(result.sentiment),
-    }));
-  } catch (error: any) {
-    console.error('Table sentiment analysis error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to analyze table sentiment');
-  }
-}
-
 /**
  * Translate text between languages
  */
@@ -265,88 +228,6 @@ export async function summarizeText(request: SummarizeRequest): Promise<SummaryR
     throw new Error(error.response?.data?.detail || error.message || 'Failed to summarize text');
   }
 }
-
-/**
- * Generate text embeddings
- */
-export async function generateEmbeddings(
-  texts: string[],
-  model = 'e5-base-v2'
-): Promise<EmbeddingResult[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/embeddings`,
-      { texts, model },
-      { headers }
-    );
-
-    const data = response.data?.data || response.data;
-    return data.embeddings || [];
-  } catch (error: any) {
-    console.error('Embeddings error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to generate embeddings');
-  }
-}
-
-/**
- * List available databases
- */
-export async function listDatabases(): Promise<DatabaseInfo[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/explore/databases`,
-      { headers }
-    );
-
-    const data = response.data?.data || response.data;
-    return data.databases || data || [];
-  } catch (error: any) {
-    console.error('List databases error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list databases');
-  }
-}
-
-/**
- * List schemas in a database
- */
-export async function listSchemas(database: string): Promise<SchemaInfo[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.get(
-      `${API_BASE_URL}/cortex/explore/schemas?database=${encodeURIComponent(database)}`,
-      { headers }
-    );
-
-    const data = response.data?.data || response.data;
-    return data.schemas || data || [];
-  } catch (error: any) {
-    console.error('List schemas error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list schemas');
-  }
-}
-
-/**
- * List tables in a schema
- */
-export async function listTables(database: string, schema: string): Promise<TableInfo[]> {
-  try {
-    const headers = await getAuthHeaders();
-    const response = await axios.post(
-      `${API_BASE_URL}/cortex/explore/tables`,
-      { database, schema },
-      { headers }
-    );
-
-    const data = response.data?.data || response.data;
-    return data.tables || data || [];
-  } catch (error: any) {
-    console.error('List tables error:', error);
-    throw new Error(error.response?.data?.detail || error.message || 'Failed to list tables');
-  }
-}
-
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -370,15 +251,6 @@ export function getSentimentEmoji(score: number): string {
   if (score > -0.5) return '🙁';
   return '😞';
 }
-
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0;
-  const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
-  const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
-  const magnitudeB = Math.sqrt(b.reduce((sum, val) => sum + val * val, 0));
-  return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0;
-}
-
 export function formatBytes(bytes?: number): string {
   if (!bytes) return 'N/A';
   if (bytes < 1024) return `${bytes} B`;
