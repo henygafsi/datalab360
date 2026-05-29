@@ -432,6 +432,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
   const [showForm, setShowForm] = useState(false);
   const [editingSchedule, setEditingSchedule] = useState<WorkflowSchedule | null>(null);
   const [viewingHistory, setViewingHistory] = useState<string | null>(null);
+  const [confirmDeleteSchedule, setConfirmDeleteSchedule] = useState<string | null>(null);
 
   // Load schedules
   const loadSchedulesFn = useCallback(
@@ -473,10 +474,14 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
     }
   };
 
-  const handleDelete = async (schedule: WorkflowSchedule) => {
+  const handleDelete = (schedule: WorkflowSchedule) => {
     if (!pipelineId) return;
-    if (!confirm('Are you sure you want to delete this schedule?')) return;
+    setConfirmDeleteSchedule(schedule.task_name);
+  };
 
+  const executeDeleteSchedule = async () => {
+    if (!pipelineId) return;
+    setConfirmDeleteSchedule(null);
     try {
       await workflowApi.suspendTask(pipelineId);
       toast.success('Schedule deleted');
@@ -653,7 +658,7 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                     </button>
 
                     {/* Delete */}
-                    {!isReadOnly && (
+                    {!isReadOnly && confirmDeleteSchedule !== schedule.task_name && (
                       <button
                         onClick={() => handleDelete(schedule)}
                         className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 text-red-500"
@@ -661,6 +666,23 @@ const ScheduleManager: React.FC<ScheduleManagerProps> = ({
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+                    )}
+                    {confirmDeleteSchedule === schedule.task_name && (
+                      <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-900/20 rounded-lg p-2">
+                        <span className="text-xs text-red-700 dark:text-red-300 whitespace-nowrap">Delete?</span>
+                        <button
+                          onClick={executeDeleteSchedule}
+                          className="px-2 py-0.5 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteSchedule(null)}
+                          className="px-2 py-0.5 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

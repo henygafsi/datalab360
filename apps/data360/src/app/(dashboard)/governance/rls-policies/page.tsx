@@ -43,6 +43,7 @@ export default function RLSPoliciesPage() {
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
 
+  const [confirmRemovePolicy, setConfirmRemovePolicy] = useState<string | null>(null);
   const [databases, setDatabases] = useState<string[]>([]);
   const [schemas, setSchemas] = useState<string[]>([]);
   const [tables, setTables] = useState<string[]>([]);
@@ -157,7 +158,7 @@ export default function RLSPoliciesPage() {
   };
 
   const handleRemove = async (policy: RLSPolicy) => {
-    if (!confirm(`Remove RLS policy from ${policy.table_name}?`)) return;
+    setConfirmRemovePolicy(null);
     try {
       await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
       toast.success('RLS Policy removed successfully');
@@ -354,14 +355,32 @@ export default function RLSPoliciesPage() {
                       <HiOutlinePlay className="w-4 h-4 mr-1" />
                       Apply
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleRemove(policy)}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      <HiOutlineTrash className="w-4 h-4" />
-                    </Button>
+                    {confirmRemovePolicy === policy.policy_name ? (
+                      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 rounded-lg p-2">
+                        <span className="text-xs text-red-700 dark:text-red-400 whitespace-nowrap">Remove from {policy.table_name}?</span>
+                        <button
+                          className="text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+                          onClick={() => handleRemove(policy)}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                          onClick={() => setConfirmRemovePolicy(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmRemovePolicy(policy.policy_name)}
+                        className="text-red-600 hover:bg-red-50"
+                      >
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>

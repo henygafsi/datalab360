@@ -68,6 +68,14 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
   const [grantsOpen, setGrantsOpen] = useState(false);
   const [grants, setGrants] = useState<any[]>([]);
   const [grantsLoading, setGrantsLoading] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'delete' | 'bulk-delete' | 'overwrite';
+    file?: StageItem;
+    fileNames?: string[];
+    fileList?: FileList;
+    uploadToastId?: string;
+    inputRef?: HTMLInputElement;
+  } | null>(null);
 
   const loadStages = useCallback(async () => {
     setLoading(true);
@@ -233,21 +241,18 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     }
   };
 
-  const handleDelete = async (file: StageItem) => {
+  const handleDelete = (file: StageItem) => {
     if (!currentStage) return;
+    setConfirmAction({ type: 'delete', file });
+  };
 
-    const confirmed = confirm(
-      `⚠️ WARNING: This action is irreversible.\n\nAre you sure you want to delete "${file.name}"?`
-    );
-
-    if (!confirmed) return;
-
+  const executeDelete = async (file: StageItem) => {
+    if (!currentStage) return;
+    setConfirmAction(null);
     setLoading(true);
     try {
       await deleteStageFile(currentStage, file.name);
       toast.success(`Deleted: ${file.name}`);
-
-      // Reload files after deletion
       loadStageFiles(currentStage);
     } catch (error: any) {
       toast.error(`Failed to delete: ${error.message}`);
@@ -301,26 +306,16 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
       event.target.value = '';
     } catch (error: any) {
       if (error.message.includes('409') || error.message.toLowerCase().includes('exists')) {
-        const overwrite = confirm(
-          `⚠️ One or more files already exist.\n\nDo you want to overwrite them?`
-        );
-
-        if (overwrite) {
-          try {
-            const result = await uploadStageFile(currentStage, fileList, true);
-            toast.success(
-              `Successfully uploaded ${result.total_uploaded || fileList.length} file(s) (overwritten)`,
-              { id: uploadToast }
-            );
-            loadStageFiles(currentStage);
-            event.target.value = '';
-          } catch (retryError: any) {
-            toast.error(`Failed to upload: ${retryError.message}`, { id: uploadToast });
-            console.error('Upload retry error:', retryError);
-          }
-        } else {
-          toast.error('Upload cancelled', { id: uploadToast });
-        }
+        // Show inline overwrite confirmation instead of browser popup
+        toast.dismiss(uploadToast);
+        setConfirmAction({
+          type: 'overwrite',
+          fileList,
+          uploadToastId: uploadToast,
+          inputRef: event.target,
+        });
+        // Don't clear uploading yet -- the confirm bar will handle it
+        return;
       } else {
         toast.error(`Failed to upload: ${error.message}`, { id: uploadToast });
         console.error('Upload error:', error);
@@ -328,6 +323,34 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     } finally {
       setUploading(false);
     }
+  };
+
+  const executeOverwrite = async () => {
+    if (!currentStage || !confirmAction || confirmAction.type !== 'overwrite' || !confirmAction.fileList) return;
+    const { fileList, inputRef } = confirmAction;
+    setConfirmAction(null);
+    const uploadToast = toast.loading(`Uploading ${fileList.length} file(s) (overwrite)...`);
+    try {
+      const result = await uploadStageFile(currentStage, fileList, true);
+      toast.success(
+        `Successfully uploaded ${result.total_uploaded || fileList.length} file(s) (overwritten)`,
+        { id: uploadToast }
+      );
+      loadStageFiles(currentStage);
+      if (inputRef) inputRef.value = '';
+    } catch (retryError: any) {
+      toast.error(`Failed to upload: ${retryError.message}`, { id: uploadToast });
+      console.error('Upload retry error:', retryError);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const cancelOverwrite = () => {
+    toast.error('Upload cancelled');
+    if (confirmAction?.inputRef) confirmAction.inputRef.value = '';
+    setConfirmAction(null);
+    setUploading(false);
   };
 
   // Selection handlers
@@ -375,20 +398,19 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
     setSelectedFiles([]);
   };
 
-  const handleBulkDelete = async () => {
+  const handleBulkDelete = () => {
     if (!currentStage || selectedFiles.length === 0) return;
+    setConfirmAction({ type: 'bulk-delete', fileNames: [...selectedFiles] });
+  };
 
-    const confirmed = confirm(
-      `⚠️ WARNING: This action is irreversible.\n\nAre you sure you want to delete ${selectedFiles.length} file(s)?`
-    );
-
-    if (!confirmed) return;
-
+  const executeBulkDelete = async (fileNames: string[]) => {
+    if (!currentStage) return;
+    setConfirmAction(null);
     setLoading(true);
     let successCount = 0;
     let errorCount = 0;
 
-    for (const fileName of selectedFiles) {
+    for (const fileName of fileNames) {
       try {
         await deleteStageFile(currentStage, fileName);
         successCount++;
@@ -656,6 +678,66 @@ export default function DatalakeBrowser({ provider, onBack }: DatalakeBrowserPro
           </div>
         </div>
       </div>
+
+      {/* Inline Confirmation Bar */}
+      {confirmAction && (
+        <div className={`flex-shrink-0 px-6 py-3 flex items-center justify-between border-b ${
+          confirmAction.type === 'overwrite'
+            ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800'
+            : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+        }`}>
+          <Text className={`text-sm font-medium ${
+            confirmAction.type === 'overwrite'
+              ? 'text-amber-800 dark:text-amber-200'
+              : 'text-red-800 dark:text-red-200'
+          }`}>
+            {confirmAction.type === 'delete' && confirmAction.file && (
+              <>This action is irreversible. Delete &quot;{confirmAction.file.name}&quot;?</>
+            )}
+            {confirmAction.type === 'bulk-delete' && confirmAction.fileNames && (
+              <>This action is irreversible. Delete {confirmAction.fileNames.length} file(s)?</>
+            )}
+            {confirmAction.type === 'overwrite' && (
+              <>One or more files already exist. Overwrite them?</>
+            )}
+          </Text>
+          <div className="flex items-center space-x-2 ml-4">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                if (confirmAction.type === 'overwrite') {
+                  cancelOverwrite();
+                } else {
+                  setConfirmAction(null);
+                }
+              }}
+              className="border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-700 hover:bg-slate-50 dark:hover:bg-slate-600"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={() => {
+                if (confirmAction.type === 'delete' && confirmAction.file) {
+                  executeDelete(confirmAction.file);
+                } else if (confirmAction.type === 'bulk-delete' && confirmAction.fileNames) {
+                  executeBulkDelete(confirmAction.fileNames);
+                } else if (confirmAction.type === 'overwrite') {
+                  executeOverwrite();
+                }
+              }}
+              className={
+                confirmAction.type === 'overwrite'
+                  ? 'bg-amber-600 hover:bg-amber-700 text-white'
+                  : 'bg-red-600 hover:bg-red-700 text-white'
+              }
+            >
+              {confirmAction.type === 'overwrite' ? 'Yes, Overwrite' : 'Confirm Delete'}
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Content - Scrollable (no static/mock data: stages and files from API only) */}
       <div className="flex-1 overflow-auto">

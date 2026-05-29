@@ -57,6 +57,7 @@ function SemanticModelsContent() {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteModel, setConfirmDeleteModel] = useState<string | null>(null);
 
   // Form state for creating model
   const [modelName, setModelName] = useState('');
@@ -169,11 +170,10 @@ function SemanticModelsContent() {
   };
 
   const handleDelete = async (model: SemanticModel) => {
-    if (!confirm(`Delete semantic model "${model.name}"? This action cannot be undone.`)) return;
-
     try {
       await deleteSemanticModel(model.name.replace('.yaml', ''));
       toast.success('Model deleted successfully');
+      setConfirmDeleteModel(null);
       loadModels();
     } catch (error: any) {
       console.error('Error deleting semantic model:', error);
@@ -408,13 +408,30 @@ function SemanticModelsContent() {
                     </div>
                   </div>
                   <button
-                    onClick={() => handleDelete(model)}
+                    onClick={() => setConfirmDeleteModel(model.name)}
                     className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                     title="Delete model"
                   >
                     <HiOutlineTrash className="w-4 h-4" />
                   </button>
                 </div>
+
+                {/* Inline delete confirmation */}
+                {confirmDeleteModel === model.name && (
+                  <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 mb-3 flex items-center justify-between gap-2">
+                    <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
+                      Delete &ldquo;{model.name.replace('.yaml', '')}&rdquo;? This cannot be undone.
+                    </span>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleDelete(model)}>
+                        Confirm
+                      </Button>
+                      <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmDeleteModel(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Metadata */}
                 <div className="space-y-2 mb-4">

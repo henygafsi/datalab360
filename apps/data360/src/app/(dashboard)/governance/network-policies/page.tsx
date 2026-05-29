@@ -43,6 +43,7 @@ export default function NetworkPoliciesPage() {
   const [error, setError] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingPolicy, setEditingPolicy] = useState<NetworkPolicy | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     name: '',
     type: 'allow' as 'allow' | 'deny',
@@ -148,7 +149,7 @@ export default function NetworkPoliciesPage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this network policy?')) return;
+    setConfirmDeleteId(null);
     try {
       // ////to do//// Replace with actual API call
       // await deleteNetworkPolicy(id);
@@ -321,14 +322,32 @@ export default function NetworkPoliciesPage() {
                     >
                       <HiOutlinePencil className="w-4 h-4" />
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDelete(policy.id)}
-                      className="text-red-600 hover:bg-red-50"
-                    >
-                      <HiOutlineTrash className="w-4 h-4" />
-                    </Button>
+                    {confirmDeleteId === policy.id ? (
+                      <div className="flex items-center gap-2 bg-red-50 dark:bg-red-950/30 rounded-lg p-2">
+                        <span className="text-xs text-red-700 dark:text-red-400 whitespace-nowrap">Delete policy?</span>
+                        <button
+                          className="text-xs font-semibold text-red-700 dark:text-red-400 hover:underline"
+                          onClick={() => handleDelete(policy.id)}
+                        >
+                          Confirm
+                        </button>
+                        <button
+                          className="text-xs font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setConfirmDeleteId(policy.id)}
+                        className="text-red-600 hover:bg-red-50"
+                      >
+                        <HiOutlineTrash className="w-4 h-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
 

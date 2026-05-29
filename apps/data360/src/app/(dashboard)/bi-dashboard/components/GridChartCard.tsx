@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useRef, useEffect, useState } from 'react';
+import { useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { Badge, Tooltip } from 'rizzui';
 import { Settings, Trash2, Play, Loader2, GripVertical, AlertTriangle, Search } from 'lucide-react';
 import DataTable from '@/components/ui/DataTable';
@@ -280,6 +280,8 @@ export default function WidgetCard({
   onCrossWidgetFilter,
   onDrillThrough,
 }: WidgetCardProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   // Apply cross-widget filter to execution data (client-side)
   const filteredExecutionData = useMemo(() => {
     if (!executionData?.data || !crossWidgetFilter || Object.keys(crossWidgetFilter).length === 0) {
@@ -371,22 +373,32 @@ export default function WidgetCard({
               <Settings className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
-          <Tooltip content="Delete">
-            <button
-              className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Delete "${widget.title || 'Untitled'}" widget?`
-                  )
-                ) {
-                  onDelete(widget.widget_id);
-                }
-              }}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
+          {confirmDelete ? (
+            <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 rounded-lg px-2 py-0.5">
+              <span className="text-[10px] text-red-700 dark:text-red-400 whitespace-nowrap">Delete?</span>
+              <button
+                className="text-[10px] font-semibold text-red-700 dark:text-red-400 hover:underline"
+                onClick={() => { setConfirmDelete(false); onDelete(widget.widget_id); }}
+              >
+                Confirm
+              </button>
+              <button
+                className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <Tooltip content="Delete">
+              <button
+                className="p-1 rounded hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors"
+                onClick={() => setConfirmDelete(true)}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </Tooltip>
+          )}
         </div>
       </div>
 

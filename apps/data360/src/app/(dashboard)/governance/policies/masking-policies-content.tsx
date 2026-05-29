@@ -3,23 +3,23 @@
 import { useState, useCallback } from 'react';
 import { Button, Input, Modal, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
+import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
-  getMaskingPolicies,
+  listPoliciesEnriched,
+  formatPolicyError,
   getMaskingPolicyDetails,
   createMaskingPolicy,
   applyMaskingPolicy,
   removeMaskingPolicy,
   deleteMaskingPolicy,
-  getPolicyReferences,
-  unapplyPolicyFromAll,
-  type MaskingPolicy,
-  type PolicyReference,
+  type EnrichedPolicy,
+  type GrantedObject,
   MaskingType,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
@@ -38,7 +38,7 @@ export default function MaskingPoliciesContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<MaskingPolicy | null>(null);
+  const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
   const [policyDetails, setPolicyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -56,21 +56,20 @@ export default function MaskingPoliciesContent() {
   const [column, setColumn] = useState('');
 
   // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
-  const fetchPolicies = useCallback(() => getMaskingPolicies().then(data => Array.isArray(data) ? data : []), []);
-  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<MaskingPolicy[]>(
+  const fetchPolicies = useCallback(() => listPoliciesEnriched('MASKING'), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
-  const handleViewDetails = async (policy: MaskingPolicy) => {
+  const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
     setShowDetailsModal(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
 
     try {
-      const details = await getMaskingPolicyDetails(policy.policy_name);
-      // console.log('Masking policy details:', details);
+      const details = await getMaskingPolicyDetails(policy.name);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -80,32 +79,7 @@ export default function MaskingPoliciesContent() {
     }
   };
 
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
-  };
+  const formatErrorMessage = formatPolicyError;
 
   const getMaskingExpression = () => {
     if (maskingType === 'CUSTOM') {
@@ -167,7 +141,7 @@ export default function MaskingPoliciesContent() {
 
     try {
       await applyMaskingPolicy({
-        policy_name: selectedPolicy.policy_name,
+        policy_name: selectedPolicy.name,
         database,
         schema,
         table,
@@ -185,45 +159,12 @@ export default function MaskingPoliciesContent() {
     }
   };
 
-  const handleDelete = async (policy: MaskingPolicy) => {
-    try {
-      // Step 1: Check for references
-      const refs = await getPolicyReferences('masking', policy.policy_name);
+  const handleRevokeObject = async (_policy: EnrichedPolicy, obj: GrantedObject) => {
+    await removeMaskingPolicy(obj.database, obj.schema, obj.object_name, obj.column!);
+  };
 
-      if (!refs.can_delete && refs.references.length > 0) {
-        // Show confirmation with references
-        const refList = refs.references.map(r =>
-          `• ${r.database}.${r.schema}.${r.table}${r.column ? `.${r.column}` : ''}`
-        ).join('\n');
-
-        const confirmed = confirm(
-          `Policy "${policy.policy_name}" is applied to ${refs.references.length} column(s):\n\n${refList}\n\nDo you want to remove it from all columns and then delete it?`
-        );
-
-        if (!confirmed) return;
-
-        // Step 2: Unapply from all references
-        toast.loading('Removing policy from all columns...', { id: 'delete-policy' });
-        const unapplyResult = await unapplyPolicyFromAll('masking', policy.policy_name);
-
-        if (unapplyResult.errors.length > 0) {
-          toast.error(`Could not remove from: ${unapplyResult.errors.map(e => e.table).join(', ')}`, { id: 'delete-policy' });
-          return;
-        }
-      } else {
-        // Simple confirmation
-        if (!confirm(`Delete masking policy "${policy.policy_name}"?`)) return;
-      }
-
-      // Step 3: Delete the policy
-      toast.loading('Deleting policy...', { id: 'delete-policy' });
-      await deleteMaskingPolicy(policy.policy_name);
-      toast.success('Policy deleted successfully', { id: 'delete-policy' });
-      refetch();
-    } catch (error: any) {
-      console.error('Delete masking policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete policy'), { id: 'delete-policy' });
-    }
+  const handleDeletePolicy = async (policy: EnrichedPolicy) => {
+    await deleteMaskingPolicy(policy.name);
   };
 
   const resetCreateForm = () => {
@@ -290,71 +231,22 @@ export default function MaskingPoliciesContent() {
       ) : (
         <div className="grid gap-4">
           {policies.map((policy) => (
-            <div
-              key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start hover:border-amber-300 transition-colors"
-            >
-              <div
-                className="flex-1 cursor-pointer"
-                onClick={() => handleViewDetails(policy)}
-              >
-                <h3 className="font-semibold text-lg text-amber-600 hover:text-amber-700">
-                  {String(policy.policy_name || '')}
-                </h3>
-                <div className="flex flex-wrap items-center gap-2 mt-1">
-                  <span className="text-sm text-slate-600 dark:text-slate-400">
-                    Type: {String(policy.column_type || policy.data_type || 'N/A')}
-                  </span>
-                  {policy.owner && (
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600 dark:bg-slate-700 dark:text-slate-400">
-                      Owner: {String(policy.owner)}
-                    </span>
-                  )}
-                  {policy.references_count != null && policy.references_count > 0 && (
-                    <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                      Applied to {policy.references_count} column(s)
-                    </span>
-                  )}
-                  {policy.expiration_date && (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                      Expires: {new Date(policy.expiration_date).toLocaleDateString()}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-1 font-mono">
-                  {String(policy.masking_expression || 'Click to view full expression')}
-                </p>
-                <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
-                  <span>Schema: {String(policy.schema || 'N/A')}</span>
-                  {policy.created_on && (
-                    <span>Created: {new Date(policy.created_on).toLocaleDateString()}</span>
-                  )}
-                  {policy.created_by && (
-                    <span>by {String(policy.created_by)}</span>
-                  )}
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedPolicy(policy);
-                    setShowApplyModal(true);
-                  }}
-                >
-                  Apply to Column
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  color="danger"
-                  onClick={() => handleDelete(policy)}
-                >
-                  <HiOutlineTrash className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
+            <PolicyCard
+              key={policy.name}
+              policy={policy}
+              accentColor="amber"
+              policyType="masking"
+              onViewDetails={handleViewDetails}
+              onApply={(p) => {
+                setSelectedPolicy(p);
+                setShowApplyModal(true);
+              }}
+              onDelete={handleDeletePolicy}
+              onRevokeObject={handleRevokeObject}
+              onRefresh={refetch}
+              applyLabel="Apply to Column"
+              entityLabel="column(s)"
+            />
           ))}
         </div>
       )}
@@ -448,7 +340,7 @@ export default function MaskingPoliciesContent() {
       <Modal isOpen={showApplyModal} onClose={() => setShowApplyModal(false)}>
         <div className="p-6 space-y-4">
           <h2 className="text-xl font-bold">
-            Apply Policy: {selectedPolicy?.policy_name}
+            Apply Policy: {selectedPolicy?.name}
           </h2>
 
           <p className="text-sm text-slate-600 dark:text-slate-400">
@@ -522,7 +414,7 @@ export default function MaskingPoliciesContent() {
       <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
         <div className="p-6 space-y-4">
           <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.policy_name}
+            Policy Details: {selectedPolicy?.name}
           </h2>
 
           {loadingDetails ? (
@@ -565,13 +457,13 @@ export default function MaskingPoliciesContent() {
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Schema
                   </label>
-                  <p className="text-sm">{policyDetails.schema || selectedPolicy?.schema || 'N/A'}</p>
+                  <p className="text-sm">{policyDetails.schema || selectedPolicy?.schema_name || 'N/A'}</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                     Data Type
                   </label>
-                  <p className="text-sm">{selectedPolicy?.data_type || 'N/A'}</p>
+                  <p className="text-sm">{policyDetails?.details?.details?.signature?.split(' ')[1] || 'N/A'}</p>
                 </div>
               </div>
             </div>

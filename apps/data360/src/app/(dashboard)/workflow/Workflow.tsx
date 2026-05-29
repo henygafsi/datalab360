@@ -681,15 +681,21 @@ export default function WorkflowBuilder({
     handleCloseModals();
   };
 
+  const [confirmDeleteNodeId, setConfirmDeleteNodeId] = useState<string | null>(null);
+
   const handleDeleteNode = useCallback((nodeIdToDelete: string) => {
-    if (window.confirm("Are you sure you want to delete this node and its connections?")) {
-      setNodes((nds) => nds.filter((node) => node.id !== nodeIdToDelete));
-      setEdges((eds) => eds.filter((edge) => edge.source !== nodeIdToDelete && edge.target !== nodeIdToDelete));
-      setIsWorkflowSaved(false); // Prop setter
-      handleCloseModals();
-      toast.success("Node and its connections deleted successfully!");
-    }
-  }, [setNodes, setEdges, setIsWorkflowSaved]);
+    setConfirmDeleteNodeId(nodeIdToDelete);
+  }, []);
+
+  const executeDeleteNode = useCallback(() => {
+    if (!confirmDeleteNodeId) return;
+    setNodes((nds) => nds.filter((node) => node.id !== confirmDeleteNodeId));
+    setEdges((eds) => eds.filter((edge) => edge.source !== confirmDeleteNodeId && edge.target !== confirmDeleteNodeId));
+    setIsWorkflowSaved(false); // Prop setter
+    setConfirmDeleteNodeId(null);
+    handleCloseModals();
+    toast.success("Node and its connections deleted successfully!");
+  }, [confirmDeleteNodeId, setNodes, setEdges, setIsWorkflowSaved]);
 
 
   const handleCloseModals = () => {
@@ -725,6 +731,23 @@ export default function WorkflowBuilder({
       >
         <Background variant={BackgroundVariant.Dots} gap={12} size={1} />
         <Controls />
+        {confirmDeleteNodeId && (
+          <div className="fixed top-4 right-4 z-50 flex items-center gap-2 bg-red-50 dark:bg-red-900/20 rounded-lg p-3 shadow-lg border border-red-200 dark:border-red-800">
+            <span className="text-sm text-red-700 dark:text-red-300">Delete this node and its connections?</span>
+            <button
+              onClick={executeDeleteNode}
+              className="px-3 py-1 text-xs font-medium rounded bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setConfirmDeleteNodeId(null)}
+              className="px-3 py-1 text-xs font-medium rounded border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
         <MiniMap />
       </ReactFlow>
 

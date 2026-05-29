@@ -267,6 +267,7 @@ function FineTuningSection() {
   const [creating, setCreating] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [confirmCancelJob, setConfirmCancelJob] = useState<string | null>(null);
 
   const fetchJobs = useCallback(async () => {
     const result = await listFineTuneJobs();
@@ -295,10 +296,10 @@ function FineTuningSection() {
   };
 
   const handleCancel = async (jobId: string) => {
-    if (!confirm('Cancel this fine-tuning job?')) return;
     try {
       await cancelFineTuneJob(jobId);
       toast.success('Job cancelled');
+      setConfirmCancelJob(null);
       loadJobs();
     } catch (err: any) {
       toast.error(err.message || 'Failed to cancel job');
@@ -339,27 +340,45 @@ function FineTuningSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {(jobs ?? []).map((job: any, i: number) => (
-            <div key={i} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-              <div>
-                <h4 className="font-medium text-slate-900 dark:text-white">{job.model_name || job.name || job.MODEL_NAME || 'Job'}</h4>
-                <p className="text-sm text-slate-500 mt-0.5">Base: {job.base_model || job.BASE_MODEL || '-'}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge className={job.status === 'COMPLETED' || job.STATUS === 'COMPLETED' ? 'bg-green-100 text-green-800' : job.status === 'RUNNING' || job.STATUS === 'RUNNING' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-800'}>
-                  {job.status || job.STATUS || 'UNKNOWN'}
-                </Badge>
-                <Button variant="outline" size="sm" onClick={() => handleDescribe(job.id || job.job_id || job.JOB_ID)}>
-                  <PiInfo className="w-4 h-4" />
-                </Button>
-                {(job.status === 'RUNNING' || job.STATUS === 'RUNNING') && (
-                  <Button variant="outline" size="sm" onClick={() => handleCancel(job.id || job.job_id || job.JOB_ID)} className="text-red-600">
-                    <PiStop className="w-4 h-4" />
+          {(jobs ?? []).map((job: any, i: number) => {
+            const jobId = job.id || job.job_id || job.JOB_ID;
+            return (
+            <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-slate-900 dark:text-white">{job.model_name || job.name || job.MODEL_NAME || 'Job'}</h4>
+                  <p className="text-sm text-slate-500 mt-0.5">Base: {job.base_model || job.BASE_MODEL || '-'}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge className={job.status === 'COMPLETED' || job.STATUS === 'COMPLETED' ? 'bg-green-100 text-green-800' : job.status === 'RUNNING' || job.STATUS === 'RUNNING' ? 'bg-blue-100 text-blue-800' : 'bg-slate-100 text-slate-800'}>
+                    {job.status || job.STATUS || 'UNKNOWN'}
+                  </Badge>
+                  <Button variant="outline" size="sm" onClick={() => handleDescribe(jobId)}>
+                    <PiInfo className="w-4 h-4" />
                   </Button>
-                )}
+                  {(job.status === 'RUNNING' || job.STATUS === 'RUNNING') && confirmCancelJob !== jobId && (
+                    <Button variant="outline" size="sm" onClick={() => setConfirmCancelJob(jobId)} className="text-red-600">
+                      <PiStop className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
               </div>
+              {confirmCancelJob === jobId && (
+                <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-red-700 dark:text-red-300 font-medium">Cancel this fine-tuning job?</span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleCancel(jobId)}>
+                      Confirm
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmCancelJob(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -419,6 +438,7 @@ function ClassificationSection() {
   const [predictForm, setPredictForm] = useState({ model_name: '', input_table: '', database: '', schema: '' });
   const [metrics, setMetrics] = useState<any>(null);
   const [showMetrics, setShowMetrics] = useState(false);
+  const [confirmDropModel, setConfirmDropModel] = useState<string | null>(null);
 
   const fetchModels = useCallback(async () => {
     const result = await listClassificationModels();
@@ -479,10 +499,10 @@ function ClassificationSection() {
   };
 
   const handleDrop = async (model: string) => {
-    if (!confirm(`Drop classification model "${model}"?`)) return;
     try {
       await dropClassificationModel(model);
       toast.success('Model dropped');
+      setConfirmDropModel(null);
       loadModels();
     } catch (err: any) {
       toast.error(err.message || 'Failed to drop model');
@@ -518,22 +538,42 @@ function ClassificationSection() {
         </div>
       ) : (
         <div className="space-y-3">
-          {(models ?? []).map((m: any, i: number) => (
-            <div key={i} className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl">
-              <div>
-                <h4 className="font-medium text-slate-900 dark:text-white">{m.name || m.NAME || 'Model'}</h4>
-                <p className="text-sm text-slate-500 mt-0.5">{m.created_on || m.CREATED_ON || ''}</p>
+          {(models ?? []).map((m: any, i: number) => {
+            const modelName = m.name || m.NAME || 'Model';
+            return (
+            <div key={i} className="p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-medium text-slate-900 dark:text-white">{modelName}</h4>
+                  <p className="text-sm text-slate-500 mt-0.5">{m.created_on || m.CREATED_ON || ''}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => handleViewMetrics(modelName)} className="gap-1">
+                    <PiEye className="w-3.5 h-3.5" /> Metrics
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setConfirmDropModel(modelName)} className="gap-1 text-red-600 hover:bg-red-50">
+                    <PiTrash className="w-3.5 h-3.5" /> Drop
+                  </Button>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" onClick={() => handleViewMetrics(m.name || m.NAME)} className="gap-1">
-                  <PiEye className="w-3.5 h-3.5" /> Metrics
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => handleDrop(m.name || m.NAME)} className="gap-1 text-red-600 hover:bg-red-50">
-                  <PiTrash className="w-3.5 h-3.5" /> Drop
-                </Button>
-              </div>
+              {confirmDropModel === modelName && (
+                <div className="bg-red-50 dark:bg-red-950/30 rounded-lg p-2 flex items-center justify-between gap-2">
+                  <span className="text-xs text-red-700 dark:text-red-300 font-medium truncate">
+                    Drop classification model &ldquo;{modelName}&rdquo;?
+                  </span>
+                  <div className="flex gap-1.5 shrink-0">
+                    <Button size="sm" className="bg-red-600 hover:bg-red-700 text-white text-xs h-7 px-2.5" onClick={() => handleDrop(modelName)}>
+                      Confirm
+                    </Button>
+                    <Button size="sm" variant="outline" className="text-xs h-7 px-2.5 border-red-200 dark:border-red-800" onClick={() => setConfirmDropModel(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

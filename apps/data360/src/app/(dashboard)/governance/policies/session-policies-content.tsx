@@ -1,31 +1,33 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal, Badge } from 'rizzui';
+import { Button, Input, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
+import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
-  getSessionPolicies,
+  listPoliciesEnriched,
   getSessionPolicyDetails,
   createSessionPolicy,
   setSessionPolicyAsDefault,
   deleteSessionPolicy,
-  type SessionPolicy,
+  formatPolicyError,
+  type EnrichedPolicy,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
 
 export default function SessionPoliciesContent() {
-  const fetchPolicies = useCallback(() => getSessionPolicies().then(data => Array.isArray(data) ? data : []), []);
-  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<SessionPolicy[]>(
+  const fetchPolicies = useCallback(() => listPoliciesEnriched('SESSION'), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<SessionPolicy | null>(null);
+  const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
   const [policyDetails, setPolicyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -35,15 +37,14 @@ export default function SessionPoliciesContent() {
   const [sessionUIIdleTimeout, setSessionUIIdleTimeout] = useState('30');
   const [expirationDate, setExpirationDate] = useState('');
 
-  const handleViewDetails = async (policy: SessionPolicy) => {
+  const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
     setShowDetailsModal(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
 
     try {
-      const details = await getSessionPolicyDetails(policy.policy_name);
-      // console.log('Session policy details:', details);
+      const details = await getSessionPolicyDetails(policy.name);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -51,33 +52,6 @@ export default function SessionPoliciesContent() {
     } finally {
       setLoadingDetails(false);
     }
-  };
-
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -106,10 +80,8 @@ export default function SessionPoliciesContent() {
         session_ui_idle_timeout_mins: uiIdleTimeout,
         expiration_date: expirationDate || undefined,
       };
-      // console.log('[Session Create] Sending request:', requestData);
 
-      const result = await createSessionPolicy(requestData);
-      // console.log('[Session Create] Response:', result);
+      await createSessionPolicy(requestData);
 
       toast.success('Session policy created successfully!');
       setShowCreateModal(false);
@@ -117,34 +89,23 @@ export default function SessionPoliciesContent() {
       refetch();
     } catch (error: any) {
       console.error('Create session policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create policy'));
+      toast.error(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
-  const handleSetAsDefault = async (policy: SessionPolicy) => {
-    if (!confirm(`Set "${policy.policy_name}" as account default session policy?`)) return;
-
+  const handleSetAsDefault = async (policy: EnrichedPolicy) => {
     try {
-      await setSessionPolicyAsDefault(policy.policy_name);
+      await setSessionPolicyAsDefault(policy.name);
       toast.success('Session policy set as account default');
       refetch();
     } catch (error: any) {
       console.error('Set session policy as default error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to set as default'));
+      toast.error(formatPolicyError(error, 'Failed to set as default'));
     }
   };
 
-  const handleDelete = async (policy: SessionPolicy) => {
-    if (!confirm(`Delete session policy "${policy.policy_name}"?`)) return;
-
-    try {
-      await deleteSessionPolicy(policy.policy_name);
-      toast.success('Policy deleted successfully');
-      refetch();
-    } catch (error: any) {
-      console.error('Delete session policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
-    }
+  const handleDeletePolicy = async (policy: EnrichedPolicy) => {
+    await deleteSessionPolicy(policy.name);
   };
 
   const resetForm = () => {
@@ -191,63 +152,29 @@ export default function SessionPoliciesContent() {
       ) : (
         <div className="grid gap-4">
           {policies.map((policy) => (
-            <div
-              key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-indigo-300 transition-colors"
+            <PolicyCard
+              key={policy.name}
+              policy={policy}
+              accentColor="indigo"
+              policyType="session"
+              onViewDetails={handleViewDetails}
+              onDelete={handleDeletePolicy}
+              onRefresh={refetch}
+              entityLabel="object(s)"
             >
-              <div className="flex justify-between items-start mb-3">
-                <div
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={() => handleViewDetails(policy)}
+              {/* Set as Default action */}
+              <div className="mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleSetAsDefault(policy)}
+                  className="gap-1"
                 >
-                  <h3 className="font-semibold text-lg text-indigo-600 hover:text-indigo-700">
-                    {String(policy.policy_name || '')}
-                  </h3>
-                  {policy.is_default && (
-                    <Badge variant="flat" className="bg-indigo-100 text-indigo-700">
-                      Default
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  {!policy.is_default && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSetAsDefault(policy)}
-                    >
-                      <HiCheckCircle className="w-4 h-4 mr-1" />
-                      Set as Default
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    color="danger"
-                    onClick={() => handleDelete(policy)}
-                  >
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </Button>
-                </div>
+                  <HiCheckCircle className="w-4 h-4" />
+                  Set as Default
+                </Button>
               </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500 mb-1">Session Idle Timeout</p>
-                  <p className="text-lg font-semibold">{String(policy.session_idle_timeout_mins || 'N/A')} minutes</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    Maximum inactivity before logout
-                  </p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-3 rounded">
-                  <p className="text-xs text-slate-500 mb-1">UI Idle Timeout</p>
-                  <p className="text-lg font-semibold">{String(policy.session_ui_idle_timeout_mins || 'N/A')} minutes</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    UI inactivity warning threshold
-                  </p>
-                </div>
-              </div>
-            </div>
+            </PolicyCard>
           ))}
         </div>
       )}
@@ -323,7 +250,7 @@ export default function SessionPoliciesContent() {
       <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
         <div className="p-6 space-y-4">
           <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.policy_name}
+            Policy Details: {selectedPolicy?.name}
           </h2>
 
           {loadingDetails ? (
@@ -338,7 +265,7 @@ export default function SessionPoliciesContent() {
                   Policy Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                  {policyDetails.policy_name || selectedPolicy?.name || 'N/A'}
                 </code>
               </div>
 
@@ -347,8 +274,7 @@ export default function SessionPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Session Idle Timeout</p>
                   <p className="text-2xl font-semibold">
                     {policyDetails.details?.SESSION_IDLE_TIMEOUT_MINS ??
-                     policyDetails.details?.session_idle_timeout_mins ??
-                     selectedPolicy?.session_idle_timeout_mins ?? 'N/A'}
+                     policyDetails.details?.session_idle_timeout_mins ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">minutes</p>
                   <p className="text-xs text-slate-500 mt-2">
@@ -359,8 +285,7 @@ export default function SessionPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">UI Idle Timeout</p>
                   <p className="text-2xl font-semibold">
                     {policyDetails.details?.SESSION_UI_IDLE_TIMEOUT_MINS ??
-                     policyDetails.details?.session_ui_idle_timeout_mins ??
-                     selectedPolicy?.session_ui_idle_timeout_mins ?? 'N/A'}
+                     policyDetails.details?.session_ui_idle_timeout_mins ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500 mt-1">minutes</p>
                   <p className="text-xs text-slate-500 mt-2">

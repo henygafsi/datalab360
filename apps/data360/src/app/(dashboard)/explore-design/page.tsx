@@ -54,6 +54,9 @@ import VirtualizedTableList, { TableItem, ColumnInfo } from '../mapping/componen
 import TableDetailPanel, { TableConfig, IngestionMode, IngestionConfig, MaskingConfig } from '../mapping/components/TableDetailPanel';
 import dynamic from 'next/dynamic';
 const ModelingCanvas = dynamic(() => import('./components/ModelingCanvas'), { ssr: false });
+const SourceMindMap = dynamic(() => import('./components/SourceMindMap'), { ssr: false });
+const ContextRightBar = dynamic(() => import('./components/ContextRightBar'), { ssr: false });
+import type { RightBarTab, FocusedAction } from './components/ContextRightBar';
 import EventTable from './components/EventTable';
 import TableToolbar from './components/TableToolbar';
 import DeploymentValidation from './components/DeploymentValidation';
@@ -899,6 +902,8 @@ export default function ExploreDesignPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { username: currentUsername } = useAuth();
+  const { data: sessionData } = useSession();
+  const sessionRole = (sessionData?.user as any)?.role as string | undefined;
 
   // Connection status from SSE provider
   const { isConnected, error: connectionError } = useCacheInvalidationContext();
@@ -1060,6 +1065,12 @@ export default function ExploreDesignPage() {
     loading: boolean;
   }>({ isOpen: false, type: 'dynamic_tables', schema: '', items: [], loading: false });
 
+  // Inline confirmation for destructive drop actions (replaces browser confirm())
+  const [confirmDrop, setConfirmDrop] = useState<{
+    type: 'dynamic_table' | 'stream' | 'alert' | 'schema';
+    name: string;
+  } | null>(null);
+
   // Track excluded columns per table
   const [excludedColumns, setExcludedColumns] = useState<Map<string, Set<string>>>(new Map());
 
@@ -1113,6 +1124,12 @@ export default function ExploreDesignPage() {
   const [renameTableModal, setRenameTableModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
   const [renameColumnModal, setRenameColumnModal] = useState<{ open: boolean; currentName: string }>({ open: false, currentName: '' });
   const [addColumnModal, setAddColumnModal] = useState(false);
+  const [rightRailAction, setRightRailAction] = useState<'add_column' | 'policies' | 'ingestion' | 'rename_table' | 'rename_column' | 'primary_key' | null>(null);
+  const [rightRailColumnTarget, setRightRailColumnTarget] = useState<string>('');
+  const [rightBarOpen, setRightBarOpen] = useState(false);
+  const [activeRightTab, setActiveRightTab] = useState<RightBarTab>('actions');
+  const [focusedAction, setFocusedAction] = useState<FocusedAction>(null);
+  const [classificationDetails, setClassificationDetails] = useState<Array<{ column: string; category: string; tags?: string[]; confidence?: number; description?: string; piiRisk?: string; suggestion?: string }>>([]);
   const [addColName, setAddColName] = useState('');
   const [addColType, setAddColType] = useState('VARCHAR');
   const [addColComputed, setAddColComputed] = useState(false);
@@ -1486,12 +1503,23 @@ export default function ExploreDesignPage() {
       try {
         const dbList = await getDatabases();
         setDatabases(Array.isArray(dbList) ? dbList : []);
-        // Auto-select CP_DATA360 (or first available) when no database is selected
         if (Array.isArray(dbList) && dbList.length > 0) {
-          setSelectedDatabase(prev => {
-            if (prev) return prev; // Already selected — don't override
-            return dbList[0];
-          });
+          const firstDb = dbList[0];
+          setSelectedDatabase(prev => prev || firstDb);
+          // Auto-load schemas for ALL databases in parallel, skip system schemas
+          const allSchemasMap = new Map<string, string>();
+          const allSchemaNames: string[] = [];
+          await Promise.allSettled(dbList.map(async (db: string) => {
+            try {
+              const schemaList = await getSchemas(db);
+              if (schemaList) schemaList.forEach((s: string) => {
+                allSchemasMap.set(s, db);
+                allSchemaNames.push(s);
+              });
+            } catch { /* skip inaccessible db */ }
+          }));
+          setSchemas(allSchemaNames);
+          setSelectedSchemas(allSchemasMap);
         }
       } catch (error: any) {
         console.error('[Explore-Design] Failed to load databases:', error);
@@ -1691,19 +1719,24 @@ export default function ExploreDesignPage() {
     setDefaultModelingTablesLoaded(true);
   }, [viewMode, modelingChoice, defaultModelingTablesLoaded, dwhTargetDatabase, dwhTargetSchema, selectedProjectId, selectedDatabase, tables.length, targetTableIds.size, addEvent]);
 
-  // Load schemas when database changes
+  // Load schemas when database changes (skip — all-DB load handles this now)
   useEffect(() => {
     if (!selectedDatabase) {
-      setSchemas([]);
-      return;
+      return; // schemas loaded by all-DB effect
     }
+    // Skip single-DB schema load — all-DB effect handles this
+    return;
 
     const loadSchemas = async () => {
       setIsLoadingSchemas(true);
       try {
         const schemaList = await getSchemas(selectedDatabase);
         setSchemas(schemaList || []);
-      
+        if (schemaList && schemaList.length > 0) {
+          const allMap = new Map<string, string>();
+          schemaList.forEach((s: string) => allMap.set(s, selectedDatabase));
+          setSelectedSchemas(allMap);
+        }
       } catch (error) {
         console.error('[Explore-Design] Failed to load schemas:', error);
         toast.error('Failed to load schemas');
@@ -1760,8 +1793,12 @@ export default function ExploreDesignPage() {
           // Combine: existing DWH tables + new schema tables
           return [...uniqueTargetTables, ...newTables];
         });
-        // Expanded schemas is still Set<string> of schema names
-        setExpandedSchemas(new Set(selectedSchemas.keys()));
+        // Expand using DB.SCHEMA keys to match VirtualizedTableList grouping
+        const expandKeys = new Set<string>();
+        for (const [schemaName, dbName] of Array.from(selectedSchemas.entries())) {
+          expandKeys.add(`${dbName}.${schemaName}`);
+        }
+        setExpandedSchemas(expandKeys);
 
         // Load columns for new tables (for modeling view)
         // Only load for tables not already in tableColumnsMap
@@ -1910,9 +1947,15 @@ export default function ExploreDesignPage() {
     setInlineProfileData(null);
   }, [selectedTable?.id]);
 
-  // Inline preview is INDEPENDENT from the column-metadata fetch:
-  // even if `get_table_columns` errors, the user can still preview rows.
+  // Auto-load preview when table is selected (no toggle needed)
   const [inlinePreviewError, setInlinePreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!selectedTable || !selectedProjectId) return;
+    setShowInlinePreview(true);
+    setShowInlineProfile(true);
+    setRightBarOpen(true);
+    setActiveRightTab('actions');
+  }, [selectedTable?.id, selectedProjectId]);
   useEffect(() => {
     if (!showInlinePreview || !selectedTable || !selectedProjectId) return;
     let cancelled = false;
@@ -2914,6 +2957,18 @@ export default function ExploreDesignPage() {
         next.set(selectedTable.id, classRecord);
         return next;
       });
+      const details = Array.isArray(classArray) ? classArray.map((c: any) => ({
+        column: c.column || '',
+        category: c.category || 'UNKNOWN',
+        tags: c.tags || c.semantic_tags || [c.category?.toLowerCase()].filter(Boolean),
+        confidence: c.confidence ?? c.score ?? 0.85,
+        description: c.description || c.explanation || `Detected as ${(c.category || 'unknown').toLowerCase().replace(/_/g, ' ')}`,
+        piiRisk: c.pii_risk || c.pii_type || (c.category === 'PII_CANDIDATE' ? 'high' : undefined),
+        suggestion: c.suggestion || c.recommended_action || null,
+      })) : [];
+      setClassificationDetails(details);
+      setActiveRightTab('ai');
+      if (!rightBarOpen) setRightBarOpen(true);
       toast.success(`AI classified ${Object.keys(classRecord).length} columns`);
     } catch (err: any) {
       const errMsg = err?.response?.data?.message || err?.response?.data?.detail || 'AI classification failed';
@@ -2970,6 +3025,16 @@ export default function ExploreDesignPage() {
   // Data engineering action handlers
   const handleDataEngAction = useCallback(async (objectName: string, action: string) => {
     if (!selectedDatabase || !dataEngModal.schema) return;
+    // For drop actions, show inline confirmation instead of browser confirm()
+    if (action === 'drop') {
+      const typeMap: Record<string, 'dynamic_table' | 'stream' | 'alert'> = {
+        dynamic_tables: 'dynamic_table',
+        streams: 'stream',
+        alerts: 'alert',
+      };
+      setConfirmDrop({ type: typeMap[dataEngModal.type], name: objectName });
+      return;
+    }
     const db = selectedDatabase;
     const schema = dataEngModal.schema;
     const toastId = toast.loading(`${action} ${objectName}...`);
@@ -2978,33 +3043,12 @@ export default function ExploreDesignPage() {
         if (action === 'suspend') await suspendDynamicTable(objectName, db, schema);
         else if (action === 'resume') await resumeDynamicTable(objectName, db, schema);
         else if (action === 'refresh') await refreshDynamicTable(objectName, db, schema);
-        else if (action === 'drop') {
-          if (!confirm(`Drop dynamic table "${objectName}"? This cannot be undone.`)) {
-            toast.dismiss(toastId);
-            return;
-          }
-          await dropDynamicTable(objectName, db, schema);
-        }
       } else if (dataEngModal.type === 'streams') {
         if (action === 'view_data') {
           const data = await getStreamData(objectName, db, schema);
           toast.dismiss(toastId);
           toast.success(`Stream has ${data?.rows?.length || 0} change records`);
           return;
-        } else if (action === 'drop') {
-          if (!confirm(`Drop stream "${objectName}"? This cannot be undone.`)) {
-            toast.dismiss(toastId);
-            return;
-          }
-          await dropStream(objectName, db, schema);
-        }
-      } else if (dataEngModal.type === 'alerts') {
-        if (action === 'drop') {
-          if (!confirm(`Drop alert "${objectName}"? This cannot be undone.`)) {
-            toast.dismiss(toastId);
-            return;
-          }
-          await dropAlert(objectName, db, schema);
         }
       }
       toast.dismiss(toastId);
@@ -3016,6 +3060,35 @@ export default function ExploreDesignPage() {
       toast.error(err?.response?.data?.detail || `${action} failed`);
     }
   }, [selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
+
+  // Execute a confirmed drop action (called from the inline confirmation bar)
+  const executeConfirmedDrop = useCallback(async () => {
+    if (!confirmDrop) return;
+    const { type, name } = confirmDrop;
+    setConfirmDrop(null);
+
+    if (type === 'schema') {
+      // Schema drop is a placeholder — just queue it
+      toast.error(`Drop schema ${name} - operation queued`);
+      return;
+    }
+
+    if (!selectedDatabase || !dataEngModal.schema) return;
+    const db = selectedDatabase;
+    const schema = dataEngModal.schema;
+    const toastId = toast.loading(`Dropping ${type.replace('_', ' ')} "${name}"...`);
+    try {
+      if (type === 'dynamic_table') await dropDynamicTable(name, db, schema);
+      else if (type === 'stream') await dropStream(name, db, schema);
+      else if (type === 'alert') await dropAlert(name, db, schema);
+      toast.dismiss(toastId);
+      toast.success(`drop "${name}" completed`);
+      handleListDataEngObjects(schema, dataEngModal.type);
+    } catch (err: any) {
+      toast.dismiss(toastId);
+      toast.error(err?.response?.data?.detail || `drop failed`);
+    }
+  }, [confirmDrop, selectedDatabase, dataEngModal.schema, dataEngModal.type, handleListDataEngObjects]);
 
   // Schema action handler
   const handleSchemaAction = useCallback((schema: string, action: string) => {
@@ -3066,9 +3139,7 @@ export default function ExploreDesignPage() {
         handleListDataEngObjects(schema, 'alerts');
         break;
       case 'drop_schema':
-        if (confirm(`Are you sure you want to drop schema ${schema}? This action cannot be undone.`)) {
-          toast.error(`Drop schema ${schema} - operation queued`);
-        }
+        setConfirmDrop({ type: 'schema', name: schema });
         break;
       default:
         toast.error(`Unknown action: ${action}`);
@@ -3124,6 +3195,31 @@ export default function ExploreDesignPage() {
               Sign In
             </Button>
           </div>
+        </div>
+      )}
+
+      {/* Inline confirmation bar for schema drops */}
+      {confirmDrop?.type === 'schema' && (
+        <div className="flex items-center gap-3 border-b border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+          <AlertTriangle className="h-5 w-5 text-red-500 shrink-0" />
+          <p className="flex-1 text-sm text-red-800 dark:text-red-200">
+            Drop schema <span className="font-semibold">{confirmDrop.name}</span>? This action cannot be undone.
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setConfirmDrop(null)}
+            className="text-xs"
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            onClick={executeConfirmedDrop}
+            className="text-xs bg-red-600 hover:bg-red-700 text-white border-red-600"
+          >
+            Confirm Drop
+          </Button>
         </div>
       )}
 
@@ -3243,7 +3339,8 @@ export default function ExploreDesignPage() {
                     return;
                   }
                 }
-                setShowDeploymentModal(true);
+                setActiveRightTab('deploy');
+                if (!rightBarOpen) setRightBarOpen(true);
               }}
               disabled={!selectedProjectId || isReadOnly}
             >
@@ -3341,10 +3438,10 @@ export default function ExploreDesignPage() {
                   activeColor: 'blue',
                 },
                 {
-                  label: showEventPanel ? 'Hide Events' : 'Show Events',
+                  label: 'History',
                   icon: PanelRight,
-                  onClick: () => setShowEventPanel(!showEventPanel),
-                  active: showEventPanel,
+                  onClick: () => { setActiveRightTab('history'); if (!rightBarOpen) setRightBarOpen(true); },
+                  active: activeRightTab === 'history' && rightBarOpen,
                   activeColor: 'blue',
                 },
               ]}
@@ -3422,7 +3519,8 @@ export default function ExploreDesignPage() {
       {/* Unified Project Context (Deployment / History / Grants / Errors / Recos).
           Hidden entirely when no project is selected so the workspace empty
           state below gets the full vertical space. */}
-      {!isFullscreen && selectedProjectId && (
+      {/* ProjectContextPanel removed — all tabs now in ContextRightBar */}
+      {false && !isFullscreen && selectedProjectId && (
         <ProjectContextPanel
           projectId={selectedProjectId}
           projectName={selectedProjectName}
@@ -3430,16 +3528,36 @@ export default function ExploreDesignPage() {
           defaultExpanded={false}
           hideWhenEmpty={false}
           deploymentSlot={selectedProjectId ? (
-            <div className="p-4">
-              <p className="text-sm text-slate-600 dark:text-slate-400">
-                Pending events: {displayablePendingEvents.length}. Use the Deploy button in the toolbar to validate and deploy.
-              </p>
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Pending events: <span className="font-semibold text-slate-900 dark:text-white">{displayablePendingEvents.length}</span>
+                </p>
+                {displayablePendingEvents.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                    Ready to deploy
+                  </span>
+                )}
+              </div>
               <button
-                onClick={() => window.location.href = `/workflow?source=explore-design&project_id=${selectedProjectId}&database=${selectedDatabase}&schema=${firstSchemaName}`}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors mt-2"
+                onClick={async () => {
+                  if (readOnlyGuard()) return;
+                  const eventIds = pendingEvents.map((e) => e.id);
+                  if (eventIds.length > 0) {
+                    const hasConflicts = await checkForConflicts(eventIds);
+                    if (hasConflicts) {
+                      pendingConflictAction.current = { type: 'deploy', eventIds };
+                      return;
+                    }
+                  }
+                  setActiveRightTab('deploy');
+                  if (!rightBarOpen) setRightBarOpen(true);
+                }}
+                disabled={isReadOnly}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 transition-colors disabled:opacity-50"
               >
-                <ArrowRight className="h-3.5 w-3.5" />
-                Open in Workflow
+                <Rocket className="h-3.5 w-3.5" />
+                Open Deployment Pipeline
               </button>
             </div>
           ) : undefined}
@@ -3463,8 +3581,8 @@ export default function ExploreDesignPage() {
         />
       )}
 
-      {/* Compact Source Selector - Horizontal bar (hidden until project selected) */}
-      {!isFullscreen && selectedProjectId && (
+      {/* Compact Source Selector — hidden, auto-load replaces it */}
+      {false && !isFullscreen && selectedProjectId && (
         <CompactSourceSelector
           databases={databases}
           selectedDatabase={selectedDatabase}
@@ -3761,8 +3879,10 @@ export default function ExploreDesignPage() {
                 </div>
               </div>
 
+              {/* Center + Right Bar row */}
+              <div className="flex flex-1 overflow-hidden min-h-0">
               {/* Table Detail Panel - Now in CENTER */}
-              <div className="flex-1 overflow-auto">
+              <div className="flex-1 overflow-auto min-w-0">
                 {selectedTable ? (
                   <div className="p-4 max-w-4xl mx-auto">
                     {/* Table Header with Name & Status */}
@@ -3793,357 +3913,75 @@ export default function ExploreDesignPage() {
                         </div>
                       </div>
 
-                      {/* Quick Actions Grid — 6 per-table actions with
-                          motion micro-interactions: hover lift, tap squeeze,
-                          stagger entrance. Toggle-on state uses a gradient
-                          ring instead of the older single-tone border. */}
-                      <div className="px-5 py-4">
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-                          {[
-                            {
-                              icon: Eye,
-                              label: showInlinePreview ? 'Hide Preview' : 'Preview Data',
-                              active: showInlinePreview,
-                              color: 'blue',
-                              onClick: () => {
-                                setShowInlinePreview((p) => !p);
-                                if (!showInlinePreview) setShowInlineProfile(false);
-                              },
-                            },
-                            {
-                              icon: BarChart3,
-                              label: showInlineProfile ? 'Hide Profile' : 'Data Profile',
-                              active: showInlineProfile,
-                              color: 'purple',
-                              onClick: () => {
-                                setShowInlineProfile((p) => !p);
-                                if (!showInlineProfile) setShowInlinePreview(false);
-                              },
-                            },
-                            {
-                              icon: FileText,
-                              label: 'Rename',
-                              color: 'slate',
-                              onClick: () => {
-                                if (readOnlyGuard()) return;
-                                setRenameTableModal({
-                                  open: true,
-                                  currentName: selectedTable.table,
-                                });
-                              },
-                            },
-                            {
-                              icon: RefreshCw,
-                              label: 'Ingestion',
-                              color: 'cyan',
-                              onClick: () => setShowIngestionPanel(true),
-                            },
-                            {
-                              icon: Shield,
-                              label: 'Policies',
-                              color: 'emerald',
-                              onClick: () => setShowCatalogPolicyPanel(true),
-                            },
-                            {
-                              icon: Key,
-                              label: 'Primary Key',
-                              color: 'amber',
-                              onClick: () => {
-                                if (readOnlyGuard()) return;
-                                if (!selectedTable) return;
-                                setPrimaryKeyModal(true);
-                              },
-                            },
-                          ].map((a, i) => {
-                            const Icon = a.icon;
-                            return (
-                              <motion.button
-                                key={a.label}
-                                initial={{ opacity: 0, y: 6 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                transition={{ duration: 0.22, delay: i * 0.03 }}
-                                whileHover={{ y: -2 }}
-                                whileTap={{ scale: 0.96 }}
-                                onClick={a.onClick}
-                                className={cn(
-                                  'group relative flex flex-col items-center gap-2 overflow-hidden rounded-xl border p-3 shadow-sm transition-shadow hover:shadow-md',
-                                  a.active
-                                    ? `border-${a.color}-300 bg-gradient-to-b from-${a.color}-50 to-white ring-1 ring-${a.color}-300/40 dark:border-${a.color}-700 dark:from-${a.color}-900/40 dark:to-slate-900`
-                                    : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-900/60 dark:hover:border-slate-600',
-                                )}
-                              >
-                                {/* Subtle radial halo on hover, matches accent */}
-                                <span
-                                  className={cn(
-                                    'pointer-events-none absolute -top-6 left-1/2 h-16 w-16 -translate-x-1/2 rounded-full blur-2xl transition-opacity duration-300',
-                                    a.active ? 'opacity-100' : 'opacity-0 group-hover:opacity-60',
-                                    `bg-${a.color}-400/40`,
-                                  )}
-                                />
-                                <Icon
-                                  className={cn(
-                                    'relative h-5 w-5 transition-transform duration-200 group-hover:scale-110',
-                                    `text-${a.color}-600 dark:text-${a.color}-400`,
-                                  )}
-                                />
-                                <span
-                                  className={cn(
-                                    'relative text-xs font-medium',
-                                    a.active
-                                      ? `text-${a.color}-700 dark:text-${a.color}-300`
-                                      : 'text-slate-700 dark:text-slate-200',
-                                  )}
-                                >
-                                  {a.label}
-                                </span>
-                              </motion.button>
-                            );
-                          })}
-                          {/*<button
-                            className="flex flex-col items-center gap-2 p-3 rounded-lg border dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-sm hover:-translate-y-0.5 transition-all duration-150"
-                            onClick={() => toast('Column naming rules — coming soon')}
-                          >
-                            <Columns3 className="h-5 w-5 text-slate-500" />
-                            <span className="text-xs font-medium">Column Names</span>
-                          </button>*/}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Columns Section */}
-                    <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800">
-                      <div className="px-5 py-3 border-b dark:border-slate-800 flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <Columns3 className="h-4 w-4 text-slate-500" />
-                          <span className="font-medium">{tableColumns.length} Columns</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Tooltip content="AI-classify columns as PII, Measure, Dimension, etc.">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="gap-1 text-xs"
-                              disabled={isClassifying || !selectedProjectId}
-                              onClick={handleAIClassify}
-                            >
-                              {isClassifying ? (
-                                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Sparkles className="h-3.5 w-3.5 text-purple-500" />
-                              )}
-                              AI Classify
-                            </Button>
-                          </Tooltip>
-                          <Tooltip content="Train a full ML classification model in Intelligence">
-                            <a
-                              href="/intelligent?tab=advanced-ml&subtab=classification"
-                              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
-                            >
-                              <Sparkles className="h-3 w-3" />
-                              Train Model
-                            </a>
-                          </Tooltip>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="gap-1 text-xs"
-                            disabled={isReadOnly}
-                            onClick={() => {
-                              if (readOnlyGuard()) return;
-                              if (!selectedTable) return;
-                              if (!selectedProjectId) {
-                                toast.error('Please select a project first');
-                                return;
-                              }
-
-                              setAddColumnModal(true);
-                            }}
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                            Add Column
-                          </Button>
-                        </div>
-                      </div>
-
-                      {/* Column List */}
-                      <div className="divide-y dark:divide-slate-800">
-                        {isLoadingColumns ? (
-                          <div className="flex items-center justify-center py-8">
-                            <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
-                          </div>
-                        ) : tableColumns.length > 0 ? (
-                          tableColumns.map((col, idx) => (
-                            <div
-                              key={col.name}
-                              className="px-5 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 group"
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-2 min-w-[200px]">
-                                  {col.isPrimaryKey && (
-                                    <Tooltip content="Primary Key">
-                                      <div className="p-1 bg-amber-100 dark:bg-amber-900/30 rounded">
-                                        <Key className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                                      </div>
-                                    </Tooltip>
-                                  )}
-                                  {col.isSensitive && !col.isPrimaryKey && (
-                                    <Tooltip content="Sensitive Column">
-                                      <div className="p-1 bg-red-100 dark:bg-red-900/30 rounded">
-                                        <Shield className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />
-                                      </div>
-                                    </Tooltip>
-                                  )}
-                                  {!col.isPrimaryKey && !col.isSensitive && (
-                                    <div className="w-6" />
-                                  )}
-                                  <span className="font-mono text-xs">{col.name}</span>
-                                </div>
-                                {col.isPrimaryKey && (
-                                  <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-xs font-medium">
-                                    PK
-                                  </Badge>
-                                )}
-                                <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-mono px-1 py-0">
-                                  {col.dataType}
-                                </Badge>
-                                {!col.isNullable && (
-                                  <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400 text-xs">
-                                    NOT NULL
-                                  </Badge>
-                                )}
-                                {/* AI Classification Badges */}
-                                <ClassificationBadge tableId={selectedTable?.id || ''} columnName={col.name} classifications={columnClassifications} />
-                              </div>
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                {/* Preview & Profile Button */}
-                                <Tooltip content="Preview Data & Profile">
-                                  <button
-                                    aria-label="Preview data and profile"
-                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                    onClick={() => setColumnPreviewModal({ isOpen: true, column: col })}
-                                  >
-                                    <BarChart3 className="h-4 w-4 text-slate-400 hover:text-purple-500" />
-                                  </button>
-                                </Tooltip>
-                                {/* Primary Key Button */}
-                                <Tooltip content={col.isPrimaryKey ? "Remove Primary Key" : "Set as Primary Key"}>
-                                  <button
-                                    aria-label={col.isPrimaryKey ? "Remove primary key" : "Set as primary key"}
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      col.isPrimaryKey && "bg-amber-100 dark:bg-amber-900/30"
-                                    )}
-                                    onClick={() => {
-                                      if (readOnlyGuard()) return;
-                                      if (!selectedTable) return;
-
-                                      if (!col.isPrimaryKey) {
-                                        handleAddPrimaryKey(
-                                          selectedTable.database,
-                                          selectedTable.schema,
-                                          selectedTable.table,
-                                          [col.name]
-                                        );
-                                      } else {
-                                        const target = {
-                                          database: selectedTable.database,
-                                          schema: selectedTable.schema,
-                                          table: selectedTable.table,
-                                        };
-                                        addEvent(createPrimaryKeyEvent(target, [col.name], false));
-                                        toast.success(`Remove PK "${col.name}" added to pending changes`);
-                                      }
-                                    }}
-                                  >
-                                    <Key className={cn("h-4 w-4", col.isPrimaryKey ? "text-amber-500" : "text-slate-400 hover:text-amber-500")} />
-                                  </button>
-                                </Tooltip>
-                                {/* Sensitive Column Button */}
-                                <Tooltip content={col.isSensitive ? "Manage Sensitive Marking" : "Mark as Sensitive"}>
-                                  <button
-                                    aria-label={col.isSensitive ? "Manage sensitive marking" : "Mark as sensitive"}
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      col.isSensitive && "bg-red-100 dark:bg-red-900/30"
-                                    )}
-                                    onClick={() => { if (readOnlyGuard()) return; setSensitiveColumnModal({ isOpen: true, column: col }); }}
-                                  >
-                                    <Shield className={cn("h-4 w-4", col.isSensitive ? "text-red-500" : "text-slate-400 hover:text-red-500")} />
-                                  </button>
-                                </Tooltip>
-                                {/* Exclude from Modeling Button */}
-                                <Tooltip content={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in Modeling" : "Exclude from Modeling"}>
-                                  <button
-                                    aria-label={excludedColumns.get(selectedTable?.id || '')?.has(col.name) ? "Include in modeling" : "Exclude from modeling"}
-                                    className={cn(
-                                      "p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700",
-                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name) && "bg-slate-200 dark:bg-slate-700"
-                                    )}
-                                    onClick={() => { if (readOnlyGuard()) return; setColumnExclusionModal({ isOpen: true, column: col }); }}
-                                  >
-                                    <MinusCircle className={cn(
-                                      "h-4 w-4",
-                                      excludedColumns.get(selectedTable?.id || '')?.has(col.name)
-                                        ? "text-slate-600"
-                                        : "text-slate-400 hover:text-slate-600"
-                                    )} />
-                                  </button>
-                                </Tooltip>
-                                {/* Rename Column Button */}
-                                <Tooltip content="Rename Column">
-                                  <button
-                                    aria-label="Rename column"
-                                    className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                                    onClick={() => {
-                                      if (readOnlyGuard()) return;
-                                      if (!selectedTable) return;
-                                      setRenameColumnModal({ open: true, currentName: col.name });
-                                    }}
-                                  >
-                                    <FileText className="h-4 w-4 text-slate-400 hover:text-blue-500" />
-                                  </button>
-                                </Tooltip>
-                              </div>
-                            </div>
-                          ))
-                        ) : columnsLoadError ? (
-                          <div className="py-8 text-center text-slate-500">
-                            <AlertCircle className="h-8 w-8 mx-auto mb-2 text-amber-500" />
-                            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
-                              {columnsLoadError.kind === 'timeout'
-                                ? 'Snowflake query timed out'
-                                : 'Could not load columns'}
-                            </p>
-                            <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
-                              {columnsLoadError.message}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={() => setColumnsLoadAttempt((n) => n + 1)}
-                              className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-900/40 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-900/60"
-                            >
-                              <RefreshCw className="h-3 w-3" /> Retry
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="py-8 text-center text-slate-500">
-                            <Columns3 className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-                            <p className="text-sm">No columns loaded</p>
-                          </div>
+                      {/* Compact KPI strip — profile stats inline */}
+                      <div className="px-5 py-2.5 flex items-center gap-3 flex-wrap">
+                        <span className="text-xs text-slate-500 flex items-center gap-1">
+                          <Columns3 className="h-3.5 w-3.5" />
+                          {tableColumns.length} cols
+                        </span>
+                        {inlineProfileData && (
+                          <>
+                            <span className="text-xs text-slate-500">{inlineProfileData.row_count.toLocaleString()} rows</span>
+                            <span className={cn('text-xs font-medium', inlineProfileData.aggregate_quality_score >= 80 ? 'text-green-600' : inlineProfileData.aggregate_quality_score >= 60 ? 'text-amber-600' : 'text-red-600')}>
+                              Quality {inlineProfileData.aggregate_quality_score}%
+                            </span>
+                          </>
                         )}
+                        {tableColumns.some((c) => c.isPrimaryKey) && (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-amber-600"><Key className="h-3 w-3" />{tableColumns.filter((c) => c.isPrimaryKey).length} PK</span>
+                        )}
+                        {tableColumns.some((c) => c.isSensitive) && (
+                          <span className="inline-flex items-center gap-0.5 text-xs text-red-500"><Shield className="h-3 w-3" />{tableColumns.filter((c) => c.isSensitive).length} PII</span>
+                        )}
+                        <span className="flex-1" />
+                        {/* Quick actions → open right bar tabs */}
+                        <button
+                          onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          disabled={isReadOnly}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 rounded-md hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                        >
+                          <Plus className="h-3 w-3" /> Add Column
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('actions'); setFocusedAction('policies'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-emerald-600 dark:text-emerald-400 rounded-md hover:bg-emerald-50 dark:hover:bg-emerald-900/30 transition-colors"
+                        >
+                          <Shield className="h-3 w-3" /> Policies
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('actions'); setFocusedAction('ingestion'); if (!rightBarOpen) setRightBarOpen(true); }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-cyan-600 dark:text-cyan-400 rounded-md hover:bg-cyan-50 dark:hover:bg-cyan-900/30 transition-colors"
+                        >
+                          <RefreshCw className="h-3 w-3" /> Ingestion
+                        </button>
+                        <button
+                          onClick={() => { setActiveRightTab('ai'); if (!rightBarOpen) setRightBarOpen(true); handleAIClassify(); }}
+                          disabled={isClassifying || !selectedProjectId}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-purple-600 dark:text-purple-400 rounded-md hover:bg-purple-50 dark:hover:bg-purple-900/30 transition-colors disabled:opacity-50"
+                        >
+                          {isClassifying ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} AI Classify
+                        </button>
                       </div>
                     </div>
 
-                    {/* Inline Data Preview Panel */}
+                    {/* Unified Data Preview — columns, types, badges and data in one table */}
                     {showInlinePreview && (
-                      <div className="mt-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
+                      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
                         <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-2.5 flex items-center justify-between border-b border-blue-100 dark:border-blue-800">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <Eye className="h-4 w-4 text-blue-600" />
                             <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Data Preview</span>
                             {inlinePreviewData && (
                               <Badge className="bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-400 text-[10px]">
-                                {inlinePreviewData.total_rows.toLocaleString()} total rows
+                                {inlinePreviewData.total_rows.toLocaleString()} rows
+                              </Badge>
+                            )}
+                            <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[10px] gap-1">
+                              <Lock className="h-2.5 w-2.5" />as {sessionRole || userRole || 'accountadmin'}
+                            </Badge>
+                            {tableColumns.some((c) => c.isSensitive) && (
+                              <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] gap-1">
+                                <Shield className="h-2.5 w-2.5" />{tableColumns.filter((c) => c.isSensitive).length} masked
                               </Badge>
                             )}
                           </div>
@@ -4155,7 +3993,7 @@ export default function ExploreDesignPage() {
                             <X className="h-3.5 w-3.5" />
                           </button>
                         </div>
-                        <div className="overflow-x-auto max-h-60">
+                        <div className="overflow-x-auto">
                           {isLoadingInlinePreview ? (
                             <div className="flex items-center justify-center py-8">
                               <RefreshCw className="h-5 w-5 animate-spin text-blue-400" />
@@ -4166,9 +4004,96 @@ export default function ExploreDesignPage() {
                               <thead>
                                 <tr className="bg-slate-50 dark:bg-slate-800 border-b dark:border-slate-700">
                                   <th className="px-2.5 py-1.5 text-left font-medium text-slate-500 w-8">#</th>
-                                  {inlinePreviewData.columns.map((col: string) => (
-                                    <th key={col} className="px-2.5 py-1.5 text-left font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">{col}</th>
-                                  ))}
+                                  {inlinePreviewData.columns.map((col: string) => {
+                                    const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                    return (
+                                      <th key={col} className="px-2.5 py-1.5 text-left whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          {colMeta?.isPrimaryKey && <Key className="h-3 w-3 text-amber-500 shrink-0" />}
+                                          {colMeta?.isSensitive && <Shield className="h-3 w-3 text-red-400 shrink-0" />}
+                                          <span className="font-medium text-slate-600 dark:text-slate-300">{col}</span>
+                                        </div>
+                                      </th>
+                                    );
+                                  })}
+                                  <th className="px-1 py-1.5 w-8" />
+                                </tr>
+                                {/* Row 2 — type + constraint badges */}
+                                <tr className="bg-slate-100/60 dark:bg-slate-800/80 border-b border-slate-200/80 dark:border-slate-700">
+                                  <td className="px-2.5 py-0.5 text-[9px] text-slate-400">type</td>
+                                  {inlinePreviewData.columns.map((col: string) => {
+                                    const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                    return (
+                                      <td key={col} className="px-2.5 py-0.5 whitespace-nowrap">
+                                        <div className="flex items-center gap-1">
+                                          {colMeta?.dataType && (
+                                            <span className="px-1.5 py-0 rounded bg-slate-200/80 dark:bg-slate-700 text-[9px] font-mono text-slate-500 dark:text-slate-400">{colMeta.dataType}</span>
+                                          )}
+                                          {colMeta?.isPrimaryKey && <span className="px-1 py-0 rounded bg-amber-100 dark:bg-amber-900/30 text-[9px] font-semibold text-amber-700 dark:text-amber-400">PK</span>}
+                                          {!colMeta?.isNullable && colMeta && <span className="px-1 py-0 rounded bg-blue-100 dark:bg-blue-900/30 text-[9px] font-semibold text-blue-600 dark:text-blue-400">NN</span>}
+                                          {colMeta?.isSensitive && <span className="px-1 py-0 rounded bg-red-100 dark:bg-red-900/30 text-[9px] font-semibold text-red-600 dark:text-red-400">PII</span>}
+                                          <ClassificationBadge tableId={selectedTable?.id || ''} columnName={col} classifications={columnClassifications} />
+                                        </div>
+                                      </td>
+                                    );
+                                  })}
+                                  <td className="px-1 py-0.5" />
+                                </tr>
+                                {/* Row 3 — quality profile: nulls, distinct, quality score */}
+                                {inlineProfileData && inlineProfileData.columns.length > 0 && (
+                                  <tr className="bg-purple-50/40 dark:bg-purple-900/10 border-b border-slate-200/80 dark:border-slate-700">
+                                    <td className="px-2.5 py-0.5 text-[9px] text-purple-400">quality</td>
+                                    {inlinePreviewData.columns.map((col: string) => {
+                                      const pc = inlineProfileData.columns.find((p: any) => (p.column_name || '').toUpperCase() === col.toUpperCase());
+                                      if (!pc) return <td key={col} className="px-2.5 py-0.5 text-[9px] text-slate-300">—</td>;
+                                      const nullPct = inlineProfileData.row_count > 0 ? ((pc.null_count ?? 0) / inlineProfileData.row_count * 100) : 0;
+                                      const qScore = pc.quality_score ?? 100;
+                                      return (
+                                        <td key={col} className="px-2.5 py-0.5 whitespace-nowrap">
+                                          <div className="flex items-center gap-1.5">
+                                            {nullPct > 0 ? (
+                                              <span className={cn("text-[9px] font-medium", nullPct > 50 ? "text-red-500" : nullPct > 10 ? "text-amber-500" : "text-slate-500")}>{nullPct.toFixed(0)}% null</span>
+                                            ) : (
+                                              <span className="text-[9px] text-green-500">0% null</span>
+                                            )}
+                                            <span className="text-[9px] text-slate-400">{(pc.distinct_count ?? 0).toLocaleString()} uniq</span>
+                                            <span className="flex items-center gap-0.5">
+                                              <span className="w-6 h-1 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden inline-block">
+                                                <span className={cn("block h-full rounded-full", qScore >= 80 ? "bg-green-500" : qScore >= 60 ? "bg-yellow-500" : "bg-red-500")} style={{ width: `${qScore}%` }} />
+                                              </span>
+                                              <span className={cn("text-[9px] font-semibold", qScore >= 80 ? "text-green-600" : qScore >= 60 ? "text-amber-600" : "text-red-600")}>{qScore}%</span>
+                                            </span>
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                    <td className="px-1 py-0.5" />
+                                  </tr>
+                                )}
+                                {/* Row 4 (loading) — profile loading indicator */}
+                                {isLoadingInlineProfile && (
+                                  <tr className="bg-purple-50/30 dark:bg-purple-900/5 border-b border-slate-200/80 dark:border-slate-700">
+                                    <td className="px-2.5 py-0.5 text-[9px] text-purple-400">quality</td>
+                                    <td colSpan={inlinePreviewData.columns.length + 1} className="px-2.5 py-0.5">
+                                      <div className="flex items-center gap-1.5 text-[9px] text-purple-400">
+                                        <RefreshCw className="h-3 w-3 animate-spin" /> Profiling...
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {/* Add-column row */}
+                                <tr className="border-b border-slate-100 dark:border-slate-700">
+                                  <td className="px-2.5 py-0.5" />
+                                  <td colSpan={inlinePreviewData.columns.length} className="px-2.5 py-0.5">
+                                    <button
+                                      onClick={() => { if (readOnlyGuard()) return; setActiveRightTab('actions'); setFocusedAction('add_column'); if (!rightBarOpen) setRightBarOpen(true); }}
+                                      disabled={isReadOnly}
+                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transition-colors disabled:opacity-40"
+                                    >
+                                      <Plus className="h-3 w-3" /> Add column / calculated field
+                                    </button>
+                                  </td>
+                                  <td />
                                 </tr>
                               </thead>
                               <tbody>
@@ -4178,12 +4103,16 @@ export default function ExploreDesignPage() {
                                     {inlinePreviewData.columns.map((col: string) => {
                                       const val = row[col];
                                       const isNull = val === null || val === undefined;
+                                      const colMeta = tableColumns.find((c) => c.name === col || c.name === col.toUpperCase());
+                                      const isMasked = colMeta?.isSensitive;
+                                      const maskedVal = isMasked && !isNull ? '••••••' : null;
                                       return (
-                                        <td key={col} className={cn("px-2.5 py-1.5 font-mono truncate max-w-[180px]", isNull ? "text-slate-400 italic" : "text-slate-700 dark:text-slate-300")} title={isNull ? 'NULL' : String(val)}>
-                                          {isNull ? <span className="text-slate-400 italic">null</span> : String(val)}
+                                        <td key={col} className={cn("px-2.5 py-1.5 font-mono truncate max-w-[180px]", isNull ? "text-slate-400 italic" : isMasked ? "text-amber-500/70" : "text-slate-700 dark:text-slate-300")} title={isNull ? 'NULL' : isMasked ? `Masked (${colMeta?.name})` : String(val)}>
+                                          {isNull ? <span className="text-slate-400 italic">null</span> : maskedVal ? <span className="flex items-center gap-1"><Lock className="h-2.5 w-2.5 text-amber-400 inline shrink-0" />{maskedVal}</span> : String(val)}
                                         </td>
                                       );
                                     })}
+                                    <td className="px-1 py-1.5" />
                                   </tr>
                                 ))}
                               </tbody>
@@ -4201,94 +4130,67 @@ export default function ExploreDesignPage() {
                       </div>
                     )}
 
-                    {/* Inline Data Profile Panel */}
-                    {showInlineProfile && (
-                      <div className="mt-4 bg-white dark:bg-slate-900 rounded-lg shadow-sm border dark:border-slate-800 overflow-hidden">
-                        <div className="bg-purple-50 dark:bg-purple-900/20 px-4 py-2.5 flex items-center justify-between border-b border-purple-100 dark:border-purple-800">
-                          <div className="flex items-center gap-2">
-                            <BarChart3 className="h-4 w-4 text-purple-600" />
-                            <span className="text-sm font-medium text-purple-700 dark:text-purple-300">Data Profile</span>
-                            {inlineProfileData && (
-                              <>
-                                <Badge className="bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-400 text-[10px]">
-                                  {inlineProfileData.row_count.toLocaleString()} rows
-                                </Badge>
-                                <Badge className={cn("text-[10px]",
-                                  inlineProfileData.aggregate_quality_score >= 80
-                                    ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-                                    : inlineProfileData.aggregate_quality_score >= 60
-                                      ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400"
-                                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                )}>
-                                  Quality: {inlineProfileData.aggregate_quality_score}%
-                                </Badge>
-                              </>
-                            )}
-                          </div>
-                          <button
-                            aria-label="Close profile"
-                            onClick={() => setShowInlineProfile(false)}
-                            className="p-1 rounded hover:bg-purple-100 dark:hover:bg-purple-800/50 text-purple-400 hover:text-purple-600 transition-colors"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <div className="max-h-72 overflow-y-auto">
-                          {isLoadingInlineProfile ? (
-                            <div className="flex items-center justify-center py-8">
-                              <RefreshCw className="h-5 w-5 animate-spin text-purple-400" />
-                              <span className="ml-2 text-sm text-slate-500">Profiling columns...</span>
-                            </div>
-                          ) : inlineProfileData && inlineProfileData.columns.length > 0 ? (
-                            <div className="divide-y dark:divide-slate-800">
-                              {inlineProfileData.columns.map((col: any) => {
-                                const nullPct = inlineProfileData.row_count > 0 ? ((col.null_count ?? 0) / inlineProfileData.row_count) * 100 : 0;
-                                const distinctPct = inlineProfileData.row_count > 0 ? ((col.distinct_count ?? 0) / inlineProfileData.row_count) * 100 : 0;
-                                const qualityScore = col.quality_score ?? 100;
-                                return (
-                                  <div key={col.column_name} className="px-4 py-2.5 flex items-center gap-3 hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                                    <span className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200 min-w-[140px] truncate">{col.column_name}</span>
-                                    <Badge className="bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-mono px-1 py-0">{col.data_type}</Badge>
-                                    <div className="flex items-center gap-3 ml-auto text-[10px]">
-                                      <span className="text-slate-500">{(col.distinct_count ?? 0).toLocaleString()} distinct ({distinctPct.toFixed(1)}%)</span>
-                                      {(col.null_count ?? 0) > 0 && (
-                                        <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[9px]">
-                                          {nullPct.toFixed(1)}% null
-                                        </Badge>
-                                      )}
-                                      <div className="flex items-center gap-1">
-                                        <div className="w-12 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                          <div
-                                            className={cn("h-full rounded-full", qualityScore >= 80 ? "bg-green-500" : qualityScore >= 60 ? "bg-yellow-500" : "bg-red-500")}
-                                            style={{ width: `${qualityScore}%` }}
-                                          />
-                                        </div>
-                                        <span className={cn("font-medium", qualityScore >= 80 ? "text-green-600" : qualityScore >= 60 ? "text-yellow-600" : "text-red-600")}>
-                                          {qualityScore}%
-                                        </span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="py-6 text-center text-sm text-slate-400">No profile data available</div>
-                          )}
-                        </div>
+                    {/* Profile data is now integrated into the preview table above */}
+                  </div>
+                ) : (
+                  <div className="h-full w-full">
+                    {tables.length > 0 ? (
+                      <SourceMindMap
+                        databases={databases}
+                        schemas={schemas}
+                        tables={tables}
+                        selectedDatabase={selectedDatabase}
+                        onSelectTable={(t) => setSelectedTable(t)}
+                      />
+                    ) : (
+                      <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                        <Table2 className="h-16 w-16 mb-4 text-slate-300" />
+                        <p className="font-medium text-lg">Select a database & schema</p>
+                        <p className="text-sm mt-1">Choose from the toolbar above to browse tables</p>
                       </div>
                     )}
                   </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-500">
-                    <Table2 className="h-16 w-16 mb-4 text-slate-300" />
-                    <p className="font-medium text-lg">Select a table</p>
-                    <p className="text-sm mt-1">Choose a table from the list to view and edit columns</p>
-                  </div>
                 )}
               </div>
+
+              {/* Context Right Bar — multi-tab cockpit */}
+              <ContextRightBar
+                selectedTable={selectedTable}
+                tableColumns={tableColumns}
+                projectId={selectedProjectId}
+                isOpen={rightBarOpen}
+                onToggle={() => setRightBarOpen(!rightBarOpen)}
+                activeTab={activeRightTab}
+                onTabChange={setActiveRightTab}
+                focusedAction={focusedAction}
+                onFocusAction={setFocusedAction}
+                columnClassifications={columnClassifications}
+                classificationDetails={classificationDetails}
+                isClassifying={isClassifying}
+                onRunClassify={handleAIClassify}
+                onAddEvent={addEvent}
+                profileData={inlineProfileData}
+                historyEvents={events.slice(0, 50).map((e: any) => ({
+                  id: e.id || String(Math.random()),
+                  type: e.type || 'Event',
+                  status: (e.status === 'deployed' || e.status === 'success') ? 'success' as const : e.status === 'error' ? 'error' as const : e.status === 'warning' ? 'warning' as const : 'pending' as const,
+                  actor: e.createdBy || e.actor || currentUsername || 'System',
+                  timestamp: e.createdAt || e.timestamp || new Date().toISOString(),
+                  object: e.target?.table || e.target?.schema || '—',
+                  message: e.error || undefined,
+                }))}
+                pendingEventsCount={displayablePendingEvents.length}
+                pendingEvents={displayablePendingEvents}
+                selectedDatabase={selectedDatabase}
+                selectedSchema={schemas[0] || ''}
+                userRole={sessionRole || (userRole as string) || undefined}
+                onOpenDeployModal={() => setShowDeploymentModal(true)}
+                onDeselectTable={() => { setSelectedTable(null); setRightBarOpen(false); }}
+              />
+              </div>{/* end center+right row */}
             </>
           )}
+
 
           {viewMode === 'modeling' && (
             // Modeling View
@@ -4614,47 +4516,7 @@ export default function ExploreDesignPage() {
             a fixed column. Same toggle, same data, but the canvas stays full
             width when it's closed (which is the default). Backdrop click
             closes it. */}
-        {showEventPanel && !isFullscreen && (
-          <>
-            <button
-              aria-label="Close events panel"
-              onClick={() => setShowEventPanel(false)}
-              className="fixed inset-0 z-30 bg-slate-900/10 backdrop-blur-[1px] dark:bg-slate-950/30"
-            />
-            <aside
-              role="dialog"
-              aria-label="Project events"
-              className="fixed right-0 top-0 z-40 flex h-full w-72 flex-col border-l border-slate-200 bg-slate-50 shadow-xl dark:border-slate-700 dark:bg-slate-900 sm:w-80"
-            >
-              <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 dark:border-slate-700">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Project events
-                </h3>
-                <button
-                  aria-label="Close"
-                  onClick={() => setShowEventPanel(false)}
-                  className="rounded p-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <EventTable
-                compact
-                className="flex-1 m-1.5 overflow-hidden"
-                projectId={selectedProjectId}
-              />
-            </aside>
-          </>
-        )}
-
-        {/* Slide 2 — Right rail "History" reading /projects/{id}/events */}
-        {!isFullscreen && (
-          <HistoryRail
-            projectId={selectedProjectId}
-            open={showHistoryRail}
-            onToggle={() => setShowHistoryRail((v) => !v)}
-          />
-        )}
+        {/* EventPanel + HistoryRail removed — all in ContextRightBar */}
       </div>
 
       {/* Bulk Actions Bar */}
@@ -4668,7 +4530,7 @@ export default function ExploreDesignPage() {
       />
 
       {/* Bulk PK Modal */}
-      <Modal isOpen={showBulkPKModal} onClose={() => setShowBulkPKModal(false)}>
+      <Modal isOpen={false && showBulkPKModal} onClose={() => setShowBulkPKModal(false)}>
         <div className="p-6">
           <h3 className="text-lg font-bold mb-4">Configure Primary Keys</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -4706,7 +4568,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Bulk Masking Modal */}
-      <Modal isOpen={showBulkMaskingModal} onClose={() => setShowBulkMaskingModal(false)}>
+      <Modal isOpen={false && showBulkMaskingModal} onClose={() => setShowBulkMaskingModal(false)}>
         <div className="p-6">
           <h3 className="text-lg font-bold mb-4">Apply Masking Policy</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -4739,7 +4601,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Relations Modal */}
-      <Modal isOpen={showRelationsModal} onClose={() => setShowRelationsModal(false)}>
+      <Modal isOpen={false && showRelationsModal} onClose={() => setShowRelationsModal(false)}>
         <div className="p-6 max-w-2xl">
           <h3 className="text-lg font-bold mb-4">Configure Relations</h3>
           <p className="text-slate-600 dark:text-slate-400 mb-4">
@@ -4809,7 +4671,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* AI Intelligence Modal */}
-      <Modal isOpen={showAiPanel} onClose={() => setShowAiPanel(false)} size="lg">
+      <Modal isOpen={false && showAiPanel} onClose={() => setShowAiPanel(false)} size="lg">
         <div className="p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -4870,7 +4732,7 @@ export default function ExploreDesignPage() {
       {/* Column Preview Modal */}
       {columnPreviewModal.column && selectedTable && (
         <ColumnPreviewModal
-          isOpen={columnPreviewModal.isOpen}
+          isOpen={false && columnPreviewModal.isOpen}
           onClose={() => setColumnPreviewModal({ isOpen: false, column: null })}
           projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
@@ -4884,7 +4746,7 @@ export default function ExploreDesignPage() {
       {/* Sensitive Column Modal */}
       {sensitiveColumnModal.column && selectedTable && (
         <SensitiveColumnModal
-          isOpen={sensitiveColumnModal.isOpen}
+          isOpen={false && sensitiveColumnModal.isOpen}
           onClose={() => setSensitiveColumnModal({ isOpen: false, column: null })}
           database={selectedTable.database}
           schema={selectedTable.schema}
@@ -4950,7 +4812,7 @@ export default function ExploreDesignPage() {
       {/* Column Exclusion Modal */}
       {columnExclusionModal.column && selectedTable && (
         <ColumnExclusionModal
-          isOpen={columnExclusionModal.isOpen}
+          isOpen={false && columnExclusionModal.isOpen}
           onClose={() => setColumnExclusionModal({ isOpen: false, column: null })}
           database={selectedTable.database}
           schema={selectedTable.schema}
@@ -5016,7 +4878,7 @@ export default function ExploreDesignPage() {
       {/* Table Preview Modal */}
       {selectedTable && (
         <TablePreviewModal
-          isOpen={tablePreviewModal}
+          isOpen={false && tablePreviewModal}
           onClose={() => setTablePreviewModal(false)}
           projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
@@ -5028,7 +4890,7 @@ export default function ExploreDesignPage() {
       {/* Table Profile Modal */}
       {selectedTable && (
         <TableProfileModal
-          isOpen={tableProfileModal}
+          isOpen={false && tableProfileModal}
           onClose={() => setTableProfileModal(false)}
           projectId={selectedProjectId ?? ''}
           database={selectedTable.database}
@@ -5220,7 +5082,7 @@ export default function ExploreDesignPage() {
 
       {/* Audit Trail Panel (modal overlay) */}
       {showAuditTrail && selectedProjectId && (
-        <Modal isOpen={showAuditTrail} onClose={() => setShowAuditTrail(false)} size="xl">
+        <Modal isOpen={false && showAuditTrail} onClose={() => setShowAuditTrail(false)} size="xl">
           <div className="p-4">
             <AuditTrailPanel projectId={selectedProjectId} />
           </div>
@@ -5297,35 +5159,11 @@ export default function ExploreDesignPage() {
         context={selectedTable ? { database: selectedTable.database, schema: selectedTable.schema } : undefined}
       />
 
-      {/* Catalog Policy Assignment Panel */}
-      {showCatalogPolicyPanel && selectedTable && (
-        <Modal isOpen onClose={() => setShowCatalogPolicyPanel(false)} size="xl">
-          <PolicyAssignmentPanel
-            table={selectedTable}
-            columns={tableColumns}
-            onPolicyApplied={() => { toast.success('Policy applied'); setShowCatalogPolicyPanel(false); }}
-            onClose={() => setShowCatalogPolicyPanel(false)}
-            projectId={selectedProjectId}
-          />
-        </Modal>
-      )}
-
-      {/* Catalog Ingestion Config Panel */}
-      {showIngestionPanel && selectedTable && (
-        <Modal isOpen onClose={() => setShowIngestionPanel(false)} size="xl">
-          <IngestionConfigPanel
-            table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
-            projectId={selectedProjectId ?? undefined}
-            columns={tableColumns}
-            ingestionMode={catalogIngestionMode}
-            onModeChange={setCatalogIngestionMode}
-          />
-        </Modal>
-      )}
+      {/* Catalog Policy + Ingestion panels moved to right rail — no modals */}
 
       {/* Modeling Ingestion Config Panel */}
       {showModelingIngestionPanel && selectedTable && (
-        <Modal isOpen onClose={() => setShowModelingIngestionPanel(false)} size="xl">
+        <Modal isOpen={false} onClose={() => setShowModelingIngestionPanel(false)} size="xl">
           <IngestionConfigPanel
             table={{ database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table }}
             projectId={selectedProjectId ?? undefined}
@@ -5356,6 +5194,28 @@ export default function ExploreDesignPage() {
               <X className="h-5 w-5 text-slate-400" />
             </button>
           </div>
+
+          {/* Inline drop confirmation bar */}
+          {confirmDrop && confirmDrop.type !== 'schema' && (
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
+              <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+              <p className="flex-1 text-sm text-red-800 dark:text-red-200">
+                Drop {confirmDrop.type.replace('_', ' ')} <span className="font-semibold">&quot;{confirmDrop.name}&quot;</span>? This cannot be undone.
+              </p>
+              <button
+                onClick={() => setConfirmDrop(null)}
+                className="rounded px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 dark:text-slate-400 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={executeConfirmedDrop}
+                className="rounded bg-red-600 px-3 py-1 text-xs font-medium text-white hover:bg-red-700"
+              >
+                Confirm Drop
+              </button>
+            </div>
+          )}
 
           {dataEngModal.loading ? (
             <div className="space-y-3 py-6 px-2">
@@ -5474,7 +5334,7 @@ export default function ExploreDesignPage() {
         </div>
       </Modal>
       {/* Rename Table Modal */}
-      <Modal isOpen={renameTableModal.open} onClose={() => setRenameTableModal({ open: false, currentName: '' })}>
+      <Modal isOpen={false && renameTableModal.open} onClose={() => setRenameTableModal({ open: false, currentName: '' })}>
         <div className="p-6 max-w-sm">
           <h3 className="text-lg font-bold mb-4">Rename Table</h3>
           <Input
@@ -5507,7 +5367,7 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Rename Column Modal */}
-      <Modal isOpen={renameColumnModal.open} onClose={() => setRenameColumnModal({ open: false, currentName: '' })}>
+      <Modal isOpen={false && renameColumnModal.open} onClose={() => setRenameColumnModal({ open: false, currentName: '' })}>
         <div className="p-6 max-w-sm">
           <h3 className="text-lg font-bold mb-1">Rename Column</h3>
           <p className="text-sm text-slate-500 mb-4">Rename &quot;{renameColumnModal.currentName}&quot;</p>
@@ -5541,89 +5401,10 @@ export default function ExploreDesignPage() {
       </Modal>
 
       {/* Add Column Modal */}
-      <Modal isOpen={addColumnModal} onClose={() => { setAddColumnModal(false); setAddColName(''); setAddColType('VARCHAR'); setAddColComputed(false); setAddColFormula(''); }}>
-        <div className="p-6 max-w-md">
-          <h3 className="text-lg font-bold mb-4">Add Column</h3>
-          <div className="space-y-3">
-            <Input
-              label="Column name"
-              placeholder="e.g., USER_ID"
-              autoFocus
-              value={addColName}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setAddColName(e.target.value)}
-            />
-            <div>
-              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Column type</label>
-              <select
-                value={addColType}
-                onChange={(e) => setAddColType(e.target.value)}
-                className="w-full px-3 py-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-700"
-              >
-                <option value="VARCHAR">VARCHAR</option>
-                <option value="NUMBER">NUMBER</option>
-                <option value="INTEGER">INTEGER</option>
-                <option value="FLOAT">FLOAT</option>
-                <option value="BOOLEAN">BOOLEAN</option>
-                <option value="DATE">DATE</option>
-                <option value="TIMESTAMP">TIMESTAMP</option>
-                <option value="VARIANT">VARIANT</option>
-              </select>
-            </div>
-            <div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={addColComputed}
-                  onChange={(e) => setAddColComputed(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Computed column</span>
-              </label>
-            </div>
-            {addColComputed && (
-              <div>
-                <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Formula expression</label>
-                <textarea
-                  value={addColFormula}
-                  onChange={(e) => setAddColFormula(e.target.value)}
-                  placeholder="e.g., QUANTITE * PRIX_UNITAIRE"
-                  rows={2}
-                  className="w-full px-3 py-2 text-sm border rounded-lg dark:bg-slate-800 dark:border-slate-700 font-mono"
-                />
-                <p className="text-[10px] text-slate-400 mt-1">SQL expression computed at ingestion time</p>
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button variant="outline" onClick={() => { setAddColumnModal(false); setAddColName(''); setAddColType('VARCHAR'); setAddColComputed(false); setAddColFormula(''); }}>Cancel</Button>
-            <Button onClick={() => {
-              const colName = addColName.trim();
-              if (!colName) { toast.error('Column name is required'); return; }
-              if (addColComputed && !addColFormula.trim()) { toast.error('Formula is required for computed columns'); return; }
-              if (!selectedTable || !selectedProjectId) return;
-              addEvent({
-                type: 'ADD_COLUMN',
-                projectId: selectedProjectId,
-                target: { database: selectedTable.database, schema: selectedTable.schema, table: selectedTable.table },
-                payload: {
-                  columnName: colName,
-                  columnType: addColType.toUpperCase(),
-                  ...(addColComputed ? { isComputed: true, computedExpression: addColFormula.trim() } : {}),
-                },
-              });
-              toast.success(`${addColComputed ? 'Computed column' : 'Column'} "${colName}" added to pending changes`);
-              setAddColumnModal(false);
-              setAddColName('');
-              setAddColType('VARCHAR');
-              setAddColComputed(false);
-              setAddColFormula('');
-            }}>Add Column</Button>
-          </div>
-        </div>
-      </Modal>
+      {/* Add Column modal removed — now inline in right rail */}
 
       {/* Primary Key Modal */}
-      <Modal isOpen={primaryKeyModal} onClose={() => setPrimaryKeyModal(false)}>
+      <Modal isOpen={false && primaryKeyModal} onClose={() => setPrimaryKeyModal(false)}>
         <div className="p-6 max-w-sm">
           <h3 className="text-lg font-bold mb-1">Set Primary Key</h3>
           <p className="text-sm text-slate-500 mb-4">Select columns for the primary key</p>

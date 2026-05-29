@@ -3,7 +3,7 @@
 import { useState, useCallback } from 'react';
 import { Button, Input, Modal, Select } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlineTrash } from 'react-icons/hi2';
+import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -12,12 +12,28 @@ import {
   getTagDetails,
   createTag,
   applyTag,
-  removeTag,
   deleteTag,
+  formatPolicyError,
   type Tag,
+  type EnrichedPolicy,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
 import { DEFAULTS } from '@/config/database.config';
+
+function tagToEnriched(tag: Tag): EnrichedPolicy {
+  return {
+    name: tag.tag_name || '',
+    database_name: '',
+    schema_name: tag.schema || '',
+    created_on: tag.created_at || null,
+    comment: tag.comment || null,
+    granted_roles: [],
+    granted_objects: [],
+    granted_objects_count: 0,
+    expiration_date: null,
+  };
+}
 const OBJECT_TYPES = [
   { label: 'Database', value: 'DATABASE' },
   { label: 'Schema', value: 'SCHEMA' },
@@ -71,33 +87,6 @@ export default function TagPoliciesContent() {
     }
   };
 
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
-  };
-
   const handleCreate = async () => {
     if (!tagName) {
       toast.error('Please provide a tag name');
@@ -117,7 +106,7 @@ export default function TagPoliciesContent() {
       refetch();
     } catch (error: any) {
       console.error('Create tag error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create tag'));
+      toast.error(formatPolicyError(error,'Failed to create tag'));
     }
   };
 
@@ -169,21 +158,12 @@ export default function TagPoliciesContent() {
       refetch();
     } catch (error: any) {
       console.error('Apply tag error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to apply tag'));
+      toast.error(formatPolicyError(error,'Failed to apply tag'));
     }
   };
 
-  const handleDelete = async (tag: Tag) => {
-    if (!confirm(`Delete tag "${tag.tag_name}"?`)) return;
-
-    try {
-      await deleteTag(tag.tag_name);
-      toast.success('Tag deleted successfully');
-      refetch();
-    } catch (error: any) {
-      console.error('Delete tag error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete tag'));
-    }
+  const handleDeletePolicy = async (policy: EnrichedPolicy) => {
+    await deleteTag(policy.name);
   };
 
   const resetCreateForm = () => {
@@ -248,53 +228,30 @@ export default function TagPoliciesContent() {
       ) : (
         <div className="grid gap-4">
           {tags.map((tag) => (
-            <div
+            <PolicyCard
               key={tag.tag_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 flex justify-between items-start hover:border-green-300 transition-colors"
+              policy={tagToEnriched(tag)}
+              accentColor="green"
+              policyType="tag"
+              onViewDetails={() => handleViewDetails(tag)}
+              onApply={() => {
+                setSelectedTag(tag);
+                setShowApplyModal(true);
+              }}
+              onDelete={handleDeletePolicy}
+              onRefresh={refetch}
+              applyLabel="Apply Tag"
+              entityLabel="object(s)"
             >
-              <div
-                className="flex-1 cursor-pointer"
-                onClick={() => handleViewDetails(tag)}
-              >
-                <h3 className="font-semibold text-lg text-green-600 hover:text-green-700">
-                  {String(tag.tag_name || '')}
-                </h3>
-                {tag.comment && (
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {String(tag.comment)}
+              {tag.allowed_values && (
+                <div className="mt-2">
+                  <p className="text-xs text-slate-500">Allowed Values:</p>
+                  <p className="text-sm font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded mt-1">
+                    {String(tag.allowed_values)}
                   </p>
-                )}
-                {tag.allowed_values && (
-                  <div className="mt-2">
-                    <p className="text-xs text-slate-500">Allowed Values:</p>
-                    <p className="text-sm font-mono bg-slate-50 dark:bg-slate-900 p-2 rounded mt-1">
-                      {String(tag.allowed_values)}
-                    </p>
-                  </div>
-                )}
-                <p className="text-xs text-slate-500 mt-1">Schema: {String(tag.schema || 'N/A')}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedTag(tag);
-                    setShowApplyModal(true);
-                  }}
-                >
-                  Apply Tag
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  color="danger"
-                  onClick={() => handleDelete(tag)}
-                >
-                  <HiOutlineTrash className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
+                </div>
+              )}
+            </PolicyCard>
           ))}
         </div>
       )}

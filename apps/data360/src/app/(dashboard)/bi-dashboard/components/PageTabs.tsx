@@ -29,6 +29,7 @@ export default function PageTabs({
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState('');
   const [loading, setLoading] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const sortedPages = [...pages].sort((a, b) => a.page_order - b.page_order);
 
@@ -68,12 +69,8 @@ export default function PageTabs({
     }
   };
 
-  const handleDeletePage = async (pageId: string, title: string) => {
-    if (pages.length <= 1) {
-      toast.error('Cannot delete the last page');
-      return;
-    }
-    if (!window.confirm(`Delete page "${title}"? All charts and filters on this page will be removed.`)) return;
+  const handleDeletePage = async (pageId: string) => {
+    setConfirmDeleteId(null);
     setLoading(true);
     try {
       await deletePage(projectId, pageId);
@@ -132,32 +129,53 @@ export default function PageTabs({
               </div>
             ) : (
               <>
-                <button type="button" onClick={() => onPageSelect(page.page_id)} className="bg-transparent border-none p-0 font-inherit text-inherit cursor-pointer">{page.title}</button>
-                <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
-                  <button
-                    className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditingPageId(page.page_id);
-                      setEditTitle(page.title);
-                    }}
-                    aria-label="Rename page"
-                  >
-                    <Pencil className="h-3 w-3 text-slate-400" />
-                  </button>
-                  {pages.length > 1 && (
+                {confirmDeleteId === page.page_id ? (
+                  <div className="flex items-center gap-1 bg-red-50 dark:bg-red-950/30 rounded-lg px-2 py-0.5">
+                    <span className="text-[10px] text-red-700 dark:text-red-400 whitespace-nowrap">Delete this page?</span>
                     <button
-                      className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeletePage(page.page_id, page.title);
-                      }}
-                      aria-label="Delete page"
+                      className="text-[10px] font-semibold text-red-700 dark:text-red-400 hover:underline"
+                      onClick={(e) => { e.stopPropagation(); handleDeletePage(page.page_id); }}
                     >
-                      <X className="h-3 w-3 text-red-400" />
+                      Confirm
                     </button>
-                  )}
-                </div>
+                    <button
+                      className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                      onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button type="button" onClick={() => onPageSelect(page.page_id)} className="bg-transparent border-none p-0 font-inherit text-inherit cursor-pointer">{page.title}</button>
+                    <div className="hidden group-hover:flex items-center gap-0.5 ml-1">
+                      <button
+                        className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingPageId(page.page_id);
+                          setEditTitle(page.title);
+                        }}
+                        aria-label="Rename page"
+                      >
+                        <Pencil className="h-3 w-3 text-slate-400" />
+                      </button>
+                      {pages.length > 1 && (
+                        <button
+                          className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (pages.length <= 1) { toast.error('Cannot delete the last page'); return; }
+                            setConfirmDeleteId(page.page_id);
+                          }}
+                          aria-label="Delete page"
+                        >
+                          <X className="h-3 w-3 text-red-400" />
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </div>

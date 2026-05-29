@@ -18,16 +18,17 @@ import { toast } from 'react-hot-toast';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
-  getRLSPolicies,
+  listPoliciesEnriched,
   createRLSPolicy,
   applyRLSPolicy,
   removeRLSPolicy,
   deleteRLSPolicy,
   getColumns,
-  getPolicyReferences,
-  unapplyPolicyFromAll,
-  type RLSPolicy,
+  formatPolicyError,
+  type EnrichedPolicy,
+  type GrantedObject,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
 import { getTablesTarget } from '@/app/services/mapping/getTablesTarget';
@@ -47,7 +48,7 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 export default function RLSPoliciesContent() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showApplyModal, setShowApplyModal] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<RLSPolicy | null>(null);
+  const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
   // Feedback message for screen readers (aria-live)
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -96,8 +97,8 @@ export default function RLSPoliciesContent() {
   });
 
   // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
-  const fetchPolicies = useCallback(() => getRLSPolicies().then(data => Array.isArray(data) ? data : []), []);
-  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<RLSPolicy[]>(
+  const fetchPolicies = useCallback(() => listPoliciesEnriched('ROW_ACCESS'), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
@@ -159,32 +160,7 @@ export default function RLSPoliciesContent() {
     }
   };
 
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
-  };
+  const formatErrorMessage = formatPolicyError;
 
   const onCreateSubmit = async (data: RLSPolicyFormValues) => {
     setFeedbackMessage(null);
@@ -232,7 +208,7 @@ export default function RLSPoliciesContent() {
 
     try {
       await applyRLSPolicy({
-        policy_name: selectedPolicy.policy_name,
+        policy_name: selectedPolicy.name,
         table_name: applyForm.table_name,
         database: applyForm.database,
         schema: applyForm.schema,
@@ -254,73 +230,12 @@ export default function RLSPoliciesContent() {
     }
   };
 
-  const handleDelete = async (policy: RLSPolicy) => {
-    try {
-      // Step 1: Check for references
-      const refs = await getPolicyReferences('row-access', policy.policy_name);
-
-      if (!refs.can_delete && refs.references.length > 0) {
-        // Show confirmation with references
-        const refList = refs.references.map(r =>
-          `• ${r.database}.${r.schema}.${r.table}${r.column ? `.${r.column}` : ''}`
-        ).join('\n');
-
-        const confirmed = confirm(
-          `Policy "${policy.policy_name}" is applied to ${refs.references.length} table(s):\n\n${refList}\n\nDo you want to remove it from all tables and then delete it?`
-        );
-
-        if (!confirmed) return;
-
-        // Step 2: Unapply from all references
-        toast.loading('Removing policy from all tables...', { id: 'delete-policy' });
-        const unapplyResult = await unapplyPolicyFromAll('row-access', policy.policy_name);
-
-        if (unapplyResult.errors.length > 0) {
-          toast.error(`Could not remove from: ${unapplyResult.errors.map(e => e.table).join(', ')}`, { id: 'delete-policy' });
-          return;
-        }
-      } else {
-        // Simple confirmation
-        if (!confirm(`Delete RLS policy "${policy.policy_name}"? This cannot be undone.`)) return;
-      }
-
-      // Step 3: Delete the policy
-      toast.loading('Deleting policy...', { id: 'delete-policy' });
-      await deleteRLSPolicy(policy.policy_name);
-      toast.success('RLS Policy deleted successfully', { id: 'delete-policy' });
-      setFeedbackMessage({ type: 'success', text: `RLS Policy "${policy.policy_name}" deleted successfully` });
-      refetch();
-    } catch (error: any) {
-      console.error('Delete RLS policy error:', error.response?.data || error);
-      const delErrMsg = formatErrorMessage(error, 'Failed to delete RLS policy');
-      toast.error(delErrMsg, { id: 'delete-policy' });
-      setFeedbackMessage({ type: 'error', text: delErrMsg });
-    }
+  const handleRevokeObject = async (policy: EnrichedPolicy, obj: GrantedObject) => {
+    await removeRLSPolicy(obj.object_name, obj.database, obj.schema);
   };
 
-  const handleRemove = async (policy: RLSPolicy) => {
-    // Validate required fields
-    if (!policy.table_name || !policy.database || !policy.schema) {
-      toast.error('Cannot remove policy: missing table information. Please ensure the policy is applied to a table first.');
-      console.error('Remove RLS policy validation error:', {
-        policy_name: policy.policy_name,
-        table_name: policy.table_name,
-        database: policy.database,
-        schema: policy.schema,
-      });
-      return;
-    }
-
-    if (!confirm(`Remove RLS policy from ${policy.database}.${policy.schema}.${policy.table_name}?`)) return;
-
-    try {
-      await removeRLSPolicy(policy.table_name, policy.database, policy.schema);
-      toast.success('RLS Policy removed successfully');
-      refetch();
-    } catch (error: any) {
-      console.error('Remove RLS policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to remove RLS policy'));
-    }
+  const handleDeletePolicy = async (policy: EnrichedPolicy) => {
+    await deleteRLSPolicy(policy.name);
   };
 
   const resetForm = () => {
@@ -438,111 +353,21 @@ export default function RLSPoliciesContent() {
         ) : (
           <div className="space-y-4">
             {policies.map((policy, idx) => (
-              <div
+              <PolicyCard
                 key={idx}
-                className="p-6 border border-slate-200 dark:border-slate-700 rounded-xl hover:shadow-md transition-all duration-200"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <h3 className="text-lg font-bold text-slate-900 dark:text-white">{String(policy.policy_name || '')}</h3>
-                      {policy.active ? (
-                        <Badge className="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                          <HiOutlineCheckCircle className="w-3 h-3 mr-1" />
-                          Active
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-slate-100 text-slate-600">
-                          <HiOutlineXCircle className="w-3 h-3 mr-1" />
-                          Inactive
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 text-sm">
-                      <div>
-                        <p className="text-slate-500 dark:text-slate-400 mb-1">Signature</p>
-                        <code className="text-sm bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-300 px-3 py-1.5 rounded font-mono">
-                          {String(policy.signature || 'N/A')}
-                        </code>
-                      </div>
-                      <div>
-                        <p className="text-slate-500 dark:text-slate-400 mb-1">Expression</p>
-                        <code className="text-sm bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded block font-mono">
-                          {String(policy.expression || policy.filter_expression || 'N/A')}
-                        </code>
-                      </div>
-                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div>
-                          <p className="text-slate-500 dark:text-slate-400 mb-1">Schema</p>
-                          <p className="font-medium text-slate-900 dark:text-white">{String(policy.schema || 'N/A')}</p>
-                        </div>
-                        {policy.table_name && (
-                          <div>
-                            <p className="text-slate-500 dark:text-slate-400 mb-1">Applied To</p>
-                            <p className="font-medium text-slate-900 dark:text-white">
-                              {String(policy.database || '')}.{String(policy.table_name || '')}
-                            </p>
-                          </div>
-                        )}
-                        {(policy as any).owner && (
-                          <div>
-                            <p className="text-slate-500 dark:text-slate-400 mb-1">Owner</p>
-                            <p className="font-medium text-slate-900 dark:text-white">{String((policy as any).owner)}</p>
-                          </div>
-                        )}
-                        {(policy as any).created_on && (
-                          <div>
-                            <p className="text-slate-500 dark:text-slate-400 mb-1">Created</p>
-                            <p className="font-medium text-slate-900 dark:text-white">
-                              {new Date((policy as any).created_on).toLocaleDateString()}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {policy.description && (
-                      <p className="mt-3 text-sm text-slate-600 dark:text-slate-400">{String(policy.description)}</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setSelectedPolicy(policy);
-                        setShowApplyModal(true);
-                      }}
-                      className="text-purple-600 hover:bg-purple-50"
-                    >
-                      <HiOutlinePlay className="w-4 h-4 mr-1" />
-                      Apply
-                    </Button>
-                    {policy.table_name && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleRemove(policy)}
-                        className="text-amber-600 hover:bg-amber-50"
-                        title="Unapply from table"
-                      >
-                        <HiOutlineXCircle className="w-4 h-4" />
-                      </Button>
-                    )}
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleDelete(policy)}
-                      className="text-red-600 hover:bg-red-50"
-                      title="Delete policy"
-                    >
-                      <HiOutlineTrash className="w-4 h-4" />
-                    </Button>
-                  </div>
-                </div>
-              </div>
+                policy={policy}
+                accentColor="purple"
+                policyType="row-access"
+                onApply={(p) => {
+                  setSelectedPolicy({ policy_name: p.name, schema: p.schema_name } as any);
+                  setShowApplyModal(true);
+                }}
+                onDelete={handleDeletePolicy}
+                onRevokeObject={handleRevokeObject}
+                onRefresh={refetch}
+                applyLabel="Apply to Table"
+                entityLabel="table(s)"
+              />
             ))}
           </div>
         )}

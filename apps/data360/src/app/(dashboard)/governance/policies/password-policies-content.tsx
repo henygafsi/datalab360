@@ -1,31 +1,33 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Button, Input, Modal, Badge } from 'rizzui';
+import { Button, Input, Modal } from 'rizzui';
 import { toast } from 'react-hot-toast';
-import { HiOutlinePlus, HiOutlineTrash, HiCheckCircle } from 'react-icons/hi2';
+import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import {
-  getPasswordPolicies,
+  listPoliciesEnriched,
   getPasswordPolicyDetails,
   createPasswordPolicy,
   setPasswordPolicyAsDefault,
   deletePasswordPolicy,
-  type PasswordPolicy,
+  formatPolicyError,
+  type EnrichedPolicy,
 } from '@/app/services/governance/policies';
+import PolicyCard from './components/PolicyCard';
 
 export default function PasswordPoliciesContent() {
-  const fetchPolicies = useCallback(() => getPasswordPolicies().then(data => Array.isArray(data) ? data : []), []);
-  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<PasswordPolicy[]>(
+  const fetchPolicies = useCallback(() => listPoliciesEnriched('PASSWORD'), []);
+  const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
     { cacheKeys: [CACHE_KEYS.POLICIES], initialData: [] }
   );
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [selectedPolicy, setSelectedPolicy] = useState<PasswordPolicy | null>(null);
+  const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
   const [policyDetails, setPolicyDetails] = useState<any>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
 
@@ -41,15 +43,14 @@ export default function PasswordPoliciesContent() {
   const [lockoutThreshold, setLockoutThreshold] = useState('5');
   const [expirationDate, setExpirationDate] = useState('');
 
-  const handleViewDetails = async (policy: PasswordPolicy) => {
+  const handleViewDetails = async (policy: EnrichedPolicy) => {
     setSelectedPolicy(policy);
     setShowDetailsModal(true);
     setLoadingDetails(true);
     setPolicyDetails(null);
 
     try {
-      const details = await getPasswordPolicyDetails(policy.policy_name);
-      // console.log('Password policy details:', details);
+      const details = await getPasswordPolicyDetails(policy.name);
       setPolicyDetails(details);
     } catch (error: any) {
       console.error('Error loading policy details:', error);
@@ -57,33 +58,6 @@ export default function PasswordPoliciesContent() {
     } finally {
       setLoadingDetails(false);
     }
-  };
-
-  // Helper function to format error messages from API responses
-  const formatErrorMessage = (error: any, defaultMessage: string): string => {
-    // Handle FastAPI validation errors (422) which return detail as an array
-    if (error.response?.data?.detail) {
-      const detail = error.response.data.detail;
-
-      // If detail is an array of validation errors
-      if (Array.isArray(detail)) {
-        return detail.map((err: any) => err.msg || JSON.stringify(err)).join(', ');
-      }
-      // If detail is a string
-      else if (typeof detail === 'string') {
-        return detail;
-      }
-    }
-
-    if (error.response?.data?.message) {
-      return error.response.data.message;
-    }
-
-    if (error.message) {
-      return error.message;
-    }
-
-    return defaultMessage;
   };
 
   const handleCreate = async () => {
@@ -105,10 +79,8 @@ export default function PasswordPoliciesContent() {
         lockout_time_mins: parseInt(lockoutThreshold),
         expiration_date: expirationDate || undefined,
       };
-      // console.log('[Password Create] Sending request:', requestData);
 
-      const result = await createPasswordPolicy(requestData);
-      // console.log('[Password Create] Response:', result);
+      await createPasswordPolicy(requestData);
 
       toast.success('Password policy created successfully!');
       setShowCreateModal(false);
@@ -116,34 +88,23 @@ export default function PasswordPoliciesContent() {
       refetch();
     } catch (error: any) {
       console.error('[Password Create] Error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to create policy'));
+      toast.error(formatPolicyError(error, 'Failed to create policy'));
     }
   };
 
-  const handleSetAsDefault = async (policy: PasswordPolicy) => {
-    if (!confirm(`Set "${policy.policy_name}" as account default password policy?`)) return;
-
+  const handleSetAsDefault = async (policy: EnrichedPolicy) => {
     try {
-      await setPasswordPolicyAsDefault(policy.policy_name);
+      await setPasswordPolicyAsDefault(policy.name);
       toast.success('Password policy set as account default');
       refetch();
     } catch (error: any) {
       console.error('Set password policy as default error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to set as default'));
+      toast.error(formatPolicyError(error, 'Failed to set as default'));
     }
   };
 
-  const handleDelete = async (policy: PasswordPolicy) => {
-    if (!confirm(`Delete password policy "${policy.policy_name}"?`)) return;
-
-    try {
-      await deletePasswordPolicy(policy.policy_name);
-      toast.success('Policy deleted successfully');
-      refetch();
-    } catch (error: any) {
-      console.error('Delete password policy error:', error.response?.data || error);
-      toast.error(formatErrorMessage(error, 'Failed to delete policy'));
-    }
+  const handleDeletePolicy = async (policy: EnrichedPolicy) => {
+    await deletePasswordPolicy(policy.name);
   };
 
   const resetForm = () => {
@@ -196,85 +157,29 @@ export default function PasswordPoliciesContent() {
       ) : (
         <div className="grid gap-4">
           {policies.map((policy) => (
-            <div
-              key={policy.policy_name}
-              className="bg-white dark:bg-slate-800 rounded-lg border p-4 hover:border-red-300 transition-colors"
+            <PolicyCard
+              key={policy.name}
+              policy={policy}
+              accentColor="red"
+              policyType="password"
+              onViewDetails={handleViewDetails}
+              onDelete={handleDeletePolicy}
+              onRefresh={refetch}
+              entityLabel="object(s)"
             >
-              <div className="flex justify-between items-start mb-3">
-                <div
-                  className="flex items-center gap-2 cursor-pointer"
-                  onClick={() => handleViewDetails(policy)}
+              {/* Set as Default action */}
+              <div className="mt-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleSetAsDefault(policy)}
+                  className="gap-1"
                 >
-                  <h3 className="font-semibold text-lg text-red-600 hover:text-red-700">
-                    {String(policy.policy_name || '')}
-                  </h3>
-                  {policy.is_default && (
-                    <Badge variant="flat" className="bg-red-100 text-red-700">
-                      Default
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  {!policy.is_default && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSetAsDefault(policy)}
-                    >
-                      <HiCheckCircle className="w-4 h-4 mr-1" />
-                      Set as Default
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    color="danger"
-                    onClick={() => handleDelete(policy)}
-                  >
-                    <HiOutlineTrash className="w-4 h-4" />
-                  </Button>
-                </div>
+                  <HiCheckCircle className="w-4 h-4" />
+                  Set as Default
+                </Button>
               </div>
-
-              <div className="grid grid-cols-4 gap-3 mt-3">
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Min Length</p>
-                  <p className="text-sm font-semibold">{policy.min_length ?? 'N/A'} chars</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Max Length</p>
-                  <p className="text-sm font-semibold">{policy.max_length ?? 'N/A'} chars</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Uppercase</p>
-                  <p className="text-sm font-semibold">{policy.min_upper_case_chars ?? 'N/A'} min</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Lowercase</p>
-                  <p className="text-sm font-semibold">{policy.min_lower_case_chars ?? 'N/A'} min</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Numeric</p>
-                  <p className="text-sm font-semibold">{policy.min_numeric_chars ?? 'N/A'} min</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Special</p>
-                  <p className="text-sm font-semibold">{policy.min_special_chars ?? 'N/A'} min</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Max Age</p>
-                  <p className="text-sm font-semibold">{policy.max_age_days ?? 'N/A'} days</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Max Retries</p>
-                  <p className="text-sm font-semibold">{policy.max_retries ?? 'N/A'} attempts</p>
-                </div>
-                <div className="bg-slate-50 dark:bg-slate-900 p-2 rounded">
-                  <p className="text-xs text-slate-500">Lockout Time</p>
-                  <p className="text-sm font-semibold">{policy.lockout_time_mins ?? 'N/A'} mins</p>
-                </div>
-              </div>
-            </div>
+            </PolicyCard>
           ))}
         </div>
       )}
@@ -393,7 +298,7 @@ export default function PasswordPoliciesContent() {
       <Modal isOpen={showDetailsModal} onClose={() => setShowDetailsModal(false)}>
         <div className="p-6 space-y-4">
           <h2 className="text-xl font-bold">
-            Policy Details: {selectedPolicy?.policy_name}
+            Policy Details: {selectedPolicy?.name}
           </h2>
 
           {loadingDetails ? (
@@ -408,7 +313,7 @@ export default function PasswordPoliciesContent() {
                   Policy Name
                 </label>
                 <code className="block bg-slate-100 dark:bg-slate-800 p-3 rounded-lg text-sm font-mono">
-                  {policyDetails.policy_name || selectedPolicy?.policy_name || 'N/A'}
+                  {policyDetails.policy_name || selectedPolicy?.name || 'N/A'}
                 </code>
               </div>
 
@@ -417,8 +322,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Length</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_LENGTH ??
-                     policyDetails.details?.min_length ??
-                     selectedPolicy?.min_length ?? 'N/A'}
+                     policyDetails.details?.min_length ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -426,8 +330,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Length</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_LENGTH ??
-                     policyDetails.details?.max_length ??
-                     selectedPolicy?.max_length ?? 'N/A'}
+                     policyDetails.details?.max_length ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -435,8 +338,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Uppercase</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_UPPER_CASE_CHARS ??
-                     policyDetails.details?.min_upper_case_chars ??
-                     selectedPolicy?.min_upper_case_chars ?? 'N/A'}
+                     policyDetails.details?.min_upper_case_chars ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -444,8 +346,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Lowercase</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_LOWER_CASE_CHARS ??
-                     policyDetails.details?.min_lower_case_chars ??
-                     selectedPolicy?.min_lower_case_chars ?? 'N/A'}
+                     policyDetails.details?.min_lower_case_chars ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -453,8 +354,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Numeric</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_NUMERIC_CHARS ??
-                     policyDetails.details?.min_numeric_chars ??
-                     selectedPolicy?.min_numeric_chars ?? 'N/A'}
+                     policyDetails.details?.min_numeric_chars ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -462,8 +362,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Min Special</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MIN_SPECIAL_CHARS ??
-                     policyDetails.details?.min_special_chars ??
-                     selectedPolicy?.min_special_chars ?? 'N/A'}
+                     policyDetails.details?.min_special_chars ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">characters</p>
                 </div>
@@ -471,8 +370,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Age</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_AGE_DAYS ??
-                     policyDetails.details?.max_age_days ??
-                     selectedPolicy?.max_age_days ?? 'N/A'}
+                     policyDetails.details?.max_age_days ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">days</p>
                 </div>
@@ -480,8 +378,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Max Retries</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_MAX_RETRIES ??
-                     policyDetails.details?.max_retries ??
-                     selectedPolicy?.max_retries ?? 'N/A'}
+                     policyDetails.details?.max_retries ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">attempts</p>
                 </div>
@@ -489,8 +386,7 @@ export default function PasswordPoliciesContent() {
                   <p className="text-xs text-slate-500 mb-1">Lockout Time</p>
                   <p className="text-lg font-semibold">
                     {policyDetails.details?.PASSWORD_LOCKOUT_TIME_MINS ??
-                     policyDetails.details?.lockout_time_mins ??
-                     selectedPolicy?.lockout_time_mins ?? 'N/A'}
+                     policyDetails.details?.lockout_time_mins ?? 'N/A'}
                   </p>
                   <p className="text-xs text-slate-500">minutes</p>
                 </div>

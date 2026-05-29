@@ -1047,18 +1047,3 @@ export async function getUsageAnalytics(days = 30): Promise<any> {
     return { top_queries_by_credits: [], top_users_by_credits: [], warehouse_utilization: [], storage_growth_trend: [], days: 0 };
   }
 }
-
-/**
- * Resource monitors.
- * Returns { monitors, count }.
- * Each monitor: name, credit_quota, used_credits, remaining_credits,
- * usage_pct, frequency, start_time, end_time, notify_at, suspend_at, level.
- */
-export async function getResourceMonitors(): Promise<any> {
-  try {
-    const { data } = await apiClient.get(`${BASE_URL}/resource-monitors`, { timeout: 60000 });
-    return data;
-  } catch {
-    return { monitors: [], count: 0 };
-  }
-}

@@ -1,12 +1,17 @@
 export const routes = {
   home: '/',
   accountOverview: '/account-overview',
+  sources: {
+    catalog: '/sources',
+  },
+  dataProducts: {
+    list: '/data-products',
+  },
   connexion: {
     dataSourceConnection: '/data-source-connection',
   },
-  
   mapping: {
-    viewMap: '/mapping', // Redirects to explore-design (migrated)
+    viewMap: '/mapping',
   },
   exploreDesign: {
     view: '/explore-design',

@@ -62,6 +62,7 @@ export default function DashboardSelector({
   const [selectedInModal, setSelectedInModal] = useState<string | null>(null);
   const [projectSearch, setProjectSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
     // Auto-create from table
   const [autoCreateOpen, setAutoCreateOpen] = useState(false);
@@ -477,24 +478,40 @@ export default function DashboardSelector({
                               />
                             )}
                           </button>
-                          <Tooltip content="Delete dashboard">
-                            <button
-                              className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (window.confirm(`Delete "${project.name}"? This cannot be undone.`)) {
-                                  handleDelete(project.project_id);
-                                }
-                              }}
-                              disabled={deletingId === project.project_id}
-                            >
-                              {deletingId === project.project_id ? (
-                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          </Tooltip>
+                          {confirmDeleteId === project.project_id ? (
+                            <div className="flex items-center gap-1.5 bg-red-50 dark:bg-red-950/30 rounded-lg px-2 py-1 flex-shrink-0">
+                              <span className="text-[10px] text-red-700 dark:text-red-400 whitespace-nowrap">Delete?</span>
+                              <button
+                                className="text-[10px] font-semibold text-red-700 dark:text-red-400 hover:underline"
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); handleDelete(project.project_id); }}
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 hover:underline"
+                                onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(null); }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <Tooltip content="Delete dashboard">
+                              <button
+                                className="p-1.5 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-slate-400 hover:text-red-500 transition-colors flex-shrink-0"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteId(project.project_id);
+                                }}
+                                disabled={deletingId === project.project_id}
+                              >
+                                {deletingId === project.project_id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </Tooltip>
+                          )}
                         </div>
                       );
                     })}

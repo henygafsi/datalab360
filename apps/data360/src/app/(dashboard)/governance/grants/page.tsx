@@ -19,7 +19,129 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { HiOutlineCube } from 'react-icons/hi2';
 import apiClient from '@/lib/api-client';
 
-type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles';
+type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles' | 'source-product-grants';
+
+function SourceProductGrantsPanel() {
+  const [sources, setSources] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [grantRole, setGrantRole] = useState('');
+  const [grantTarget, setGrantTarget] = useState('');
+  const [grantPrivilege, setGrantPrivilege] = useState('SELECT');
+
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    Promise.allSettled([
+      apiClient.get('/catalog/sources').then(r => r.data?.sources || []),
+      apiClient.get('/catalog/products').then(r => r.data?.products || []),
+    ]).then(([s, p]) => {
+      if (!mounted) return;
+      setSources(s.status === 'fulfilled' ? (Array.isArray(s.value) ? s.value : []) : []);
+      setProducts(p.status === 'fulfilled' ? (Array.isArray(p.value) ? p.value : []) : []);
+    }).finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const handleGrant = useCallback(async () => {
+    if (!grantRole || !grantTarget) return;
+    try {
+      await apiClient.post('/gouvernance/grants', { role: grantRole, object: grantTarget, privilege: grantPrivilege });
+      setGrantRole(''); setGrantTarget(''); setGrantPrivilege('SELECT');
+    } catch { /* handled */ }
+  }, [grantRole, grantTarget, grantPrivilege]);
+
+  return (
+    <div className="space-y-6">
+      <div className="mb-4">
+        <div className="flex items-center gap-3 mb-1">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Source & Product Access</h2>
+          <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"><HiOutlineShieldCheck className="w-3 h-3 mr-1 inline" />Catalog RBAC</Badge>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can access sources (databases, stages) and data products. Grants propagate to Snowflake objects.</p>
+      </div>
+
+      {/* Grant form */}
+      <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Add Grant</h3>
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Role</label>
+            <input type="text" placeholder="e.g., DATA_ANALYST" value={grantRole} onChange={(e) => setGrantRole(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Target (DB.SCHEMA or product)</label>
+            <input type="text" placeholder="e.g., ANALYTICS.PUBLIC" value={grantTarget} onChange={(e) => setGrantTarget(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-600 dark:text-gray-400 mb-1">Privilege</label>
+            <select value={grantPrivilege} onChange={(e) => setGrantPrivilege(e.target.value)} className="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800">
+              <option value="SELECT">SELECT (read)</option>
+              <option value="INSERT">INSERT (write)</option>
+              <option value="ALL PRIVILEGES">ALL PRIVILEGES</option>
+              <option value="USAGE">USAGE (schema)</option>
+              <option value="OWNERSHIP">OWNERSHIP</option>
+            </select>
+          </div>
+        </div>
+        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleGrant} disabled={!grantRole || !grantTarget}>Grant Access</Button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12"><Loader variant="spinner" size="lg" /></div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Sources */}
+          <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-3 border-b border-blue-200 dark:border-blue-800">
+              <h3 className="text-sm font-semibold text-blue-800 dark:text-blue-300 flex items-center gap-2">
+                <HiOutlineKey className="h-4 w-4" /> Sources ({sources.length})
+              </h3>
+            </div>
+            <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-80 overflow-y-auto">
+              {sources.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-gray-400">No sources — run catalog refresh first</p>
+              ) : sources.map((s: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{s.label || s.name || s.source_id || `Source ${i + 1}`}</p>
+                    <p className="text-[10px] text-gray-500">{s.source_type || 'database'} · {s.schema_count ?? '—'} schemas · {s.object_count ?? '—'} objects</p>
+                  </div>
+                  <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">{s.owner || 'SYSADMIN'}</Badge>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Products */}
+          <div className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+            <div className="bg-purple-50 dark:bg-purple-900/20 px-4 py-3 border-b border-purple-200 dark:border-purple-800">
+              <h3 className="text-sm font-semibold text-purple-800 dark:text-purple-300 flex items-center gap-2">
+                <HiOutlineCube className="h-4 w-4" /> Data Products ({products.length})
+              </h3>
+            </div>
+            <div className="divide-y divide-gray-100 dark:divide-gray-800 max-h-80 overflow-y-auto">
+              {products.length === 0 ? (
+                <p className="px-4 py-8 text-center text-sm text-gray-400">No products — create one in Catalog</p>
+              ) : products.map((p: any, i: number) => (
+                <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">{p.name || p.NAME || `Product ${i + 1}`}</p>
+                    <p className="text-[10px] text-gray-500">{p.domain || p.DOMAIN || '—'} · {p.status || p.STATUS || 'draft'}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    {p.quality_score != null && <Badge className="bg-green-100 text-green-700 text-[9px]">Q: {p.quality_score}</Badge>}
+                    {p.trust_score != null && <Badge className="bg-amber-100 text-amber-700 text-[9px]">T: {p.trust_score}</Badge>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function GrantsManagementPage() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
@@ -197,6 +319,22 @@ export default function GrantsManagementPage() {
                 Granular
               </Badge>
             </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === 'source-product-grants'}
+              onClick={() => setActiveTab('source-product-grants')}
+              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-all ${
+                activeTab === 'source-product-grants'
+                  ? 'border-b-2 border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400'
+                  : 'text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-200'
+              }`}
+            >
+              <HiOutlineShieldCheck className="h-4 w-4" />
+              Sources & Products
+              <Badge className="bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                Catalog
+              </Badge>
+            </button>
           </div>
         </div>
 
@@ -334,6 +472,8 @@ export default function GrantsManagementPage() {
               </div>
             )}
           </div>
+        ) : activeTab === 'source-product-grants' ? (
+          <SourceProductGrantsPanel />
         ) : (
           <div role="tabpanel" id="tabpanel-policy-grants" aria-labelledby="tab-policy-grants">
             <div className="mb-4">
