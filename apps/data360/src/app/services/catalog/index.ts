@@ -518,6 +518,123 @@ export async function getObjectActions(objectId: string): Promise<ActionsRespons
 }
 
 // ---------------------------------------------------------------------------
+// Explorer per-object drilldown tabs — Object-360 UI.
+// One service fn per `/api/snowflake/explorer/objects/{id}/<tab>` route.
+// Responses are intentionally loose (`any`) — the FE renders raw counts/items
+// and tolerates partial shapes. Each call degrades to an inline error/empty
+// state at the call site (no fake data, no silent empties).
+//
+// NOTE: there is no dedicated "cost" route. Cost/FinOps lives in the `usage`
+// response (finops fields) and the deep-dive `finops` tier — the Object-360
+// Cost tab reads from `getObjectUsage` / the deep-dive finops tier.
+// ---------------------------------------------------------------------------
+
+/** Envelope returned by list-style explorer routes (columns / audit). */
+export interface ExplorerEnvelope<T = any> {
+  items: T[];
+  total: number;
+  filters?: Record<string, unknown>;
+  account_id?: string | null;
+  [key: string]: any;
+}
+
+export async function getObjectColumns(objectId: string): Promise<ExplorerEnvelope> {
+  const { data } = await apiClient.get<ExplorerEnvelope>(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/columns`,
+  );
+  return data;
+}
+
+export async function getObjectLineage(
+  objectId: string,
+  opts?: { direction?: 'upstream' | 'downstream' | 'both'; depth?: number },
+): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/lineage`,
+    { params: opts },
+  );
+  return data;
+}
+
+export async function getObjectImpact(objectId: string): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/impact`,
+  );
+  return data;
+}
+
+export async function getObjectGovernanceTab(objectId: string): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/governance`,
+  );
+  return data;
+}
+
+export async function getObjectUsage(
+  objectId: string,
+  opts?: {
+    period?: '1d' | '7d' | '30d' | '90d' | '365d';
+    group_by?: 'day' | 'user' | 'role' | 'warehouse' | 'query_type';
+  },
+): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/usage`,
+    { params: opts },
+  );
+  return data;
+}
+
+export async function getObjectAudit(objectId: string): Promise<ExplorerEnvelope> {
+  const { data } = await apiClient.get<ExplorerEnvelope>(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/audit`,
+  );
+  return data;
+}
+
+export async function getObjectDdl(objectId: string): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/ddl`,
+  );
+  return data;
+}
+
+export async function getObjectHealth(objectId: string): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/health`,
+  );
+  return data;
+}
+
+export async function getObjectQuality(objectId: string): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/quality`,
+  );
+  return data;
+}
+
+export async function getObjectTimeline(
+  objectId: string,
+  opts?: { limit?: number },
+): Promise<any> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/timeline`,
+    { params: opts },
+  );
+  return data;
+}
+
+export async function getObjectOpenInSnowflake(
+  objectId: string,
+  accountUrl?: string,
+): Promise<{ url?: string; [key: string]: any }> {
+  const { data } = await apiClient.get(
+    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/open-in-snowflake`,
+    { params: accountUrl ? { account_url: accountUrl } : undefined },
+  );
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // Re-exports from mapping (for SourceTree which still uses metadata APIs)
 // ---------------------------------------------------------------------------
 

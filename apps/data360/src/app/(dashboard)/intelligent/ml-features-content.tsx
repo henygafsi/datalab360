@@ -201,7 +201,7 @@ function AIAssistantTab() {
           <div className="flex items-center gap-2">
             <PiShieldCheckDuotone className={`h-5 w-5 ${guardrails ? 'text-green-600' : 'text-slate-400'}`} />
             <div>
-              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Cortex Guard</span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Content Guard</span>
               <p className="text-xs text-slate-500">{guardrails ? 'Content safety filtering enabled' : 'No content filtering'}</p>
             </div>
           </div>
@@ -255,7 +255,7 @@ function AIAssistantTab() {
         <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-900/20">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
-              Response ({model})
+              Response ({LLM_MODELS.find((m) => m.value === model)?.label ?? 'AI'})
             </span>
             <Button size="sm" variant="outline" onClick={copyToClipboard}>
               <PiCopySimple className="mr-1 h-4 w-4" />

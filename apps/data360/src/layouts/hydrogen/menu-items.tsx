@@ -9,12 +9,10 @@ import {
   PiArrowsOutLineHorizontalBold,
   PiBellSimpleRingingDuotone,
   PiBinocularsDuotone,
-  PiBriefcaseDuotone,
   PiBrowserDuotone,
   PiCalendarDuotone,
   PiCalendarPlusDuotone,
   PiCaretCircleUpDownDuotone,
-  PiChartBarDuotone,
   PiChartLineUpDuotone,
   PiChatCenteredDotsDuotone,
   PiCodesandboxLogoDuotone,
@@ -72,11 +70,6 @@ export const menuItems = [
     icon: <PiCalendarDuotone />,
   },
   {
-    name: 'Executive',
-    href: routes.executive.dashboard,
-    icon: <PiBriefcaseDuotone />,
-  },
-  {
     name: 'Project',
     href: routes.project.dashboard,
     icon: <ProjectWriteIcon />,
@@ -116,11 +109,6 @@ export const menuItems = [
     name: 'E-Commerce',
     href: routes.eCommerce.dashboard,
     icon: <PiShoppingCartDuotone />,
-  },
-  {
-    name: 'Analytics',
-    href: routes.analytics,
-    icon: <PiChartBarDuotone />,
   },
   {
     name: 'Support',

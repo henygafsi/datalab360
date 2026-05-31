@@ -122,9 +122,6 @@ export const routes = {
   affiliate: {
     dashboard: '/affiliate',
   },
-  executive: {
-    dashboard: '/executive',
-  },
   project: {
     dashboard: '/project',
   },
@@ -135,7 +132,6 @@ export const routes = {
     dashboard: '/job-board',
     jobFeed: '/job-board/feed',
   },
-  analytics: '/analytics',
   financial: {
     dashboard: '/financial',
   },

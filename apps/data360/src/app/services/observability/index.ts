@@ -19,7 +19,32 @@ import type {
   SlowQueriesResponse,
   HealthStatus,
   ObservabilityRecord,
+  AlertsResponse,
+  SloTrackingResponse,
+  PlatformConfigResponse,
+  PlatformConfigEntry,
 } from './types';
+
+/**
+ * Returned by graceful service wrappers so a UI can tell an *undeployed* route
+ * (404 / 501) apart from a genuine failure and degrade to an inline
+ * "not available yet" state instead of crashing or faking data.
+ */
+export class RouteNotDeployedError extends Error {
+  readonly status: number;
+  constructor(status: number, message?: string) {
+    super(message ?? 'This capability is not available on the connected backend yet.');
+    this.name = 'RouteNotDeployedError';
+    this.status = status;
+  }
+}
+
+/** True when the backend route is missing (404) or not implemented (501). */
+export function isRouteNotDeployed(error: unknown): error is RouteNotDeployedError {
+  if (error instanceof RouteNotDeployedError) return true;
+  const status = (error as { response?: { status?: number } } | undefined)?.response?.status;
+  return status === 404 || status === 501;
+}
 
 /**
  * Secure API call wrapper with authentication error handling
@@ -358,6 +383,94 @@ export async function probeChanges(table: string, since: string): Promise<Observ
  */
 export async function probePlatformFreshness(): Promise<ObservabilityRecord> {
   return apiCall<ObservabilityRecord>('/observability/probes/platform');
+}
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+
+/**
+ * Get observability alerts (cost spikes, failed tasks, security findings…).
+ * GET /observability/alerts
+ */
+export async function getObservabilityAlerts(days: number = 7): Promise<AlertsResponse> {
+  return apiCallWithTransform<AlertsResponse>(`/observability/alerts?days=${days}`);
+}
+
+/**
+ * Get cross-module correlated alerts.
+ * GET /observability/alerts/cross-module
+ */
+export async function getCrossModuleAlerts(days: number = 7): Promise<AlertsResponse> {
+  return apiCallWithTransform<AlertsResponse>(`/observability/alerts/cross-module?days=${days}`);
+}
+
+// =============================================================================
+// SLO TRACKING
+// =============================================================================
+
+/**
+ * Get service-level objective tracking (targets vs. actuals, error budgets).
+ * GET /observability/slo-tracking
+ */
+export async function getSloTracking(days: number = 30): Promise<SloTrackingResponse> {
+  return apiCallWithTransform<SloTrackingResponse>(`/observability/slo-tracking?days=${days}`);
+}
+
+// =============================================================================
+// CONSOLIDATED DASHBOARD
+// =============================================================================
+
+/**
+ * Consolidated observability dashboard payload (KPIs + activity + cost + storage).
+ * GET /observability/dashboard
+ */
+export async function getObservabilityDashboard(): Promise<ObservabilityRecord> {
+  return apiCallWithTransform<ObservabilityRecord>('/observability/dashboard');
+}
+
+// =============================================================================
+// PLATFORM CONFIG — CRUD (/api/data360/platform-config*)
+// =============================================================================
+
+/**
+ * List all platform configuration entries.
+ * GET /api/data360/platform-config
+ */
+export async function getPlatformConfig(): Promise<PlatformConfigResponse> {
+  return apiCall<PlatformConfigResponse>('/api/data360/platform-config');
+}
+
+/**
+ * Read a single platform config entry by key.
+ * GET /api/data360/platform-config/{key}
+ */
+export async function getPlatformConfigEntry(key: string): Promise<PlatformConfigEntry> {
+  return apiCall<PlatformConfigEntry>(`/api/data360/platform-config/${encodeURIComponent(key)}`);
+}
+
+/**
+ * Create or update a platform config entry.
+ * PUT /api/data360/platform-config/{key}
+ */
+export async function updatePlatformConfigEntry(
+  key: string,
+  value: unknown,
+  meta?: { description?: string; category?: string },
+): Promise<PlatformConfigEntry> {
+  const { data } = await apiClient.put<PlatformConfigEntry>(
+    `/api/data360/platform-config/${encodeURIComponent(key)}`,
+    { value, ...meta },
+  );
+  return data;
+}
+
+/**
+ * Reset platform config to defaults.
+ * POST /api/data360/platform-config/reset
+ */
+export async function resetPlatformConfig(): Promise<PlatformConfigResponse> {
+  return apiCall<PlatformConfigResponse>('/api/data360/platform-config/reset', 'POST');
 }
 
 // Re-export types for convenience

@@ -1,0 +1,3287 @@
+{
+  "generated_from": "backend/reports/ui_usage.json",
+  "note": "Live backend route manifest. {param} segments are wildcards. Regenerate when backend routes change.",
+  "count": 820,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/admin/service-account/health"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/svc-registry"
+    },
+    {
+      "method": "GET",
+      "path": "/analytics/user-activity/summary"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/data360/cache-config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data360/config"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data360/platform-config"
+    },
+    {
+      "method": "POST",
+      "path": "/api/data360/platform-config/reset"
+    },
+    {
+      "method": "GET",
+      "path": "/api/data360/platform-config/{key:path}"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/data360/platform-config/{key:path}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/data360/table-refresh-mapping/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/data360/track"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/access-simulator"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/cache/install"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/platform/grants"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/actions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants/actions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/data-scope"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants/data-scope"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/policies"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants/policies"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/role/{role}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/roles"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants/roles"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/platform/grants/users"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/grants/users"
+    },
+    {
+      "method": "POST",
+      "path": "/api/platform/grants/users"
+    },
+    {
+      "method": "GET",
+      "path": "/api/platform/me/grants"
+    },
+    {
+      "method": "GET",
+      "path": "/api/recommendations/"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/cache/install"
+    },
+    {
+      "method": "GET",
+      "path": "/api/recommendations/glossary"
+    },
+    {
+      "method": "GET",
+      "path": "/api/recommendations/{reco_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/{reco_id}/acknowledge"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/{reco_id}/dismiss"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/{reco_id}/reopen"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/{reco_id}/resolve"
+    },
+    {
+      "method": "POST",
+      "path": "/api/recommendations/{reco_id}/snooze"
+    },
+    {
+      "method": "GET",
+      "path": "/api/refresh-state"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/audit-views"
+    },
+    {
+      "method": "POST",
+      "path": "/api/snowflake/explorer/cache/install"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/databases/{database}/audit"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/databases/{database}/governance"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/databases/{database}/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/facets"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects"
+    },
+    {
+      "method": "POST",
+      "path": "/api/snowflake/explorer/objects/bulk-action"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/export"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/actions"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/audit"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/columns"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/ddl"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/deep-dive"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/governance"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/health"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/impact"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/open-in-snowflake"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/quality"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/timeline"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/objects/{object_id}/usage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/recent-activity"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/recent-activity/export"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/schemas"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/schemas/{database}/{schema}/audit"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/schemas/{database}/{schema}/governance"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/schemas/{database}/{schema}/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/scoring/definitions"
+    },
+    {
+      "method": "POST",
+      "path": "/api/snowflake/explorer/selection-review"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/summary"
+    },
+    {
+      "method": "POST",
+      "path": "/api/snowflake/explorer/sync"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/sync/history"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/sync/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/sync/{sync_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/api/snowflake/explorer/tree"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/cache/install"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/investigation-modes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/recently-opened"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/saved-views"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/saved-views"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/workspace/saved-views/{view_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/workspace/saved-views/{view_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/touch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/workspace/watchlist"
+    },
+    {
+      "method": "POST",
+      "path": "/api/workspace/watchlist"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/workspace/watchlist/{object_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/auto-create"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/charts/data"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/nl-to-chart"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/retail-kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/templates"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{dashboard_id}/drill-through"
+    },
+    {
+      "method": "DELETE",
+      "path": "/bi-dashboard/{project_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/{project_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/bi-dashboard/{project_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/{project_id}/export"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/{project_id}/filters"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{project_id}/filters"
+    },
+    {
+      "method": "DELETE",
+      "path": "/bi-dashboard/{project_id}/filters/{filter_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/{project_id}/pages"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{project_id}/pages"
+    },
+    {
+      "method": "DELETE",
+      "path": "/bi-dashboard/{project_id}/pages/{page_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/bi-dashboard/{project_id}/pages/{page_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{project_id}/render"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{project_id}/snapshot"
+    },
+    {
+      "method": "GET",
+      "path": "/bi-dashboard/{project_id}/widgets"
+    },
+    {
+      "method": "POST",
+      "path": "/bi-dashboard/{project_id}/widgets"
+    },
+    {
+      "method": "DELETE",
+      "path": "/bi-dashboard/{project_id}/widgets/{widget_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/bi-dashboard/{project_id}/widgets/{widget_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/cache-stream/available-keys"
+    },
+    {
+      "method": "GET",
+      "path": "/cache-stream/last-invalidation/{cache_key}"
+    },
+    {
+      "method": "GET",
+      "path": "/cache-stream/stats"
+    },
+    {
+      "method": "GET",
+      "path": "/cache-stream/stream"
+    },
+    {
+      "method": "POST",
+      "path": "/cache-stream/test-invalidation"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/clear/all"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/clear/pattern"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/health"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/keys"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/keys"
+    },
+    {
+      "method": "DELETE",
+      "path": "/cache/keys/{key}"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/keys/{key}"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/performance"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/refresh/start"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/refresh/status"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/refresh/stop"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/refresh/trigger/{job_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/stats"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/svc-health"
+    },
+    {
+      "method": "GET",
+      "path": "/cache/test-connection"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/warmup"
+    },
+    {
+      "method": "POST",
+      "path": "/cache/warmup/trigger"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/events"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/kpis"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/kpis/{kpi_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/kpis/{kpi_id}/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/objects/{object_fqn:path}/history"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/objects/{object_id}/360"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/objects/{object_id}/scores"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/objects/{object_id}/scores/recompute"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/overview"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/products"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/products/{product_id}/assets"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/products/{product_id}/generate-kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/products/{product_id}/kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/products/{product_id}/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/products/{product_id}/overview"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/products/{product_id}/publish"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/products/{product_id}/recommend-model"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/recommendations"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/recommendations/{reco_id}/apply"
+    },
+    {
+      "method": "POST",
+      "path": "/catalog/refresh"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/refresh/{run_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/scores"
+    },
+    {
+      "method": "GET",
+      "path": "/catalog/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/conversations"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/conversations/dm"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/conversations/group"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/conversations/{conversation_id}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/chat/conversations/{conversation_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/conversations/{conversation_id}/attachments"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/conversations/{conversation_id}/messages"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/conversations/{conversation_id}/messages"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/conversations/{conversation_id}/participants"
+    },
+    {
+      "method": "POST",
+      "path": "/chat/conversations/{conversation_id}/read"
+    },
+    {
+      "method": "GET",
+      "path": "/chat/online-users"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/activity-feed"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/audit/access-history"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/audit/login-history"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/audit/query-history"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/cost-breakdown"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/cross-module"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/filter-options"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/infrastructure"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/module-health"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/overview-kpis"
+    },
+    {
+      "method": "POST",
+      "path": "/command-center/overview-kpis/refresh"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/pipelines"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/profiling/column"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/query-intelligence"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/security-audit"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/time-context"
+    },
+    {
+      "method": "GET",
+      "path": "/command-center/warehouse-performance"
+    },
+    {
+      "method": "POST",
+      "path": "/command-center/warm-user-cache"
+    },
+    {
+      "method": "GET",
+      "path": "/common/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/common/get_table_columns"
+    },
+    {
+      "method": "GET",
+      "path": "/common/get_table_columns/"
+    },
+    {
+      "method": "GET",
+      "path": "/common/schemas/{database_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/common/tables/{database_name}/{schema_name}"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/aws/stage"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/aws/storage_integration"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/azure/notification_integration"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/azure/snowpipe"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/azure/stage"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/azure/storage_integration"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/connectors"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/connectors/health"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/databricks/catalogs"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/databricks/ingest"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/databricks/schemas"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/databricks/tables"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/databricks/test"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/gcs/notification_integration"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/gcs/stage"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/gcs/storage_integration"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/iceberg/ingest"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/iceberg/namespaces"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/iceberg/tables"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/iceberg/test"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/integration"
+    },
+    {
+      "method": "PATCH",
+      "path": "/connect/integration/{integration_name}"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/mysql/ingest"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/oracle/ingest"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/oracle/sample-stage"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/oracle/test"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/postgres/ingest"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/snowflake_lake/databases"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/snowflake_lake/datalake/connect"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/snowflake_lake/schemas/{database_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/snowflake_lake/tables/{database_name}/{schema_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/source-catalog"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/stages"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/stages/internal"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/stages/{stage_name}/files"
+    },
+    {
+      "method": "DELETE",
+      "path": "/connect/stages/{stage_name}/files/{file_path:path}"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/stages/{stage_name}/files/{file_path:path}/download"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/stages/{stage_name}/files/{file_path:path}/preview"
+    },
+    {
+      "method": "GET",
+      "path": "/connect/stages/{stage_name}/grants"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/stages/{stage_name}/upload"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/tasks/{task_name}/resume"
+    },
+    {
+      "method": "POST",
+      "path": "/connect/tasks/{task_name}/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/agents"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/code-generate"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/complete"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/duckdb/datasets"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/duckdb/query"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/duckdb/query-stage"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/embeddings"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/explore/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/explore/schemas"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/explore/tables"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/icon-suggest"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/classification/models"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/classification/predict"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/classification/train"
+    },
+    {
+      "method": "DELETE",
+      "path": "/cortex/ml/classification/{model_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/classification/{model_name}/metrics"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/document-ai/extract-to-table"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/document-ai/models"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/document-ai/models"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/document-ai/predict"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/document-ai/upload"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/finetune"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/finetune/jobs"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/finetune/jobs/{job_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/finetune/jobs/{job_id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/sentiment"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/summarize"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/ml/top-insights"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/top-insights"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/top-insights/{name}/analyze"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/ml/translate"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/models"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/query"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/query-analytics/analyze"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/query-analytics/redundant-groups"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/query-analytics/results"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/query-analytics/summary"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/semantic-models"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/semantic-models/generate"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/semantic-models/generate-and-save"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/semantic-models/list"
+    },
+    {
+      "method": "DELETE",
+      "path": "/cortex/semantic-models/{model_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/semantic-models/{model_name}"
+    },
+    {
+      "method": "PUT",
+      "path": "/cortex/semantic-models/{model_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/semantic-views"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/compute-pools"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/compute-pools"
+    },
+    {
+      "method": "DELETE",
+      "path": "/cortex/snowpark/compute-pools/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/compute-pools/{name}/resume"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/compute-pools/{name}/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/endpoints/{service_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/image-repos"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/services"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/services"
+    },
+    {
+      "method": "DELETE",
+      "path": "/cortex/snowpark/services/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/services/{name}/auto-stop"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/services/{name}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/services/{name}/resume"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/services/{name}/status"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/services/{name}/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/snowpark/streamlit"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/snowpark/streamlit"
+    },
+    {
+      "method": "POST",
+      "path": "/cortex/synthesize-rows"
+    },
+    {
+      "method": "GET",
+      "path": "/cortex/vectors/columns"
+    },
+    {
+      "method": "GET",
+      "path": "/data-products"
+    },
+    {
+      "method": "POST",
+      "path": "/data-products"
+    },
+    {
+      "method": "GET",
+      "path": "/data-products/{product_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/data-products/{product_id}/publish"
+    },
+    {
+      "method": "POST",
+      "path": "/data-products/{product_id}/subscribe"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/classification-coverage"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/completeness-metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/cost-metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/dmf-results"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/freshness-metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/ingestion-metrics"
+    },
+    {
+      "method": "POST",
+      "path": "/data-quality/projects/{project_id}/dmf-check"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/projects/{project_id}/dmf-results"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/projects/{project_id}/dmf-suggest"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/quality-summary"
+    },
+    {
+      "method": "POST",
+      "path": "/data-quality/run-check"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/schema-quality"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/security-posture"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/trend-analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/data-quality/uniqueness-metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/deployments/track"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track"
+    },
+    {
+      "method": "GET",
+      "path": "/deployments/track/{deployment_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track/{deployment_id}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track/{deployment_id}/complete"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track/{deployment_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track/{deployment_id}/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/deployments/track/{deployment_id}/rollback"
+    },
+    {
+      "method": "PATCH",
+      "path": "/deployments/track/{deployment_id}/step"
+    },
+    {
+      "method": "GET",
+      "path": "/docs"
+    },
+    {
+      "method": "GET",
+      "path": "/docs/oauth2-redirect"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/add-event"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/alerts"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/alerts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/alerts/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/alerts/{name}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/explore-design/alerts/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/column/exclude"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/column/mark-sensitive"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/column/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/column/profile"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/compliance/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/dynamic-tables"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/dynamic-tables"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/dynamic-tables/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/dynamic-tables/{name}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/explore-design/dynamic-tables/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/dynamic-tables/{name}/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/dynamic-tables/{name}/resume"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/dynamic-tables/{name}/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/event-tables"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/event-tables"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/event-tables/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/events/{event_id}/conditions"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/events/{event_id}/conditions/evaluate"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/export/{project_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/fetch_relationships"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/glossary"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/add-columns"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/add-event"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/create_project"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/guided/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/guided/get-steps-event"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/get-steps-event"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/log_wizard_event"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/guided/manage_table"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/manage_table"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/primary-key"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/remove-columns"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/store-selected-columns"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/guided/update_column_length"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/hybrid-tables"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/hybrid-tables"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/hybrid-tables/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/impact-analysis"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/import"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/ingestion/adapt"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/ingestion/create-versioned"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/ingestion/pause"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/ingestion/resume"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/lineage/column"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/primary-key/add"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/projects/{project_id}/erd"
+    },
+    {
+      "method": "PUT",
+      "path": "/explore-design/projects/{project_id}/erd"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/projects/{project_id}/erd/auto-layout"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/projects/{project_id}/relationships"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/projects/{project_id}/relationships/{relationship_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/recent-deployment-errors"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/execute-now"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/logs"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/scheduled-deployments/{schedule_id}/reschedule"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/schema-clone"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/schema-clone/list"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/schema-clone/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/schema-clone/{clone_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/schema-clone/{clone_id}/rollback"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/schema-clone/{clone_id}/status"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/smart/detect-fk"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/smart/detect-pk"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/smart/embed"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/smart/semantic-search"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/streams"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/streams"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/streams/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/streams/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/streams/{name}/data"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/table/preview"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/table/profile"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/tasks"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/tasks/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/tasks/{name}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/explore-design/tasks/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/tasks/{name}/resume"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/tasks/{name}/suspend"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/versions/{from_version_id}/compare/{to_version_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/versions/{from_version_id}/migration/{to_version_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/versions/{version_id}/promote"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/check-naming"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/classify-columns"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/clustering-keys"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/deploy-schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/deployment-risk"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/discover-relationships"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/feedback"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ai/feedback/stats"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/ingestion-mode"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/materialization"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/optimize-types"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/recommend-scd"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ai/savings"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/schema-health"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/suggest-columns"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ai/warehouse-sizing"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/cascade/drop"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/cascade/rename"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/conflict-check"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ddl-actions"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ddl-actions"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ddl-actions/dry-run"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ddl-actions/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ddl-actions/pre-check"
+    },
+    {
+      "method": "DELETE",
+      "path": "/explore-design/{project_id}/ddl-actions/{event_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deploy"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/deployments"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments/{deployment_id}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments/{deployment_id}/cancel"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments/{deployment_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments/{deployment_id}/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/deployments/{deployment_id}/verify"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/dry-run"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/events"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/events/conflicts"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/full-dry-run"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/impact-analysis"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/impact-analysis/enhanced"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/dry-run"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/execute"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ingestion/operations"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/operations"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/operations/{operation_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/operations/{operation_id}/rollback"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/preview-sql"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/quality-check"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ingestion/runs"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/sql-preview"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/ingestion/watermark"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/ingestion/watermark/reset"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/post-verify"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/pre-deploy-checks"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/quality-gates/run"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/schedule"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/schedules"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/sql-diff"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/state"
+    },
+    {
+      "method": "PUT",
+      "path": "/explore-design/{project_id}/state"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/tables/{database}/{schema}/{table}/ai/column-classification"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/tables/{database}/{schema}/{table}/columns/{column}/preview"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/tables/{database}/{schema}/{table}/columns/{column}/profile"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/tables/{database}/{schema}/{table}/preview"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/tables/{database}/{schema}/{table}/profile"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/validate-events"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/validate/fk-types"
+    },
+    {
+      "method": "POST",
+      "path": "/explore-design/{project_id}/validate/impact-analysis"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/validate/type-compatibility"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/versions"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/watermarks"
+    },
+    {
+      "method": "GET",
+      "path": "/explore-design/{project_id}/watermarks/{source_table}"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/add-role"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/add-user"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/assign-role"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/client/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/d360-roles"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/d360-roles"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/d360-roles/templates"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/d360-roles/{role_name}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/d360-roles/{role_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/dashboard/activity"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/dashboard/errors"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/disable_user/"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/drop-role"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/drop-roles-batch"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/drop-user"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/enable_user/"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/enterprise-users"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/enterprise-users/sync"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/enterprise-users/{username}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/enterprise-users/{username}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/get_dwh_health_info"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/get_dwh_schemas"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/get_dwh_storage_info"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/grant-permission"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/grants"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/grants-for-role/{role_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/gui-permissions"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/gui-permissions"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/gui-permissions/my-access"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/gui-permissions/{permission_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/info"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/oauth/api-keys"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/oauth/assign-rsa-key"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/oauth/integrations"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/oauth/integrations"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/oauth/network-policies"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/oauth/revoke-rsa-key/{username}"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/oauth/saml-integrations"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/oauth/service-users"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/aggregation"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/aggregation/apply"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/aggregation/replace"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/policies/aggregation/{database}/{schema}/{table}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/aggregation/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/classification/apply-tags"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/classification/classifiers"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/classification/classifiers/{name}/regex"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/classification/classify"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/classification/extract-categories"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/dmf"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/dmf/all-references"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/dmf/associate"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/dmf/disassociate"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/dmf/list"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/dmf/references"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/dmf/schedule"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/policies/dmf/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/dmf/{name}/details"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/health"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/masking"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/masking/apply"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/masking/batch-details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/masking/remove"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/masking/replace"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/masking/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/network"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/network/list"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/policies/network/{policy_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/network/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/network/{policy_name}/set-default"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/objects/columns/{database}/{schema}/{table}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/objects/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/objects/schemas/{database}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/objects/tables/{database}/{schema}"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/password"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/password/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/password/{policy_name}/set-default"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/pii-scan"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/row-access"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/row-access/apply"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/row-access/remove"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/row-access/replace"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/row-access/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/session"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/session/{policy_name}/details"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/session/{policy_name}/set-default"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/tags"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/tags/apply"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/tags/list"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/tags/remove"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/policies/tags/{tag_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/tags/{tag_name}/details"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/{policy_type}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/policies/{policy_type}/{policy_name}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/policies/{policy_type}/{policy_name}/metadata"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/policies/{policy_type}/{policy_name}/references"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/policies/{policy_type}/{policy_name}/roles"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/policies/{policy_type}/{policy_name}/unapply-all"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/rls-policies"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/roles"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/roles-for-user/{username}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/roles/edit/{role_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/roles/{role_name}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/roles/{role_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/security-axes"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/security-axes"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/security-axes/{axis_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/security-axes/{axis_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/security-matrix"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/security-matrix"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/security-matrix/batch"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/security-matrix/bulk"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/security-matrix/init"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/security-matrix/role/{role_name}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/security-matrix/{entry_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/security-matrix/{entry_id}"
+    },
+    {
+      "method": "DELETE",
+      "path": "/gouvernance/unassign-role"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/update-grants"
+    },
+    {
+      "method": "POST",
+      "path": "/gouvernance/user/mfa/set"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/user/mfa/status"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/users"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/users-with-roles"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/users/{username}"
+    },
+    {
+      "method": "GET",
+      "path": "/gouvernance/users/{username}/roles"
+    },
+    {
+      "method": "PUT",
+      "path": "/gouvernance/users/{username}/roles"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/notifications"
+    },
+    {
+      "method": "POST",
+      "path": "/notifications/broadcast"
+    },
+    {
+      "method": "POST",
+      "path": "/notifications/mark-all-read"
+    },
+    {
+      "method": "GET",
+      "path": "/notifications/unread-count"
+    },
+    {
+      "method": "PATCH",
+      "path": "/notifications/{notification_id}/read"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/activity/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/alerts"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/alerts/cross-module"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/compliance/gdpr"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/compliance/soc2"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/cost/daily-credits"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/cost/storage"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/cost/warehouse-usage"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/dashboard"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/dependencies"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/dependencies/graph"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/health"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/intelligent-kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/kpis"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/lineage"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/lineage/access-patterns"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/lineage/cross-module"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/lineage/with-tasks"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/performance/metrics"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/performance/slow-queries"
+    },
+    {
+      "method": "POST",
+      "path": "/observability/probes/batch-check"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/probes/changes"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/probes/platform"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/probes/schema"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/probes/table"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/security/posture"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/sensors/all"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/slo-tracking"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/tasks/importable"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/trust-center/findings"
+    },
+    {
+      "method": "GET",
+      "path": "/observability/trust-center/summary"
+    },
+    {
+      "method": "GET",
+      "path": "/openapi.json"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/account-health-score"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/accounts"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/org-accounts/accounts/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/accounts/{account_name}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/org-accounts/accounts/{account_name}"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts/{account_name}/activate"
+    },
+    {
+      "method": "PATCH",
+      "path": "/org-accounts/accounts/{account_name}/mfa"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts/{account_name}/reset-password"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts/{account_name}/rotate-keys"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts/{account_name}/suspend"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/accounts/{account_name}/transfer-ownership"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/alerts"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/anomalies"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/audit/access-history"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/audit/login-history"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/audit/query-history"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/automation-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/contract"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/cortex-costs"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/credit-forecast"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/credits"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/credits/history/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/credits/top"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/credits/trend"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/cross-account/usage"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/dashboard/overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/dashboard/trends"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/dashboard/usage"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/data-loading-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/data-operations-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/data-transfer"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/events"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/filter-options"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/governance-grants-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/governance-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/grants-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/health"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/health/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/logins"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/logins/failed"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/logins/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/metering"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/metering/trend"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/organization/costs"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/organization/remaining-balance"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/organization/storage"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/organization/warehouse-credits"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/performance-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/platform-activity"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/projects-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/queries"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/queries/trend"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/rate-sheet"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/reader-accounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/org-accounts/reader-accounts/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/replication"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/resource-monitors"
+    },
+    {
+      "method": "POST",
+      "path": "/org-accounts/row-timestamps/activate"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/row-timestamps/status"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/security-overview"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/services/clustering"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/services/materialized-views"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/services/pipes"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/services/query-acceleration"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/services/search-optimization"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/shares"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/shares/{share_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/storage/databases"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/storage/stages"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/storage/trend"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/usage-analytics"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/warehouses"
+    },
+    {
+      "method": "GET",
+      "path": "/org-accounts/warehouses/{account_name}"
+    },
+    {
+      "method": "GET",
+      "path": "/projects"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/last-used"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/last-used"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/unified"
+    },
+    {
+      "method": "DELETE",
+      "path": "/projects/{project_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/projects/{project_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}/contributors"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/contributors"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}/deployments"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/deployments"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}/deployments/{deployment_id}"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/deployments/{deployment_id}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/deployments/{deployment_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/deployments/{deployment_id}/reject"
+    },
+    {
+      "method": "PUT",
+      "path": "/projects/{project_id}/deployments/{deployment_id}/steps/{step}"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}/events"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/events"
+    },
+    {
+      "method": "PATCH",
+      "path": "/projects/{project_id}/events/bulk-update"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/lock"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/rollback"
+    },
+    {
+      "method": "GET",
+      "path": "/projects/{project_id}/runs"
+    },
+    {
+      "method": "POST",
+      "path": "/projects/{project_id}/unlock"
+    },
+    {
+      "method": "GET",
+      "path": "/ready"
+    },
+    {
+      "method": "GET",
+      "path": "/redoc"
+    },
+    {
+      "method": "POST",
+      "path": "/signin"
+    },
+    {
+      "method": "POST",
+      "path": "/user/bootstrap-account/"
+    },
+    {
+      "method": "POST",
+      "path": "/user/login/"
+    },
+    {
+      "method": "GET",
+      "path": "/user/me/modules"
+    },
+    {
+      "method": "GET",
+      "path": "/user/profile"
+    },
+    {
+      "method": "PUT",
+      "path": "/user/profile"
+    },
+    {
+      "method": "POST",
+      "path": "/user/profile/password"
+    },
+    {
+      "method": "POST",
+      "path": "/user/profile/role"
+    },
+    {
+      "method": "GET",
+      "path": "/user/profile/roles"
+    },
+    {
+      "method": "POST",
+      "path": "/user/register/"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/action-templates"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/action-templates"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/capabilities"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/from-graph"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/git/repositories"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/git/repositories"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workflow/git/repositories/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/git/repositories/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/git/repositories/{name}/branches"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/git/repositories/{name}/fetch"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/git/repositories/{name}/tags"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/jobs"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/notebooks"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/notebooks"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workflow/notebooks/{name}"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/notebooks/{name}"
+    },
+    {
+      "method": "PATCH",
+      "path": "/workflow/notebooks/{name}"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/notebooks/{name}/execute"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/preview-table"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/run-python"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/run-sql"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/schedules"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/setup/initialize-tables"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/tasks/discover"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/clone-data-tests"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/compile"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/deployments"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/deployments"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/deployments/{deployment_id}/approve"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/deployments/{deployment_id}/execute"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/deployments/{deployment_id}/reject"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/execute"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/runs"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/runs/{run_id}/analyze"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workflow/{workflow_id}/schedule"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/schedule"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workflow/{workflow_id}/schedule/dag"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/schedule/dag"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/schedule/dag"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/schedule/pause"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/schedule/resume"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/schedules"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/steps"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/steps"
+    },
+    {
+      "method": "DELETE",
+      "path": "/workflow/{workflow_id}/steps/{step_id}"
+    },
+    {
+      "method": "PUT",
+      "path": "/workflow/{workflow_id}/steps/{step_id}"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/task-status"
+    },
+    {
+      "method": "POST",
+      "path": "/workflow/{workflow_id}/validate"
+    },
+    {
+      "method": "GET",
+      "path": "/workflow/{workflow_id}/versions"
+    },
+    {
+      "method": "WS",
+      "path": "/ws/chat"
+    }
+  ]
+}

@@ -328,7 +328,7 @@ function SemanticModelsContent() {
             Semantic Models
           </h2>
           <p className="text-slate-600 dark:text-slate-400 mt-1">
-            Define YAML-based semantic models for Cortex Analyst natural language queries
+            Define YAML-based semantic models for natural-language queries
           </p>
         </div>
         <div className="flex gap-3">
@@ -385,7 +385,7 @@ function SemanticModelsContent() {
               No Semantic Models Yet
             </h3>
             <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto">
-              Create your first semantic model to enable natural language queries with Cortex Analyst.
+              Create your first semantic model to enable natural-language queries.
               Models define your data structure, relationships, and business terminology.
             </p>
             <Button
@@ -484,7 +484,7 @@ function SemanticModelsContent() {
                     variant="outline"
                     className="border-fuchsia-200 dark:border-fuchsia-700 text-fuchsia-600 dark:text-fuchsia-400 hover:bg-fuchsia-50 dark:hover:bg-fuchsia-900/20"
                     onClick={() => handleUseInChat(model)}
-                    title="Use in Cortex Chat"
+                    title="Use in AI Chat"
                   >
                     <HiOutlineSparkles className="w-4 h-4" />
                   </Button>

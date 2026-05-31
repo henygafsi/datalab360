@@ -26,10 +26,12 @@ import {
   removeRLSPolicy,
   deleteRLSPolicy,
   getColumns,
+  getTablePolicies,
   formatPolicyError,
   type EnrichedPolicy,
   type GrantedObject,
 } from '@/app/services/governance/policies';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import PolicyCard from './components/PolicyCard';
 import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getSchemas } from '@/app/services/mapping/getSchema';
@@ -98,6 +100,15 @@ export default function RLSPoliciesContent() {
     table_name: '',
     policy_column: '',
   });
+
+  // Dry-run / preview state for the Apply flow. The backend has no "dry-run"
+  // endpoint, so we honestly inspect the target's *existing* policies first
+  // (GET .../objects/{db}/{schema}/{table}/policies) and require explicit
+  // confirmation before the real apply runs — surfacing any RLS that would be
+  // replaced. `applyElapsedMs` drives a visible timer during the live call.
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'applying'>('idle');
+  const [previewExisting, setPreviewExisting] = useState<{ row_access: number; conflicting: string[] } | null>(null);
+  const [applyElapsedMs, setApplyElapsedMs] = useState(0);
 
   // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
   const fetchPolicies = useCallback(() => listPoliciesEnriched('ROW_ACCESS'), []);
@@ -198,7 +209,9 @@ export default function RLSPoliciesContent() {
     handleCreateSubmit(onCreateSubmit)();
   };
 
-  const handleApply = async () => {
+  // Step 1 — build a preview (dry-run) by reading the target's existing
+  // policies. Opens the confirm dialog; does NOT mutate anything yet.
+  const handlePreviewApply = async () => {
     if (!selectedPolicy) return;
 
     // Validate all required fields
@@ -208,6 +221,33 @@ export default function RLSPoliciesContent() {
     }
 
     setApplyError(null);
+    setPreviewExisting(null);
+    setPreviewState('loading');
+    try {
+      const existing = await getTablePolicies(applyForm.database, applyForm.schema, applyForm.table_name);
+      const rowAccess = existing?.policies?.row_access ?? [];
+      setPreviewExisting({
+        row_access: rowAccess.length,
+        conflicting: rowAccess.map((p) => p.policy_name).filter(Boolean),
+      });
+      setPreviewState('ready');
+    } catch {
+      // getTablePolicies already degrades to an empty structure on failure;
+      // if it somehow throws, treat as "no known existing policies" but still
+      // require confirmation so nothing is applied silently.
+      setPreviewExisting({ row_access: 0, conflicting: [] });
+      setPreviewState('ready');
+    }
+  };
+
+  // Step 2 — the real, confirmed apply. Drives a visible elapsed timer because
+  // Snowflake DDL can take several seconds.
+  const handleConfirmApply = async () => {
+    if (!selectedPolicy) return;
+    setPreviewState('applying');
+    setApplyElapsedMs(0);
+    const startedAt = Date.now();
+    const timer = setInterval(() => setApplyElapsedMs(Date.now() - startedAt), 200);
     try {
       await applyRLSPolicy({
         policy_name: selectedPolicy.name,
@@ -223,12 +263,23 @@ export default function RLSPoliciesContent() {
       setShowApplyPanel(false);
       setSelectedPolicy(null);
       resetApplyForm();
+      setPreviewState('idle');
+      setPreviewExisting(null);
       refetch();
     } catch (error) {
       const applyErrMsg = formatErrorMessage(error, 'Failed to apply RLS policy');
       setApplyError(applyErrMsg);
       setFeedbackMessage({ type: 'error', text: applyErrMsg });
+      setPreviewState('ready'); // keep the dialog open so the error is visible
+    } finally {
+      clearInterval(timer);
     }
+  };
+
+  const cancelPreview = () => {
+    if (previewState === 'applying') return; // don't cancel mid-flight
+    setPreviewState('idle');
+    setPreviewExisting(null);
   };
 
   const handleRevokeObject = async (policy: EnrichedPolicy, obj: GrantedObject) => {
@@ -521,11 +572,14 @@ export default function RLSPoliciesContent() {
               Cancel
             </Button>
             <Button
-              onClick={handleApply}
-              disabled={!applyForm.database || !applyForm.schema || !applyForm.table_name || !applyForm.policy_column}
+              onClick={handlePreviewApply}
+              disabled={
+                !applyForm.database || !applyForm.schema || !applyForm.table_name || !applyForm.policy_column ||
+                previewState === 'loading'
+              }
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
             >
-              Apply Policy
+              {previewState === 'loading' ? 'Checking target…' : 'Preview & Apply'}
             </Button>
           </>
         }
@@ -630,6 +684,34 @@ export default function RLSPoliciesContent() {
             )}
           </div>
       </PolicyFormPanel>
+
+      {/* Dry-run preview + confirm before the real apply */}
+      <ConfirmDialog
+        open={previewState === 'ready' || previewState === 'applying'}
+        title="Apply row-access policy?"
+        destructive={!!previewExisting && previewExisting.row_access > 0}
+        message={
+          selectedPolicy
+            ? [
+                `Policy "${selectedPolicy.name}" will filter rows on ` +
+                  `${applyForm.database}.${applyForm.schema}.${applyForm.table_name} ` +
+                  `(column "${applyForm.policy_column}").`,
+                previewExisting && previewExisting.row_access > 0
+                  ? `Warning: this table already has ${previewExisting.row_access} row-access ` +
+                    `policy(ies) — ${previewExisting.conflicting.join(', ')}. Applying may replace or conflict with them.`
+                  : 'No existing row-access policy was found on this table.',
+                applyError ? `Error: ${applyError}` : '',
+                previewState === 'applying'
+                  ? `Applying… ${(applyElapsedMs / 1000).toFixed(1)}s elapsed`
+                  : '',
+              ].filter(Boolean).join('\n\n')
+            : ''
+        }
+        confirmLabel={previewState === 'applying' ? 'Applying…' : 'Confirm apply'}
+        cancelLabel="Back"
+        onConfirm={() => { if (previewState !== 'applying') void handleConfirmApply(); }}
+        onCancel={cancelPreview}
+      />
     </div>
   );
 }

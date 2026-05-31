@@ -9,7 +9,7 @@ import {
   TrendingUp, BarChart3, FolderPlus, AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { discoverRelationships, getSchemaHealth } from '@/app/services/explore-design';
+import { discoverRelationships, getSchemaHealth } from '@/app/services/explore-design/de-objects';
 import { getApiErrorMessage } from '@/lib/api-client';
 
 interface DetectedModel {
@@ -71,7 +71,16 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
       return;
     }
 
-    setHealth(healthResult.status === 'fulfilled' ? (healthResult.value as SchemaHealth) : null);
+    if (healthResult.status === 'fulfilled') {
+      const h = healthResult.value;
+      setHealth({
+        overall_score: h.overall_score,
+        relations_count: relResult.value?.relationships?.length,
+        issues_count: h.sub_scores?.naming?.violations?.length,
+      });
+    } else {
+      setHealth(null);
+    }
 
     const inferred = inferModelsFromRelationships(relResult.value, sourceTables);
     setModels(inferred);

@@ -175,3 +175,121 @@ export async function updateRole(
     throw error;
   }
 }
+
+// ===========================================================================
+// D360 GRANULAR ROLES (page/module/action-level RBAC)
+// Backend routes:
+//   GET  /gouvernance/d360-roles                  — list system + custom roles
+//   POST /gouvernance/d360-roles                  — create custom role (D360RoleCreate)
+//   GET  /gouvernance/d360-roles/templates        — list standard role templates
+//   PUT  /gouvernance/d360-roles/{role_name}      — update role metadata (D360RoleUpdate)
+//   DELETE /gouvernance/d360-roles/{role_name}    — delete custom role
+// ===========================================================================
+
+/** A D360 granular role as returned by the backend (snake_case, may vary by deploy). */
+export interface D360Role {
+  role_name: string;
+  display_name?: string | null;
+  description?: string | null;
+  permission_count?: number | null;
+  is_system?: boolean | null;
+  created_at?: string | null;
+}
+
+/** A standard role template that can seed a new custom role via `template_from`. */
+export interface D360RoleTemplate {
+  name: string;
+  display_name?: string | null;
+  description?: string | null;
+  permission_count?: number | null;
+}
+
+/** Payload for POST /gouvernance/d360-roles (D360RoleCreate). */
+export interface D360RoleCreatePayload {
+  role_name: string;
+  display_name?: string;
+  description?: string;
+  /** Name of a template to clone permissions from (optional). */
+  template_from?: string;
+}
+
+/** Payload for PUT /gouvernance/d360-roles/{role_name} (D360RoleUpdate). */
+export interface D360RoleUpdatePayload {
+  display_name?: string;
+  description?: string;
+}
+
+/** Normalize a backend role record (handles both snake_case and UPPER_CASE keys). */
+function normalizeD360Role(raw: any): D360Role {
+  return {
+    role_name: raw?.role_name ?? raw?.ROLE_NAME ?? '',
+    display_name: raw?.display_name ?? raw?.DISPLAY_NAME ?? null,
+    description: raw?.description ?? raw?.DESCRIPTION ?? null,
+    permission_count: raw?.permission_count ?? raw?.PERMISSION_COUNT ?? null,
+    is_system: raw?.is_system ?? raw?.IS_SYSTEM ?? null,
+    created_at: raw?.created_at ?? raw?.CREATED_AT ?? null,
+  };
+}
+
+/**
+ * List all D360 roles (system + custom).
+ * GET /gouvernance/d360-roles
+ */
+export async function getD360Roles(): Promise<D360Role[]> {
+  const response = await apiClient.get('/gouvernance/d360-roles');
+  const raw = response.data?.roles ?? response.data?.data ?? response.data;
+  return Array.isArray(raw) ? raw.map(normalizeD360Role) : [];
+}
+
+/**
+ * List standard role templates.
+ * GET /gouvernance/d360-roles/templates
+ */
+export async function getD360RoleTemplates(): Promise<D360RoleTemplate[]> {
+  const response = await apiClient.get('/gouvernance/d360-roles/templates');
+  const raw = response.data?.templates ?? response.data?.data ?? response.data;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((t: any) => ({
+    name: t?.name ?? t?.TEMPLATE_NAME ?? t?.template_name ?? '',
+    display_name: t?.display_name ?? t?.DISPLAY_NAME ?? null,
+    description: t?.description ?? t?.DESCRIPTION ?? null,
+    permission_count: t?.permission_count ?? t?.PERMISSION_COUNT ?? null,
+  }));
+}
+
+/**
+ * Create a custom D360 role (optionally seeded from a template).
+ * POST /gouvernance/d360-roles
+ */
+export async function createD360Role(payload: D360RoleCreatePayload): Promise<D360Role> {
+  const response = await apiClient.post('/gouvernance/d360-roles', payload);
+  const raw = response.data?.role ?? response.data?.data ?? response.data;
+  return normalizeD360Role(raw);
+}
+
+/**
+ * Update a custom D360 role's metadata.
+ * PUT /gouvernance/d360-roles/{role_name}
+ */
+export async function updateD360Role(
+  roleName: string,
+  payload: D360RoleUpdatePayload
+): Promise<D360Role> {
+  const response = await apiClient.put(
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}`,
+    payload
+  );
+  const raw = response.data?.role ?? response.data?.data ?? response.data;
+  return normalizeD360Role(raw);
+}
+
+/**
+ * Delete a custom D360 role.
+ * DELETE /gouvernance/d360-roles/{role_name}
+ */
+export async function deleteD360Role(roleName: string): Promise<{ message: string }> {
+  const response = await apiClient.delete(
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}`
+  );
+  return response.data;
+}

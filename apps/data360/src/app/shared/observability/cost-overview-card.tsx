@@ -5,6 +5,7 @@ import { Text, Title, Badge } from 'rizzui';
 import { PiCurrencyDollarDuotone, PiDatabaseDuotone, PiCpuDuotone, PiCalendarDuotone } from 'react-icons/pi';
 import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
 import type { WarehouseUsageSummary, StorageMetrics, DailyCreditUsage } from '@/app/services/observability/types';
+import FreshnessDisclaimer from './freshness-disclaimer';
 
 interface CostOverviewCardProps {
   warehouseData: WarehouseUsageSummary | null;
@@ -15,20 +16,21 @@ interface CostOverviewCardProps {
 }
 
 function formatCurrency(value: number | undefined | null): string {
-  if (value == null) return '$0';
+  // No fake $0: a missing estimate renders as an em dash.
+  if (value == null) return '—';
   if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
   if (value >= 1000) return `$${(value / 1000).toFixed(1)}K`;
   return `$${value.toFixed(2)}`;
 }
 
 function formatCredits(value: number | undefined | null): string {
-  if (value == null) return '0';
+  if (value == null) return '—';
   if (value >= 1000) return `${(value / 1000).toFixed(1)}K`;
   return value.toFixed(1);
 }
 
 function formatStorage(gb: number | undefined | null): string {
-  if (gb == null) return '0 GB';
+  if (gb == null) return '—';
   if (gb >= 1024) return `${(gb / 1024).toFixed(2)} TB`;
   return `${gb.toFixed(2)} GB`;
 }
@@ -66,8 +68,10 @@ export default function CostOverviewCard({
                          (storageData?.current_stage_gb ?? 0) +
                          (storageData?.current_failsafe_gb ?? 0);
 
-  // Use estimated_cost_usd from new API
-  const computeCost = warehouseData?.estimated_cost_usd ?? warehouseData?.total_cost_estimate ?? 0;
+  // Dollar figure is computed by the backend from Snowflake's per-credit rate
+  // for this account — the FE applies NO hardcoded credit→USD assumption.
+  // When the backend doesn't return an estimate we render "—", never a fake $0.
+  const computeCost = warehouseData?.estimated_cost_usd ?? warehouseData?.total_cost_estimate ?? null;
 
   return (
     <div className={cn('rounded-xl border border-muted bg-gray-0 p-6 dark:bg-gray-800', className)}>
@@ -79,6 +83,8 @@ export default function CostOverviewCard({
           </Badge>
         )}
       </div>
+
+      <FreshnessDisclaimer className="mt-3" />
 
       {/* Cost Summary */}
       <div className="mt-4 grid grid-cols-2 gap-4">
@@ -122,6 +128,9 @@ export default function CostOverviewCard({
             {formatCurrency(computeCost)}
           </Text>
         </div>
+        <Text className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          Estimated from this account&apos;s Snowflake per-credit rate (computed server-side). Credits consumed are the source of truth.
+        </Text>
       </div>
 
       {/* Daily Credits Chart */}

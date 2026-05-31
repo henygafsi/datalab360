@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import {
   PlayCircle,
   CheckCircle,
@@ -201,6 +202,12 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
     { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!pipelineId, initialData: null }
   );
 
+  // SSE-first refresh: when the cache-stream is connected, run-status updates
+  // arrive as WORKFLOWS-key invalidations (handled by useCacheAwareQuery above),
+  // so the manual interval becomes a slow safety net. When SSE is offline we
+  // fall back to the original aggressive 5s poll. Never tears out polling.
+  const { isConnected: sseConnected } = useCacheInvalidationContext();
+
   const allRuns = useMemo<WorkflowRun[]>(() => runsData?.runs ?? [], [runsData]);
   const error = fetchError?.message ?? null;
 
@@ -246,6 +253,11 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
 
     if (pollingPaused) return;
 
+    // SSE-first cadence: when the cache-stream is live, SSE invalidation drives
+    // the refetch and this interval is only a slow safety net (20s). When SSE
+    // is offline, fall back to the fast 5s poll so running status stays fresh.
+    const pollMs = sseConnected ? 20_000 : 5_000;
+
     const interval = setInterval(() => {
       if (
         pollStartedAtRef.current !== null &&
@@ -260,7 +272,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
         return;
       }
       void refetch();
-    }, 5000);
+    }, pollMs);
 
     const handleVisibility = () => {
       // Refresh immediately when the tab becomes visible again so the user
@@ -279,7 +291,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [allRuns, refetch, pollingPaused]);
+  }, [allRuns, refetch, pollingPaused, sseConnected]);
 
   // Auto-trigger AI analysis on latest failed run (skip expected failures)
   useEffect(() => {

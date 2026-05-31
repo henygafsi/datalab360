@@ -171,7 +171,12 @@ export default function CortexChatContent() {
     const data = await listConversations(1, 50);
     const items = data?.items ?? [];
     return items.filter(
-      (c: ChatConversation) => c.TITLE?.startsWith('Cortex Chat') || c.TYPE === 'AI_CHAT'
+      // Match the current "AI Chat" prefix and the legacy "Cortex Chat" prefix
+      // so conversations persisted before the rename are not orphaned.
+      (c: ChatConversation) =>
+        c.TITLE?.startsWith('AI Chat') ||
+        c.TITLE?.startsWith('Cortex Chat') ||
+        c.TYPE === 'AI_CHAT'
     );
   }, []);
   const { data: conversations, loading: loadingConversations } = useCacheAwareQuery<ChatConversation[]>(
@@ -216,7 +221,7 @@ export default function CortexChatContent() {
   const ensureConversation = async (): Promise<string | null> => {
     if (activeConversationId) return activeConversationId;
     try {
-      const title = `Cortex Chat — ${new Date().toLocaleDateString()}`;
+      const title = `AI Chat — ${new Date().toLocaleDateString()}`;
       const conv = await createGroupConversation(title, []);
       const newId = conv.CONVERSATION_ID;
       setActiveConversationId(newId);
@@ -573,7 +578,7 @@ export default function CortexChatContent() {
             </div>
             <div>
               <h2 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-                Cortex Chat
+                AI Chat
                 <Badge className="bg-fuchsia-100 dark:bg-fuchsia-900/30 text-fuchsia-700 dark:text-fuchsia-300 text-xs">
                   Beta
                 </Badge>
@@ -638,7 +643,7 @@ export default function CortexChatContent() {
                 Ask Anything About Your Data
               </h3>
               <p className="text-slate-600 dark:text-slate-400 max-w-md mb-8">
-                Powered by Snowflake Cortex and your semantic models, I can help you query
+                Powered by your semantic models, I can help you query
                 and understand your data using natural language.
               </p>
 
@@ -676,7 +681,7 @@ export default function CortexChatContent() {
                 >
                   {/* Assistant avatar */}
                   {message.role === 'assistant' && (
-                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-600 flex items-center justify-center" title="Cortex AI">
+                    <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-pink-600 flex items-center justify-center" title="AI Assistant">
                       <PiBrain className="w-4 h-4 text-white" />
                     </div>
                   )}
@@ -757,7 +762,7 @@ export default function CortexChatContent() {
           <div className="flex items-center justify-between mt-2 gap-2">
             <div className="flex items-center gap-2">
               <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                Powered by Snowflake Cortex Analyst. Press Enter to send.
+                AI-powered natural-language analytics. Press Enter to send.
               </p>
               <AiCostBadge
                 featureKey="cortex_complete"

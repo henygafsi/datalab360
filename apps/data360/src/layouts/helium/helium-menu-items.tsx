@@ -5,7 +5,6 @@ import {
   PiShoppingCart,
   PiHeadset,
   PiPackage,
-  PiChartBar,
   PiCurrencyDollar,
   PiSquaresFour,
   PiGridFour,
@@ -39,7 +38,6 @@ import {
   PiFolder,
   PiListNumbers,
   PiCaretCircleUpDown,
-  PiBriefcase,
   PiCalendarDuotone,
   PiShapes,
   PiNewspaperClippingDuotone,
@@ -71,11 +69,6 @@ export const menuItems = [
     name: 'Appointment',
     href: routes.appointment.dashboard,
     icon: <PiCalendarDuotone />,
-  },
-  {
-    name: 'Executive',
-    href: routes.executive.dashboard,
-    icon: <PiBriefcase />,
   },
   {
     name: 'Project',
@@ -117,11 +110,6 @@ export const menuItems = [
     name: 'E-Commerce',
     href: routes.eCommerce.dashboard,
     icon: <PiShoppingCart />,
-  },
-  {
-    name: 'Analytics',
-    href: routes.analytics,
-    icon: <PiChartBar />,
   },
   {
     name: 'Support',

@@ -217,12 +217,193 @@ export interface RunCheckResponse {
 }
 
 /**
- * Trigger a quality check sweep across a database's tables.
+ * QualityCheckConfig — mirrors the backend Pydantic model consumed by
+ * POST /data-quality/run-check. The `table` field is REQUIRED by the backend;
+ * a request without it fails validation (422). The simple `runQualityCheck`
+ * helper below intentionally has no usable form (the legacy `{database}` body
+ * never satisfied the contract), so callers should use `runQualityCheckOnTable`.
+ */
+export interface QualityCheckConfig {
+  table: string;
+  completeness_checks?: string[];
+  uniqueness_checks?: string[];
+  freshness_config?: { column: string; max_age_hours: number };
+  expected_schema?: Record<string, string>;
+  custom_rules?: { name: string; sql: string; pass_condition?: string }[];
+}
+
+/** A single check result returned inside a run-check response. */
+export interface QualityCheckResult {
+  check_type: string;
+  column?: string;
+  status?: string; // PASS | FAIL | ERROR
+  completeness_pct?: number;
+  duplicates?: number;
+  threshold?: number;
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface QualityCheckRunResult {
+  table: string;
+  checked_at?: string;
+  checks: QualityCheckResult[];
+  summary?: {
+    total_checks: number;
+    passed: number;
+    failed: number;
+    errors: number;
+    overall_status: string;
+  };
+}
+
+/**
+ * Run a configurable quality check against a single table.
+ * This is the real, contract-correct entry point for the threshold form:
+ * thresholds are enforced server-side per the columns/freshness/custom rules
+ * supplied in `config`.
  * POST /data-quality/run-check
+ */
+export async function runQualityCheckOnTable(config: QualityCheckConfig): Promise<QualityCheckRunResult> {
+  const { data } = await apiClient.post(`${PREFIX}/run-check`, config);
+  return data?.data || data;
+}
+
+/**
+ * @deprecated The backend /run-check requires a {@link QualityCheckConfig} with a
+ * `table` — a bare `{database}` body never validated. Kept only so existing
+ * imports don't break; new code must call {@link runQualityCheckOnTable}.
  */
 export async function runQualityCheck(database: string): Promise<RunCheckResponse> {
   const { data } = await apiClient.post(`${PREFIX}/run-check`, { database });
   return data?.data || data;
+}
+
+// =============================================================================
+// DMF LIFECYCLE — no-code associate / custom-build / schedule
+// -----------------------------------------------------------------------------
+// These hit the Governance Policies DMF endpoints. The backend declares every
+// parameter as a *query* param (FastAPI `Query(...)`), NOT a JSON body — so we
+// MUST pass them via axios `params`. (The sibling governance/dmf.ts service
+// sends JSON bodies and therefore 422s against this contract; we don't reuse
+// it for that reason.) Routes may 404 until the policies router is deployed —
+// callers must degrade to an inline error, never fake success.
+// =============================================================================
+
+const GOV_PREFIX = '/gouvernance/policies';
+
+export interface DmfDefinition {
+  name: string;
+  database_name?: string;
+  schema_name?: string;
+  created_on?: string;
+  comment?: string;
+  [key: string]: unknown;
+}
+
+export interface DmfReference {
+  metric_name?: string;
+  METRIC_NAME?: string;
+  ref_entity_name?: string;
+  ref_column_name?: string;
+  argument_signature?: string;
+  schedule_status?: string;
+  [key: string]: unknown;
+}
+
+/** List available DMFs (built-in + custom). GET /gouvernance/policies/dmf/list */
+export async function listDmfs(database = 'CP_DATA360', schema = 'GOUVERNANCE'): Promise<DmfDefinition[]> {
+  const { data } = await apiClient.get(`${GOV_PREFIX}/dmf/list`, { params: { database, schema } });
+  return data?.dmfs || data?.data || data || [];
+}
+
+/**
+ * Create a custom DMF.
+ * POST /gouvernance/policies/dmf — query params: name, table_args, expression, ...
+ */
+export async function createCustomDmf(params: {
+  name: string;
+  table_args: string;
+  expression: string;
+  database?: string;
+  schema?: string;
+  comment?: string;
+}): Promise<unknown> {
+  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf`, null, {
+    params: {
+      name: params.name,
+      table_args: params.table_args,
+      expression: params.expression,
+      database: params.database || 'CP_DATA360',
+      schema: params.schema || 'GOUVERNANCE',
+      ...(params.comment ? { comment: params.comment } : {}),
+    },
+  });
+  return data;
+}
+
+/**
+ * Associate a DMF with one or more columns of a table.
+ * POST /gouvernance/policies/dmf/associate — query params (columns comma-joined).
+ */
+export async function associateDmf(params: {
+  table_fqn: string;
+  dmf_name: string;
+  columns: string[];
+  database?: string;
+  schema?: string;
+}): Promise<unknown> {
+  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/associate`, null, {
+    params: {
+      table_fqn: params.table_fqn,
+      dmf_name: params.dmf_name,
+      columns: params.columns.join(','),
+      database: params.database || 'CP_DATA360',
+      schema: params.schema || 'GOUVERNANCE',
+    },
+  });
+  return data;
+}
+
+/** Remove a DMF from a table's columns. POST /gouvernance/policies/dmf/disassociate */
+export async function disassociateDmf(params: {
+  table_fqn: string;
+  dmf_name: string;
+  columns: string[];
+  database?: string;
+  schema?: string;
+}): Promise<unknown> {
+  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/disassociate`, null, {
+    params: {
+      table_fqn: params.table_fqn,
+      dmf_name: params.dmf_name,
+      columns: params.columns.join(','),
+      database: params.database || 'CP_DATA360',
+      schema: params.schema || 'GOUVERNANCE',
+    },
+  });
+  return data;
+}
+
+/**
+ * Set the evaluation schedule on a table's DMFs.
+ * POST /gouvernance/policies/dmf/schedule — `schedule` is the raw Snowflake
+ * clause, e.g. "USING CRON 0 * * * * UTC", "60 MINUTE", or
+ * "TRIGGER_ON_CHANGES".
+ */
+export async function setDmfSchedule(table_fqn: string, schedule: string): Promise<unknown> {
+  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/schedule`, null, {
+    params: { table_fqn, schedule },
+  });
+  return data;
+}
+
+/** Get DMF associations for a table. GET /gouvernance/policies/dmf/references */
+export async function getDmfReferences(table_name: string): Promise<DmfReference[]> {
+  const { data } = await apiClient.get(`${GOV_PREFIX}/dmf/references`, {
+    params: { table_name },
+  });
+  return data?.references || data?.data || data || [];
 }
 
 // Local report service removed (reports-local.ts deleted — was unused)

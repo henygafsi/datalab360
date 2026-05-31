@@ -1,0 +1,211 @@
+'use client';
+
+import { useCallback, useEffect, useState } from 'react';
+import { Badge, Button, Loader } from 'rizzui';
+import { PiWarningCircleBold, PiBellRingingDuotone, PiArrowsClockwise } from 'react-icons/pi';
+import cn from '@core/utils/class-names';
+import Breadcrumb from '@/components/ui/Breadcrumb';
+import EmptyState from '@/components/ui/EmptyState';
+import TableSkeleton from '@/components/ui/TableSkeleton';
+import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import {
+  getObservabilityAlerts,
+  getCrossModuleAlerts,
+  isRouteNotDeployed,
+} from '@/app/services/observability';
+import type { ObservabilityAlert } from '@/app/services/observability/types';
+import { getApiErrorMessage } from '@/lib/api-client';
+
+function severityClasses(severity?: string): string {
+  const s = (severity || '').toLowerCase();
+  if (s === 'critical' || s === 'high')
+    return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+  if (s === 'medium') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
+  if (s === 'low') return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
+  return 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300';
+}
+
+export default function AlertsPage() {
+  const [scope, setScope] = useState<'all' | 'cross-module'>('all');
+  const [alerts, setAlerts] = useState<ObservabilityAlert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [notDeployed, setNotDeployed] = useState(false);
+  const [selected, setSelected] = useState<ObservabilityAlert | null>(null);
+  const { isOpen, open, close } = useActionPanel<'details'>();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    setNotDeployed(false);
+    try {
+      const res = scope === 'cross-module' ? await getCrossModuleAlerts() : await getObservabilityAlerts();
+      const r = res as unknown as Record<string, unknown>;
+      const raw = r.alerts ?? r.data ?? (Array.isArray(res) ? res : []);
+      setAlerts(Array.isArray(raw) ? (raw as ObservabilityAlert[]) : []);
+    } catch (err) {
+      if (isRouteNotDeployed(err)) {
+        setNotDeployed(true);
+      } else {
+        setError(getApiErrorMessage(err));
+      }
+      setAlerts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [scope]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return (
+    <div className="@container p-4">
+      <Breadcrumb
+        items={[
+          { label: 'Observability', href: '/observability' },
+          { label: 'Alerts', href: '/observability/alerts' },
+        ]}
+      />
+
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <PiBellRingingDuotone className="h-6 w-6 text-amber-500" />
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Alerts</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant={scope === 'all' ? 'solid' : 'outline'}
+            className={scope === 'all' ? 'bg-indigo-600 text-white' : ''}
+            onClick={() => setScope('all')}
+          >
+            All
+          </Button>
+          <Button
+            size="sm"
+            variant={scope === 'cross-module' ? 'solid' : 'outline'}
+            className={scope === 'cross-module' ? 'bg-indigo-600 text-white' : ''}
+            onClick={() => setScope('cross-module')}
+          >
+            Cross-module
+          </Button>
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1">
+            {loading ? <Loader variant="spinner" size="sm" /> : <PiArrowsClockwise className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
+      </div>
+
+      <FreshnessDisclaimer className="mb-4" />
+
+      {loading ? (
+        <TableSkeleton rows={6} columns={4} />
+      ) : notDeployed ? (
+        <EmptyState
+          icon={PiWarningCircleBold}
+          title="Alerts are not available yet"
+          description="The alerts capability is not deployed on the connected backend. It will appear here once /observability/alerts is exposed."
+        />
+      ) : error ? (
+        <div className="flex items-start gap-3 rounded-xl border border-red-100 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/50">
+          <PiWarningCircleBold className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        </div>
+      ) : alerts.length === 0 ? (
+        <EmptyState
+          icon={PiBellRingingDuotone}
+          title="No active alerts"
+          description="No alerts were raised for the selected scope in the current window."
+        />
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-200 text-left text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                <th className="px-3 py-2">Severity</th>
+                <th className="px-3 py-2">Title</th>
+                <th className="px-3 py-2">Category</th>
+                <th className="px-3 py-2">Resource</th>
+                <th className="px-3 py-2">Detected</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((a, i) => (
+                <tr
+                  key={a.id ?? i}
+                  className="border-b border-gray-100 hover:bg-gray-50 dark:border-gray-800 dark:hover:bg-gray-700/30"
+                >
+                  <td className="px-3 py-2">
+                    <Badge size="sm" className={cn(severityClasses(a.severity))}>
+                      {a.severity ?? '—'}
+                    </Badge>
+                  </td>
+                  <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">
+                    {a.title ?? a.message ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{a.category ?? '—'}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">
+                    {a.resource ?? '—'}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
+                    {a.detected_at ? a.detected_at.replace('T', ' ').split('.')[0] : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setSelected(a);
+                        open('details');
+                      }}
+                    >
+                      Details
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <ActionRail
+        isOpen={isOpen}
+        onClose={close}
+        title={selected?.title ?? selected?.message ?? 'Alert details'}
+        description={selected?.category}
+        accentClassName="bg-amber-500"
+      >
+        {selected && (
+          <div className="space-y-3 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 dark:text-gray-400">Severity</span>
+              <Badge size="sm" className={cn(severityClasses(selected.severity))}>
+                {selected.severity ?? '—'}
+              </Badge>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400">Resource</p>
+              <p className="font-mono text-gray-800 dark:text-gray-200">{selected.resource ?? '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400">Detected</p>
+              <p className="text-gray-800 dark:text-gray-200">
+                {selected.detected_at ? selected.detected_at.replace('T', ' ').split('.')[0] : '—'}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400">Description</p>
+              <p className="text-gray-700 dark:text-gray-300">
+                {selected.description ?? selected.message ?? '—'}
+              </p>
+            </div>
+          </div>
+        )}
+      </ActionRail>
+    </div>
+  );
+}

@@ -1504,8 +1504,7 @@ export async function assignPolicyToRoles(
   // console.log('[assignPolicyToRoles] Roles:', roles);
 
   try {
-    // NOTE: PUT /gouvernance/policies/{type}/{name}/roles may not exist in backend.
-    // This endpoint is kept for forward-compatibility.
+    // PUT /gouvernance/policies/{policy_type}/{policy_name}/roles — confirmed in backend OpenAPI.
     const response = await apiClient.put<{
       message: string;
       policy_name: string;
@@ -1584,8 +1583,9 @@ export async function getPolicyReferences(
   database: string = 'cp_data360',
   schema: string = 'gouvernance'
 ): Promise<PolicyReferencesResponse> {
-  // NOTE: Only /gouvernance/policies/dmf/references exists in backend.
-  // For other policy types, this endpoint may not exist.
+  // GET /gouvernance/policies/{policy_type}/{policy_name}/references — confirmed
+  // in backend OpenAPI (generic across policy types). The `dmf/references`
+  // variant also exists for data-metric functions specifically.
   const type = policyType.toLowerCase().replace('_', '-');
   const url = `${POLICIES_API}/${type}/${policyName}/references`;
 
@@ -1620,8 +1620,9 @@ export async function unapplyPolicyFromAll(
   database: string = 'cp_data360',
   schema: string = 'gouvernance'
 ): Promise<UnapplyAllResponse> {
-  // NOTE: POST /gouvernance/policies/{type}/{name}/unapply-all does NOT exist in backend.
-  // This is kept for forward-compatibility. Returns empty result on failure.
+  // POST /gouvernance/policies/{policy_type}/{policy_name}/unapply-all — confirmed
+  // in backend OpenAPI. Still degrades gracefully (empty result) if a given
+  // deployment hasn't shipped it yet.
   const type = policyType.toLowerCase().replace('_', '-');
   const url = `${POLICIES_API}/${type}/${policyName}/unapply-all`;
 

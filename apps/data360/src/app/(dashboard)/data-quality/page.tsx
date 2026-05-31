@@ -12,7 +12,7 @@ import {
   RefreshCw, Upload, Table2, Tag, Fingerprint,
   Activity, Search, X, Filter,
   Lightbulb, ChevronDown, ChevronUp,
-  Info, Play, Download,
+  Info, Play, Download, Plus, Link2, CalendarClock, Loader2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid,
@@ -22,8 +22,18 @@ import {
 import { cn } from '@/lib/utils';
 import { motion, LayoutGroup } from 'framer-motion';
 import apiClient from '@/lib/api-client';
-import { runQualityCheck } from '@/app/services/data-quality';
+import {
+  runQualityCheckOnTable,
+  listDmfs,
+  createCustomDmf,
+  associateDmf,
+  setDmfSchedule,
+  type DmfDefinition,
+  type QualityCheckRunResult,
+} from '@/app/services/data-quality';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import EmptyState from '@/components/ui/EmptyState';
+import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 
 // ── Types ──
@@ -84,7 +94,6 @@ const TAB_ENDPOINTS: Record<string, string> = {
   cost: 'cost-metrics',
   security: 'security-posture',
   dmf: 'dmf-results',
-  pii: 'pii-detection',
 };
 
 const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -97,7 +106,6 @@ const TAB_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   cost: DollarSign,
   security: Shield,
   dmf: FileSearch,
-  pii: Shield,
 };
 
 const TAB_LABELS: Record<string, string> = {
@@ -110,7 +118,6 @@ const TAB_LABELS: Record<string, string> = {
   cost: 'Storage',
   security: 'Security',
   dmf: 'DMF Results',
-  pii: 'PII Detection',
 };
 
 const TAB_IDS = Object.keys(TAB_ENDPOINTS);
@@ -722,30 +729,6 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'MEASUREMENT_TIME', label: 'Checked' },
         { key: 'STATUS', label: 'Status', format: (v) => <StatusBadge status={v} /> },
       ];
-    case 'pii':
-      return [
-        { key: 'TABLE_NAME', label: 'Table' },
-        { key: 'COLUMN_NAME', label: 'Column' },
-        { key: 'PII_TYPE', label: 'PII Type', format: (v) => {
-          const t = String(v || '');
-          const color = t.includes('EMAIL') || t.includes('PHONE') ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400'
-            : t.includes('SSN') || t.includes('CREDIT') ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-            : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400';
-          return <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', color)}>{t}</span>;
-        }},
-        { key: 'CONFIDENCE', label: 'Confidence', format: (v) => {
-          const pct = Number(v || 0);
-          const color = pct >= 90 ? 'text-red-600 dark:text-red-400' : pct >= 70 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-gray-400';
-          return <span className={cn('font-semibold', color)}>{pct.toFixed(0)}%</span>;
-        }},
-        { key: 'SAMPLE_COUNT', label: 'Matches', format: (v) => Number(v || 0).toLocaleString() },
-        { key: 'POLICY_APPLIED', label: 'Protected', format: (v) => {
-          const applied = v === true || v === 'true' || v === 'YES';
-          return applied
-            ? <span className="text-green-600 dark:text-green-400 font-medium text-xs">Protected</span>
-            : <span className="text-red-600 dark:text-red-400 font-medium text-xs">Exposed</span>;
-        }},
-      ];
     default:
       return [];
   }
@@ -761,8 +744,7 @@ function getTabEmptyMsg(tab: string): string {
     classification: 'No classification tags found. Run SYSTEM$CLASSIFY to tag sensitive columns.',
     cost: 'No storage data available',
     security: 'No security posture data available',
-    dmf: 'No DMF results. Associate DMFs to tables via Governance > Policies.',
-    pii: 'No PII scan results. Run SYSTEM$CLASSIFY or click "Scan for PII" to detect sensitive data.',
+    dmf: 'No DMF results yet. Associate a DMF to a table to start collecting metrics.',
   };
   return msgs[tab] || 'No data available';
 }
@@ -1017,13 +999,53 @@ export default function DataQualityPage() {
   // tab, never an empty state (which is indistinguishable from "no data").
   const [tabErrors, setTabErrors] = useState<Record<string, string | null>>({});
 
-  // Action state
-  const [runningCheck, setRunningCheck] = useState(false);
-  const [runCheckError, setRunCheckError] = useState<string | null>(null);
-  const [piiScanning, setPiiScanning] = useState(false);
-  const [autoProtecting, setAutoProtecting] = useState(false);
-  const [piiActionError, setPiiActionError] = useState<string | null>(null);
-  const [piiActionNotice, setPiiActionNotice] = useState<string | null>(null);
+  // ── DMF lifecycle (no-code) — drives the ActionRail panels ──
+  const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule'>();
+  // Available DMF definitions (built-in + custom), loaded lazily when the rail opens.
+  const [dmfDefs, setDmfDefs] = useState<DmfDefinition[] | null>(null);
+  const [dmfDefsError, setDmfDefsError] = useState<string | null>(null);
+  const [dmfDefsLoading, setDmfDefsLoading] = useState(false);
+  // Per-action submit state.
+  const [dmfSubmitting, setDmfSubmitting] = useState(false);
+  const [dmfActionError, setDmfActionError] = useState<string | null>(null);
+  const [dmfActionNotice, setDmfActionNotice] = useState<string | null>(null);
+  // Elapsed-time ticker for long Snowflake DDL (ADD DATA METRIC FUNCTION).
+  const [dmfElapsed, setDmfElapsed] = useState(0);
+
+  // Associate form. `assocDmf` holds the *bare* DMF name; `assocDmfSource`
+  // selects the schema the backend qualifies it against — built-ins live in
+  // SNOWFLAKE.CORE, custom DMFs in CP_DATA360.GOUVERNANCE. The backend
+  // unconditionally builds the FQN as {database}.{schema}.{name}, so a dotted
+  // name would be mis-quoted; we must pass bare name + the right db/schema.
+  const [assocTable, setAssocTable] = useState('');
+  const [assocDmf, setAssocDmf] = useState('');
+  const [assocDmfSource, setAssocDmfSource] = useState<'builtin' | 'custom'>('builtin');
+  const [assocColumns, setAssocColumns] = useState('');
+
+  // Custom DMF builder form
+  const [customName, setCustomName] = useState('');
+  const [customArgs, setCustomArgs] = useState('ARG_T TABLE(ARG_C STRING)');
+  const [customExpr, setCustomExpr] = useState('');
+  const [customComment, setCustomComment] = useState('');
+
+  // Schedule builder form
+  const [schedTable, setSchedTable] = useState('');
+  const [schedMode, setSchedMode] = useState<'minutes' | 'cron' | 'trigger'>('minutes');
+  const [schedMinutes, setSchedMinutes] = useState('60');
+  const [schedCron, setSchedCron] = useState('0 * * * *');
+  const [schedCronTz, setSchedCronTz] = useState('UTC');
+
+  // ── Threshold form (wired to the real /run-check backend) ──
+  const thresholdPanel = useActionPanel<'main'>();
+  const [thTable, setThTable] = useState('');
+  const [thCompletenessCols, setThCompletenessCols] = useState('');
+  const [thUniquenessCols, setThUniquenessCols] = useState('');
+  const [thFreshnessCol, setThFreshnessCol] = useState('');
+  const [thMaxAgeHours, setThMaxAgeHours] = useState('24');
+  const [thRunning, setThRunning] = useState(false);
+  const [thError, setThError] = useState<string | null>(null);
+  const [thResult, setThResult] = useState<QualityCheckRunResult | null>(null);
+  const [thElapsed, setThElapsed] = useState(0);
 
   const loadSummary = useCallback(async (force = false) => {
     try {
@@ -1211,6 +1233,194 @@ export default function DataQualityPage() {
     loadTabData(activeTab, true, 1, newSize);
   }, [activeTab, loadTabData]);
 
+  // ── DMF lifecycle handlers ──
+
+  // Lazily load DMF definitions for the Associate picker the first time the
+  // rail opens. Degrades to an inline error (route may 404 until deploy).
+  const loadDmfDefs = useCallback(async () => {
+    if (dmfDefs !== null || dmfDefsLoading) return;
+    setDmfDefsLoading(true);
+    setDmfDefsError(null);
+    try {
+      const defs = await listDmfs();
+      setDmfDefs(defs);
+    } catch (err) {
+      setDmfDefsError(err instanceof Error ? err.message : 'Failed to load DMF definitions');
+    } finally {
+      setDmfDefsLoading(false);
+    }
+  }, [dmfDefs, dmfDefsLoading]);
+
+  const openDmfPanel = useCallback((which: 'associate' | 'custom' | 'schedule') => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    thresholdPanel.close(); // only one right-rail open at a time
+    dmfPanel.open(which);
+    if (which === 'associate' || which === 'custom') void loadDmfDefs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadDmfDefs]);
+
+  // Elapsed timer while a DMF DDL action runs (visible feedback for long
+  // Snowflake operations).
+  useEffect(() => {
+    if (!dmfSubmitting) { setDmfElapsed(0); return; }
+    const started = Date.now();
+    const id = setInterval(() => setDmfElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [dmfSubmitting]);
+
+  useEffect(() => {
+    if (!thRunning) { setThElapsed(0); return; }
+    const started = Date.now();
+    const id = setInterval(() => setThElapsed(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [thRunning]);
+
+  const handleAssociateDmf = useCallback(async () => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    const table = assocTable.trim();
+    const dmf = assocDmf.trim();
+    const cols = assocColumns.split(',').map((c) => c.trim()).filter(Boolean);
+    if (!table || !dmf || cols.length === 0) {
+      setDmfActionError('Table, DMF and at least one column are required.');
+      return;
+    }
+    // Built-ins resolve under SNOWFLAKE.CORE; custom DMFs under the governance
+    // schema. The backend qualifies as {database}.{schema}.{name}, so pass the
+    // bare name and the matching schema.
+    const dbSchema = assocDmfSource === 'builtin'
+      ? { database: 'SNOWFLAKE', schema: 'CORE' }
+      : { database: 'CP_DATA360', schema: 'GOUVERNANCE' };
+    setDmfSubmitting(true);
+    try {
+      // Built-in single-argument DMFs (NULL_COUNT, etc.) accept ONE column per
+      // ADD statement, so associate each column individually — this also works
+      // for custom single-arg DMFs and yields clear per-column errors.
+      const failures: string[] = [];
+      for (const col of cols) {
+        try {
+          await associateDmf({ table_fqn: table, dmf_name: dmf, columns: [col], ...dbSchema });
+        } catch (err) {
+          const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+          failures.push(`${col}: ${detail || (err instanceof Error ? err.message : 'failed')}`);
+        }
+      }
+      const ok = cols.length - failures.length;
+      if (failures.length > 0) {
+        setDmfActionError(
+          `Associated ${ok}/${cols.length} columns. ${failures[0]}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`,
+        );
+      } else {
+        setDmfActionNotice(`Associated ${dmf} with ${ok} column${ok > 1 ? 's' : ''} on ${table}.`);
+        setAssocColumns('');
+      }
+      // DMF results refresh once Snowflake begins evaluating.
+      setTimeout(() => loadTabData('dmf', true), 2500);
+    } finally {
+      setDmfSubmitting(false);
+    }
+  }, [assocTable, assocDmf, assocDmfSource, assocColumns, loadTabData]);
+
+  const handleCreateCustomDmf = useCallback(async () => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    const name = customName.trim();
+    const args = customArgs.trim();
+    const expr = customExpr.trim();
+    if (!name || !args || !expr) {
+      setDmfActionError('Name, table argument signature and SQL expression are required.');
+      return;
+    }
+    setDmfSubmitting(true);
+    try {
+      await createCustomDmf({
+        name,
+        table_args: args,
+        expression: expr,
+        comment: customComment.trim() || undefined,
+      });
+      setDmfActionNotice(`Custom DMF "${name}" created. It now appears in the Associate picker.`);
+      // Refresh the definitions list so the new DMF is selectable.
+      setDmfDefs(null);
+      void loadDmfDefs();
+    } catch (err) {
+      setDmfActionError(err instanceof Error ? err.message : 'Failed to create custom DMF');
+    } finally {
+      setDmfSubmitting(false);
+    }
+  }, [customName, customArgs, customExpr, customComment, loadDmfDefs]);
+
+  // Build the raw Snowflake schedule clause from the no-code builder state.
+  const buildScheduleClause = useCallback((): string => {
+    if (schedMode === 'trigger') return 'TRIGGER_ON_CHANGES';
+    if (schedMode === 'cron') return `USING CRON ${schedCron.trim()} ${schedCronTz.trim() || 'UTC'}`;
+    return `${parseInt(schedMinutes, 10) || 60} MINUTE`;
+  }, [schedMode, schedCron, schedCronTz, schedMinutes]);
+
+  const handleSetSchedule = useCallback(async () => {
+    setDmfActionError(null);
+    setDmfActionNotice(null);
+    const table = schedTable.trim();
+    if (!table) {
+      setDmfActionError('A fully-qualified table name is required.');
+      return;
+    }
+    if (schedMode === 'minutes' && (!schedMinutes || parseInt(schedMinutes, 10) <= 0)) {
+      setDmfActionError('Minutes interval must be a positive number.');
+      return;
+    }
+    if (schedMode === 'cron' && !schedCron.trim()) {
+      setDmfActionError('A cron expression is required.');
+      return;
+    }
+    setDmfSubmitting(true);
+    try {
+      const clause = buildScheduleClause();
+      await setDmfSchedule(table, clause);
+      setDmfActionNotice(`Schedule set on ${table}: ${clause}`);
+      setTimeout(() => loadTabData('dmf', true), 2000);
+    } catch (err) {
+      setDmfActionError(err instanceof Error ? err.message : 'Failed to set DMF schedule');
+    } finally {
+      setDmfSubmitting(false);
+    }
+  }, [schedTable, schedMode, schedMinutes, schedCron, buildScheduleClause, loadTabData]);
+
+  // ── Threshold check handler — wired to the real /data-quality/run-check ──
+  const handleRunThresholdCheck = useCallback(async () => {
+    setThError(null);
+    setThResult(null);
+    const table = thTable.trim();
+    if (!table) {
+      setThError('A fully-qualified table name (DB.SCHEMA.TABLE) is required.');
+      return;
+    }
+    const completeness = thCompletenessCols.split(',').map((c) => c.trim()).filter(Boolean);
+    const uniqueness = thUniquenessCols.split(',').map((c) => c.trim()).filter(Boolean);
+    const freshnessCol = thFreshnessCol.trim();
+    if (completeness.length === 0 && uniqueness.length === 0 && !freshnessCol) {
+      setThError('Configure at least one check: completeness, uniqueness, or freshness.');
+      return;
+    }
+    setThRunning(true);
+    try {
+      const result = await runQualityCheckOnTable({
+        table,
+        ...(completeness.length ? { completeness_checks: completeness } : {}),
+        ...(uniqueness.length ? { uniqueness_checks: uniqueness } : {}),
+        ...(freshnessCol
+          ? { freshness_config: { column: freshnessCol, max_age_hours: parseInt(thMaxAgeHours, 10) || 24 } }
+          : {}),
+      });
+      setThResult(result);
+    } catch (err) {
+      setThError(err instanceof Error ? err.message : 'Quality check failed');
+    } finally {
+      setThRunning(false);
+    }
+  }, [thTable, thCompletenessCols, thUniquenessCols, thFreshnessCol, thMaxAgeHours]);
+
   // Compute filtered data
   const filteredData = useMemo(() => {
     let rows = tabData[activeTab] || [];
@@ -1257,6 +1467,15 @@ export default function DataQualityPage() {
     return generateRecommendations(tabData, summary);
   }, [tabData, summary]);
 
+  // ── DMF threshold breaches ──
+  // A DMF result is a breach when its STATUS is FAIL (backend computes this as
+  // VALUE != 0 against the metric's pass condition). Surfaced as a prominent
+  // alert so threshold violations are not buried in the table.
+  const dmfBreaches = useMemo(() => {
+    const rows = tabData.dmf || [];
+    return rows.filter((r) => String(r.STATUS ?? '').toUpperCase() === 'FAIL');
+  }, [tabData.dmf]);
+
   // KPI bar — health score color: green >80, amber 50-80, red <50
   const healthColor = summary
     ? summary.health_score > 80
@@ -1288,28 +1507,39 @@ export default function DataQualityPage() {
             Automated quality monitoring across 9 dimensions
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
-            onClick={async () => {
-              setRunningCheck(true);
-              setRunCheckError(null);
-              try {
-                await runQualityCheck('CP_DATA360');
-                // The sweep runs async on the backend; pull fresh summary shortly after.
-                setTimeout(() => loadSummary(true), 3000);
-              } catch (err) {
-                setRunCheckError(err instanceof Error ? err.message : 'Quality check failed');
-              } finally {
-                setRunningCheck(false);
-              }
-            }}
-            disabled={runningCheck}
+            onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
             size="sm"
             className="bg-green-500/80 hover:bg-green-500 text-white border-0 gap-1.5 text-xs h-8"
           >
-            <Play className={cn('h-3.5 w-3.5', runningCheck && 'animate-pulse')} />
-            {runningCheck ? 'Running...' : 'Run Check'}
+            <Play className="h-3.5 w-3.5" />
+            Run Check
+          </Button>
+          <Button
+            onClick={() => openDmfPanel('associate')}
+            size="sm"
+            className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
+          >
+            <Link2 className="h-3.5 w-3.5" />
+            Associate DMF
+          </Button>
+          <Button
+            onClick={() => openDmfPanel('custom')}
+            size="sm"
+            className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Custom DMF
+          </Button>
+          <Button
+            onClick={() => openDmfPanel('schedule')}
+            size="sm"
+            className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
+          >
+            <CalendarClock className="h-3.5 w-3.5" />
+            Schedule
           </Button>
           <Button
             onClick={handleRefresh}
@@ -1325,7 +1555,8 @@ export default function DataQualityPage() {
 
       {/* Screen reader status for running checks */}
       <div aria-live="polite" className="sr-only">
-        {runningCheck ? 'Quality check is running...' : ''}
+        {thRunning ? 'Quality check is running...' : ''}
+        {dmfSubmitting ? 'Applying DMF change...' : ''}
         {refreshing ? 'Refreshing data quality scores...' : ''}
       </div>
 
@@ -1347,21 +1578,41 @@ export default function DataQualityPage() {
         </div>
       )}
 
-      {/* Inline error for the Run Check action — shows the exact backend detail */}
-      {runCheckError && (
+      {/* DMF lifecycle action result banner (associate / custom / schedule) */}
+      {dmfActionNotice && (
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 px-3 py-2">
+          <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+          <p className="flex-1 min-w-0 text-xs text-green-700 dark:text-green-400 break-words">{dmfActionNotice}</p>
+          <button
+            type="button"
+            aria-label="Dismiss notice"
+            onClick={() => setDmfActionNotice(null)}
+            className="p-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/30"
+          >
+            <X className="h-3.5 w-3.5 text-green-500" />
+          </button>
+        </div>
+      )}
+
+      {/* Threshold breach alert — surfaced prominently so violations aren't buried */}
+      {!loading && dmfBreaches.length > 0 && (
         <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
           <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-red-700 dark:text-red-400">Quality check failed</p>
-            <p className="text-xs text-red-600 dark:text-red-400 break-words">{runCheckError}</p>
+            <p className="text-xs font-medium text-red-700 dark:text-red-400">
+              {dmfBreaches.length} DMF threshold {dmfBreaches.length === 1 ? 'breach' : 'breaches'} detected
+            </p>
+            <p className="text-xs text-red-600 dark:text-red-400 break-words">
+              {dmfBreaches.slice(0, 3).map((b) => `${String(b.METRIC_NAME ?? '?')} on ${String(b.TABLE_NAME ?? '?')}`).join('; ')}
+              {dmfBreaches.length > 3 ? ` (+${dmfBreaches.length - 3} more)` : ''}
+            </p>
           </div>
           <button
             type="button"
-            aria-label="Dismiss error"
-            onClick={() => setRunCheckError(null)}
-            className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
+            onClick={() => setActiveTab('dmf')}
+            className="inline-flex items-center gap-1 text-xs font-medium text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded h-7 px-2 hover:bg-red-100 dark:hover:bg-red-900/30 flex-shrink-0"
           >
-            <X className="h-3.5 w-3.5 text-red-500" />
+            View DMF results
           </button>
         </div>
       )}
@@ -1619,148 +1870,28 @@ export default function DataQualityPage() {
           </div>
         </LayoutGroup>
 
-        {/* PII Detection action bar */}
-        {activeTab === 'pii' && (
-          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-amber-50/50 dark:bg-amber-900/10">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Shield className="h-5 w-5 text-amber-600 dark:text-amber-400" />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">PII Scanner</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Detect personally identifiable information using Snowflake SYSTEM$CLASSIFY and regex patterns</p>
+        {/* DMF lifecycle action bar — shown on the DMF Results tab */}
+        {activeTab === 'dmf' && (
+          <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-violet-50/50 dark:bg-violet-900/10">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
+                <FileSearch className="h-5 w-5 text-violet-600 dark:text-violet-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Data Metric Functions</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Associate built-in or custom DMFs to tables, then schedule continuous evaluation — no SQL required.</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={piiScanning}
-                  className="gap-1.5 text-xs border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/30"
-                  onClick={async () => {
-                    setPiiScanning(true);
-                    setPiiActionError(null);
-                    setPiiActionNotice(null);
-                    try {
-                      // Classification is a cross-module (governance) action; the
-                      // PII tab refreshes once the backend finishes tagging.
-                      await apiClient.post('/gouvernance/policies/classification/classify', { table_name: 'CP_DATA360.PUBLIC.*' });
-                      setTimeout(() => loadTabData('pii', true, 1, pageSize), 2000);
-                    } catch (err) {
-                      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-                      setPiiActionError(detail || (err instanceof Error ? err.message : 'PII scan failed'));
-                    } finally {
-                      setPiiScanning(false);
-                    }
-                  }}
-                >
-                  <Search className={cn('h-3.5 w-3.5', piiScanning && 'animate-spin')} />
-                  {piiScanning ? 'Scanning...' : 'Scan for PII'}
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')}>
+                  <Link2 className="h-3.5 w-3.5" /> Associate
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-1.5 text-xs"
-                  disabled={autoProtecting}
-                  onClick={async () => {
-                    if (autoProtecting) return;
-                    setPiiActionError(null);
-                    setPiiActionNotice(null);
-                    const piiRows = tabData.pii || [];
-                    const exposedCols = piiRows.filter((r) => {
-                      const applied = r.POLICY_APPLIED;
-                      return !(applied === true || applied === 'true' || applied === 'YES');
-                    });
-                    if (exposedCols.length === 0) {
-                      setPiiActionNotice('All flagged PII columns are already protected.');
-                      return;
-                    }
-                    setAutoProtecting(true);
-                    const batch = exposedCols.slice(0, 10);
-                    const failures: string[] = [];
-                    for (const col of batch) {
-                      try {
-                        // TODO(contract): backend POST /gouvernance/policies/masking/apply expects
-                        // QUERY params (policy_name, database, schema, table, column) and has no
-                        // `policy_type: 'auto'` mode — Auto-Protect needs a chosen masking policy +
-                        // parsed DB/schema/table before this will succeed end-to-end.
-                        await apiClient.post('/gouvernance/policies/masking/apply', {
-                          table_name: col.TABLE_NAME,
-                          column_name: col.COLUMN_NAME,
-                          policy_type: 'auto',
-                        });
-                      } catch (err) {
-                        const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
-                        failures.push(`${String(col.TABLE_NAME ?? '?')}.${String(col.COLUMN_NAME ?? '?')}: ${detail || (err instanceof Error ? err.message : 'failed')}`);
-                      }
-                    }
-                    if (failures.length > 0) {
-                      setPiiActionError(`Masking failed for ${failures.length}/${batch.length} columns — ${failures[0]}${failures.length > 1 ? ` (+${failures.length - 1} more)` : ''}`);
-                    }
-                    loadTabData('pii', true, 1, pageSize);
-                    setAutoProtecting(false);
-                  }}
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  {autoProtecting ? 'Protecting...' : 'Auto-Protect'}
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('custom')}>
+                  <Plus className="h-3.5 w-3.5" /> Custom DMF
+                </Button>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')}>
+                  <CalendarClock className="h-3.5 w-3.5" /> Schedule
                 </Button>
               </div>
-            </div>
-            {piiActionError && (
-              <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
-                <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
-                <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{piiActionError}</p>
-                <button
-                  type="button"
-                  aria-label="Dismiss PII action error"
-                  onClick={() => setPiiActionError(null)}
-                  className="p-0.5 rounded hover:bg-red-100 dark:hover:bg-red-900/30"
-                >
-                  <X className="h-3.5 w-3.5 text-red-500" />
-                </button>
-              </div>
-            )}
-            {piiActionNotice && !piiActionError && (
-              <div role="status" className="mt-3 flex items-start gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 px-3 py-2">
-                <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
-                <p className="flex-1 min-w-0 text-xs text-green-700 dark:text-green-400 break-words">{piiActionNotice}</p>
-                <button
-                  type="button"
-                  aria-label="Dismiss notice"
-                  onClick={() => setPiiActionNotice(null)}
-                  className="p-0.5 rounded hover:bg-green-100 dark:hover:bg-green-900/30"
-                >
-                  <X className="h-3.5 w-3.5 text-green-500" />
-                </button>
-              </div>
-            )}
-            <div className="mt-3 grid grid-cols-4 gap-3">
-              {(() => {
-                const piiRows = tabData.pii || [];
-                const types = new Set(piiRows.map((r) => r.PII_TYPE)).size;
-                const flagged = piiRows.length;
-                const protectedCount = piiRows.filter((r) => r.POLICY_APPLIED === true || r.POLICY_APPLIED === 'true' || r.POLICY_APPLIED === 'YES').length;
-                const exposed = flagged - protectedCount;
-                return (
-                  <>
-                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">PII Types</p>
-                      <p className="text-lg font-bold text-gray-900 dark:text-white">{flagged > 0 ? types : '—'}</p>
-                    </div>
-                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Columns Flagged</p>
-                      <p className="text-lg font-bold text-amber-600 dark:text-amber-400">{flagged > 0 ? flagged : '—'}</p>
-                    </div>
-                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Protected</p>
-                      <p className="text-lg font-bold text-green-600 dark:text-green-400">{flagged > 0 ? protectedCount : '—'}</p>
-                    </div>
-                    <div className="rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2">
-                      <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Exposed</p>
-                      <p className="text-lg font-bold text-red-600 dark:text-red-400">{flagged > 0 ? exposed : '—'}</p>
-                    </div>
-                  </>
-                );
-              })()}
             </div>
           </div>
         )}
@@ -1825,6 +1956,304 @@ export default function DataQualityPage() {
         <a href="/observability" className="text-blue-600 dark:text-blue-400 hover:underline">Observability (Lineage)</a>
         <a href="/explore-design" className="text-blue-600 dark:text-blue-400 hover:underline">Explore & Design (Catalog)</a>
       </div>
+
+      {/* ── DMF lifecycle ActionRail — non-blocking; the dashboard stays visible ── */}
+      <ActionRail
+        isOpen={dmfPanel.isOpen}
+        onClose={dmfPanel.close}
+        accentClassName="bg-violet-500"
+        title={
+          dmfPanel.panel === 'associate' ? 'Associate a DMF'
+            : dmfPanel.panel === 'custom' ? 'Build a custom DMF'
+              : 'Schedule DMF evaluation'
+        }
+        description={
+          dmfPanel.panel === 'associate' ? 'Attach a Data Metric Function to one or more table columns.'
+            : dmfPanel.panel === 'custom' ? 'Define a SQL-expression metric, then associate it from the picker.'
+              : 'Choose how often Snowflake re-evaluates DMFs on a table.'
+        }
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={dmfPanel.close} disabled={dmfSubmitting}>Cancel</Button>
+            <Button
+              size="sm"
+              disabled={dmfSubmitting}
+              className="gap-1.5 bg-violet-600 hover:bg-violet-700 text-white"
+              onClick={
+                dmfPanel.panel === 'associate' ? handleAssociateDmf
+                  : dmfPanel.panel === 'custom' ? handleCreateCustomDmf
+                    : handleSetSchedule
+              }
+            >
+              {dmfSubmitting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              {dmfSubmitting
+                ? `Working… ${dmfElapsed}s`
+                : dmfPanel.panel === 'associate' ? 'Associate'
+                  : dmfPanel.panel === 'custom' ? 'Create DMF'
+                    : 'Set schedule'}
+            </Button>
+          </>
+        }
+      >
+        {/* Shared inline action feedback */}
+        {dmfActionError && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+            <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{dmfActionError}</p>
+          </div>
+        )}
+        {dmfActionNotice && !dmfActionError && (
+          <div role="status" className="flex items-start gap-2 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10 px-3 py-2">
+            <CheckCircle2 className="h-4 w-4 text-green-500 mt-0.5 flex-shrink-0" />
+            <p className="flex-1 min-w-0 text-xs text-green-700 dark:text-green-400 break-words">{dmfActionNotice}</p>
+          </div>
+        )}
+
+        {/* DMF definitions load error (Associate / Custom pickers) */}
+        {(dmfPanel.panel === 'associate' || dmfPanel.panel === 'custom') && dmfDefsError && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-amber-700 dark:text-amber-400 break-words">Couldn&apos;t load DMF list — {dmfDefsError}</p>
+              <button onClick={() => { setDmfDefs(null); void loadDmfDefs(); }} className="mt-1 text-xs font-medium text-amber-700 dark:text-amber-400 underline">Retry</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Associate panel ── */}
+        {dmfPanel.panel === 'associate' && (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table (DB.SCHEMA.TABLE)</span>
+              <Input value={assocTable} onChange={(e) => setAssocTable(e.target.value)} placeholder="CP_DATA360.PUBLIC.ORDERS" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Data Metric Function</span>
+              {dmfDefsLoading ? (
+                <SkeletonBar className="mt-1 h-8 w-full" />
+              ) : (
+                <select
+                  value={assocDmf ? `${assocDmfSource}:${assocDmf}` : ''}
+                  onChange={(e) => {
+                    const [src, ...rest] = e.target.value.split(':');
+                    if (!e.target.value) { setAssocDmf(''); return; }
+                    setAssocDmfSource(src === 'custom' ? 'custom' : 'builtin');
+                    setAssocDmf(rest.join(':'));
+                  }}
+                  className="mt-1 w-full h-8 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 text-xs text-gray-700 dark:text-gray-200"
+                >
+                  <option value="">Select a DMF…</option>
+                  <optgroup label="Built-in (SNOWFLAKE.CORE)">
+                    {['NULL_COUNT', 'DUPLICATE_COUNT', 'UNIQUE_COUNT', 'ROW_COUNT', 'NULL_PERCENT', 'FRESHNESS', 'BLANK_COUNT'].map((n) => (
+                      <option key={n} value={`builtin:${n}`}>{n}</option>
+                    ))}
+                  </optgroup>
+                  {dmfDefs && dmfDefs.length > 0 && (
+                    <optgroup label="Custom (CP_DATA360.GOUVERNANCE)">
+                      {dmfDefs.map((d) => (
+                        <option key={d.name} value={`custom:${d.name}`}>{d.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              )}
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Columns (comma-separated)</span>
+              <Input value={assocColumns} onChange={(e) => setAssocColumns(e.target.value)} placeholder="EMAIL, PHONE" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+            </label>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400">
+              After associating, set a schedule so Snowflake evaluates the metric automatically.
+            </p>
+          </div>
+        )}
+
+        {/* ── Custom DMF builder panel ── */}
+        {dmfPanel.panel === 'custom' && (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">DMF name</span>
+              <Input value={customName} onChange={(e) => setCustomName(e.target.value)} placeholder="NEGATIVE_PRICE_COUNT" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table argument signature</span>
+              <Input value={customArgs} onChange={(e) => setCustomArgs(e.target.value)} placeholder="ARG_T TABLE(ARG_C NUMBER)" className="mt-1 h-8 text-xs font-mono" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+              <span className="mt-0.5 block text-[11px] text-gray-500 dark:text-gray-400">Declares the input column(s) the metric reads, e.g. <code>ARG_T TABLE(ARG_C NUMBER)</code>.</span>
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">SQL expression (returns NUMBER)</span>
+              <textarea
+                value={customExpr}
+                onChange={(e) => setCustomExpr(e.target.value)}
+                rows={4}
+                placeholder="SELECT COUNT(*) FROM ARG_T WHERE ARG_C < 0"
+                className="mt-1 w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-xs font-mono text-gray-700 dark:text-gray-200"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Comment (optional)</span>
+              <Input value={customComment} onChange={(e) => setCustomComment(e.target.value)} placeholder="Counts rows with a negative price" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+            </label>
+          </div>
+        )}
+
+        {/* ── Schedule builder panel ── */}
+        {dmfPanel.panel === 'schedule' && (
+          <div className="space-y-3">
+            <label className="block">
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table (DB.SCHEMA.TABLE)</span>
+              <Input value={schedTable} onChange={(e) => setSchedTable(e.target.value)} placeholder="CP_DATA360.PUBLIC.ORDERS" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+            </label>
+            <div>
+              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Trigger</span>
+              <div className="mt-1 grid grid-cols-3 gap-1.5">
+                {([['minutes', 'Every N minutes'], ['cron', 'Cron'], ['trigger', 'On data change']] as const).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => setSchedMode(mode)}
+                    className={cn(
+                      'rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-colors',
+                      schedMode === mode
+                        ? 'border-violet-400 bg-violet-50 text-violet-700 dark:border-violet-600 dark:bg-violet-900/30 dark:text-violet-300'
+                        : 'border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {schedMode === 'minutes' && (
+              <label className="block">
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Interval (minutes)</span>
+                <Input type="number" min={1} value={schedMinutes} onChange={(e) => setSchedMinutes(e.target.value)} className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+              </label>
+            )}
+            {schedMode === 'cron' && (
+              <div className="grid grid-cols-3 gap-2">
+                <label className="col-span-2 block">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Cron expression</span>
+                  <Input value={schedCron} onChange={(e) => setSchedCron(e.target.value)} placeholder="0 * * * *" className="mt-1 h-8 text-xs font-mono" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Timezone</span>
+                  <Input value={schedCronTz} onChange={(e) => setSchedCronTz(e.target.value)} placeholder="UTC" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+                </label>
+              </div>
+            )}
+            {schedMode === 'trigger' && (
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">
+                Snowflake re-evaluates DMFs whenever the table&apos;s data changes (<code>TRIGGER_ON_CHANGES</code>).
+              </p>
+            )}
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-wider text-gray-500 dark:text-gray-400">Resulting clause</p>
+              <code className="text-xs text-gray-800 dark:text-gray-200 break-all">{buildScheduleClause()}</code>
+            </div>
+          </div>
+        )}
+      </ActionRail>
+
+      {/* ── Threshold check ActionRail — wired to /data-quality/run-check ── */}
+      <ActionRail
+        isOpen={thresholdPanel.isOpen}
+        onClose={thresholdPanel.close}
+        accentClassName="bg-green-500"
+        title="Run a threshold check"
+        description="Evaluate completeness, uniqueness and freshness against thresholds on a single table."
+        footer={
+          <>
+            <Button variant="outline" size="sm" onClick={thresholdPanel.close} disabled={thRunning}>Close</Button>
+            <Button
+              size="sm"
+              disabled={thRunning}
+              className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+              onClick={handleRunThresholdCheck}
+            >
+              {thRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+              {thRunning ? `Running… ${thElapsed}s` : 'Run check'}
+            </Button>
+          </>
+        }
+      >
+        {thError && (
+          <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/10 px-3 py-2">
+            <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 flex-shrink-0" />
+            <p className="flex-1 min-w-0 text-xs text-red-600 dark:text-red-400 break-words">{thError}</p>
+          </div>
+        )}
+
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Table (DB.SCHEMA.TABLE)</span>
+          <Input value={thTable} onChange={(e) => setThTable(e.target.value)} placeholder="CP_DATA360.PUBLIC.ORDERS" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Completeness columns (≥95% non-null)</span>
+          <Input value={thCompletenessCols} onChange={(e) => setThCompletenessCols(e.target.value)} placeholder="EMAIL, NAME" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Uniqueness columns (no duplicates)</span>
+          <Input value={thUniquenessCols} onChange={(e) => setThUniquenessCols(e.target.value)} placeholder="ID, ORDER_NO" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="col-span-2 block">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Freshness column (timestamp)</span>
+            <Input value={thFreshnessCol} onChange={(e) => setThFreshnessCol(e.target.value)} placeholder="UPDATED_AT" className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Max age (h)</span>
+            <Input type="number" min={1} value={thMaxAgeHours} onChange={(e) => setThMaxAgeHours(e.target.value)} className="mt-1 h-8 text-xs" inputClassName="dark:bg-gray-800 dark:border-gray-700 dark:text-white" />
+          </label>
+        </div>
+
+        {/* Results — Idle → Running → Completed/Empty */}
+        {thRunning ? (
+          <div className="space-y-2 pt-1">
+            <SkeletonBar className="h-8 w-full" />
+            <SkeletonBar className="h-8 w-full" />
+          </div>
+        ) : thResult ? (
+          thResult.checks.length === 0 ? (
+            <EmptyState compact title="No checks ran" description="Configure at least one check above, then run again." />
+          ) : (
+            <div className="space-y-2 pt-1">
+              {thResult.summary && (
+                <div className={cn(
+                  'rounded-lg border px-3 py-2 text-xs font-medium',
+                  thResult.summary.overall_status === 'PASS'
+                    ? 'border-green-200 bg-green-50 text-green-700 dark:border-green-800 dark:bg-green-900/10 dark:text-green-400'
+                    : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/10 dark:text-red-400',
+                )}>
+                  {thResult.summary.overall_status === 'PASS'
+                    ? `All ${thResult.summary.total_checks} checks passed.`
+                    : `${thResult.summary.failed} of ${thResult.summary.total_checks} checks breached the threshold${thResult.summary.errors ? ` (${thResult.summary.errors} errored)` : ''}.`}
+                </div>
+              )}
+              <div className="space-y-1.5">
+                {thResult.checks.map((c, i) => {
+                  const s = String(c.status ?? '').toUpperCase();
+                  return (
+                    <div key={i} className="flex items-center justify-between gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-1.5">
+                      <div className="min-w-0">
+                        <span className="text-xs font-medium text-gray-800 dark:text-gray-200">{c.check_type}{c.column ? ` · ${c.column}` : ''}</span>
+                        {c.error && <p className="text-[11px] text-red-500 break-words">{c.error}</p>}
+                        {c.completeness_pct !== undefined && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.completeness_pct).toFixed(1)}% complete</p>}
+                        {c.duplicates !== undefined && <p className="text-[11px] text-gray-500 dark:text-gray-400">{Number(c.duplicates).toLocaleString()} duplicates</p>}
+                      </div>
+                      <StatusBadge status={s} />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )
+        ) : (
+          <p className="text-[11px] text-gray-500 dark:text-gray-400">
+            Results appear here after you run the check. Breaches also surface as a banner on the dashboard.
+          </p>
+        )}
+      </ActionRail>
     </div>
     </ErrorBoundary>
   );

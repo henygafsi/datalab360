@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Loader2, CheckCircle2, XCircle, AlertCircle, Calendar } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import axios from 'axios';
-import { getAuthSession } from '@/lib/auth';
-import { getSession } from 'next-auth/react';
+import apiClient from '@/lib/api-client';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 
 interface TableSelection {
@@ -51,7 +49,6 @@ interface Step5Props {
     username: string;
 }
 
-const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId, username }) => {
     const router = useRouter();
@@ -163,19 +160,11 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
         setTestMessage('');
 
         try {
-            const session = await getSession();
-            if (!session?.user?.access_token) {
-                throw new Error('No access token available. Please log in again.');
-            }
-            const token = session.user.access_token;
-
             const mappingsForPayload = buildMappings();
 
-            // console.log('Step5: Testing mapping with /mapping/test_mapping/', mappingsForPayload);
-            const response = await axios.post(
-                `${API_BASE_URL}/explore-design/guided/test_mapping/`,
+            const response = await apiClient.post(
+                `/explore-design/guided/test_mapping/`,
                 { project_id: projectId, mappings: mappingsForPayload },
-                { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
 
             if (response.data.status === 'success') {
@@ -259,12 +248,6 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
         setScheduleError(null);
 
         try {
-            const session = await getSession();
-            if (!session?.user?.access_token) {
-                throw new Error('No access token available.');
-            }
-            const token = session.user.access_token;
-
             const mappingsForPayload = buildMappings();
 
             // Combine date and time into ISO format
@@ -284,11 +267,9 @@ const Step5Deployment: React.FC<Step5Props> = ({ onBack, mappingData, projectId,
                 status: 'PENDING_APPROVAL'
             };
 
-            // console.log('Step5: Scheduling deployment:', scheduleData);
-            const response = await axios.post(
-                `${API_BASE_URL}/explore-design/guided/schedule_deployment/`,
+            const response = await apiClient.post(
+                `/explore-design/guided/schedule_deployment/`,
                 scheduleData,
-                { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
             );
 
             toast({

@@ -5,7 +5,7 @@
  */
 
 import type { TableItem, ColumnInfo } from '../../mapping/components/VirtualizedTableList';
-import type { TableRelationship } from '@/app/services/explore-design';
+import type { TableRelationship } from '@/app/services/explore-design/de-objects';
 
 // ─── Template Column Definition ────────────────────────────────────────────────
 

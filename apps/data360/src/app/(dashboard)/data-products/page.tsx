@@ -5,7 +5,7 @@ import { Badge, Button } from 'rizzui';
 import {
   Package, Search, Plus, Loader2, RefreshCw, ShieldCheck, Eye,
   Tag, X, CheckCircle, Database, Layers, Users, Clock, Shield,
-  Activity, Target, AlertCircle,
+  Activity, Target, AlertCircle, Boxes,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -14,6 +14,7 @@ import {
   listDataProducts,
   createDataProduct,
   subscribeToProduct,
+  publishDataProduct,
   type DataProduct,
   type CreateDataProductRequest,
 } from '@/app/services/data-products';
@@ -21,6 +22,10 @@ import {
   getCatalogScores,
   type CatalogScoresResponse,
 } from '@/app/services/catalog';
+import Object360Panel from './components/Object360Panel';
+import KpiLifecyclePanel from './components/KpiLifecyclePanel';
+import PublishGate from './components/PublishGate';
+import RecommendationsPanel from './components/RecommendationsPanel';
 
 /** Render a missing/unknown numeric value as an em-dash, never a fake 0. */
 function fmtNum(v: number | null | undefined): string {
@@ -36,6 +41,7 @@ function DataProductsPage() {
   const [subscribing, setSubscribing] = useState<string | null>(null);
   const [subscribeError, setSubscribeError] = useState<{ id: string; message: string } | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
+  const [object360Fqn, setObject360Fqn] = useState<{ fqn: string; title: string } | null>(null);
   const [filterStatus, setFilterStatus] = useState<string>('');
   const [catalogScores, setCatalogScores] = useState<CatalogScoresResponse | null>(null);
   const [scoresError, setScoresError] = useState<string | null>(null);
@@ -277,12 +283,27 @@ function DataProductsPage() {
           )}
         </div>
 
-        {/* Right Detail Panel */}
-        {sel && (
-          <div className="w-[380px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
-            <ProductDetailPanel product={sel} onClose={() => setSelectedProduct(null)} />
+        {/* Right Detail Panel — Object-360 takes precedence when open. */}
+        {object360Fqn ? (
+          <div className="w-[440px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <Object360Panel
+              tableFqn={object360Fqn.fqn}
+              title={object360Fqn.title}
+              onClose={() => setObject360Fqn(null)}
+            />
           </div>
-        )}
+        ) : sel ? (
+          <div className="w-[380px] shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-y-auto">
+            <ProductDetailPanel
+              product={sel}
+              onClose={() => setSelectedProduct(null)}
+              onOpenObject360={() =>
+                setObject360Fqn({ fqn: sel.TABLE_FQN, title: sel.NAME })
+              }
+              onPublished={() => void fetchProducts()}
+            />
+          </div>
+        ) : null}
       </div>
 
       {/* Cross-module links */}
@@ -486,7 +507,17 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
 // ---------------------------------------------------------------------------
 // Product Detail Panel (right rail)
 // ---------------------------------------------------------------------------
-function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClose: () => void }) {
+function ProductDetailPanel({
+  product,
+  onClose,
+  onOpenObject360,
+  onPublished,
+}: {
+  product: DataProduct;
+  onClose: () => void;
+  onOpenObject360: () => void;
+  onPublished: () => void;
+}) {
   const qualityColor = product.QUALITY_THRESHOLD >= 90 ? 'emerald' : product.QUALITY_THRESHOLD >= 70 ? 'amber' : 'red';
 
   const metrics: { label: string; value: string; color: string }[] = [
@@ -550,15 +581,36 @@ function ProductDetailPanel({ product, onClose }: { product: DataProduct; onClos
         </div>
       )}
 
-      {/* Explore the backing table in Explore & Design */}
+      {/* Object-360 + Explore the backing table */}
       <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-        <a
-          href="/explore-design"
+        <button
+          type="button"
+          onClick={onOpenObject360}
           className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-2"
         >
-          <Layers className="h-3 w-3" />Open in Explore & Design
+          <Boxes className="h-3 w-3" />Object 360
+        </button>
+        <a
+          href="/explore-design"
+          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 text-xs font-medium px-3 py-2"
+        >
+          <Layers className="h-3 w-3" />Explore
         </a>
       </div>
+
+      {/* Publish gate (quality / governance / lineage thresholds) */}
+      <PublishGate
+        productId={product.PRODUCT_ID}
+        tableFqn={product.TABLE_FQN}
+        status={product.STATUS}
+        onPublished={onPublished}
+      />
+
+      {/* KPI lifecycle */}
+      <KpiLifecyclePanel productId={product.PRODUCT_ID} />
+
+      {/* Recommendations (apply → surfaces suggested follow-up call) */}
+      <RecommendationsPanel productId={product.PRODUCT_ID} />
     </div>
   );
 }

@@ -300,7 +300,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           }} />
           <ActionBtn label="Detect pipes" icon={Search} onClick={async () => {
             try {
-              const { listStreams, listDynamicTables } = await import('@/app/services/explore-design');
+              const { listStreams, listDynamicTables } = await import('@/app/services/explore-design/de-objects');
               const [streams, dynTables] = await Promise.allSettled([
                 listStreams(table.database, table.schema),
                 listDynamicTables(table.database, table.schema),
@@ -418,19 +418,13 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Dynamic Table</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ActionBtn label="Refresh" icon={RefreshCw} onClick={async () => {
-              try {
-                const { refreshDynamicTable } = await import('@/app/services/explore-design');
-                await refreshDynamicTable(table.table, table.database, table.schema);
-                toast.success('Dynamic table refresh started');
-              } catch { toast.error('Refresh failed'); }
+            <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canWrite} onClick={() => {
+              onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              toast.success('Dynamic table refresh added to deployment draft');
             }} />
-            <ActionBtn label="Suspend" icon={AlertTriangle} disabled={!canWrite} onClick={async () => {
-              try {
-                const { suspendDynamicTable } = await import('@/app/services/explore-design');
-                await suspendDynamicTable(table.table, table.database, table.schema);
-                toast.success('Dynamic table suspended');
-              } catch { toast.error('Suspend failed'); }
+            <ActionBtn label="Suspend" icon={AlertTriangle} disabled={!canWrite} onClick={() => {
+              onAddEvent({ type: 'DYNAMIC_TABLE_SUSPEND', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
+              toast.success('Dynamic table suspend added to deployment draft');
             }} />
           </div>
         </div>
@@ -445,7 +439,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
           <div className="flex flex-wrap gap-2">
             <ActionBtn label="View changes" icon={Eye} onClick={async () => {
               try {
-                const { getStreamData } = await import('@/app/services/explore-design');
+                const { getStreamData } = await import('@/app/services/explore-design/de-objects');
                 const data = await getStreamData(table.table, table.database, table.schema);
                 toast.success(`Stream has ${data?.rows?.length || 0} pending changes`);
               } catch { toast.error('Failed to read stream'); }
@@ -664,7 +658,7 @@ function QualityPanel({ table, columns, profileData, onAddEvent }: { table: Tabl
       <div className="space-y-2">
         <ActionBtn label="Run profiling" icon={BarChart3} onClick={async () => {
           try {
-            const { getTableProfile } = await import('@/app/services/explore-design');
+            const { getTableProfile } = await import('@/app/services/explore-design/de-objects');
             const res = await getTableProfile(table.database, table.schema, table.table);
             toast.success(`Profile: ${res?.row_count || 0} rows, ${res?.column_count || 0} cols, quality ${res?.overall_quality_score ?? '—'}%`);
           } catch { toast.error('Profiling failed — check table access'); }

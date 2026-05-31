@@ -4,7 +4,13 @@ import apiClient from '@/lib/api-client';
 // TYPES
 // ============================================
 
-export type LLMModel = 'mistral-7b' | 'mistral-large' | 'llama2-70b-chat' | 'mixtral-8x7b' | 'reka-flash';
+export type LLMModel =
+  | 'mistral-7b'
+  | 'mistral-large2'
+  | 'llama3.1-70b'
+  | 'llama3.1-405b'
+  | 'claude-3-7-sonnet'
+  | 'deepseek-r1';
 
 export type LanguageCode = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'ja' | 'ko' | 'zh' | 'ar' | 'ru';
 
@@ -82,12 +88,17 @@ export interface TableInfo {
 // CONSTANTS
 // ============================================
 
+// Friendly-labelled completion models. `value` is the backend model id (never
+// shown raw to customers — the `label` is surfaced instead, per the house rule
+// against leaking vendor model ids). Ids are kept current with the platform's
+// supported completion catalog.
 export const LLM_MODELS = [
-  { value: 'mistral-7b', label: 'Mistral 7B', description: 'Fast, efficient' },
-  { value: 'mistral-large', label: 'Mistral Large', description: 'More capable' },
-  { value: 'llama2-70b-chat', label: 'Llama 2 70B', description: 'Conversational' },
-  { value: 'mixtral-8x7b', label: 'Mixtral 8x7B', description: 'Mixture of experts' },
-  { value: 'reka-flash', label: 'Reka Flash', description: 'Multimodal' },
+  { value: 'mistral-7b', label: 'Fast', description: 'Quick answers, lowest cost' },
+  { value: 'mistral-large2', label: 'Balanced', description: 'Strong general-purpose quality' },
+  { value: 'llama3.1-70b', label: 'Capable', description: 'Higher quality for complex tasks' },
+  { value: 'llama3.1-405b', label: 'Most Capable', description: 'Best quality, slower' },
+  { value: 'claude-3-7-sonnet', label: 'Reasoning', description: 'Deep reasoning & long context' },
+  { value: 'deepseek-r1', label: 'Analytical', description: 'Step-by-step problem solving' },
 ] as const;
 
 export const LANGUAGES = [

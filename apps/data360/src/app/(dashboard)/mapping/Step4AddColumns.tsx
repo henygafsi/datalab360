@@ -9,9 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2, PlusCircle, XCircle } from 'lucide-react';
-import { getAuthSession } from '@/lib/auth';
-import { getSession } from 'next-auth/react';
-import axios from 'axios';
+import apiClient from '@/lib/api-client';
 // Removed: import { getStepEventData } from './getStepEventData'; // Removed
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
@@ -60,8 +58,6 @@ interface Step4Props {
     projectId: string;
     username: string;
 }
-
-const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
 
 const Step4AddColumns: React.FC<Step4Props> = ({
     onNext,
@@ -193,12 +189,6 @@ const Step4AddColumns: React.FC<Step4Props> = ({
 
         setIsLoading(true);
         try {
-            const session = await getSession();
-            if (!session?.user?.access_token) {
-                throw new Error('No access token available');
-            }
-            const token = session.user.access_token;
-
             const groups = (mappingData.groups && mappingData.groups.length > 0) ? mappingData.groups : [{ target: selectedTargetTable, sources: [] }];
             if (mappingData.groups && mappingData.groups.length > 0) {
                 for (const g of groups) {
@@ -213,10 +203,9 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                         table_name: g.target.table,
                         columns: cols.map(col => ({ name: col.name, type: col.type, default: '', comment: '' })),
                     };
-                    const addColumnsResponse = await axios.post(
-                        `${API_BASE_URL}/explore-design/guided/add-columns`,
+                    const addColumnsResponse = await apiClient.post(
+                        `/explore-design/guided/add-columns`,
                         addColumnsPayload,
-                        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
                     );
                     if (addColumnsResponse.data.status !== 'success') {
                         throw new Error(addColumnsResponse.data.detail || 'Failed to add columns to database.');
@@ -245,10 +234,9 @@ const Step4AddColumns: React.FC<Step4Props> = ({
                     })),
                 };
 
-                const addColumnsResponse = await axios.post(
-                    `${API_BASE_URL}/explore-design/guided/add-columns`,
+                const addColumnsResponse = await apiClient.post(
+                    `/explore-design/guided/add-columns`,
                     addColumnsPayload,
-                    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
                 );
 
                 if (addColumnsResponse.data.status !== 'success') {

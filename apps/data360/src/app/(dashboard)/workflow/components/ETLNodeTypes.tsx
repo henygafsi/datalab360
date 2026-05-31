@@ -1817,6 +1817,11 @@ const IcebergSourceNode = makeGenericNode('iceberg_source');
 const SetColValueNode = makeGenericNode('set_col_value');
 const NormalizeColNode = makeGenericNode('normalize_col');
 
+// New advanced transform / orchestration blocks
+const RollupCubeNode = makeGenericNode('rollup_cube');
+const MatchRecognizeNode = makeGenericNode('match_recognize');
+const TaskDagNode = makeGenericNode('task_dag');
+
 // ============================================
 // EXPORT NODE TYPES MAP
 // ============================================
@@ -1936,6 +1941,11 @@ export const etlNodeTypes = {
   qualify_filter: QualifyFilterNode,
   correlation: CorrelationNode,
   histogram: HistogramNode,
+
+  // Advanced grouping / pattern / orchestration blocks
+  rollup_cube: RollupCubeNode,
+  match_recognize: MatchRecognizeNode,
+  task_dag: TaskDagNode,
 
   // Other blocks
   iceberg_source: IcebergSourceNode,

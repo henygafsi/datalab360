@@ -1071,7 +1071,7 @@ const StepBody: React.FC<StepBodyProps> = ({ state, setState, onRegenerateScaffo
     setAiBusy(true);
     try {
       const prompt = buildAiPrompt(state);
-      const out = await generateCompletion({ prompt, model: 'mistral-large' });
+      const out = await generateCompletion({ prompt, model: 'mistral-large2' });
       const code = stripCodeFence(out.response || '');
       setState((s) => ({ ...s, body: code || s.body, testPassed: false }));
       toast.success('AI scaffold inserted — review before testing');

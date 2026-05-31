@@ -38,11 +38,6 @@ export const lithiumMenuItems: LithiumMenuItem = {
         icon: 'ScheduleIcon',
       },
       {
-        name: 'Executive',
-        href: routes.executive.dashboard,
-        icon: 'BusinessIcon',
-      },
-      {
         name: 'Project',
         href: routes.project.dashboard,
         icon: 'ProjectDashIcon',
@@ -81,11 +76,6 @@ export const lithiumMenuItems: LithiumMenuItem = {
         name: 'E-Commerce',
         href: routes.eCommerce.dashboard,
         icon: 'ShopIcon',
-      },
-      {
-        name: 'Analytics',
-        href: routes.analytics,
-        icon: 'AnalyticsCircularIcon',
       },
       {
         name: 'Support',

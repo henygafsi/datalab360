@@ -1,12 +1,22 @@
 /**
  * Workflow API Service
  *
+ * ⚠️ Canonical save/run path: `@/app/services/api/workflowApi`.
+ * The CRUD / version / run / deployment / contributor functions in THIS file
+ * are superseded by `services/api/workflowApi.ts` and are kept only because the
+ * out-of-scope admin route-prober (`(dashboard)/admin/api-health/page.tsx`)
+ * imports the full export surface here. The workflow builder must NOT call the
+ * duplicated functions below — use `workflowApi.*` instead. The unique value of
+ * this file is the Developer-Tools surface (Git repos, Compute Pools, Container
+ * Services, Notebooks, ad-hoc run-sql / run-python), which has no equivalent in
+ * `workflowApi.ts`.
+ *
  * Comprehensive workflow management including:
- * - CRUD operations
- * - Version history with rollback
- * - Execution history (runs)
- * - Deployment with approval workflow
- * - Event logging (aligned with explore_design pattern)
+ * - CRUD operations (DEPRECATED — see workflowApi.ts)
+ * - Version history with rollback (DEPRECATED — see workflowApi.ts)
+ * - Execution history (runs) (DEPRECATED — see workflowApi.ts)
+ * - Deployment with approval workflow (DEPRECATED — see workflowApi.ts)
+ * - Developer Tools (Git / Notebooks / Compute Pools / Services / run-sql / run-python) — canonical here
  */
 
 import apiClient from '@/lib/api-client';

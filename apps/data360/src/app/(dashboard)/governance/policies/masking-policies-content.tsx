@@ -15,11 +15,13 @@ import {
   applyMaskingPolicy,
   removeMaskingPolicy,
   deleteMaskingPolicy,
+  getTablePolicies,
   type EnrichedPolicy,
   type GrantedObject,
   type MaskingPolicyDetails,
   MaskingType,
 } from '@/app/services/governance/policies';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import PolicyCard from './components/PolicyCard';
 import { ObjectSelector } from './components/ObjectSelector';
 import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
@@ -60,6 +62,14 @@ export default function MaskingPoliciesContent() {
   const [schema, setSchema] = useState('');
   const [table, setTable] = useState('');
   const [column, setColumn] = useState('');
+
+  // Dry-run / preview state for the Apply flow. The backend has no "dry-run"
+  // endpoint, so we inspect the target column's *existing* masking policies
+  // first and require explicit confirmation, surfacing any policy that would
+  // be replaced. `applyElapsedMs` powers a visible timer during the live call.
+  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'ready' | 'applying'>('idle');
+  const [previewExisting, setPreviewExisting] = useState<{ conflicting: string[] } | null>(null);
+  const [applyElapsedMs, setApplyElapsedMs] = useState(0);
 
   // Cache-aware query: auto-fetches and auto-refreshes on SSE invalidation
   const fetchPolicies = useCallback(() => listPoliciesEnriched('MASKING'), []);
@@ -141,13 +151,39 @@ export default function MaskingPoliciesContent() {
     }
   };
 
-  const handleApply = async () => {
+  // Step 1 — dry-run preview: read the target's existing masking policies and
+  // open the confirm dialog. Mutates nothing.
+  const handlePreviewApply = async () => {
     if (!selectedPolicy || !database || !schema || !table || !column) {
       setApplyError('Please select all required fields.');
       return;
     }
-
     setApplyError(null);
+    setPreviewExisting(null);
+    setPreviewState('loading');
+    try {
+      const existing = await getTablePolicies(database, schema, table);
+      const masking = existing?.policies?.masking ?? [];
+      // Only flag policies already applied to the *same* column.
+      const conflicting = masking
+        .filter((p) => (p.column ?? '').toUpperCase() === column.toUpperCase())
+        .map((p) => p.policy_name)
+        .filter(Boolean);
+      setPreviewExisting({ conflicting });
+      setPreviewState('ready');
+    } catch {
+      setPreviewExisting({ conflicting: [] });
+      setPreviewState('ready');
+    }
+  };
+
+  // Step 2 — the real, confirmed apply with a visible elapsed timer.
+  const handleConfirmApply = async () => {
+    if (!selectedPolicy) return;
+    setPreviewState('applying');
+    setApplyElapsedMs(0);
+    const startedAt = Date.now();
+    const timer = setInterval(() => setApplyElapsedMs(Date.now() - startedAt), 200);
     try {
       await applyMaskingPolicy({
         policy_name: selectedPolicy.name,
@@ -161,10 +197,21 @@ export default function MaskingPoliciesContent() {
       setShowApplyPanel(false);
       setSelectedPolicy(null);
       resetApplyForm();
+      setPreviewState('idle');
+      setPreviewExisting(null);
       refetch();
     } catch (error) {
       setApplyError(formatErrorMessage(error, 'Failed to apply policy'));
+      setPreviewState('ready'); // keep dialog open to show the error
+    } finally {
+      clearInterval(timer);
     }
+  };
+
+  const cancelPreview = () => {
+    if (previewState === 'applying') return;
+    setPreviewState('idle');
+    setPreviewExisting(null);
   };
 
   const handleRevokeObject = async (_policy: EnrichedPolicy, obj: GrantedObject) => {
@@ -369,11 +416,11 @@ export default function MaskingPoliciesContent() {
               Cancel
             </Button>
             <Button
-              onClick={handleApply}
-              disabled={!database || !schema || !table || !column}
+              onClick={handlePreviewApply}
+              disabled={!database || !schema || !table || !column || previewState === 'loading'}
               className="bg-amber-600 hover:bg-amber-700"
             >
-              Apply Policy
+              {previewState === 'loading' ? 'Checking target…' : 'Preview & Apply'}
             </Button>
           </>
         }
@@ -502,6 +549,33 @@ export default function MaskingPoliciesContent() {
             <div className="text-center py-8 text-slate-500">No details available</div>
           )}
       </PolicyFormPanel>
+
+      {/* Dry-run preview + confirm before the real apply */}
+      <ConfirmDialog
+        open={previewState === 'ready' || previewState === 'applying'}
+        title="Apply masking policy?"
+        destructive={!!previewExisting && previewExisting.conflicting.length > 0}
+        message={
+          selectedPolicy
+            ? [
+                `Policy "${selectedPolicy.name}" will mask values in ` +
+                  `${database}.${schema}.${table}.${column}.`,
+                previewExisting && previewExisting.conflicting.length > 0
+                  ? `Warning: this column already has a masking policy ` +
+                    `(${previewExisting.conflicting.join(', ')}). Applying will replace it.`
+                  : 'No existing masking policy was found on this column.',
+                applyError ? `Error: ${applyError}` : '',
+                previewState === 'applying'
+                  ? `Applying… ${(applyElapsedMs / 1000).toFixed(1)}s elapsed`
+                  : '',
+              ].filter(Boolean).join('\n\n')
+            : ''
+        }
+        confirmLabel={previewState === 'applying' ? 'Applying…' : 'Confirm apply'}
+        cancelLabel="Back"
+        onConfirm={() => { if (previewState !== 'applying') void handleConfirmApply(); }}
+        onCancel={cancelPreview}
+      />
     </div>
   );
 }

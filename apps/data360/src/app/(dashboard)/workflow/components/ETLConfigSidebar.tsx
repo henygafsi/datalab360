@@ -331,6 +331,22 @@ const ClassificationTrainConfigForm = dynamic(() => import('./config-forms/class
   ssr: false,
   loading: () => <ConfigFormSkeleton type="classification_train" />,
 });
+const MergeConfigForm = dynamic(() => import('./config-forms/merge-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="merge" />,
+});
+const RollupCubeConfigForm = dynamic(() => import('./config-forms/rollup-cube-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="rollup_cube" />,
+});
+const MatchRecognizeConfigForm = dynamic(() => import('./config-forms/match-recognize-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="match_recognize" />,
+});
+const TaskDagConfigForm = dynamic(() => import('./config-forms/task-dag-config-form'), {
+  ssr: false,
+  loading: () => <ConfigFormSkeleton type="task_dag" />,
+});
 
 
 
@@ -504,6 +520,27 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         if (!config.stream_name) newErrors.stream_name = 'Stream name is required';
         if (!config.target_table) newErrors.target_table = 'Target table is required';
         if (!config.merge_keys) newErrors.merge_keys = 'Merge keys are required';
+        break;
+      case 'merge':
+        if (!config.target_table) newErrors.target_table = 'Target table is required';
+        if (!config.merge_keys) newErrors.merge_keys = 'Merge keys are required';
+        if (!Array.isArray(config.clauses) || config.clauses.length === 0) {
+          newErrors.clauses = 'At least one merge clause is required';
+        }
+        break;
+      case 'rollup_cube':
+        if (!config.group_by) newErrors.group_by = 'Group by columns are required';
+        if (!config.aggregations) newErrors.aggregations = 'At least one aggregation is required';
+        break;
+      case 'match_recognize':
+        if (!config.partition_by) newErrors.partition_by = 'Partition columns are required';
+        if (!config.order_by) newErrors.order_by = 'Order columns are required';
+        if (!config.pattern) newErrors.pattern = 'Pattern is required';
+        if (!config.define) newErrors.define = 'At least one DEFINE rule is required';
+        break;
+      case 'task_dag':
+        if (!config.root_task_name) newErrors.root_task_name = 'Root task name is required';
+        if (!config.warehouse) newErrors.warehouse = 'Warehouse is required';
         break;
       case 'git_file':
         if (!config.repo_name) newErrors.repo_name = 'Repository name is required';
@@ -957,6 +994,15 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
         return <AIAggConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
       case 'recursive_cte':
         return <RecursiveCTEConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      // Advanced grouping / pattern / orchestration blocks
+      case 'merge':
+        return <MergeConfigForm data={formData} onChange={handleChange} errors={errors} />;
+      case 'rollup_cube':
+        return <RollupCubeConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'match_recognize':
+        return <MatchRecognizeConfigForm data={formData} onChange={handleChange} errors={errors} availableColumns={availableColumns} columnOptions={columnOptions} />;
+      case 'task_dag':
+        return <TaskDagConfigForm data={formData} onChange={handleChange} errors={errors} />;
       default:
         return <p className="text-slate-500">No configuration available for this block.</p>;
     }
