@@ -26,7 +26,7 @@ import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
   Eye, Code, Calendar, Sparkles, Users, X, Clock,
-  Download, Copy, FolderOpen, Plus, Pause, Tag, Bug,
+  Download, Upload, Copy, FolderOpen, Plus, Pause, Tag, Bug,
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1581,7 +1581,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         toast.success(`Loaded workflow: ${wf.name}`);
       } catch (error) {
         console.error('Failed to load workflow:', error);
-        toast.error(getApiErrorMessage(error) || 'Failed to load workflow');
+        // Be honest: the steps-read route (/steps) is purged on this backend,
+        // so existing workflows can't reconstruct their canvas. Don't leave an
+        // empty canvas pretending it loaded — surface why and leave state clean.
+        if (is404(error)) {
+          setPipelineError(
+            `Can't reopen this saved workflow — reading its steps is ${UNAVAILABLE_HINT.toLowerCase()}. You can still build and save a new graph.`,
+          );
+          toast.error('Reopening saved workflows is not available on this backend yet');
+        } else {
+          toast.error(getApiErrorMessage(error) || 'Failed to load workflow');
+        }
       } finally {
         setIsPipelineLoading(false);
       }
@@ -1911,6 +1921,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     try {
       const result = await workflowApi.runCloneDataTests(activeWorkflowId, cloneTestConnectorIds);
       setCloneTestResult(result);
+      setShowRightPanel(true);
+      setActiveTab('results');
       if (!result.reports || result.reports.length === 0) {
         setPhase('cloneTest', { phase: 'empty', message: 'No tables were tested on the clone' });
         toast('Clone test ran but produced no results');
@@ -2029,6 +2041,43 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     URL.revokeObjectURL(url);
     toast.success('Workflow exported');
   }, [pipelineName, activeWorkflowId, nodes, edges]);
+
+  // Import a workflow/template from a JSON file. Accepts either the raw canvas
+  // shape `{name|pipelineName, nodes, edges}` (template files) or the exported
+  // step shape `{name, steps[]}` (re-uses stepsToReactFlow for the round-trip).
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const handleImportJSON = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '')) as {
+          name?: string; pipelineName?: string;
+          nodes?: Node[]; edges?: Edge[]; steps?: WorkflowStep[];
+        };
+        let nextNodes: Node[] = [];
+        let nextEdges: Edge[] = [];
+        if (Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+          nextNodes = parsed.nodes;
+          nextEdges = Array.isArray(parsed.edges) ? parsed.edges : [];
+        } else if (Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+          const flow = stepsToReactFlow(parsed.steps);
+          nextNodes = flow.nodes;
+          nextEdges = flow.edges;
+        } else {
+          toast.error('Unrecognized workflow file — expected { nodes, edges } or { steps }');
+          return;
+        }
+        setNodes(nextNodes);
+        setEdges(nextEdges);
+        setPipelineName(parsed.name || parsed.pipelineName || 'Imported Workflow');
+        setIsDirty(true);
+        toast.success(`Imported "${parsed.name || parsed.pipelineName || 'workflow'}" — review, then Save to persist`);
+      } catch {
+        toast.error('Invalid JSON — could not import workflow');
+      }
+    };
+    reader.readAsText(file);
+  }, [setNodes, setEdges]);
 
   const handleDuplicate = useCallback(async () => {
     if (nodes.length === 0) {
@@ -2969,16 +3018,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </motion.button>
             )}
 
+            {/* ── Approve / Deploy — request a production deployment ──
+                Honest disabled state when the deployment routes 404. */}
             <motion.button
-              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
-              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
+              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 1.04 } : undefined}
+              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 0.96 } : undefined}
               onClick={handleSubmitForApproval}
-              disabled={!activeWorkflowId || isReadOnly || isPendingApproval}
+              disabled={!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running'}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-500/40 transition-shadow hover:shadow-md hover:shadow-violet-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
+              title={isActionUnavailable('deploy') ? UNAVAILABLE_HINT : isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
             >
-              <AlertCircle className="h-3 w-3" />
-              Approve
+              {lifecycle.deploy?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertCircle className="h-3 w-3" />}
+              Approve{phaseSuffix('deploy')}
             </motion.button>
 
             {/* ── Rollback — opens RollbackVersionDialog with diff preview ──
@@ -3004,6 +3055,27 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           {/* ── Cluster 4: Utility icons ── */}
           <div className="flex shrink-0 items-center gap-0.5">
+            <input
+              ref={importFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportJSON(file);
+                e.target.value = '';
+              }}
+            />
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => importFileRef.current?.click()}
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+              title="Import workflow / template from JSON"
+              aria-label="Import workflow"
+            >
+              <Upload className="h-3.5 w-3.5" />
+            </motion.button>
             <motion.button
               whileHover={nodes.length > 0 ? { scale: 1.1 } : undefined}
               whileTap={nodes.length > 0 ? { scale: 0.92 } : undefined}
@@ -3362,6 +3434,37 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex-1 overflow-auto p-4">
             {activeTab === 'results' && (
               <div className="space-y-3 -mx-4 -mt-4">
+                {/* Clone-data test report — "test real-life via clone" results.
+                    Shows the per-connector pass/fail of the run against the
+                    cloned copy of real source data. */}
+                {cloneTestResult && (
+                  <div className="px-4 pt-4 space-y-2">
+                    <div className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium',
+                      cloneTestResult.ok
+                        ? 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400'
+                        : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400',
+                    )}>
+                      <Bug className="h-4 w-4" />
+                      <span>Clone test {cloneTestResult.ok ? 'passed' : 'failed'}</span>
+                      <span className="text-xs opacity-75 ml-auto">
+                        {cloneTestResult.connectors_passed}/{cloneTestResult.connector_count} connectors
+                      </span>
+                    </div>
+                    {(cloneTestResult.reports || []).map((r, i) => (
+                      <div key={r.connector_id || i} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-700/50">
+                        <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', r.ok ? 'bg-green-500' : 'bg-red-500')} />
+                        <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                          {r.connector_type || r.connector_id}
+                        </span>
+                        <span className="text-slate-500 dark:text-slate-400 ml-auto">
+                          {r.tables_passed}/{r.tables_tested} tables · {Math.round((r.pass_rate ?? 0) * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Execution summary */}
                 {lastExecution && (
                   <div className="px-4 pt-4 space-y-2">

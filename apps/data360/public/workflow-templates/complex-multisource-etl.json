@@ -1,0 +1,22 @@
+{
+  "name": "Complex Multi-Source ETL (template)",
+  "description": "Two sources → join → window-aggregate → destination. Tests the heavy transform_advanced path.",
+  "nodes": [
+    { "id": "srcA", "type": "source", "position": { "x": 60, "y": 80 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "ORDERS" } } },
+    { "id": "srcB", "type": "source", "position": { "x": 60, "y": 340 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "CUSTOMERS" } } },
+    { "id": "join1", "type": "join", "position": { "x": 440, "y": 200 },
+      "data": { "config": { "join_type": "INNER", "left_key": "CUSTOMER_ID", "right_key": "CUSTOMER_ID" } } },
+    { "id": "win1", "type": "window_aggregate", "position": { "x": 820, "y": 200 },
+      "data": { "config": { "partition_by": ["CUSTOMER_ID"], "order_by": "ORDER_TS", "fn": "SUM", "column": "AMOUNT", "alias": "RUNNING_TOTAL" } } },
+    { "id": "dst1", "type": "destination", "position": { "x": 1200, "y": 200 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "CUSTOMER_ORDER_RUNNING_TOTALS", "write_mode": "overwrite" } } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "srcA", "target": "join1" },
+    { "id": "e2", "source": "srcB", "target": "join1" },
+    { "id": "e3", "source": "join1", "target": "win1" },
+    { "id": "e4", "source": "win1", "target": "dst1" }
+  ]
+}

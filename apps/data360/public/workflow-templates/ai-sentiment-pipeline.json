@@ -1,0 +1,19 @@
+{
+  "name": "AI Sentiment Pipeline (template)",
+  "description": "Read a text/events table, score sentiment with Cortex, write the scored table. Tests the AI block end-to-end.",
+  "nodes": [
+    { "id": "src1", "type": "source", "position": { "x": 60, "y": 120 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "EVENTS" } } },
+    { "id": "sent1", "type": "ai_sentiment", "position": { "x": 420, "y": 120 },
+      "data": { "config": { "text_column": "MESSAGE", "output_column": "SENTIMENT_SCORE", "model": "snowflake-arctic" } } },
+    { "id": "flt1", "type": "filter", "position": { "x": 780, "y": 120 },
+      "data": { "config": { "filter_condition": "SENTIMENT_SCORE < 0" } } },
+    { "id": "dst1", "type": "destination", "position": { "x": 1140, "y": 120 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "EVENTS_NEGATIVE_SENTIMENT", "write_mode": "overwrite" } } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src1", "target": "sent1" },
+    { "id": "e2", "source": "sent1", "target": "flt1" },
+    { "id": "e3", "source": "flt1", "target": "dst1" }
+  ]
+}
