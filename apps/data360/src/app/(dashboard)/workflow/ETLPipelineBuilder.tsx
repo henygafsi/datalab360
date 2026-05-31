@@ -78,6 +78,8 @@ import type {
   WorkflowExecutionResponse,
   CompileWorkflowResponse,
   ValidateWorkflowResponse,
+  WorkflowCapabilities,
+  CloneDataTestsResult,
 } from '@/app/services/api/types';
 
 // ============================================
@@ -185,6 +187,29 @@ function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
 
+/** True when an error is an HTTP 404 — i.e. the route is unavailable on this backend. */
+function is404(err: unknown): boolean {
+  const r = (err as { response?: { status?: number } } | null)?.response;
+  return r?.status === 404;
+}
+
+// ── Lifecycle state machine ──────────────────────────────────────────────
+// Every lifecycle action (save / validate / compile / clone-test / deploy /
+// execute) is driven through one of these phases so the UI can honestly
+// show idle → running(+elapsed) → completed / empty / error, and — critically —
+// flip to `unavailable` (honest disabled state) the moment its route 404s,
+// instead of leaving a button that silently 404s on every click.
+type LifecyclePhase = 'idle' | 'running' | 'completed' | 'empty' | 'error' | 'unavailable';
+type LifecycleAction = 'save' | 'validate' | 'compile' | 'cloneTest' | 'deploy' | 'execute';
+interface LifecycleEntry {
+  phase: LifecyclePhase;
+  startedAt?: number;   // epoch ms while running, for the elapsed-time ticker
+  message?: string;     // human-friendly headline for error / empty / unavailable
+}
+type LifecycleState = Partial<Record<LifecycleAction, LifecycleEntry>>;
+
+const UNAVAILABLE_HINT = 'Not available on this backend yet';
+
 // Build CreateWorkflowStepInput array from ReactFlow nodes/edges
 // Payload uses flat keys matching the API (database_name, schema_name, etc.)
 // plus reserved keys: inputs (step_ids this step reads from), cte_alias, position, nodeId
@@ -286,6 +311,35 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
       },
     };
   });
+}
+
+// Build the FromGraphRequest node/edge payload from the ReactFlow canvas.
+// from-graph maps node.id → step, stashes `config` as the step payload, and
+// reads join handles from edge.targetHandle ('input1'/'input2' → 'left'/'right').
+function nodesToFromGraph(nodes: Node[], edges: Edge[]): {
+  nodes: { id: string; type: string; config: Record<string, unknown> }[];
+  edges: { source: string; target: string; targetHandle?: string }[];
+} {
+  // Reuse nodesToStepInputs so the same flat-key derivation (filter_condition,
+  // agg flattening, etc.) the backend templates expect is applied here too.
+  const stepInputs = nodesToStepInputs(nodes, edges);
+  const graphNodes = nodes.map((node, i) => {
+    const { inputs: _inputs, cte_alias: _cte, position: _pos, nodeId: _nid, ...config } =
+      stepInputs[i].payload as Record<string, unknown>;
+    return {
+      id: node.id,
+      type: node.type || 'source',
+      config: { ...config, position: node.position, nodeId: node.id },
+    };
+  });
+  const graphEdges = edges.map((e) => {
+    const handle =
+      e.targetHandle === 'input1' ? 'left'
+      : e.targetHandle === 'input2' ? 'right'
+      : undefined;
+    return { source: e.source, target: e.target, ...(handle ? { targetHandle: handle } : {}) };
+  });
+  return { nodes: graphNodes, edges: graphEdges };
 }
 
 // Convert workflow steps to ReactFlow nodes/edges
@@ -571,6 +625,105 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
   // Persistent error display (shown in Runs panel instead of disappearing toast)
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+
+  // ─── Lifecycle state machine + capability gating ───────────────────────
+  // `lifecycle` holds the phase of each lifecycle action. `caps` is the
+  // backend's advisory capabilities hint (treated as a HINT only). `caps404`
+  // records lifecycle actions whose route returned 404 at runtime — those are
+  // gated to an honest disabled state regardless of what capabilities claims.
+  const [lifecycle, setLifecycle] = useState<LifecycleState>({});
+  const [caps, setCaps] = useState<WorkflowCapabilities | null>(null);
+  const [unavailableRoutes, setUnavailableRoutes] = useState<Set<LifecycleAction>>(new Set());
+  // Ticks every second while any action is running so elapsed time re-renders.
+  const [, setElapsedTick] = useState(0);
+
+  const setPhase = useCallback((action: LifecycleAction, entry: LifecycleEntry) => {
+    setLifecycle((prev) => ({ ...prev, [action]: entry }));
+  }, []);
+
+  const markUnavailable = useCallback((action: LifecycleAction) => {
+    setUnavailableRoutes((prev) => {
+      if (prev.has(action)) return prev;
+      const next = new Set(prev);
+      next.add(action);
+      return next;
+    });
+    setPhase(action, { phase: 'unavailable', message: UNAVAILABLE_HINT });
+  }, [setPhase]);
+
+  // Fetch capabilities once we have a token. Capabilities is advisory: a 404
+  // here just means the hint is unavailable, NOT that lifecycle is broken —
+  // the per-action runtime 404 path is the real gate.
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    workflowApi
+      .getWorkflowCapabilities()
+      .then((c) => { if (!cancelled) setCaps(c); })
+      .catch(() => { if (!cancelled) setCaps(null); });
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  // Drive the elapsed-time ticker only while something is running.
+  const anyRunning = useMemo(
+    () => Object.values(lifecycle).some((e) => e?.phase === 'running'),
+    [lifecycle],
+  );
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = window.setInterval(() => setElapsedTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [anyRunning]);
+
+  // Gating: an action is unavailable if it 404'd at runtime, OR if the backend
+  // capabilities hint explicitly says it's unsupported. Only `builder.*`
+  // capability flags are authoritative-negative; absence of a flag is treated
+  // as "unknown / allowed" (the runtime 404 path will catch a purged route).
+  const capabilityDenies = useCallback(
+    (action: LifecycleAction): boolean => {
+      if (!caps?.builder) return false;
+      if (action === 'compile' && caps.builder.supports_compile === false) return true;
+      if (action === 'validate' && caps.builder.supports_validate === false) return true;
+      if (action === 'cloneTest' && caps.builder.supports_clone_data_tests === false) return true;
+      return false;
+    },
+    [caps],
+  );
+
+  const isActionUnavailable = useCallback(
+    (action: LifecycleAction): boolean =>
+      unavailableRoutes.has(action) || capabilityDenies(action),
+    [unavailableRoutes, capabilityDenies],
+  );
+
+  // Live elapsed seconds for a running action — read by the toolbar buttons.
+  const elapsedSeconds = useCallback(
+    (action: LifecycleAction): number | null => {
+      const e = lifecycle[action];
+      if (e?.phase !== 'running' || !e.startedAt) return null;
+      return Math.max(0, Math.floor((Date.now() - e.startedAt) / 1000));
+    },
+    [lifecycle],
+  );
+
+  // Suffix appended to a lifecycle button's label to surface its phase:
+  // running shows "· 3s", completed a check, empty/error/unavailable a marker.
+  const phaseSuffix = useCallback(
+    (action: LifecycleAction): string => {
+      if (isActionUnavailable(action)) return '';
+      const e = lifecycle[action];
+      if (!e) return '';
+      if (e.phase === 'running') {
+        const s = elapsedSeconds(action);
+        return s != null ? ` · ${s}s` : ' · …';
+      }
+      if (e.phase === 'completed') return ' ✓';
+      if (e.phase === 'empty') return ' —';
+      if (e.phase === 'error') return ' !';
+      return '';
+    },
+    [lifecycle, elapsedSeconds, isActionUnavailable],
+  );
 
   // ─── Live client-side validation ───────────────────────────────────────
   // Runs on every graph change (debounced) so a stale "Validation: …" banner
@@ -1465,48 +1618,48 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     setIsSaving(true);
     setPipelineError(null);
+    setPhase('save', { phase: 'running', startedAt: Date.now() });
     try {
-      const stepInputs = nodesToStepInputs(nodes, edges);
+      // Bulk one-shot persist via POST /workflow/from-graph. The per-step
+      // /steps CRUD it replaces was purged backend-side, so this is now the
+      // only working persist path. from-graph always creates a fresh project
+      // (+ initial version), so the active id is re-pointed at the response.
+      const { nodes: graphNodes, edges: graphEdges } = nodesToFromGraph(nodes, edges);
+      const response = await workflowApi.saveWorkflowFromGraph({
+        project_name: pipelineName,
+        nodes: graphNodes,
+        edges: graphEdges,
+        tags: workflowTags.length ? workflowTags : undefined,
+      });
 
-      if (activeWorkflowId) {
-        // Incremental save: only update modified steps
-        const existing = await workflowApi.listSteps(activeWorkflowId);
-        const existingSteps = existing.steps || [];
-        const dirtyIds = dirtyNodeIdsRef.current;
-
-        for (let i = 0; i < stepInputs.length; i++) {
-          const nodeId = stepInputs[i].payload?.nodeId;
-          const isNew = i >= existingSteps.length;
-          const isModified = !nodeId || dirtyIds.has(nodeId) || dirtyIds.size === 0;
-
-          if (isNew) {
-            await workflowApi.addStep(activeWorkflowId, stepInputs[i]);
-          } else if (isModified) {
-            await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
-              step_name: stepInputs[i].step_name,
-              payload: { ...stepInputs[i].payload, action_type: stepInputs[i].action_type },
-            });
-          }
-          // else: unchanged — skip API call
-        }
-
-        // Delete removed steps
-        if (existingSteps.length > stepInputs.length) {
-          for (let i = stepInputs.length; i < existingSteps.length; i++) {
-            await workflowApi.deleteStep(activeWorkflowId, existingSteps[i].step_id).catch(() => {});
-          }
-        }
-
-        toast.success('Workflow updated');
-      } else {
-        // Create new
-        const response = await workflowApi.createWorkflow({
-          project_name: pipelineName,
-          steps: stepInputs,
-        });
+      // Re-point the active workflow at the saved copy so downstream lifecycle
+      // controls (validate / compile / clone-test / run / deploy) target it.
+      if (response.project_id) {
         setActiveWorkflowId(response.project_id);
-        setActiveWorkflowName(response.project_name);
-        toast.success('Workflow created');
+        setActiveWorkflowName(pipelineName);
+        lastLoadedUpdatedAtRef.current = Date.now();
+      }
+
+      // Surface partial failures honestly instead of claiming a clean save.
+      const partialErrors = (response.errors || [])
+        .map((e) => (typeof e === 'string' ? e : `${e.node_id ?? 'node'}: ${e.error}`));
+      const serverValidationError =
+        response.validation && response.validation.valid === false
+          ? response.validation.error
+          : undefined;
+
+      if (partialErrors.length > 0) {
+        setPhase('save', { phase: 'error', message: partialErrors[0] });
+        setPipelineError(`Saved with ${partialErrors.length} issue(s): ${partialErrors.join('; ')}`);
+        toast.error(`Saved with ${partialErrors.length} issue(s)`);
+      } else {
+        setPhase('save', { phase: 'completed' });
+        if (serverValidationError) {
+          setPipelineError(`Validation: ${serverValidationError}`);
+          toast.success('Workflow saved (validation flagged issues)');
+        } else {
+          toast.success(activeWorkflowId ? 'Workflow saved (new version)' : 'Workflow created');
+        }
       }
 
       // Mark clean
@@ -1527,13 +1680,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       await loadWorkflows();
     } catch (error: any) {
       console.error('Failed to save workflow:', error);
-      const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
-      toast.error(errMsg);
-      setPipelineError(`Save failed: ${errMsg}`);
+      if (is404(error)) {
+        // The bulk save route itself is unavailable — honest disabled state.
+        markUnavailable('save');
+        setPipelineError(`Save unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
+        setPhase('save', { phase: 'error', message: errMsg });
+        toast.error(errMsg);
+        setPipelineError(`Save failed: ${errMsg}`);
+      }
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, pipelineName, activeWorkflowId, autosaveKey]);
+  }, [nodes, edges, pipelineName, activeWorkflowId, autosaveKey, workflowTags, setPhase, markUnavailable]);
   handleSaveRef.current = handleSavePipeline;
 
   const handleDeletePipeline = useCallback(() => {
@@ -1619,14 +1780,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         return;
       }
 
+      const action: LifecycleAction = dryRun ? 'compile' : 'execute';
       setIsExecuting(true);
+      setPhase(action, { phase: 'running', startedAt: Date.now() });
       try {
         if (dryRun) {
           // Compile (dry-run): generates SQL without executing
           const compileResult = await workflowApi.compileWorkflow(activeWorkflowId);
           setCompiledSql(compileResult);
           setActiveTab('sql');
-          toast.success('SQL generated (dry run)');
+          const hasSql = !!compileResult?.compiled_sql?.trim();
+          setPhase('compile', { phase: hasSql ? 'completed' : 'empty' });
+          toast.success(hasSql ? 'SQL generated (dry run)' : 'Compiled — no SQL produced');
         } else {
           // Execute
           const response = await workflowApi.executeWorkflow(activeWorkflowId, {
@@ -1635,6 +1800,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setLastExecution(response);
 
           if (response.status === 'completed' || response.status === 'success') {
+            setPhase('execute', { phase: 'completed' });
             toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
             // Auto-load destination table preview
             loadResultsPreview();
@@ -1642,21 +1808,33 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             const errorDetail = response.error
               ? extractErrorString(response.error)
               : 'Check execution history for details';
+            setPhase('execute', { phase: 'error', message: errorDetail });
             setPipelineError(`Execution failed: ${errorDetail}`);
             setActiveTab('runs'); // Switch to runs tab to show error details
+          } else {
+            setPhase('execute', { phase: 'completed' });
           }
         }
       } catch (error: any) {
-        console.error('Execution failed:', error);
-        setPipelineError(getApiErrorMessage(error) || 'Execution failed');
-        setActiveTab('runs');
+        if (is404(error)) {
+          markUnavailable(action);
+          const label = dryRun ? 'SQL preview (compile)' : 'Run (execute)';
+          setPipelineError(`${label} unavailable: ${UNAVAILABLE_HINT}`);
+          toast.error(UNAVAILABLE_HINT);
+        } else {
+          console.error('Execution failed:', error);
+          const errMsg = getApiErrorMessage(error) || 'Execution failed';
+          setPhase(action, { phase: 'error', message: errMsg });
+          setPipelineError(errMsg);
+          if (!dryRun) setActiveTab('runs');
+        }
       } finally {
         setIsExecuting(false);
         // Force execution history to refresh after execution completes
-        setExecutionRefreshKey((k) => k + 1);
+        if (!dryRun) setExecutionRefreshKey((k) => k + 1);
       }
     },
-    [activeWorkflowId, nodes]
+    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
   );
   handleExecuteRef.current = handleExecute;
 
@@ -1667,23 +1845,97 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       return;
     }
 
+    setPhase('validate', { phase: 'running', startedAt: Date.now() });
     try {
       setAiSuggestions(null);
       const result = await workflowApi.validateWorkflow(activeWorkflowId);
       setValidation(result);
 
       if (result.valid) {
+        setPhase('validate', { phase: 'completed' });
         toast.success('Pipeline is valid');
         setPipelineError(null);
       } else {
         const errMsg = extractErrorString(result.error) || 'Check the error panel for details';
+        setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(`Validation: ${errMsg}`);
       }
     } catch (error: any) {
-      console.error('Validation failed:', error);
-      setPipelineError(getApiErrorMessage(error) || 'Validation failed');
+      if (is404(error)) {
+        markUnavailable('validate');
+        setPipelineError(`Validate unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        console.error('Validation failed:', error);
+        const errMsg = getApiErrorMessage(error) || 'Validation failed';
+        setPhase('validate', { phase: 'error', message: errMsg });
+        setPipelineError(errMsg);
+      }
     }
-  }, [activeWorkflowId]);
+  }, [activeWorkflowId, setPhase, markUnavailable]);
+
+  // ============================================
+  // CLONE-DATA TESTS — "Test on cloned data"
+  // ============================================
+  // The standard's test-real-life-via-clone step: runs the pipeline's source
+  // connectors against a CLONED copy of the real business data (no prod write).
+  // Sits between dry-run (compile) and deploy. Connector ids are derived from
+  // the source nodes on the canvas.
+  const cloneTestConnectorIds = useMemo(() => {
+    const ids = new Set<string>();
+    nodes.forEach((n) => {
+      const cfg = (n.data?.config || n.data || {}) as Record<string, unknown>;
+      const candidate =
+        (cfg.connector_id as string) ||
+        (cfg.connection_id as string) ||
+        (cfg.connectorId as string);
+      if (candidate) ids.add(candidate);
+    });
+    return Array.from(ids);
+  }, [nodes]);
+
+  const [cloneTestResult, setCloneTestResult] = useState<CloneDataTestsResult | null>(null);
+
+  const handleCloneDataTests = useCallback(async () => {
+    if (!activeWorkflowId) {
+      toast.error('Save the workflow first before testing on cloned data');
+      return;
+    }
+    if (cloneTestConnectorIds.length === 0) {
+      toast.error('No source connector found — add a connector-backed source to test on cloned data');
+      return;
+    }
+    setPipelineError(null);
+    setCloneTestResult(null);
+    setPhase('cloneTest', { phase: 'running', startedAt: Date.now() });
+    try {
+      const result = await workflowApi.runCloneDataTests(activeWorkflowId, cloneTestConnectorIds);
+      setCloneTestResult(result);
+      if (!result.reports || result.reports.length === 0) {
+        setPhase('cloneTest', { phase: 'empty', message: 'No tables were tested on the clone' });
+        toast('Clone test ran but produced no results');
+      } else if (result.ok) {
+        setPhase('cloneTest', { phase: 'completed' });
+        toast.success(`Clone test passed — ${result.connectors_passed}/${result.connector_count} connectors`);
+      } else {
+        setPhase('cloneTest', {
+          phase: 'error',
+          message: `${result.connectors_failed} connector(s) failed on the cloned data`,
+        });
+        setPipelineError(`Clone test: ${result.connectors_failed} connector(s) failed against the cloned data`);
+      }
+    } catch (error: any) {
+      if (is404(error)) {
+        markUnavailable('cloneTest');
+        setPipelineError(`Test on cloned data unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        const errMsg = getApiErrorMessage(error) || 'Clone test failed';
+        setPhase('cloneTest', { phase: 'error', message: errMsg });
+        setPipelineError(`Clone test failed: ${errMsg}`);
+      }
+    }
+  }, [activeWorkflowId, cloneTestConnectorIds, setPhase, markUnavailable]);
 
   const handleGetAiSuggestions = useCallback(async () => {
     if (!validation) return;
@@ -1716,11 +1968,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
     if (readOnlyGuard()) return;
 
+    setPhase('deploy', { phase: 'running', startedAt: Date.now() });
     try {
       // Get the latest version ID
       const versionsResponse = await workflowApi.listVersions(activeWorkflowId, { limit: 1 });
       const versions = (versionsResponse as any)?.versions || [];
       if (versions.length === 0) {
+        setPhase('deploy', { phase: 'empty', message: 'No version to deploy' });
         toast.error('No version found. Save the pipeline first to create a version.');
         return;
       }
@@ -1730,9 +1984,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         version_id: latestVersionId,
         deployment_type: 'with_approval',
       });
+      setPhase('deploy', { phase: 'completed' });
       toast.success('Pipeline submitted for approval!');
       setApprovalStatus('pending');
     } catch (error: any) {
+      if (is404(error)) {
+        // The deployment lifecycle routes are purged — honest disabled state.
+        markUnavailable('deploy');
+        setPipelineError(`Submit for approval unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+        return;
+      }
       console.error('Submit for approval failed:', error);
       // Snowflake compile errors come back as a wall of text. Pipe through
       // friendlyError() so the toast reads "Couldn't request approval —
@@ -1741,10 +2003,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // pipelineError banner so the user can drill into the raw payload.
       const raw = getApiErrorMessage(error) || 'Failed to submit for approval';
       const { headline, hint } = friendlyError(raw);
+      setPhase('deploy', { phase: 'error', message: headline });
       toast.error(headline);
       setPipelineError(`Approval: ${raw}${hint ? `  —  ${hint}` : ''}`);
     }
-  }, [activeWorkflowId, readOnlyGuard]);
+  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
 
   // ============================================
   // EXPORT & DUPLICATE
@@ -2547,41 +2810,80 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               Save
             </motion.button>
 
+            {/* ── Validate (compile-time lint of the DAG, server-side) ──
+                Honest disabled state when the route 404s on this backend. */}
             <motion.button
-              whileHover={activeWorkflowId ? { scale: 1.04 } : undefined}
-              whileTap={activeWorkflowId ? { scale: 0.96 } : undefined}
+              whileHover={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 1.04 } : undefined}
+              whileTap={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 0.96 } : undefined}
               onClick={handleValidate}
-              disabled={!activeWorkflowId}
+              disabled={!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running'}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/40 transition-shadow hover:shadow-md hover:shadow-amber-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title="Check for errors in the workflow DAG before execution"
+              title={isActionUnavailable('validate') ? UNAVAILABLE_HINT : 'Check for errors in the workflow DAG before execution'}
             >
-              <CheckCircle className="h-3 w-3" />
-              Validate
+              {lifecycle.validate?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+              Validate{phaseSuffix('validate')}
             </motion.button>
 
+            {/* ── SQL — dry-run (compile, generate SQL, no write) ──
+                Honest disabled state when the compile route 404s. */}
             <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId) ? { scale: 0.96 } : undefined}
+              whileHover={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(true)}
-              disabled={isExecuting || !activeWorkflowId}
+              disabled={isExecuting || !activeWorkflowId || isActionUnavailable('compile')}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title="Preview the compiled SQL without executing it"
+              title={isActionUnavailable('compile') ? UNAVAILABLE_HINT : 'Preview the compiled SQL without executing it (dry run)'}
             >
-              <Eye className="h-3 w-3" />
-              SQL
+              {lifecycle.compile?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+              SQL{phaseSuffix('compile')}
             </motion.button>
 
+            {/* ── Test on cloned data — the standard's "test real-life via
+                clone" step, between dry-run and deploy. Disabled honestly when
+                the route 404s, or when no connector-backed source exists. */}
+            {(() => {
+              const noConnector = cloneTestConnectorIds.length === 0;
+              const cloneDisabled =
+                !activeWorkflowId ||
+                isActionUnavailable('cloneTest') ||
+                noConnector ||
+                lifecycle.cloneTest?.phase === 'running';
+              const cloneTitle = isActionUnavailable('cloneTest')
+                ? UNAVAILABLE_HINT
+                : !activeWorkflowId
+                  ? 'Save the workflow first'
+                  : noConnector
+                    ? 'Add a connector-backed source to test on cloned data'
+                    : 'Run the pipeline against a cloned copy of the real source data (no production write)';
+              return (
+                <motion.button
+                  whileHover={!cloneDisabled ? { scale: 1.04 } : undefined}
+                  whileTap={!cloneDisabled ? { scale: 0.96 } : undefined}
+                  onClick={handleCloneDataTests}
+                  disabled={cloneDisabled}
+                  className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                  title={cloneTitle}
+                  aria-label="Test on cloned data"
+                >
+                  {lifecycle.cloneTest?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bug className="h-3 w-3" />}
+                  Clone test{phaseSuffix('cloneTest')}
+                </motion.button>
+              );
+            })()}
+
+            {/* ── Run — execute the workflow (writes results) ──
+                Honest disabled state when the execute route 404s. */}
             <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
+              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(false)}
-              disabled={isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)}
+              disabled={isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)}
               className="group relative flex h-7 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
+              title={isActionUnavailable('execute') ? UNAVAILABLE_HINT : isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              Run
+              Run{phaseSuffix('execute')}
             </motion.button>
 
             {/* ── Suspend / Resume — mutually exclusive single slot ──
