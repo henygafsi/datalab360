@@ -193,15 +193,27 @@ export const carbonMenuItems: MenuItemsType[] = [
     menuItems: [
       {
         name: 'Semantic Models',
-        description: 'YAML models for Cortex Analyst',
-        href: routes.intelligent.dashboard,
+        description: 'YAML semantic models for AI Analyst',
+        href: routes.intelligent.semanticModels,
         icon: PiCubeDuotone,
       },
       {
-        name: 'Data & Governance',
-        description: 'ETL blocks, policies & security matrix',
-        href: routes.intelligent.dataGovernance,
+        name: 'AI Chat',
+        description: 'Ask-your-data conversational analyst',
+        href: routes.intelligent.aiChat,
         icon: PiChatCircleDuotone,
+      },
+      {
+        name: 'AI Advisor',
+        description: 'Recommendations across your data products',
+        href: routes.intelligent.aiAdvisor,
+        icon: PiBrainDuotone,
+      },
+      {
+        name: 'ML Features',
+        description: 'Text utilities & feature engineering',
+        href: routes.intelligent.mlFeatures,
+        icon: PiCubeDuotone,
       },
     ],
   },
@@ -231,13 +243,23 @@ export const carbonMenuItems: MenuItemsType[] = [
     menuItems: [
       {
         name: 'Dashboard',
-        description: 'KPIs, Compliance & Monitoring',
+        description: 'KPIs, lineage, compliance & monitoring',
         href: routes.observability.dashboard,
         icon: PiChartLineDuotone,
       },
+    ],
+  },
+  // Administration — platform config (not a data module; lives under /admin/*)
+  {
+    id: 11,
+    name: 'Administration',
+    title: 'Administration',
+    icon: PiCubeDuotone,
+    color: 'slate',
+    menuItems: [
       {
         name: 'Config Data360',
-        description: 'Metadata, tables, colonnes date, cache & refresh',
+        description: 'Metadata, tables, date columns, cache & refresh',
         href: routes.data360Config.view,
         icon: PiCubeDuotone,
       },
