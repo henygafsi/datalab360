@@ -33,8 +33,9 @@ import AdvancedMLContent from './advanced-ml-content';
 import QueryAnalyticsContent from './query-analytics-content';
 import LocalAnalyticsContent from './local-analytics-content';
 import SnowparkServicesContent from './snowpark-services-content';
+import AiAdvisorContent from './ai-advisor-content';
 
-type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search';
+type TabType = 'semantic-models' | 'cortex-chat' | 'ml-features' | 'advanced-ml' | 'query-analytics' | 'local-analytics' | 'snowpark-services' | 'cortex-agents' | 'semantic-views' | 'vector-search' | 'ai-advisor';
 
 // ── Response shapes for the inline Cortex tabs (no dedicated service types
 // exist for these read-only listing endpoints, so they are declared here). ──
@@ -79,17 +80,25 @@ const TABS = [
     id: 'semantic-models' as TabType,
     name: 'Semantic Models',
     icon: PiDatabase,
-    description: 'YAML-based data models for Cortex Analyst',
+    description: 'YAML-based data models for natural-language analytics',
     badge: 'AI-Powered',
     badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400',
   },
   {
     id: 'cortex-chat' as TabType,
-    name: 'Cortex Chat',
+    name: 'AI Chat',
     icon: PiChatCircleDots,
     description: 'Ask questions about your data in natural language',
     badge: 'Beta',
     badgeColor: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
+  },
+  {
+    id: 'ai-advisor' as TabType,
+    name: 'AI Advisor',
+    icon: PiSparkle,
+    description: 'AI recommendations for cost, performance & governance',
+    badge: 'New',
+    badgeColor: 'bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-400',
   },
   {
     id: 'ml-features' as TabType,
@@ -112,7 +121,7 @@ const TABS = [
     name: 'Query Analytics',
     icon: PiChartLineUp,
     description: 'AI-powered query analysis & optimization',
-    badge: 'Cortex',
+    badge: 'AI',
     badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
   },
   {
@@ -125,17 +134,17 @@ const TABS = [
   },
   {
     id: 'snowpark-services' as TabType,
-    name: 'Snowpark Services',
+    name: 'Container Apps',
     icon: PiCloudArrowUp,
-    description: 'Container services, Streamlit apps & compute pools',
+    description: 'Container services, apps & compute pools',
     badge: 'Enterprise',
     badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/30 dark:text-cyan-400',
   },
   {
     id: 'cortex-agents' as TabType,
-    name: 'Cortex Agents',
+    name: 'AI Agents',
     icon: PiRobotDuotone,
-    description: 'Autonomous AI agents combining Analyst + Search + tools',
+    description: 'Autonomous AI agents combining analysis, search & tools',
     badge: 'Preview',
     badgeColor: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-400',
   },
@@ -143,7 +152,7 @@ const TABS = [
     id: 'semantic-views' as TabType,
     name: 'Semantic Views',
     icon: PiDatabase,
-    description: 'Create & manage semantic views for Cortex Analyst',
+    description: 'Create & manage semantic views for natural-language analytics',
     badge: 'New',
     badgeColor: 'bg-teal-100 text-teal-800 dark:bg-teal-900/30 dark:text-teal-400',
   },
@@ -168,7 +177,7 @@ export default function IntelligentPage() {
   const searchParams = useSearchParams();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
-    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search') return t as TabType;
+    if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
     return 'semantic-models';
   }, [searchParams]);
   const [activeTab, setActiveTab] = useState<TabType>(tabFromUrl);
@@ -234,7 +243,7 @@ export default function IntelligentPage() {
                 Intelligent Analytics
               </h1>
               <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-                Leverage Snowflake Cortex for AI-powered data insights
+                AI-powered data insights across your platform
               </p>
             </div>
           </div>
@@ -334,6 +343,7 @@ export default function IntelligentPage() {
         <div role="tabpanel" className="p-6">
           {activeTab === 'semantic-models' && <SemanticModelsContent />}
           {activeTab === 'cortex-chat' && <CortexChatContent />}
+          {activeTab === 'ai-advisor' && <AiAdvisorContent />}
           {activeTab === 'ml-features' && <MLFeaturesContent />}
           {activeTab === 'advanced-ml' && <AdvancedMLContent />}
           {activeTab === 'query-analytics' && <QueryAnalyticsContent />}
@@ -345,8 +355,8 @@ export default function IntelligentPage() {
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Cortex AI Agents</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Build autonomous AI agents that combine structured data (Cortex Analyst), unstructured data (Cortex Search), and custom tools.</p>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">AI Agents</h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Build autonomous AI agents that combine structured data analysis, unstructured search, and custom tools.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -372,14 +382,14 @@ export default function IntelligentPage() {
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
                   <div className="flex items-center gap-2 mb-2">
                     <PiDatabase className="w-5 h-5 text-blue-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Cortex Analyst</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">Structured Analyst</span>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Structured data queries via semantic models. SQL generation from natural language.</p>
                 </div>
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
                   <div className="flex items-center gap-2 mb-2">
                     <PiSparkle className="w-5 h-5 text-purple-500" />
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">Cortex Search</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">Semantic Search</span>
                   </div>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Unstructured data retrieval. Vector search over documents, PDFs, and text columns.</p>
                 </div>
@@ -388,7 +398,7 @@ export default function IntelligentPage() {
                     <PiGear className="w-5 h-5 text-amber-500" />
                     <span className="text-sm font-medium text-gray-900 dark:text-white">Custom Tools</span>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Python UDFs, external APIs, Snowpark functions as agent tools.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Python UDFs, external APIs, and container functions as agent tools.</p>
                 </div>
               </div>
 
@@ -401,7 +411,7 @@ export default function IntelligentPage() {
                 <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center border border-gray-200 dark:border-gray-700">
                   <PiRobotDuotone className="h-12 w-12 mx-auto text-indigo-400 mb-3" />
                   <p className="text-gray-600 dark:text-gray-400 font-medium">No agents configured yet</p>
-                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Agents combining Cortex Analyst, Cortex Search, and custom tools will appear here once configured.</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Agents combining structured analysis, semantic search, and custom tools will appear here once configured.</p>
                 </div>
               ) : (
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
@@ -436,7 +446,7 @@ export default function IntelligentPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Semantic Views</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly views with dimensions, measures, time grains, and synonyms for Cortex Analyst.</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Define business-friendly views with dimensions, measures, time grains, and synonyms for natural-language analytics.</p>
                 </div>
                 <Button
                   variant="outline"
@@ -469,7 +479,7 @@ export default function IntelligentPage() {
                   </ul>
                 </div>
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Cortex Analyst Integration</h4>
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2">Natural-Language Analytics Integration</h4>
                   <ul className="space-y-1.5 text-xs text-gray-500 dark:text-gray-400">
                     <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Auto-generate YAML from table metadata</li>
                     <li className="flex items-center gap-2"><PiTrendUp className="w-3.5 h-3.5 text-green-500 shrink-0" /> Validate with test questions before deploy</li>
@@ -501,7 +511,7 @@ export default function IntelligentPage() {
                         <tr>
                           <td colSpan={5} className="px-4 py-12 text-center text-gray-400 dark:text-gray-500">
                             <PiDatabase className="h-8 w-8 mx-auto mb-2 text-gray-300 dark:text-gray-600" />
-                            No semantic views defined yet. Semantic views deployed for Cortex Analyst will appear here.
+                            No semantic views defined yet. Semantic views deployed for natural-language analytics will appear here.
                           </td>
                         </tr>
                       ) : (
@@ -560,7 +570,7 @@ export default function IntelligentPage() {
                     <PiRocketLaunch className="w-4 h-4 text-rose-500" />
                     EMBED_TEXT_768 / 1024
                   </h4>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Generate embeddings using Snowflake Arctic Embed models. 768 or 1024 dimensions.</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Generate embeddings using managed embedding models. 768 or 1024 dimensions.</p>
                 </div>
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
@@ -572,7 +582,7 @@ export default function IntelligentPage() {
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
                     <PiBrain className="w-4 h-4 text-blue-500" />
-                    Cortex Search Service
+                    Managed Search Service
                   </h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400">Managed retrieval service with hybrid search (vector + keyword). Auto-refreshes on data changes.</p>
                 </div>
@@ -664,7 +674,7 @@ export default function IntelligentPage() {
             Enterprise Ready
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Built on Snowflake Cortex with enterprise security, scalability, and governance built-in.
+            Enterprise security, scalability, and governance built-in across the platform.
           </p>
         </div>
       </div>

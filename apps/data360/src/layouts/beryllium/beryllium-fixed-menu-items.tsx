@@ -5,11 +5,9 @@ import {
   PiAirplaneTilt,
   PiBellSimpleRinging,
   PiBinoculars,
-  PiBriefcase,
   PiCalendarDuotone,
   PiCalendarPlus,
   PiCards,
-  PiChartBar,
   PiChartLineUp,
   PiChatCenteredDots,
   PiCreditCard,
@@ -98,11 +96,6 @@ export const berylliumMenuItems: MenuItemsType[] = [
         icon: PiCalendarDuotone,
       },
       {
-        name: 'Executive',
-        href: routes.executive.dashboard,
-        icon: PiBriefcase,
-      },
-      {
         name: 'Project',
         href: routes.project.dashboard,
         icon: ProjectWriteIcon,
@@ -142,11 +135,6 @@ export const berylliumMenuItems: MenuItemsType[] = [
         name: 'E-Commerce',
         href: routes.eCommerce.dashboard,
         icon: PiShoppingCart,
-      },
-      {
-        name: 'Analytics',
-        href: routes.analytics,
-        icon: PiChartBar,
       },
       {
         name: 'Support',

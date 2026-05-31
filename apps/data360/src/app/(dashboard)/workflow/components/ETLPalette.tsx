@@ -24,6 +24,7 @@ import {
 } from './etl-blocks';
 import CustomBlockFactoryModal from './CustomBlockFactoryModal';
 import { useCustomBlocks, type CustomBlock } from './custom-blocks-store';
+import { useBackendBlocks, type BackendBlock } from './backend-blocks-store';
 
 interface ETLPaletteProps {
   className?: string;
@@ -103,6 +104,59 @@ const CustomPaletteItem: React.FC<{ block: CustomBlock }> = ({ block }) => {
         </div>
       </div>
       <GripVertical className="h-3.5 w-3.5 text-fuchsia-300 dark:text-fuchsia-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+    </div>
+  );
+};
+
+// Draggable backend-catalog palette item. Backend action templates have no
+// dedicated ReactFlow node, so they hydrate a `sql_script` node (the canvas's
+// generic SQL block) — mirroring how custom blocks drop. The real action_type
+// and SQL template are surfaced in the tooltip so the author can paste/adapt.
+const BackendPaletteItem: React.FC<{ block: BackendBlock }> = ({ block }) => {
+  const handleDragStart = (e: React.DragEvent) => {
+    e.dataTransfer.setData('application/reactflow', 'sql_script');
+    e.dataTransfer.setData(
+      'application/x-backend-block',
+      JSON.stringify({
+        action_type: block.type,
+        label: block.label,
+        query_template: block.query_template,
+      }),
+    );
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const tooltip = block.query_template
+    ? `${block.description}\n\naction_type: ${block.type}\n\n${block.query_template}`
+    : `${block.description} · action_type: ${block.type}`;
+
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      className={cn(
+        'group flex items-center gap-2.5 px-2.5 py-2 rounded-lg cursor-grab active:cursor-grabbing',
+        'border border-cyan-200/80 dark:border-cyan-700/40',
+        'bg-white dark:bg-slate-800',
+        'hover:border-cyan-300 dark:hover:border-cyan-500',
+        'hover:shadow-md hover:-translate-y-px transition-all duration-200',
+        'select-none',
+      )}
+      title={tooltip}
+    >
+      <div className="w-1.5 h-8 rounded-full flex-shrink-0 bg-cyan-500 opacity-60" />
+      <div className="p-1.5 rounded-md bg-cyan-50 dark:bg-cyan-900/30">
+        <Sparkles className="h-4 w-4 text-cyan-600 dark:text-cyan-300" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-medium text-[13px] text-slate-800 dark:text-slate-100 leading-tight truncate">
+          {block.label}
+        </div>
+        <div className="text-[11px] text-slate-400 dark:text-slate-500 truncate leading-tight mt-0.5">
+          {block.description}
+        </div>
+      </div>
+      <GripVertical className="h-3.5 w-3.5 text-cyan-300 dark:text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
     </div>
   );
 };
@@ -228,6 +282,9 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className, projectId }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [factoryOpen, setFactoryOpen] = useState(false);
   const { blocks: customBlocks, refresh: refreshCustomBlocks } = useCustomBlocks(projectId ?? null);
+  // Backend action-template catalog — extra blocks not covered statically.
+  // Degrades to an empty section if the endpoint is undeployed (404).
+  const { blocks: backendBlocks } = useBackendBlocks();
 
   // Filter blocks based on search
   const filteredBlocks = useMemo(() => {
@@ -355,6 +412,27 @@ const ETLPalette: React.FC<ETLPaletteProps> = ({ className, projectId }) => {
                 <div className="mt-1.5 space-y-1.5 pl-1">
                   {customBlocks.map((b) => (
                     <CustomPaletteItem key={`custom-${b.name}-${b.event_id}`} block={b} />
+                  ))}
+                </div>
+                <div className="h-px bg-slate-200 dark:bg-slate-700 my-3" />
+              </div>
+            )}
+
+            {/* Backend catalog — action templates not covered by the static set */}
+            {backendBlocks.length > 0 && (
+              <div className="mb-3">
+                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-cyan-50 dark:bg-cyan-900/20">
+                  <Sparkles className="h-3.5 w-3.5 text-cyan-600 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-cyan-700 dark:text-cyan-300">
+                    From backend
+                  </span>
+                  <span className="ml-auto text-[10px] text-slate-400 font-normal bg-white dark:bg-slate-700 px-1.5 py-0.5 rounded-full">
+                    {backendBlocks.length}
+                  </span>
+                </div>
+                <div className="mt-1.5 space-y-1.5 pl-1">
+                  {backendBlocks.map((b) => (
+                    <BackendPaletteItem key={`backend-${b.type}`} block={b} />
                   ))}
                 </div>
                 <div className="h-px bg-slate-200 dark:bg-slate-700 my-3" />

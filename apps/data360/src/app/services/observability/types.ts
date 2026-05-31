@@ -424,3 +424,66 @@ export interface HealthStatus {
  * leaking `any`. Property access yields `unknown`, keeping call sites honest.
  */
 export type ObservabilityRecord = Record<string, unknown>;
+
+// =============================================================================
+// ALERTS (GET /observability/alerts, /observability/alerts/cross-module)
+// =============================================================================
+
+export interface ObservabilityAlert {
+  id?: string;
+  severity?: 'critical' | 'high' | 'medium' | 'low' | 'info' | string;
+  category?: string;
+  title?: string;
+  message?: string;
+  description?: string;
+  resource?: string;
+  detected_at?: string;
+  status?: string;
+}
+
+export interface AlertsResponse {
+  alerts: ObservabilityAlert[];
+  count?: number;
+  // Some accounts return severity rollups; consumers read defensively.
+  by_severity?: Record<string, number>;
+  generated_at?: string;
+}
+
+// =============================================================================
+// SLO TRACKING (GET /observability/slo-tracking)
+// =============================================================================
+
+export interface SloRecord {
+  name?: string;
+  objective?: string;
+  category?: string;
+  target_percent?: number | null;
+  actual_percent?: number | null;
+  status?: 'meeting' | 'at_risk' | 'breached' | string;
+  error_budget_remaining_percent?: number | null;
+  window_days?: number | null;
+}
+
+export interface SloTrackingResponse {
+  slos: SloRecord[];
+  count?: number;
+  generated_at?: string;
+}
+
+// =============================================================================
+// PLATFORM CONFIG (CRUD via /api/data360/platform-config*)
+// =============================================================================
+
+export interface PlatformConfigEntry {
+  key: string;
+  value: unknown;
+  description?: string | null;
+  category?: string | null;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+export interface PlatformConfigResponse {
+  config: PlatformConfigEntry[];
+  count?: number;
+}

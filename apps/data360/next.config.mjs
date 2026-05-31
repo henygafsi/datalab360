@@ -2,19 +2,7 @@ import './src/env.mjs';
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
-  eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
-  },
   reactStrictMode: false, // Disabled to prevent double API calls in development
-  typescript: {
-    // !! WARN !!
-    // Dangerously allow production builds to successfully complete even if
-    // your project has type errors.
-    // !! WARN !!
-    ignoreBuildErrors: true,
-  },
   async rewrites() {
     const upstream = process.env.API_PROXY_UPSTREAM || 'http://api.datalab360.io';
     return [

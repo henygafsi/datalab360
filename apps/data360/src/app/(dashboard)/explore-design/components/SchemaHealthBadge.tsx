@@ -20,12 +20,16 @@ export default function SchemaHealthBadge({
 
   useEffect(() => {
     if (!projectId) return;
-    import('@/app/services/explore-design').then((api) => {
+    import('@/app/services/explore-design/de-objects').then((api) => {
       api
         .getSchemaHealth(projectId)
         .then((data) => {
-          setHealth(data);
-          onLoad?.(data.score);
+          const score = Math.round(data.overall_score ?? 0);
+          const explanation =
+            data.recommendations?.[0] ??
+            `Completeness ${Math.round(data.sub_scores?.completeness?.score ?? 0)} · Naming ${Math.round(data.sub_scores?.naming?.score ?? 0)} · Types ${Math.round(data.sub_scores?.type_efficiency?.score ?? 0)}`;
+          setHealth({ score, explanation });
+          onLoad?.(score);
         })
         .catch(() => {});
     });

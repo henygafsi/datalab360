@@ -11,16 +11,21 @@ import {
   PiArrowsClockwise,
   PiInfo,
 } from 'react-icons/pi';
-import { getTrustCenterFindings, getTrustCenterSummary } from '@/app/services/observability';
+import { getTrustCenterFindings, getTrustCenterSummary, isRouteNotDeployed } from '@/app/services/observability';
+import { getApiErrorMessage } from '@/lib/api-client';
 
 export default function TrustCenterCard() {
   const [findings, setFindings] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [activeView, setActiveView] = useState<'summary' | 'findings'>('summary');
+  const [error, setError] = useState<string | null>(null);
+  const [notDeployed, setNotDeployed] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setError(null);
+    setNotDeployed(false);
     try {
       const [findingsResult, summaryResult] = await Promise.all([
         getTrustCenterFindings(),
@@ -29,8 +34,16 @@ export default function TrustCenterCard() {
       const f = findingsResult.findings ?? findingsResult.data ?? findingsResult;
       setFindings(Array.isArray(f) ? f : []);
       setSummary(summaryResult.data ?? summaryResult);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to load Trust Center data');
+    } catch (err: unknown) {
+      if (isRouteNotDeployed(err)) {
+        setNotDeployed(true);
+      } else {
+        const msg = getApiErrorMessage(err);
+        setError(msg);
+        toast.error(msg);
+      }
+      setFindings([]);
+      setSummary(null);
     } finally {
       setLoading(false);
     }
@@ -57,6 +70,31 @@ export default function TrustCenterCard() {
     return (
       <div className="flex justify-center py-16">
         <Loader variant="spinner" size="lg" />
+      </div>
+    );
+  }
+
+  if (notDeployed) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
+        <PiInfo className="h-8 w-8 text-slate-400" />
+        <p className="text-base font-medium text-slate-900 dark:text-white">Trust Center is not available yet</p>
+        <p className="max-w-md text-sm text-slate-500">
+          This capability is not deployed on the connected backend. It will appear here once the Trust Center
+          endpoints are exposed.
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+        <PiXCircle className="h-8 w-8 text-red-400" />
+        <p className="max-w-md text-sm text-red-600 dark:text-red-400">{error}</p>
+        <Button variant="outline" size="sm" onClick={loadData} className="gap-1">
+          <PiArrowsClockwise className="h-3.5 w-3.5" /> Retry
+        </Button>
       </div>
     );
   }

@@ -57,8 +57,23 @@ export interface CreateDataProductResponse {
 export interface SubscribeResponse {
   product_id: string;
   name: string;
+  share_name?: string;
+  consumer_account?: string;
   consumers: number;
   subscribed_by: string;
+  already_granted?: boolean;
+  message: string;
+  execution_time_ms: number;
+}
+
+export interface PublishProductResponse {
+  product_id: string;
+  name: string;
+  status: string;
+  share_name: string;
+  granted_object: string;
+  consumer_accounts: string[];
+  published_by: string;
   message: string;
   execution_time_ms: number;
 }
@@ -88,11 +103,42 @@ export async function createDataProduct(
   return data;
 }
 
+/**
+ * Publish a metadata-only data product as a live Snowflake Secure Data Share.
+ *
+ * This is the REAL share flow — `POST /data-products/{id}/publish` issues
+ * `CREATE SHARE + GRANT … TO SHARE` and sets `SHARE_NAME` on the product. It is
+ * NOT the catalog facade publish (`/catalog/products/{id}/publish`). A product
+ * MUST be published this way before `subscribeToProduct` can grant access —
+ * otherwise the backend 409s with "not published yet".
+ *
+ * Requires an ACCOUNTADMIN-tier role; non-privileged callers get a 403 which
+ * the caller must surface inline (no crash).
+ */
+export async function publishDataProduct(
+  productId: string,
+  body?: { accounts?: string[] }
+): Promise<PublishProductResponse> {
+  const { data } = await apiClient.post<PublishProductResponse>(
+    `${PREFIX}/${productId}/publish`,
+    body
+  );
+  return data;
+}
+
+/**
+ * Subscribe a consumer account to a PUBLISHED data product. Issues a real
+ * `ALTER SHARE … ADD ACCOUNTS` grant on the provider account (ACCOUNTADMIN-tier;
+ * 403 otherwise). 409 if the product has not been published as a share yet.
+ * The consumer account defaults to the caller's account when omitted.
+ */
 export async function subscribeToProduct(
-  productId: string
+  productId: string,
+  body?: { consumer_account?: string }
 ): Promise<SubscribeResponse> {
   const { data } = await apiClient.post<SubscribeResponse>(
-    `${PREFIX}/${productId}/subscribe`
+    `${PREFIX}/${productId}/subscribe`,
+    body
   );
   return data;
 }

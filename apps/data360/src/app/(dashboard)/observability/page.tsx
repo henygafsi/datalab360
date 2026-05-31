@@ -76,7 +76,27 @@ export default function ObservabilityPage() {
       <ObservabilityErrorBoundary resetKey={resetKey} onRetry={handleRetry}>
         <ObservabilityDashboard key={resetKey} />
       </ObservabilityErrorBoundary>
-      <div className="mt-6 flex items-center gap-3 px-4 text-xs text-slate-500 dark:text-slate-400">
+      <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 px-4 text-xs text-slate-500 dark:text-slate-400">
+        <span>Explore:</span>
+        <a href="/observability/lineage" className="text-blue-600 hover:underline dark:text-blue-400">
+          Lineage
+        </a>
+        <a href="/observability/dependencies" className="text-blue-600 hover:underline dark:text-blue-400">
+          Dependencies
+        </a>
+        <a href="/observability/budget" className="text-blue-600 hover:underline dark:text-blue-400">
+          Budget & Resource Monitors
+        </a>
+        <a href="/observability/alerts" className="text-blue-600 hover:underline dark:text-blue-400">
+          Alerts
+        </a>
+        <a href="/observability/slo" className="text-blue-600 hover:underline dark:text-blue-400">
+          SLO Tracking
+        </a>
+        <a href="/observability/trust-center" className="text-blue-600 hover:underline dark:text-blue-400">
+          Trust Center
+        </a>
+        <span className="mx-1 text-slate-300 dark:text-slate-600">|</span>
         <span>Related:</span>
         <a href="/data-quality" className="text-blue-600 hover:underline dark:text-blue-400">
           Data Quality (Checks)

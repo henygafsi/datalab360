@@ -185,10 +185,11 @@ export default function SnowflakeAccountsTab() {
   }, [state.selected]);
 
   const creditSeries = useMemo(() => {
+    // history is CreditTrendPoint[] → `usage_date` / `total_credits`.
     const rows = state.creditsHistory?.history ?? [];
-    return rows.map((r: any) => ({
-      date: r.date,
-      credits: r.credits ?? r.value ?? 0,
+    return rows.map((r) => ({
+      date: r.usage_date,
+      credits: r.total_credits ?? 0,
     }));
   }, [state.creditsHistory]);
 

@@ -1,8 +1,6 @@
-// app/services/mapping/manageColumns.ts
+// app/(dashboard)/mapping/manageColumns.ts
 
-import axios from 'axios';
-
-const API_BASE_URL = (typeof window !== 'undefined' ? '/api-proxy' : (process.env.NEXT_PUBLIC_API_URL || 'http://api.datalab360.io'));
+import apiClient from '@/lib/api-client';
 
 interface ColumnDefinition {
     name: string;
@@ -33,7 +31,7 @@ interface RemoveColumnsPayload {
  */
 export const addTableColumns = async (payload: AddColumnsPayload): Promise<any> => {
     try {
-        const response = await axios.post(`${API_BASE_URL}/explore-design/guided/add-columns`, payload);
+        const response = await apiClient.post(`/explore-design/guided/add-columns`, payload);
         return response.data;
     } catch (error: any) {
         console.error("Error adding columns:", error);
@@ -43,13 +41,11 @@ export const addTableColumns = async (payload: AddColumnsPayload): Promise<any> 
 };
 
 /**
- * Appelle un endpoint (hypothétique) pour supprimer des colonnes d'une table.
- * Assurez-vous que cet endpoint existe sur votre backend.
+ * Appelle l'endpoint pour supprimer des colonnes d'une table.
  */
 export const removeTableColumns = async (payload: RemoveColumnsPayload): Promise<any> => {
     try {
-        // Remplacez '/mapping/remove-columns' par votre véritable endpoint
-        const response = await axios.post(`${API_BASE_URL}/explore-design/guided/remove-columns`, payload);
+        const response = await apiClient.post(`/explore-design/guided/remove-columns`, payload);
         return response.data;
     } catch (error: any) {
         console.error("Error removing columns:", error);

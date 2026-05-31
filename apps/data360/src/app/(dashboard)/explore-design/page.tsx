@@ -27,7 +27,6 @@ import { getDatabases } from '@/app/services/mapping/getDatabases';
 import { getMaskingPolicies, MaskingPolicy } from '@/app/services/governance/policies';
 import {
   getRecentDeploymentErrors,
-  TableRelationship,
   getColumnClassification,
   discoverRelationships,
   listDynamicTables,
@@ -40,7 +39,8 @@ import {
   dropStream,
   listAlerts,
   dropAlert,
-} from '@/app/services/explore-design';
+} from '@/app/services/explore-design/de-objects';
+import type { TableRelationship } from '@/app/services/explore-design/de-objects';
 import { listDDLActions, addDDLAction, removeDDLAction, validateFkTypes, cascadeDrop, checkConflicts, aiSchemaHealth, tablePreview, tableProfile as fetchTableProfile } from '@/app/services/api/exploreDesignApi';
 import { generateSnowflakeSQL, DDL_EVENT_TYPES, inferDDLType } from './components/deployment/deployment-utils';
 import { addEvent as addProjectEvent, listEvents as listProjectEvents, listContributors, listProjects } from '@/app/services/api/projectsApi';
@@ -87,6 +87,7 @@ import DynamicTableModal from './components/DynamicTableModal';
 import StreamModal from './components/StreamModal';
 import AlertModal from './components/AlertModal';
 import EventTableModal from './components/EventTableModal';
+import { ActionRail } from '@/app/shared/action-rail';
 import HybridTableModal from './components/HybridTableModal';
 import PolicyAssignmentPanel from './components/PolicyAssignmentPanel';
 import IngestionConfigPanel from './components/IngestionConfigPanel';
@@ -4932,26 +4933,27 @@ export default function ExploreDesignPage() {
       )}
 
       {/* Data Engineering Objects Modal */}
-      <Modal
+      <ActionRail
         isOpen={dataEngModal.isOpen}
         onClose={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))}
-        size="lg"
+        title={
+          dataEngModal.type === 'dynamic_tables'
+            ? 'Dynamic Tables'
+            : dataEngModal.type === 'streams'
+              ? 'Streams'
+              : 'Alerts'
+        }
+        description={dataEngModal.schema ? `${selectedDatabase}.${dataEngModal.schema}` : undefined}
+        accentClassName={
+          dataEngModal.type === 'dynamic_tables'
+            ? 'bg-blue-500'
+            : dataEngModal.type === 'streams'
+              ? 'bg-green-500'
+              : 'bg-amber-500'
+        }
+        className="max-w-lg"
       >
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white flex items-center gap-2">
-              {dataEngModal.type === 'dynamic_tables' && <><RefreshCw className="h-5 w-5 text-blue-500" /> Dynamic Tables</>}
-              {dataEngModal.type === 'streams' && <><GitBranch className="h-5 w-5 text-green-500" /> Streams</>}
-              {dataEngModal.type === 'alerts' && <><AlertTriangle className="h-5 w-5 text-amber-500" /> Alerts</>}
-              <Badge className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-xs ml-2">
-                {selectedDatabase}.{dataEngModal.schema}
-              </Badge>
-            </h3>
-            <button aria-label="Close dialog" onClick={() => setDataEngModal(prev => ({ ...prev, isOpen: false }))} className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded">
-              <X className="h-5 w-5 text-slate-400" />
-            </button>
-          </div>
-
+        <div>
           {/* Inline drop confirmation bar */}
           {confirmDrop && confirmDrop.type !== 'schema' && (
             <div className="mb-4 flex items-center gap-3 rounded-lg border border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-900/20">
@@ -5089,7 +5091,7 @@ export default function ExploreDesignPage() {
             </div>
           )}
         </div>
-      </Modal>
+      </ActionRail>
       {/* Cross-module links */}
       <div className="px-4 py-2 border-t border-slate-200 dark:border-slate-700 flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
         <span>Related:</span>

@@ -211,18 +211,21 @@ export default function OrgAccountsTab() {
   }, [state.overview]);
 
   const creditTrend = useMemo(() => {
+    // Backend (DashboardTrendsResponse.credits → CreditTrendPoint) uses
+    // `usage_date` / `total_credits`, not `date` / `credits`.
     const rows = state.trends?.credits ?? [];
-    return rows.map((r: any) => ({
-      date: r.date,
-      credits: r.credits ?? r.value ?? 0,
+    return rows.map((r) => ({
+      date: r.usage_date,
+      credits: r.total_credits ?? 0,
     }));
   }, [state.trends]);
 
   const storageTrend = useMemo(() => {
+    // StorageTrendPoint uses `usage_date` / `total_bytes`.
     const rows = state.trends?.storage ?? [];
-    return rows.map((r: any) => ({
-      date: r.date,
-      storage_gb: (r.bytes ?? r.storage_bytes ?? 0) / 1e9,
+    return rows.map((r) => ({
+      date: r.usage_date,
+      storage_gb: (r.total_bytes ?? 0) / 1e9,
     }));
   }, [state.trends]);
 

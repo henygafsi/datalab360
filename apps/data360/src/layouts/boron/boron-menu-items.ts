@@ -2,7 +2,6 @@ import {
   PiShoppingCartDuotone,
   PiHeadsetDuotone,
   PiPackageDuotone,
-  PiChartBarDuotone,
   PiCurrencyDollarDuotone,
   PiSquaresFourDuotone,
   PiGridFourDuotone,
@@ -33,7 +32,6 @@ import {
   PiCalendarPlusDuotone,
   PiEnvelopeDuotone,
   PiCurrencyCircleDollarDuotone,
-  PiBriefcaseDuotone,
   PiHouseLineDuotone,
   PiAirplaneTiltDuotone,
   PiFolder,
@@ -71,15 +69,6 @@ export const menuItems = [
     },
   },
   {
-    name: 'Executive',
-    href: routes.executive.dashboard,
-    icon: PiBriefcaseDuotone,
-    shortcut: {
-      modifiers: 'alt',
-      key: '2',
-    },
-  },
-  {
     name: 'Financial',
     href: routes.financial.dashboard,
     icon: PiCurrencyCircleDollarDuotone,
@@ -104,15 +93,6 @@ export const menuItems = [
     shortcut: {
       modifiers: 'alt',
       key: '5',
-    },
-  },
-  {
-    name: 'Analytics',
-    href: routes.analytics,
-    icon: PiChartBarDuotone,
-    shortcut: {
-      modifiers: 'alt',
-      key: '6',
     },
   },
   {

@@ -1,7 +1,7 @@
 'use client';
 
 import axios from "axios";
-import { getSession } from "next-auth/react";
+import apiClient from '@/lib/api-client';
 
 /**
  * Defines the payload for any table structure management operation.
@@ -28,28 +28,14 @@ export interface ManageTablePayload {
  * @returns The API response.
  */
 export const manageTableStructure = async (payload: ManageTablePayload): Promise<any> => {
-    const session = await getSession();
-    if (!session?.user?.access_token) {
-        console.error('Service: manageTableStructure - No access token available.');
-        throw new Error('No access token available');
-    }
-    const token = session.user.access_token;
-
-    const url = `${process.env.NEXT_PUBLIC_API_URL}/explore-design/guided/manage_table`;
-    // console.log(`Service: manageTableStructure - Sending GET request to ${url} with params:`, payload);
-
     try {
-        const response = await axios.get(url, {
-            headers: { 'Authorization': `Bearer ${token}` },
+        const response = await apiClient.get(`/explore-design/guided/manage_table`, {
             params: payload,
         });
-        // console.log('Service: manageTableStructure - Response received:', response.data);
         return response.data;
     } catch (error) {
         console.error("Service: manageTableStructure - Error managing table structure:", error);
         if (axios.isAxiosError(error) && error.response) {
-            console.error('Service: manageTableStructure - Error response status:', error.response.status);
-            console.error('Service: manageTableStructure - Error response data:', error.response.data);
             let errorDetailMessage = '';
 
             if (error.response.data && typeof error.response.data.detail === 'string') {

@@ -15,15 +15,6 @@ import {
   getQueryIntelligence, getSensors, getTimeContext, checkDataFreshness,
 } from '@/app/services/command-center';
 
-// ── Analytics ──
-import {
-  getUserActivitySummary, getUserActivityDetails, getUserActivityTrends,
-  getQueryPerformance, getSlowQueries as analyticsSlowQueries,
-  getQueryPerformanceByWarehouse, getQueryPerformanceByUser,
-  getWarehouseUsage as analyticsWarehouseUsage, getWarehouseUsageTrends,
-  getIdleWarehouses, getCostAttribution,
-} from '@/app/services/analytics';
-
 // ── Audit ──
 import {
   getQueryHistory, getAccessHistory, getLoginHistory as auditLoginHistory,
@@ -263,9 +254,6 @@ import {
 // ── Mapping ──
 import { getDatabases } from '@/app/services/mapping';
 
-// ── Charts ──
-import { fetchChartData } from '@/app/services/charts/fetchChartData';
-
 // ── S3 ──
 import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 
@@ -338,24 +326,6 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'getSensors', fn: () => getSensors() },
       { name: 'getTimeContext', fn: () => getTimeContext() },
       { name: 'checkDataFreshness', fn: () => checkDataFreshness([`${FAKE_DB}.${FAKE_SCHEMA}.${FAKE_TABLE}`]) },
-    ],
-  },
-
-  // ─── ANALYTICS ───
-  {
-    module: 'Analytics',
-    tests: [
-      { name: 'getUserActivitySummary', fn: () => getUserActivitySummary() },
-      { name: 'getUserActivityDetails', fn: () => getUserActivityDetails() },
-      { name: 'getUserActivityTrends', fn: () => getUserActivityTrends() },
-      { name: 'getQueryPerformance', fn: () => getQueryPerformance() },
-      { name: 'getSlowQueries', fn: () => analyticsSlowQueries() },
-      { name: 'getQueryPerformanceByWarehouse', fn: () => getQueryPerformanceByWarehouse() },
-      { name: 'getQueryPerformanceByUser', fn: () => getQueryPerformanceByUser() },
-      { name: 'getWarehouseUsage', fn: () => analyticsWarehouseUsage() },
-      { name: 'getWarehouseUsageTrends', fn: () => getWarehouseUsageTrends() },
-      { name: 'getIdleWarehouses', fn: () => getIdleWarehouses() },
-      { name: 'getCostAttribution', fn: () => getCostAttribution() },
     ],
   },
 
@@ -845,14 +815,6 @@ const TEST_MODULES: ModuleDef[] = [
     module: 'Mapping',
     tests: [
       { name: 'getDatabases', fn: () => getDatabases() },
-    ],
-  },
-
-  // ─── CHARTS ───
-  {
-    module: 'Charts',
-    tests: [
-      { name: 'fetchChartData', fn: () => fetchChartData({ query: 'SELECT 1', chart_type: 'bar' } as any) },
     ],
   },
 

@@ -127,7 +127,7 @@ export default function LocalAnalyticsContent() {
           </div>
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">Engine</p>
-            <p className="text-lg font-semibold text-gray-900 dark:text-white">DuckDB-Style</p>
+            <p className="text-lg font-semibold text-gray-900 dark:text-white">Local Engine</p>
           </div>
         </div>
         <div className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">

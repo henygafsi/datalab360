@@ -31,6 +31,7 @@ import {
   type AppKind,
   type WizardSnapshot,
 } from './DeployAppWizard';
+import DeploymentApprovals from './DeploymentApprovals';
 
 interface Props {
   onNewApp: () => void;
@@ -189,6 +190,9 @@ export default function DeployAppHome({
           })}
         </ul>
       </section>
+
+      {/* Deployments & approvals ───────────────────────────────────── */}
+      <DeploymentApprovals />
 
       {/* Recent drafts ─────────────────────────────────────────────── */}
       <section aria-label="Recent drafts">

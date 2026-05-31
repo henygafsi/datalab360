@@ -26,12 +26,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import { getTableColumns } from '@/app/services/mapping/fetch_tables';
 import { storeSelectedColumns } from './storeSelectedColumns';
-import axios from 'axios';
-import { getAuthSession } from '@/lib/auth';
-import { getSession } from 'next-auth/react';
+import apiClient from '@/lib/api-client';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // --- Interface Definitions ---
 interface TableSelection {
@@ -154,9 +150,6 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
     const handleSaveLengths = useCallback(async (table: TableSelection) => {
         if (!table) return;
         try {
-            const session = await getSession();
-            if (!session?.user?.access_token) throw new Error('No access token available');
-            const token = session.user.access_token;
             const tableKey = `${table.database}.${table.schema}.${table.table}`;
             const attrs = internalColumnAttributes[tableKey] || {};
             const new_lengths: Record<string, number> = {};
@@ -167,9 +160,7 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                 }
             });
             const payload = { database: table.database, schema: table.schema, table: table.table, new_lengths } as any;
-            await axios.post(`${API_BASE_URL}/explore-design/guided/update_column_length/`, payload, {
-                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            });
+            await apiClient.post(`/explore-design/guided/update_column_length/`, payload);
             updateMappingData({ column_attributes: internalColumnAttributes });
             toast({ title: 'Lengths Updated', description: `${table.table}: column lengths saved.` });
         } catch (error: any) {
@@ -217,9 +208,6 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
     const handleSaveTypes = useCallback(async (table: TableSelection) => {
         if (!table) return;
         try {
-            const session = await getSession();
-            if (!session?.user?.access_token) throw new Error('No access token available');
-            const token = session.user.access_token;
             const tableKey = `${table.database}.${table.schema}.${table.table}`;
             const attrs = internalColumnAttributes[tableKey] || {};
             const original = originalAttributesRef.current[tableKey] || {};
@@ -249,8 +237,8 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
 
             await Promise.all(
                 changes.map(c =>
-                    axios.post(
-                        `${API_BASE_URL}/explore-design/guided/manage_table`,
+                    apiClient.post(
+                        `/explore-design/guided/manage_table`,
                         null,
                         {
                             params: {
@@ -259,7 +247,6 @@ const Step2RequiredNull: React.FC<Step2Props> = ({
                                 COLUMN_NAME: c.name,
                                 COLUMN_TYPE: c.type,
                             },
-                            headers: { Authorization: `Bearer ${token}` },
                         }
                     )
                 )

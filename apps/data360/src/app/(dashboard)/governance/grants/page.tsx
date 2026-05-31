@@ -9,6 +9,11 @@ import {
   HiOutlineLockClosed,
   HiOutlineUserGroup,
   HiOutlineShieldCheck,
+  HiOutlineCube,
+  HiOutlinePlus,
+  HiOutlinePencilSquare,
+  HiOutlineTrash,
+  HiOutlineSparkles,
 } from 'react-icons/hi2';
 import GrantsTable from '@/app/shared/governance/grants/table';
 import UserGrantsTable from '@/app/shared/governance/user-grants/table';
@@ -18,8 +23,24 @@ import PageHeader from '@/components/layout/PageHeader';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
-import { HiOutlineCube } from 'react-icons/hi2';
 import apiClient from '@/lib/api-client';
+import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import ConfirmDialog from '@/components/ui/ConfirmDialog';
+import {
+  getD360Roles,
+  getD360RoleTemplates,
+  createD360Role,
+  updateD360Role,
+  deleteD360Role,
+  type D360Role,
+  type D360RoleTemplate,
+} from '@/app/services/governance/fetch_roles';
+import { useAuth } from '@/hooks/useAuth';
+
+/** Roles allowed to mutate D360 RBAC (create/edit/delete custom roles). */
+const D360_ADMIN_ROLES = ['ACCOUNTADMIN', 'SECURITYADMIN', 'SYSADMIN'];
+
+type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
 type TabType = 'role-grants' | 'user-grants' | 'policy-grants' | 'stage-grants' | 'd360-roles' | 'source-product-grants';
 
@@ -158,27 +179,347 @@ function SourceProductGrantsPanel() {
   );
 }
 
+/**
+ * D360 Granular Roles panel — list + inline CRUD for page/module/action-level
+ * RBAC roles. Backed by /gouvernance/d360-roles{,/templates,/{role_name}}.
+ *
+ * UX: list/table stays visible; create/edit happen in a non-blocking ActionRail.
+ * Delete is gated behind a strict role check + ConfirmDialog (focus-trapping).
+ */
+function D360RolesPanel() {
+  const { role: currentRole } = useAuth();
+  const canManage = D360_ADMIN_ROLES.includes((currentRole || '').toUpperCase());
+
+  const [roles, setRoles] = useState<D360Role[]>([]);
+  const [templates, setTemplates] = useState<D360RoleTemplate[]>([]);
+  const [status, setStatus] = useState<AsyncStatus>('idle');
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const { panel, isOpen, open, close } = useActionPanel<'create' | 'edit'>();
+  const [editTarget, setEditTarget] = useState<D360Role | null>(null);
+  const [form, setForm] = useState<{ role_name: string; display_name: string; description: string; template_from: string }>({
+    role_name: '', display_name: '', description: '', template_from: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const [deleteTarget, setDeleteTarget] = useState<D360Role | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const reload = useCallback(async () => {
+    setStatus('running');
+    setLoadError(null);
+    try {
+      const [r, t] = await Promise.all([
+        getD360Roles(),
+        getD360RoleTemplates().catch(() => [] as D360RoleTemplate[]),
+      ]);
+      setRoles(r);
+      setTemplates(t);
+      setStatus('completed');
+    } catch (err: any) {
+      setLoadError(err?.response?.data?.detail || err?.message || 'Failed to load D360 roles');
+      setRoles([]);
+      setStatus('error');
+    }
+  }, []);
+
+  useEffect(() => { void reload(); }, [reload]);
+
+  const openCreate = useCallback((templateFrom = '') => {
+    setEditTarget(null);
+    setFormError(null);
+    setForm({ role_name: '', display_name: '', description: '', template_from: templateFrom });
+    open('create');
+  }, [open]);
+
+  const openEdit = useCallback((r: D360Role) => {
+    setEditTarget(r);
+    setFormError(null);
+    setForm({
+      role_name: r.role_name,
+      display_name: r.display_name ?? '',
+      description: r.description ?? '',
+      template_from: '',
+    });
+    open('edit');
+  }, [open]);
+
+  const handleSave = useCallback(async () => {
+    setFormError(null);
+    if (panel === 'create' && !form.role_name.trim()) {
+      setFormError('Role name is required.');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (panel === 'edit' && editTarget) {
+        await updateD360Role(editTarget.role_name, {
+          display_name: form.display_name.trim() || undefined,
+          description: form.description.trim() || undefined,
+        });
+        setFeedback({ type: 'success', text: `Role "${editTarget.role_name}" updated.` });
+      } else {
+        await createD360Role({
+          role_name: form.role_name.trim(),
+          display_name: form.display_name.trim() || undefined,
+          description: form.description.trim() || undefined,
+          template_from: form.template_from.trim() || undefined,
+        });
+        setFeedback({ type: 'success', text: `Role "${form.role_name.trim()}" created.` });
+      }
+      close();
+      await reload();
+    } catch (err: any) {
+      setFormError(err?.response?.data?.detail || err?.message || 'Failed to save role');
+    } finally {
+      setSaving(false);
+    }
+  }, [panel, form, editTarget, close, reload]);
+
+  const handleDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteD360Role(deleteTarget.role_name);
+      setFeedback({ type: 'success', text: `Role "${deleteTarget.role_name}" deleted.` });
+      setDeleteTarget(null);
+      await reload();
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: err?.response?.data?.detail || err?.message || 'Failed to delete role' });
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  }, [deleteTarget, reload]);
+
+  return (
+    <div role="tabpanel" id="tabpanel-d360-roles" aria-labelledby="tab-d360-roles">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">D360 Granular Roles</h2>
+            <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
+              <HiOutlineCog6Tooth className="w-3 h-3 mr-1 inline" />
+              Page-Level RBAC
+            </Badge>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
+        </div>
+        {canManage && (
+          <Button size="sm" onClick={() => openCreate()} className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white">
+            <HiOutlinePlus className="w-4 h-4 mr-1.5" />
+            New Role
+          </Button>
+        )}
+      </div>
+
+      {feedback && (
+        <p
+          role="status"
+          aria-live="polite"
+          className={`mb-4 rounded-lg px-3 py-2 text-sm ${
+            feedback.type === 'success'
+              ? 'border border-green-300 bg-green-50 text-green-700 dark:border-green-700/60 dark:bg-green-900/20 dark:text-green-300'
+              : 'border border-red-300 bg-red-50 text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300'
+          }`}
+        >
+          {feedback.text}
+        </p>
+      )}
+
+      {status === 'running' ? (
+        <TableSkeleton rows={5} columns={5} />
+      ) : status === 'error' ? (
+        <EmptyState
+          icon={HiOutlineShieldExclamation}
+          title="Couldn't load D360 roles"
+          description={loadError ?? 'The roles service is unavailable. Try again shortly.'}
+          action={<Button size="sm" variant="outline" onClick={() => void reload()}>Retry</Button>}
+        />
+      ) : (
+        <div className="space-y-4">
+          {/* Templates row — click to seed a new role from a template */}
+          {templates.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              <span className="text-xs font-medium text-gray-500 dark:text-gray-400 self-center">Templates:</span>
+              {templates.map((t, i) => (
+                <button
+                  key={t.name || i}
+                  type="button"
+                  disabled={!canManage}
+                  onClick={() => openCreate(t.name)}
+                  title={canManage ? `Create a role from "${t.name}"` : 'Requires an admin role'}
+                  className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2.5 py-1 text-xs text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-orange-900/20 dark:text-orange-400 dark:hover:bg-orange-900/40"
+                >
+                  <HiOutlineSparkles className="w-3 h-3" />
+                  {t.name || `Template ${i + 1}`}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permissions</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {roles.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-2">
+                      <EmptyState
+                        icon={HiOutlineCog6Tooth}
+                        title="No D360 roles defined yet"
+                        description={canManage ? 'Create one or apply a standard template to get started.' : 'No custom roles have been defined.'}
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  roles.map((r, i) => {
+                    const isSystem = r.is_system === true;
+                    return (
+                      <tr key={r.role_name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">
+                          <div className="flex items-center gap-2">
+                            {r.role_name || '—'}
+                            {isSystem && (
+                              <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-[9px]">System</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{r.description || r.display_name || '—'}</td>
+                        <td className="px-4 py-3">
+                          <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">
+                            {r.permission_count ?? '—'}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{r.created_at || '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="inline-flex items-center gap-1">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-7 px-2"
+                              disabled={!canManage || isSystem}
+                              title={isSystem ? 'System roles cannot be edited' : !canManage ? 'Requires an admin role' : 'Edit role'}
+                              onClick={() => openEdit(r)}
+                            >
+                              <HiOutlinePencilSquare className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs h-7 px-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
+                              disabled={!canManage || isSystem}
+                              title={isSystem ? 'System roles cannot be deleted' : !canManage ? 'Requires an admin role' : 'Delete role'}
+                              onClick={() => setDeleteTarget(r)}
+                            >
+                              <HiOutlineTrash className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Create / Edit rail — non-blocking, list stays visible */}
+      <ActionRail
+        isOpen={isOpen}
+        onClose={close}
+        title={panel === 'edit' ? 'Edit D360 Role' : 'New D360 Role'}
+        description={panel === 'edit' ? editTarget?.role_name : 'Define a custom page/module-level role.'}
+        accentClassName="bg-orange-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={close} disabled={saving}>Cancel</Button>
+            <Button onClick={() => void handleSave()} disabled={saving} className="bg-orange-600 hover:bg-orange-700 text-white">
+              {saving ? 'Saving…' : panel === 'edit' ? 'Save Changes' : 'Create Role'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {panel === 'create' && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">
+                Role Name <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="text"
+                value={form.role_name}
+                onChange={(e) => setForm((f) => ({ ...f, role_name: e.target.value }))}
+                placeholder="e.g. DATA_ANALYST"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Display Name</label>
+            <input
+              type="text"
+              value={form.display_name}
+              onChange={(e) => setForm((f) => ({ ...f, display_name: e.target.value }))}
+              placeholder="Human-friendly label"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Description</label>
+            <textarea
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              rows={3}
+              placeholder="What this role is for"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500 dark:border-slate-600 dark:bg-slate-800 dark:text-white"
+            />
+          </div>
+          {panel === 'create' && form.template_from && (
+            <p className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-700 dark:bg-orange-900/20 dark:text-orange-300">
+              Permissions will be seeded from template <strong>{form.template_from}</strong>.
+            </p>
+          )}
+          {formError && (
+            <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+              {formError}
+            </p>
+          )}
+        </div>
+      </ActionRail>
+
+      {/* Destructive confirm — focus-trapping modal */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        title="Delete D360 role?"
+        message={
+          deleteTarget
+            ? `This permanently deletes "${deleteTarget.role_name}" and all its page/module permissions. This cannot be undone.`
+            : ''
+        }
+        confirmLabel={deleting ? 'Deleting…' : 'Delete role'}
+        destructive
+        onConfirm={() => void handleDelete()}
+        onCancel={() => { if (!deleting) setDeleteTarget(null); }}
+      />
+    </div>
+  );
+}
+
 export default function GrantsManagementPage() {
   const [activeTab, setActiveTab] = useState<TabType>('role-grants');
-  const [d360Roles, setD360Roles] = useState<any[]>([]);
-  const [d360RolesLoading, setD360RolesLoading] = useState(false);
-  const [d360Templates, setD360Templates] = useState<any[]>([]);
-
-  // Fetch D360 roles when tab is active
-  useEffect(() => {
-    if (activeTab !== 'd360-roles') return;
-    let mounted = true;
-    setD360RolesLoading(true);
-    Promise.all([
-      apiClient.get('/gouvernance/d360-roles').then(res => res.data?.roles || res.data?.data || []).catch(() => []),
-      apiClient.get('/gouvernance/d360-roles/templates').then(res => res.data?.templates || res.data?.data || []).catch(() => []),
-    ]).then(([roles, templates]) => {
-      if (!mounted) return;
-      setD360Roles(Array.isArray(roles) ? roles : []);
-      setD360Templates(Array.isArray(templates) ? templates : []);
-    }).finally(() => { if (mounted) setD360RolesLoading(false); });
-    return () => { mounted = false; };
-  }, [activeTab]);
 
   return (
     <ErrorBoundary>
@@ -403,91 +744,7 @@ export default function GrantsManagementPage() {
             <StageGrantsTable />
           </div>
         ) : activeTab === 'd360-roles' ? (
-          <div role="tabpanel" id="tabpanel-d360-roles" aria-labelledby="tab-d360-roles">
-            <div className="mb-4">
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                  D360 Granular Roles
-                </h2>
-                <Badge className="bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400">
-                  <HiOutlineCog6Tooth className="w-3 h-3 mr-1 inline" />
-                  Page-Level RBAC
-                </Badge>
-              </div>
-              <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
-            </div>
-            {d360RolesLoading ? (
-              <TableSkeleton rows={5} columns={5} />
-            ) : (
-              <div className="space-y-4">
-                {/* Templates row */}
-                {d360Templates.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    <span className="text-xs font-medium text-gray-500 dark:text-gray-400 self-center">Templates:</span>
-                    {d360Templates.map((t: any, i: number) => (
-                      <Badge key={i} className="bg-orange-50 text-orange-700 dark:bg-orange-900/20 dark:text-orange-400 text-xs cursor-pointer hover:bg-orange-100 dark:hover:bg-orange-900/40">
-                        {t.name || t.TEMPLATE_NAME || `Template ${i + 1}`}
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {/* Roles table */}
-                <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gray-50 dark:bg-gray-800">
-                      <tr>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Role Name</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Description</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Permissions</th>
-                        <th className="text-left px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Created</th>
-                        <th className="text-right px-4 py-3 text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                      {d360Roles.length === 0 ? (
-                        <tr>
-                          <td colSpan={5} className="px-4 py-2">
-                            <EmptyState
-                              icon={HiOutlineCog6Tooth}
-                              title="No D360 roles defined yet"
-                              description="Create one or apply a standard template to get started."
-                            />
-                          </td>
-                        </tr>
-                      ) : (
-                        d360Roles.map((role: any, i: number) => (
-                          <tr key={role.role_name || i} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                            <td className="px-4 py-3 font-medium text-gray-900 dark:text-white">{role.role_name || role.ROLE_NAME || '—'}</td>
-                            <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs">{role.description || role.DESCRIPTION || '—'}</td>
-                            <td className="px-4 py-3">
-                              <Badge className="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 text-[10px]">
-                                {role.permission_count ?? role.PERMISSION_COUNT ?? '—'}
-                              </Badge>
-                            </td>
-                            <td className="px-4 py-3 text-gray-500 dark:text-gray-400 text-xs">{role.created_at || role.CREATED_AT || '—'}</td>
-                            <td className="px-4 py-3 text-right">
-                              <Button size="sm" variant="outline" className="text-xs h-7 px-2"
-                                onClick={() => {
-                                  apiClient.get(`/governance/d360-roles/${encodeURIComponent(role.role_name || role.ROLE_NAME)}/permissions`)
-                                    .then(res => {
-                                      const perms = res.data?.permissions || res.data?.data || [];
-                                      alert(`${(role.role_name || role.ROLE_NAME)} has ${Array.isArray(perms) ? perms.length : 0} permissions`);
-                                    })
-                                    .catch(() => alert('Failed to load permissions'));
-                                }}
-                              >
-                                View
-                              </Button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+          <D360RolesPanel />
         ) : activeTab === 'source-product-grants' ? (
           <SourceProductGrantsPanel />
         ) : (

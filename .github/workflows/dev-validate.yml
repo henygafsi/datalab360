@@ -85,3 +85,14 @@ jobs:
       - name: Typecheck
         working-directory: apps/data360
         run: npx tsc --noEmit --pretty false --ignoreDeprecations 5.0
+
+      # Route-manifest gate — REPORT-ONLY for now (continue-on-error). Detects
+      # FE↔BE path drift: every frontend API path must match a live backend route
+      # in backend-route-manifest.json. ~142 unresolved today (genuine drift +
+      # some ${CONST}-base-path scanner false-positives). Surfaces the list in CI
+      # without blocking; flip to blocking (remove continue-on-error) once drift
+      # is driven to 0 — see scripts/check-route-manifest.mjs + Backlog V2 §C1.
+      - name: Check API routes (FE↔BE drift) — report-only
+        continue-on-error: true
+        working-directory: apps/data360
+        run: pnpm check:routes

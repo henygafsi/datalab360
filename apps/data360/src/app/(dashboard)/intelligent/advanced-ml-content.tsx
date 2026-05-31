@@ -391,7 +391,7 @@ function FineTuningSection() {
         <div className="text-center py-12 text-slate-500">
           <PiGearDuotone className="w-12 h-12 mx-auto mb-3 text-slate-300" />
           <p>No fine-tuning jobs found</p>
-          <p className="text-sm mt-1">Create a new job to fine-tune a Cortex LLM</p>
+          <p className="text-sm mt-1">Create a new job to fine-tune an LLM</p>
         </div>
       ) : (
         <div className="space-y-3">

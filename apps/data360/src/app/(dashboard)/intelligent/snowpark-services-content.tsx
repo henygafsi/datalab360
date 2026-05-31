@@ -34,7 +34,7 @@ type SubTab = 'compute-pools' | 'services' | 'streamlit' | 'image-repos';
 const SUB_TABS = [
   { id: 'compute-pools' as SubTab, label: 'Compute Pools', icon: PiCpu },
   { id: 'services' as SubTab, label: 'Container Services', icon: PiCloudArrowUp },
-  { id: 'streamlit' as SubTab, label: 'Streamlit Apps', icon: PiPlay },
+  { id: 'streamlit' as SubTab, label: 'Data Apps', icon: PiPlay },
   { id: 'image-repos' as SubTab, label: 'Image Repositories', icon: PiPackage },
 ];
 
@@ -340,7 +340,7 @@ function StreamlitAppsPanel() {
     setCreating(true);
     try {
       await createStreamlitApp(form);
-      toast.success(`Streamlit app ${form.name} created`);
+      toast.success(`Data app ${form.name} created`);
       setShowCreate(false); load();
     } catch (e: any) { toast.error(e?.response?.data?.detail || 'Create failed'); }
     finally { setCreating(false); }
@@ -354,8 +354,8 @@ function StreamlitAppsPanel() {
         </div>
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={load} />
-          {/* AI-guided app builder. Lives HERE (Snowpark Services → Streamlit
-              Apps), not as a top-level "Deploy App" menu module — app hosting
+          {/* AI-guided app builder. Lives HERE (Container Apps → Data Apps),
+              not as a top-level "Deploy App" menu module — app hosting
               + versioning belong with container services. */}
           <Button
             size="sm"
@@ -371,7 +371,7 @@ function StreamlitAppsPanel() {
 
       {showCreate && (
         <div className="p-4 border border-cyan-200 dark:border-cyan-800 bg-cyan-50/50 dark:bg-cyan-900/20 rounded-lg space-y-3">
-          <h4 className="font-medium text-gray-900 dark:text-white">Create Streamlit App</h4>
+          <h4 className="font-medium text-gray-900 dark:text-white">Create Data App</h4>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <Input label="App Name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="MY_APP" />
             <Input label="Database" value={form.database} onChange={(e) => setForm({ ...form, database: e.target.value })} placeholder="MY_DB" />
@@ -395,7 +395,7 @@ function StreamlitAppsPanel() {
           </thead>
           <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
             {loading ? <SkeletonRows rows={3} cols={7} /> : apps.length === 0 ? (
-              <EmptyRow cols={7} msg="No Streamlit apps found. Create one to get started." />
+              <EmptyRow cols={7} msg="No data apps found. Create one to get started." />
             ) : apps.map((a) => (
               <tr key={a.name} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-900 dark:text-gray-200">
                 <td className="px-4 py-3 font-medium">{a.name}</td>
