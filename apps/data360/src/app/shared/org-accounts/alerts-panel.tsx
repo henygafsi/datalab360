@@ -1,6 +1,7 @@
 'use client';
 
 import { Text, Badge } from 'rizzui';
+import { ShieldCheck, PauseCircle } from 'lucide-react';
 import cn from '@core/utils/class-names';
 import {
   PiWarningDuotone,
@@ -10,12 +11,74 @@ import {
   PiBellRingingDuotone,
 } from 'react-icons/pi';
 import type { Alert, AlertType } from '@/app/services/org-accounts/types';
+import { InsightActionButton } from '@/app/shared/insights';
+import {
+  setAccountMfaEnforcement,
+  suspendAccount,
+} from '@/app/services/org-accounts/hooks';
 
 interface AlertsPanelProps {
   alerts: Alert[];
   loading?: boolean;
   maxItems?: number;
   className?: string;
+  /**
+   * Render a one-click, honestly-gated CTA per actionable alert (security →
+   * Enforce MFA, critical → Suspend account). The CTA self-disables to "Not
+   * available on this backend yet" until the org-accounts lifecycle routes ship
+   * — so the alert never dead-ends. Default on. Pass `false` for a read-only list.
+   */
+  showActions?: boolean;
+  /** Called after a CTA succeeds (e.g. to refetch the alert list). */
+  onActed?: () => void;
+}
+
+/** The honest act CTA for an alert, by type. Returns null for non-actionable types. */
+function AlertCta({ alert, onActed }: { alert: Alert; onActed?: () => void }) {
+  // Routes for these lifecycle acts are not live yet, so they hide-when-unavailable
+  // (no disabled wall) and self-appear the moment the backend endpoints ship.
+  if (alert.alert_type === 'security') {
+    return (
+      <InsightActionButton
+        className="mt-2"
+        label="Enforce MFA"
+        icon={ShieldCheck}
+        size="sm"
+        hideWhenUnavailable
+        successToast={`MFA enforced on ${alert.account_name}`}
+        pingBell
+        onAction={() => setAccountMfaEnforcement(alert.account_name, true)}
+        onDone={() => onActed?.()}
+        confirm={{
+          title: 'Enforce MFA?',
+          body: `Require multi-factor auth for all admins on ${alert.account_name}.`,
+        }}
+      />
+    );
+  }
+  if (alert.alert_type === 'critical') {
+    return (
+      <InsightActionButton
+        className="mt-2"
+        label="Suspend account"
+        icon={PauseCircle}
+        size="sm"
+        variant="danger"
+        hideWhenUnavailable
+        successToast={`Suspended ${alert.account_name}`}
+        pingBell
+        onAction={() => suspendAccount(alert.account_name)}
+        onDone={() => onActed?.()}
+        confirm={{
+          title: 'Suspend this account?',
+          body: `${alert.account_name} will be suspended until reactivated. In-flight queries are cancelled.`,
+          confirmLabel: 'Suspend',
+          variant: 'warning',
+        }}
+      />
+    );
+  }
+  return null;
 }
 
 const alertConfig: Record<AlertType, { icon: React.ElementType; color: string; bgColor: string; badgeColor: 'warning' | 'danger' | 'info' | 'secondary' }> = {
@@ -70,6 +133,8 @@ export default function AlertsPanel({
   loading = false,
   maxItems = 10,
   className,
+  showActions = true,
+  onActed,
 }: AlertsPanelProps) {
   // Ensure alerts is always a valid array
   const alertsList = Array.isArray(alerts) ? alerts : [];
@@ -189,6 +254,7 @@ export default function AlertsPanel({
                         Value: <span className="font-medium">{alert.metric_value.toLocaleString()}</span> / Threshold: <span className="font-medium">{alert.threshold.toLocaleString()}</span>
                       </Text>
                     )}
+                    {showActions && <AlertCta alert={alert} onActed={onActed} />}
                   </div>
                 </div>
               </div>

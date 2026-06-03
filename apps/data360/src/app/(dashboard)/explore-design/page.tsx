@@ -2107,6 +2107,9 @@ export default function ExploreDesignPage() {
   const handleTableClick = useCallback((table: TableItem) => {
     setSelectedTable(table);
     setSelectedColumns(new Set());
+    // Auto-collapse the Source Tables rail on select so the detail + actions
+    // get the full width; the "Show Sources" toggle reopens it.
+    setShowSidebar(false);
   }, []);
 
   // Handle project selection - load events for the selected project

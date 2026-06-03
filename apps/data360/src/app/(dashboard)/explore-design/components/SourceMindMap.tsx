@@ -217,7 +217,7 @@ function SourceMindMapInner({ databases, schemas, tables, selectedDatabase, onSe
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        minZoom={0.3}
+        minZoom={0.05}
         maxZoom={1.5}
         proOptions={{ hideAttribution: true }}
       >

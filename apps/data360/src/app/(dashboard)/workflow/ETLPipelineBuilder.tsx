@@ -26,7 +26,7 @@ import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
   Eye, Code, Calendar, Sparkles, Users, X, Clock,
-  Download, Upload, Copy, FolderOpen, Plus, Pause, Tag, Bug,
+  Download, Upload, Copy, FolderOpen, Plus, Pause, Tag, Bug, Settings, Wrench,
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,6 +39,7 @@ import WorkflowProjectGate from './components/WorkflowProjectGate';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
+import RunFixRail from './components/RunFixRail';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
@@ -102,6 +103,18 @@ function extractErrorString(err: unknown): string {
     const obj = err as Record<string, unknown>;
     if (typeof obj.message === 'string') return obj.message;
     if (typeof obj.detail === 'string') return obj.detail;
+    if (typeof obj.error === 'string') return obj.error;
+    // CTE engine shape: { failed_steps: [{ step_name, error, ... }] } — surface
+    // the per-step messages instead of dumping the raw JSON blob.
+    if (Array.isArray(obj.failed_steps)) {
+      const msgs = (obj.failed_steps as Array<Record<string, unknown>>)
+        .map((s) => {
+          const label = s.step_name || s.cte_alias || s.action_type || s.action || s.step_id || 'step';
+          return `${label}: ${typeof s.error === 'string' ? s.error : 'failed'}`;
+        })
+        .filter(Boolean);
+      if (msgs.length) return msgs.join('\n');
+    }
     if (typeof obj.error_code === 'string') return obj.error_code;
     return JSON.stringify(err);
   }
@@ -314,6 +327,7 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
 }
 
 // Build the FromGraphRequest node/edge payload from the ReactFlow canvas.
+// Used by the RESAVE path (the purged /steps CRUD's bulk replacement).
 // from-graph maps node.id → step, stashes `config` as the step payload, and
 // reads join handles from edge.targetHandle ('input1'/'input2' → 'left'/'right').
 function nodesToFromGraph(nodes: Node[], edges: Edge[]): {
@@ -328,7 +342,10 @@ function nodesToFromGraph(nodes: Node[], edges: Edge[]): {
       stepInputs[i].payload as Record<string, unknown>;
     return {
       id: node.id,
-      type: node.type || 'source',
+      // Normalize legacy ReactFlow aliases to canonical action types so the
+      // saved steps map to seeded DEFAULT_ACTIONS (required for later
+      // compile/run to emit SQL). Idempotent on already-canonical types.
+      type: convertLegacyType(node.type || 'source'),
       config: { ...config, position: node.position, nodeId: node.id },
     };
   });
@@ -623,6 +640,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [validation, setValidation] = useState<ValidateWorkflowResponse | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  // Failed-run fix rail (docked, explore-design style). Opens automatically
+  // when a run fails so the per-step diagnosis is front-and-center.
+  const [showFixRail, setShowFixRail] = useState(false);
   // Persistent error display (shown in Runs panel instead of disappearing toast)
   const [pipelineError, setPipelineError] = useState<string | null>(null);
 
@@ -980,12 +1000,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkflowId]);
 
-  // Auto-fit canvas after loading a workflow
+  // Auto-fit canvas after loading a workflow AND whenever the node count
+  // changes (drag-drop, import, template load) so the graph stays centered in
+  // the canvas instead of clustering at the top-left origin.
   useEffect(() => {
     if (reactFlowInstance && nodes.length > 0 && !isLoading) {
-      setTimeout(() => reactFlowInstance.fitView({ padding: 0.2, duration: 300 }), 100);
+      const t = setTimeout(
+        () => reactFlowInstance.fitView({ padding: 0.25, duration: 300, includeHiddenNodes: true }),
+        120,
+      );
+      return () => clearTimeout(t);
     }
-  }, [reactFlowInstance, isLoading]);
+  }, [reactFlowInstance, isLoading, nodes.length]);
 
   // Collapse right panel on small screens
   useEffect(() => {
@@ -1193,6 +1219,37 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       toast.success('Node configuration saved');
     },
     [setNodes]
+  );
+
+  // One-click apply of a structured fix proposed by the AI fix-rail. Currently
+  // supports repointing a source block's database/schema/table (the most common
+  // failure: a template ships pointing at a table that doesn't exist in the
+  // account). Deterministic — patches node.data.config and marks dirty; the user
+  // still re-runs. Returns true if applied.
+  const applyNodeConfigPatch = useCallback(
+    (nodeId: string, patch: Record<string, unknown>): boolean => {
+      if (readOnlyGuard()) return false;
+      let found = false;
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id !== nodeId) return node;
+          found = true;
+          return {
+            ...node,
+            data: { ...node.data, config: { ...(node.data?.config || {}), ...patch } },
+          };
+        }),
+      );
+      if (found) {
+        setIsDirty(true);
+        dirtyNodeIdsRef.current.add(nodeId);
+        toast.success('Fix applied — Save and Run again to verify');
+      } else {
+        toast.error('Could not locate that block on the canvas');
+      }
+      return found;
+    },
+    [setNodes, readOnlyGuard],
   );
 
   const handleNodeDelete = useCallback(
@@ -1629,46 +1686,66 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setIsSaving(true);
     setPipelineError(null);
     setPhase('save', { phase: 'running', startedAt: Date.now() });
+    // from-graph ALWAYS creates a fresh project (it does not upsert), so a
+    // resave of an existing workflow produces a duplicate copy, surfaced
+    // honestly in the toast rather than claiming an in-place "new version".
     try {
-      // Bulk one-shot persist via POST /workflow/from-graph. The per-step
-      // /steps CRUD it replaces was purged backend-side, so this is now the
-      // only working persist path. from-graph always creates a fresh project
-      // (+ initial version), so the active id is re-pointed at the response.
-      const { nodes: graphNodes, edges: graphEdges } = nodesToFromGraph(nodes, edges);
-      const response = await workflowApi.saveWorkflowFromGraph({
-        project_name: pipelineName,
-        nodes: graphNodes,
-        edges: graphEdges,
-        tags: workflowTags.length ? workflowTags : undefined,
-      });
-
-      // Re-point the active workflow at the saved copy so downstream lifecycle
-      // controls (validate / compile / clone-test / run / deploy) target it.
-      if (response.project_id) {
-        setActiveWorkflowId(response.project_id);
-        setActiveWorkflowName(pipelineName);
+      if (!activeWorkflowId) {
+        // CREATE path — POST /workflow (audit-verified wired). Keep new-workflow
+        // saves on the proven endpoint rather than the bulk graph route.
+        const stepInputs = nodesToStepInputs(nodes, edges);
+        const created = await workflowApi.createWorkflow({
+          project_name: pipelineName,
+          tags: workflowTags.length ? workflowTags : undefined,
+          steps: stepInputs,
+        });
+        setActiveWorkflowId(created.project_id);
+        setActiveWorkflowName(created.project_name);
         lastLoadedUpdatedAtRef.current = Date.now();
-      }
-
-      // Surface partial failures honestly instead of claiming a clean save.
-      const partialErrors = (response.errors || [])
-        .map((e) => (typeof e === 'string' ? e : `${e.node_id ?? 'node'}: ${e.error}`));
-      const serverValidationError =
-        response.validation && response.validation.valid === false
-          ? response.validation.error
-          : undefined;
-
-      if (partialErrors.length > 0) {
-        setPhase('save', { phase: 'error', message: partialErrors[0] });
-        setPipelineError(`Saved with ${partialErrors.length} issue(s): ${partialErrors.join('; ')}`);
-        toast.error(`Saved with ${partialErrors.length} issue(s)`);
-      } else {
         setPhase('save', { phase: 'completed' });
-        if (serverValidationError) {
-          setPipelineError(`Validation: ${serverValidationError}`);
-          toast.success('Workflow saved (validation flagged issues)');
+        toast.success('Workflow created');
+      } else {
+        // RESAVE / UPDATE path — the per-step /steps CRUD is purged backend-side,
+        // so the only working persist for an existing graph is the bulk
+        // POST /workflow/from-graph. It creates a NEW project, so we re-point the
+        // active id at the copy and tell the user it's a copy.
+        const { nodes: graphNodes, edges: graphEdges } = nodesToFromGraph(nodes, edges);
+        const response = await workflowApi.saveWorkflowFromGraph({
+          project_name: pipelineName,
+          nodes: graphNodes,
+          edges: graphEdges,
+          tags: workflowTags.length ? workflowTags : undefined,
+        });
+
+        // Re-point the active workflow at the saved copy so downstream lifecycle
+        // controls (validate / compile / clone-test / run / deploy) target it.
+        if (response.project_id) {
+          setActiveWorkflowId(response.project_id);
+          setActiveWorkflowName(pipelineName);
+          lastLoadedUpdatedAtRef.current = Date.now();
+        }
+
+        // Surface partial failures honestly instead of claiming a clean save.
+        const partialErrors = (response.errors || [])
+          .map((e) => (typeof e === 'string' ? e : `${e.node_id ?? 'node'}: ${e.error}`));
+        const serverValidationError =
+          response.validation && response.validation.valid === false
+            ? response.validation.error
+            : undefined;
+
+        if (partialErrors.length > 0) {
+          setPhase('save', { phase: 'error', message: partialErrors[0] });
+          setPipelineError(`Saved as a new copy with ${partialErrors.length} issue(s): ${partialErrors.join('; ')}`);
+          toast.error(`Saved with ${partialErrors.length} issue(s)`);
         } else {
-          toast.success(activeWorkflowId ? 'Workflow saved (new version)' : 'Workflow created');
+          setPhase('save', { phase: 'completed' });
+          if (serverValidationError) {
+            setPipelineError(`Validation: ${serverValidationError}`);
+            toast.success('Saved as a new workflow copy (validation flagged issues)');
+          } else {
+            // Honest: from-graph cannot update in place, it forks a new copy.
+            toast.success('Saved as a new workflow copy');
+          }
         }
       }
 
@@ -1814,13 +1891,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
             // Auto-load destination table preview
             loadResultsPreview();
-          } else if (response.status === 'failed') {
+          } else if (response.status === 'failed' || response.status === 'partial_failure') {
             const errorDetail = response.error
               ? extractErrorString(response.error)
               : 'Check execution history for details';
             setPhase('execute', { phase: 'error', message: errorDetail });
             setPipelineError(`Execution failed: ${errorDetail}`);
-            setActiveTab('runs'); // Switch to runs tab to show error details
+            // Open the docked fix-rail so the per-step diagnosis + AI fix is
+            // front-and-centre rather than buried in a tab.
+            setShowFixRail(true);
+            setActiveTab('runs');
           } else {
             setPhase('execute', { phase: 'completed' });
           }
@@ -1949,12 +2029,23 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
   }, [activeWorkflowId, cloneTestConnectorIds, setPhase, markUnavailable]);
 
+  // AI assist. When a real run exists, ask Cortex to analyze it for a root-cause
+  // + fix (live POST /workflow/{id}/runs/{runId}/analyze). Otherwise fall back
+  // to summarizing the static validation result.
   const handleGetAiSuggestions = useCallback(async () => {
-    if (!validation) return;
+    const runId = (lastExecution as any)?.run_id;
     setAiSuggestionsLoading(true);
     setAiSuggestions(null);
     try {
-      // AI suggestions not available via workflow API — show validation info
+      if (activeWorkflowId && runId) {
+        const res = await workflowApi.analyzeRun(activeWorkflowId, runId);
+        setAiSuggestions(res?.ai_analysis?.trim() || 'No analysis returned.');
+        return;
+      }
+      if (!validation) {
+        setAiSuggestions('Run the workflow (or Validate) first so the AI has something to analyze.');
+        return;
+      }
       const info: string[] = [];
       if (validation.error) info.push(`Error: ${extractErrorString(validation.error)}`);
       if (validation.mode) info.push(`Mode: ${validation.mode}`);
@@ -1962,12 +2053,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (validation.destination) info.push(`Destination: ${validation.destination}`);
       setAiSuggestions(info.length > 0 ? info.join('\n') : 'No suggestions available.');
     } catch (err: any) {
-      toast.error('AI suggestions unavailable');
-      setAiSuggestions(null);
+      if (is404(err)) {
+        markUnavailable('execute');
+        setAiSuggestions('AI run-analysis is not available on this deployment.');
+      } else {
+        toast.error('AI analysis failed');
+        setAiSuggestions(`Could not analyze the run: ${getApiErrorMessage(err) || 'unknown error'}`);
+      }
     } finally {
       setAiSuggestionsLoading(false);
     }
-  }, [validation]);
+  }, [activeWorkflowId, lastExecution, validation, markUnavailable]);
 
   // ============================================
   // SUBMIT FOR APPROVAL
@@ -2128,6 +2224,73 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     return errors;
   }, [validationErrors]);
 
+  // Normalize the per-step results across BOTH execution engines. The CTE
+  // engine returns them under `steps` (+ failures under `error.failed_steps`),
+  // the legacy engine under `execution_details.steps_results`. Reading only the
+  // latter is why a CTE failure used to collapse into one workflow-level error.
+  const normalizedSteps = useMemo(() => {
+    if (!lastExecution) return [] as any[];
+    const le = lastExecution as any;
+    const fromDetails =
+      le?.execution_details?.steps ||
+      le?.execution_details?.steps_results ||
+      le?.steps ||
+      le?.steps_results ||
+      [];
+    if (Array.isArray(fromDetails) && fromDetails.length > 0) return fromDetails;
+    // Last resort: only the failed steps came back (error_log.failed_steps).
+    const failed = le?.error?.failed_steps || le?.error_log?.failed_steps || [];
+    return Array.isArray(failed) ? failed : [];
+  }, [lastExecution]);
+
+  // The subset that failed, with a human label resolved per step.
+  const failedSteps = useMemo(
+    () =>
+      normalizedSteps
+        .filter((s: any) => s?.status === 'failed' || s?.status === 'error')
+        .map((s: any, i: number) => ({
+          ...s,
+          _label:
+            s.step_name || s.cte_alias || s.action_type || s.action || s.step_id || `Step ${s.step_order ?? i + 1}`,
+          _order: s.step_order ?? i + 1,
+        })),
+    [normalizedSteps],
+  );
+
+  // Derive deterministic one-click fixes from the failed steps. The dominant
+  // failure is a source/destination block pointing at an object that doesn't
+  // exist (Snowflake 002003 "does not exist or not authorized"). We can't guess
+  // the correct table, but we CAN detect the offending block and pre-stage a
+  // repoint: clear the stale table so the config form forces a fresh pick.
+  const fixSuggestions = useMemo(() => {
+    const out: Array<{ nodeId: string; label: string; description: string; patch: Record<string, unknown> }> = [];
+    for (const s of failedSteps) {
+      const nodeId = (s.node_id || s.step_id) as string | undefined;
+      if (!nodeId) continue;
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) continue;
+      const errText = extractErrorString(s.error);
+      const missingObj = /does not exist or not authorized|002003|invalid identifier/i.test(errText);
+      const cfg = (node.data?.config || {}) as Record<string, unknown>;
+      const isLocational = cfg.table != null || cfg.database != null;
+      if (missingObj && isLocational) {
+        const fqn = [cfg.database, cfg.schema, cfg.table].filter(Boolean).join('.');
+        out.push({
+          nodeId,
+          label: `${s._label}: object not found`,
+          description: fqn
+            ? `${fqn} doesn't exist or isn't granted. Clear the table to re-pick a valid one, then Save & Run.`
+            : 'Re-pick a valid table for this block, then Save & Run.',
+          // Clearing table/columns makes the source form re-prompt for a real
+          // selection (it cascades database → schema → table). Database/schema
+          // are kept so the user starts from the right place.
+          patch: { table: '', columns: [] },
+        });
+      }
+    }
+    return out;
+  }, [failedSteps, nodes]);
+
   // Map execution step results to nodes for post-execution visual states
   const executionNodeState = useMemo(() => {
     const state: Record<string, {
@@ -2140,10 +2303,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     if (!lastExecution) return state;
 
-    // Map step results to node IDs by step order (nodes are ordered as steps)
-    const stepResults = (lastExecution as any)?.execution_details?.steps_results
-      || (lastExecution as any)?.steps_results
-      || [];
+    // Normalized across CTE + legacy engines (see normalizedSteps above).
+    const stepResults = normalizedSteps;
 
     // Try to match by step_id first, then by order
     const orderedNodeIds = nodes
@@ -2175,16 +2336,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     // If execution failed but no step results, mark all as failed
     if (stepResults.length === 0 && (lastExecution.status === 'failed' || lastExecution.status === 'partial_failure')) {
-      const errMsg = typeof lastExecution.error === 'string'
-        ? lastExecution.error
-        : (lastExecution as any).error_log || 'Execution failed';
+      const errMsg = extractErrorString((lastExecution as any).error) || 'Execution failed';
       orderedNodeIds.forEach((id, idx) => {
         state[id] = { executionStatus: 'failed', error: errMsg, stepIndex: idx + 1 };
       });
     }
 
     return state;
-  }, [lastExecution, nodes]);
+  }, [lastExecution, normalizedSteps, nodes]);
 
   // Also set execution state when pipeline is running
   const runningNodeState = useMemo(() => {
@@ -2856,7 +3015,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               title={isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
             >
               {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save
+              Save{phaseSuffix('save')}
             </motion.button>
 
             {/* ── Validate (compile-time lint of the DAG, server-side) ──
@@ -3226,6 +3385,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             nodesDraggable={!isReadOnly}
             nodeTypes={etlNodeTypes}
             fitView
+            fitViewOptions={{ padding: 0.25, includeHiddenNodes: true, minZoom: 0.2, maxZoom: 1.5 }}
+            minZoom={0.2}
+            maxZoom={1.5}
+            proOptions={{ hideAttribution: true }}
             deleteKeyCode={null}
             onlyRenderVisibleElements
             className="bg-slate-50 dark:bg-slate-900"
@@ -3361,6 +3524,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             />
           )}
 
+          {/* Persistent reopen path for the fix-rail once a run has failed. */}
+          {!isExecuting && !showFixRail
+            && (lastExecution?.status === 'failed' || lastExecution?.status === 'partial_failure') && (
+            <button
+              type="button"
+              onClick={() => setShowFixRail(true)}
+              className="mx-4 mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Diagnose &amp; fix {failedSteps.length > 0 ? `(${failedSteps.length})` : ''}
+            </button>
+          )}
+
           {/* Persistent error banner (replaces disappearing toasts).
               Snowflake DML errors come back as a wall of text — friendlyError()
               parses common codes (100072 = non-null violation, 22000 = data
@@ -3488,23 +3664,88 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                       </span>
                     </div>
 
-                    {/* Step-by-step results */}
-                    {lastExecution.execution_details?.steps_results?.length > 0 && (
-                      <div className="space-y-1">
-                        {lastExecution.execution_details.steps_results.map((step: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-700/50">
-                            <span className={cn(
-                              'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                              step.status === 'completed' || step.status === 'success' ? 'bg-green-500' : 'bg-red-500'
-                            )} />
-                            <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
-                              {step.cte_alias || step.step_id || `Step ${i + 1}`}
-                            </span>
-                            {step.rows_affected != null && (
-                              <span className="ml-auto text-slate-500">{step.rows_affected} rows</span>
-                            )}
-                          </div>
-                        ))}
+                    {/* Per-step results — normalized across CTE + legacy engines.
+                        Failed steps expand to show their own error + targeted
+                        fix CTAs so the user knows WHICH block broke and why. */}
+                    {normalizedSteps.length > 0 && (
+                      <div className="space-y-1.5">
+                        {normalizedSteps.map((step: any, i: number) => {
+                          const isFail = step.status === 'failed' || step.status === 'error';
+                          const label = step.step_name || step.cte_alias || step.action_type
+                            || step.action || step.step_id || `Step ${step.step_order ?? i + 1}`;
+                          const nodeId = step.step_id || step.node_id;
+                          return (
+                            <div
+                              key={step.step_id || i}
+                              className={cn(
+                                'rounded-lg border text-xs',
+                                isFail
+                                  ? 'border-red-200 dark:border-red-800 bg-red-50/70 dark:bg-red-900/15'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40',
+                              )}
+                            >
+                              <div className="flex items-center gap-2 px-3 py-1.5">
+                                <span className={cn(
+                                  'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                                  isFail ? 'bg-red-500' : 'bg-green-500',
+                                )} />
+                                <span className="text-[10px] font-mono text-slate-400 tabular-nums">
+                                  {step.step_order ?? i + 1}
+                                </span>
+                                <span className="font-medium text-slate-700 dark:text-slate-200 truncate">
+                                  {label}
+                                </span>
+                                {step.action_type && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-600/50 text-slate-500 dark:text-slate-300">
+                                    {step.action_type}
+                                  </span>
+                                )}
+                                {step.rows_affected != null && !isFail && (
+                                  <span className="ml-auto text-slate-500">{step.rows_affected} rows</span>
+                                )}
+                                {isFail && <span className="ml-auto text-red-500 font-semibold">failed</span>}
+                              </div>
+                              {isFail && (
+                                <div className="px-3 pb-2 space-y-2">
+                                  {step.error && (
+                                    <p className="text-[11px] text-red-700 dark:text-red-300 font-mono whitespace-pre-wrap break-words leading-snug">
+                                      {extractErrorString(step.error)}
+                                    </p>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {nodeId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const target = nodes.find((n) => n.id === nodeId);
+                                          if (target) {
+                                            setSelectedNode(target);
+                                            setShowSidebar(true);
+                                          } else {
+                                            toast.error('Could not locate this block on the canvas');
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                                      >
+                                        <Settings className="h-3 w-3" />
+                                        Fix this block
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => { setActiveTab('ai'); handleGetAiSuggestions(); }}
+                                      disabled={aiSuggestionsLoading}
+                                      className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                                    >
+                                      <Sparkles className="h-3 w-3" />
+                                      Ask AI to fix
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -3658,59 +3899,114 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               );
             })()}
 
-            {activeTab === 'ai' && (
-              <div className="space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Corrections, warnings, and optimizations for your workflow.
-                </p>
-                {validation ? (
-                  <>
-                    {validation.error && (
-                      <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
-                        <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Errors</div>
-                        <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
-                      </div>
-                    )}
-                    {!validation.valid && !validation.error && (
-                      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
-                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</div>
-                        <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleGetAiSuggestions}
-                      disabled={aiSuggestionsLoading}
-                      className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {aiSuggestionsLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      {aiSuggestionsLoading ? 'Analyzing...' : 'AI Suggestions (Cortex)'}
-                    </button>
-                    {aiSuggestions != null && (
-                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">AI Response</div>
-                        <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                          {aiSuggestions}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-slate-500 text-center py-4">
-                    Click &quot;Validate&quot; to see errors, warnings, and request AI suggestions.
+            {activeTab === 'ai' && (() => {
+              const hasRun = !!(lastExecution as any)?.run_id;
+              const runFailed = lastExecution?.status === 'failed'
+                || lastExecution?.status === 'partial_failure';
+              return (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {hasRun
+                      ? 'AI root-cause analysis & fix suggestions for the last run (Cortex).'
+                      : 'Corrections, warnings, and optimizations for your workflow.'}
                   </p>
-                )}
-              </div>
-            )}
+
+                  {/* Failed-step summary — which blocks broke, at a glance. */}
+                  {runFailed && failedSteps.length > 0 && (
+                    <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/10 p-2.5 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {failedSteps.length} step{failedSteps.length > 1 ? 's' : ''} failed
+                      </div>
+                      {failedSteps.map((s: any, i: number) => (
+                        <div key={s.step_id || i} className="text-[11px] text-red-600 dark:text-red-300">
+                          <span className="font-medium">{s._order}. {s._label}</span>
+                          {s.error && (
+                            <span className="block font-mono opacity-80 break-words leading-snug">
+                              {extractErrorString(s.error)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Static validation errors (when no run yet). */}
+                  {!hasRun && validation?.error && (
+                    <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
+                      <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Errors</div>
+                      <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
+                    </div>
+                  )}
+                  {!hasRun && validation && !validation.valid && !validation.error && (
+                    <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
+                      <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</div>
+                      <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
+                    </div>
+                  )}
+
+                  {hasRun || validation ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleGetAiSuggestions}
+                        disabled={aiSuggestionsLoading}
+                        className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {aiSuggestionsLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {aiSuggestionsLoading
+                          ? 'Analyzing…'
+                          : hasRun ? 'Analyze this run with AI' : 'AI Suggestions (Cortex)'}
+                      </button>
+                      {aiSuggestions != null && (
+                        <div className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/10 p-3">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-300 mb-2">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            AI Analysis &amp; Fix
+                          </div>
+                          <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                            {aiSuggestions}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-500 text-center py-4">
+                      Run the workflow or click &quot;Validate&quot; — then ask AI to analyze and fix it.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
 
           </div>
         </div>
         )}
+
+        {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
+            and live Cortex AI analysis. Opens automatically on a failed run. */}
+        <RunFixRail
+          open={showFixRail}
+          onClose={() => setShowFixRail(false)}
+          steps={normalizedSteps}
+          runStatus={lastExecution?.status}
+          extractError={extractErrorString}
+          onOpenBlock={(nodeId) => {
+            const target = nodes.find((n) => n.id === nodeId);
+            if (target) { setSelectedNode(target); setShowSidebar(true); }
+            else toast.error('Could not locate this block on the canvas');
+          }}
+          onApplyPatch={applyNodeConfigPatch}
+          onAskAi={handleGetAiSuggestions}
+          aiText={aiSuggestions}
+          aiLoading={aiSuggestionsLoading}
+          suggestions={fixSuggestions}
+        />
 
         {/* Config sidebar */}
         {showSidebar && selectedNode && (
