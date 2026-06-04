@@ -1126,3 +1126,73 @@ export interface LoginAuditResponse {
   }>;
   execution_time_ms: number;
 }
+
+// =============================================================================
+// ORG SUMMARY (/org-accounts/org-summary)
+// Events aggregated role → module/project → account.
+// =============================================================================
+
+/** Per-noun event counters, repeated at every level of the tree. */
+export interface OrgSummaryTotals {
+  requests: number;
+  success: number;
+  failed: number;
+  denied: number;
+  distinct_users: number;
+}
+
+/** Leaf: one account under a (role, module) pair. */
+export interface OrgSummaryAccount extends OrgSummaryTotals {
+  account: string;
+}
+
+/** Middle: a module (optionally a specific project) under a role. */
+export interface OrgSummaryModule {
+  module: string;
+  project_id: string | null;
+  totals: OrgSummaryTotals;
+  accounts: OrgSummaryAccount[];
+}
+
+/** Top: a role and the modules/projects it touched. */
+export interface OrgSummaryRole {
+  role: string;
+  totals: OrgSummaryTotals;
+  modules: OrgSummaryModule[];
+}
+
+export interface OrgSummaryDateRange {
+  mode: 'rolling' | 'explicit';
+  from: string | null;
+  to: string | null;
+  days: number | null;
+}
+
+export interface OrgSummaryFiltersApplied {
+  role: string | null;
+  module: string | null;
+  account: string | null;
+  username: string | null;
+  project_id: string | null;
+}
+
+export interface OrgSummaryResponse {
+  totals: OrgSummaryTotals;
+  date_range: OrgSummaryDateRange;
+  filters_applied: OrgSummaryFiltersApplied;
+  roles: OrgSummaryRole[];
+  meta?: Record<string, unknown>;
+  execution_time_ms: number;
+}
+
+/** Query params accepted by GET /org-accounts/org-summary. */
+export interface OrgSummaryParams {
+  days?: number;
+  from?: string;
+  to?: string;
+  role?: string;
+  module?: string;
+  account?: string;
+  username?: string;
+  project_id?: string;
+}

@@ -90,6 +90,9 @@ import type {
   QueryAuditResponse,
   AccessAuditResponse,
   LoginAuditResponse,
+  // Org Summary
+  OrgSummaryResponse,
+  OrgSummaryParams,
 } from './types';
 
 const BASE_URL = '/org-accounts';
@@ -511,6 +514,35 @@ export async function getOrganizationCosts(days = 30): Promise<any> {
 export async function getRateSheet(): Promise<RateSheetResponse> {
   // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
+  return data;
+}
+
+// =============================================================================
+// ORG SUMMARY
+// =============================================================================
+
+/**
+ * Org activity rolled up role → module/project → account.
+ * Backs the Account-overview "Org Summary" tab. Accepts a rolling window
+ * (`days`) OR an explicit `from`/`to` range, plus optional filters
+ * (role / module / account / username / project_id). Empty params are
+ * stripped so the backend resolves its own defaults.
+ *
+ * NOTE: this route is NEW; deployments that predate it return 404 — callers
+ * must render an honest "not available on this backend yet" state, never fake
+ * data. The error is surfaced (not swallowed) so the caller can branch on it.
+ */
+export async function getOrgSummary(
+  params: OrgSummaryParams = {}
+): Promise<OrgSummaryResponse> {
+  const clean: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') clean[k] = v;
+  }
+  const { data } = await apiClient.get<OrgSummaryResponse>(
+    `${BASE_URL}/org-summary`,
+    { params: clean }
+  );
   return data;
 }
 

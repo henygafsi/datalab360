@@ -91,6 +91,7 @@ import {
   getInfrastructure,
   getPipelines,
   getCostBreakdown,
+  installOverviewKpis,
   type OverviewRange,
 } from '@/app/services/command-center';
 import type {
@@ -118,12 +119,14 @@ import {
 } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
+import { useAuth } from '@/hooks/useAuth';
 
 // Lazy-loaded new tabs
 const ModulesTab = lazy(() => import('./modules-tab'));
 const SnowflakeExplorerTab = lazy(() => import('./snowflake-explorer-tab'));
 const OrgAccountsTab = lazy(() => import('./OrgAccountsTab'));
 const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
+const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import ServerlessFinOpsCards from './serverless-finops-cards';
 import type {
@@ -189,6 +192,7 @@ interface TabItem {
  */
 const tabs: TabItem[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'org-summary', label: 'Org Summary', icon: GitBranch },
   { id: 'snowflake-objects', label: 'Snowflake Objects', icon: Database },
   { id: 'finops', label: 'FinOps', icon: DollarSign },
   { id: 'modules', label: 'Modules', icon: Box },
@@ -2123,6 +2127,13 @@ function CommandCenterDashboardInner() {
                 globalDays={filters.days}
               />
             )}
+            {activeTab === 'org-summary' && (
+              <Suspense fallback={<LoadingSection />}>
+                {/* Self-contained: owns its own date-range + role/module/account
+                    filters; does NOT consume the parent global filter bar. */}
+                <OrgSummaryTab />
+              </Suspense>
+            )}
             {activeTab === 'snowflake-objects' && (
               <Suspense fallback={<LoadingSection />}>
                 <SnowflakeExplorerTab />
@@ -2356,6 +2367,102 @@ function BootstrapRecoveryBanner({ kpisError }: { kpisError: Error | null }) {
   );
 }
 
+// Admin-only "Provision KPIs" affordance. Shown when the OVERVIEW_KPIS cache
+// table is unprovisioned (the synthetic empty payload → `provisioned === false`)
+// AND the caller holds an admin role. Calls POST /command-center/overview-kpis/install
+// (creates Snowflake objects), behind a confirm, and reports the outcome
+// honestly — including the "endpoint not deployed yet" (404) and "not
+// permitted" (403) cases. The client role gate is UX-only; the backend 403 is
+// the real guard.
+function ProvisionKpisBanner({
+  onProvisioned,
+}: {
+  onProvisioned: () => void;
+}) {
+  const [running, setRunning] = useState(false);
+  const [outcome, setOutcome] = useState<
+    | { kind: 'idle' }
+    | { kind: 'ok' }
+    | { kind: 'not-deployed' }
+    | { kind: 'forbidden'; message: string }
+    | { kind: 'error'; message: string }
+  >({ kind: 'idle' });
+
+  const provision = async () => {
+    if (
+      typeof window !== 'undefined' &&
+      !window.confirm(
+        'Provision the Overview KPIs cache?\n\nThis creates Snowflake objects (a cache table, a stored procedure, and refresh tasks) under CP_DATA360.DATA360_CACHE. Continue?',
+      )
+    ) {
+      return;
+    }
+    setRunning(true);
+    setOutcome({ kind: 'idle' });
+    const res = await installOverviewKpis();
+    setRunning(false);
+    if (res.status === 'ok') {
+      setOutcome({ kind: 'ok' });
+      onProvisioned();
+    } else if (res.status === 'not-deployed') {
+      setOutcome({ kind: 'not-deployed' });
+    } else if (res.status === 'forbidden') {
+      setOutcome({ kind: 'forbidden', message: res.message });
+    } else {
+      setOutcome({ kind: 'error', message: res.message });
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-xs dark:border-indigo-900/40 dark:bg-indigo-900/20">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-indigo-900 dark:text-indigo-200">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold">Overview KPIs not provisioned</p>
+          <p className="mt-0.5 text-indigo-700 dark:text-indigo-300">
+            The fast Overview cache (<code>OVERVIEW_KPIS</code>) isn't installed
+            for this account, so cache-only metrics show as{' '}
+            <span className="font-mono">—</span> and the rest fall back to the
+            live summary. Provision it to enable the full Overview snapshot.
+          </p>
+        </div>
+        <button
+          onClick={provision}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 rounded-md border border-indigo-300 bg-white px-3 py-1.5 text-[11px] font-medium text-indigo-800 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60 dark:border-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-100 dark:hover:bg-indigo-900/60"
+        >
+          {running && (
+            <span className="h-3 w-3 animate-spin rounded-full border-2 border-indigo-300 border-t-transparent" />
+          )}
+          {running ? 'Provisioning…' : 'Provision KPIs'}
+        </button>
+      </div>
+      {outcome.kind === 'ok' && (
+        <p className="mt-2 rounded bg-green-50 px-2 py-1 text-[11px] text-green-800 dark:bg-green-900/30 dark:text-green-200">
+          Provisioning started. The cache will populate within ~5 minutes (next
+          backend task tick) — this view refreshes automatically.
+        </p>
+      )}
+      {outcome.kind === 'not-deployed' && (
+        <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          Not available on this backend yet — the install endpoint
+          (POST /command-center/overview-kpis/install) isn't deployed on this
+          environment.
+        </p>
+      )}
+      {outcome.kind === 'forbidden' && (
+        <p className="mt-2 rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          Your role can't provision this: {outcome.message}
+        </p>
+      )}
+      {outcome.kind === 'error' && (
+        <p className="mt-2 rounded bg-red-50 px-2 py-1 text-[11px] text-red-800 dark:bg-red-900/30 dark:text-red-200">
+          Provisioning failed: {outcome.message}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // TAB 1: OVERVIEW
 // ═════════════════════════════════════════════════════════════════════════════
@@ -2407,6 +2514,10 @@ const OverviewTab = memo(function OverviewTab({
     refresh: refreshKpis,
   } = useOverviewKpis(daysToRange(globalDays ?? 30));
 
+  // Role gates the admin-only "Provision KPIs" affordance (UX gate only —
+  // the backend 403 is the real guard).
+  const { role } = useAuth();
+
   // Sync hero range picker to the global Time Range whenever the parent
   // changes it. Without this, the user clicks "7d" in the global filter
   // bar, summary/module-health refetch with days=7, but the KPI cache
@@ -2457,18 +2568,33 @@ const OverviewTab = memo(function OverviewTab({
   // when scores were non-zero, but the endpoint payload never included
   // populated scores. We removed both the call and the widget.
 
+  // The kpis payload is "real" unless it's the synthetic empty envelope the
+  // service returns when the OVERVIEW_KPIS cache table is unprovisioned (404).
+  // When NOT provisioned we must NOT trust its all-zero fields — fall the
+  // cards back to /command-center/summary, or render "—" (no fake 0s).
+  const provisioned = kpis?._provisioned !== false;
+  const isAdmin = ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN'].includes(
+    role.toUpperCase(),
+  );
+
   // Prefer cache row over legacy summary call.
   // NOTE: `Number(x) ?? 0` is a trap — Number(undefined) is NaN and `?? 0`
   // does NOT catch NaN, so missing summary fields used to render "NaN%·NaN".
   // safeNum() coerces null/undefined/NaN/Infinity to the fallback.
+  // The `provisioned ? … : undefined` guard makes the kpis side fall THROUGH
+  // to summary when the cache is missing (a raw `0 ?? summary` short-circuits).
   const creditsUsed =
-    kpis?.credits_used ?? safeNum(summary?.cost?.credits_30d, 0);
+    (provisioned ? kpis?.credits_used : undefined) ??
+    safeNum(summary?.cost?.credits_30d, 0);
   const activeUsers =
-    kpis?.data360_users ?? safeNum(summary?.platform?.active_users_7d, 0);
+    (provisioned ? kpis?.data360_users : undefined) ??
+    safeNum(summary?.platform?.active_users_7d, 0);
   const totalProjects =
-    kpis?.active_projects ?? safeNum(summary?.platform?.total_projects, 0);
+    (provisioned ? kpis?.active_projects : undefined) ??
+    safeNum(summary?.platform?.total_projects, 0);
   const qualityScore =
-    kpis?.workspace_health_pct ?? safeNum(summary?.quality?.health_score, 0);
+    (provisioned ? kpis?.workspace_health_pct : undefined) ??
+    safeNum(summary?.quality?.health_score, 0);
   const mfaCoverage = safeNum(summary?.security?.mfa_coverage_pct, 0);
   const aiModels = safeNum(summary?.ai?.semantic_models, 0);
   const cacheAgeLabel = (() => {
@@ -2527,6 +2653,15 @@ const OverviewTab = memo(function OverviewTab({
           surface a one-click action to re-run the bootstrap rather than
           leaving the user staring at "live mode" forever. */}
       <BootstrapRecoveryBanner kpisError={kpisError} />
+      {/* Provision-KPIs affordance: surfaces when the OVERVIEW_KPIS cache is
+          unprovisioned (the synthetic empty payload sets _provisioned=false,
+          which a swallowed 404 would otherwise hide) and the user is an admin.
+          BootstrapRecoveryBanner above only fires on a THROWN error, which the
+          404→empty-payload path no longer raises — so this is the affordance
+          users actually see on the unprovisioned backend. */}
+      {!provisioned && isAdmin && (
+        <ProvisionKpisBanner onProvisioned={() => void refreshKpis()} />
+      )}
 
       {/* Hero strip — Snowflake account identity. The visual anchor of the
           page: gradient background, larger account name, badges grouped on
@@ -2628,7 +2763,7 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="Connected Accounts"
-          value={kpis?.connected_accounts ?? 0}
+          value={provisioned ? (kpis?.connected_accounts ?? 0) : '—'}
           icon={Database}
           color="cyan"
         />
@@ -2640,7 +2775,11 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="Modules Active"
-          value={`${kpis?.modules_active ?? 0}/${kpis?.modules_total ?? 0}`}
+          value={
+            provisioned
+              ? `${kpis?.modules_active ?? 0}/${kpis?.modules_total ?? 0}`
+              : '—'
+          }
           icon={Layers}
           color="indigo"
         />
@@ -2653,9 +2792,9 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="Open Alerts"
-          value={kpis?.open_alerts ?? 0}
+          value={provisioned ? (kpis?.open_alerts ?? 0) : '—'}
           icon={AlertTriangle}
-          color={(kpis?.open_alerts ?? 0) > 0 ? 'rose' : 'green'}
+          color={provisioned && (kpis?.open_alerts ?? 0) > 0 ? 'rose' : 'green'}
         />
       </div>
       </section>
@@ -2674,13 +2813,13 @@ const OverviewTab = memo(function OverviewTab({
         />
         <KpiCard
           label="Snowflake Health"
-          value={`${kpis?.snowflake_health_pct ?? 0}%`}
+          value={provisioned ? `${kpis?.snowflake_health_pct ?? 0}%` : '—'}
           icon={Gauge}
           color="blue"
         />
         <KpiCard
           label="Optimization Score"
-          value={`${kpis?.optimization_score_pct ?? 0}%`}
+          value={provisioned ? `${kpis?.optimization_score_pct ?? 0}%` : '—'}
           icon={Zap}
           color="amber"
         />
