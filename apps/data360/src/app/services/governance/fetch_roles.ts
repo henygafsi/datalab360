@@ -237,8 +237,17 @@ function normalizeD360Role(raw: any): D360Role {
  */
 export async function getD360Roles(): Promise<D360Role[]> {
   const response = await apiClient.get('/gouvernance/d360-roles');
-  const raw = response.data?.roles ?? response.data?.data ?? response.data;
-  return Array.isArray(raw) ? raw.map(normalizeD360Role) : [];
+  const d = response.data ?? {};
+  // Backend returns either an array, {roles}/{data}, or {system_roles, custom_roles}.
+  const raw: any[] = Array.isArray(d)
+    ? d
+    : [
+        ...(Array.isArray(d.roles) ? d.roles : []),
+        ...(Array.isArray(d.data) ? d.data : []),
+        ...(Array.isArray(d.system_roles) ? d.system_roles : []),
+        ...(Array.isArray(d.custom_roles) ? d.custom_roles : []),
+      ];
+  return raw.map(normalizeD360Role);
 }
 
 /**
@@ -290,6 +299,198 @@ export async function updateD360Role(
 export async function deleteD360Role(roleName: string): Promise<{ message: string }> {
   const response = await apiClient.delete(
     `/gouvernance/d360-roles/${encodeURIComponent(roleName)}`
+  );
+  return response.data;
+}
+
+// ===========================================================================
+// D360 ACTION-RBAC — granular permission matrix (module:page:tab:action × role)
+// Backend routes (System 2 — the "target enforced path"):
+//   GET  /gouvernance/d360-roles/action-registry            — full grantable catalog
+//   GET  /gouvernance/d360-roles/my-permissions             — caller's effective set
+//   GET  /gouvernance/d360-roles/{role_name}/permissions    — one role's matrix
+//   PUT  /gouvernance/d360-roles/{role_name}/permissions    — wholesale replace (custom roles only)
+//   POST /gouvernance/d360-roles/{role_name}/apply-template — copy a system template onto a custom role
+//
+// NOTE — PROJECT_ID: the backend `PermissionBulkSet` model has NO project_id field
+// yet (account-global only). The `projectId?` params below are forward-compat
+// placeholders and are intentionally NOT sent until the backend migration lands.
+// ===========================================================================
+
+/** A single grantable action coordinate (one cell of the matrix). */
+export interface ActionRegistryEntry {
+  module: string;
+  page: string;
+  tab: string;
+  action: string;
+}
+
+/** Nested catalog shape: module → { label, pages: { page → { label, tabs[], actions[] }}}. */
+export interface ActionRegistryModule {
+  label: string;
+  pages: Record<
+    string,
+    { label?: string; tabs: string[]; actions: string[] }
+  >;
+}
+
+/** Response of GET /gouvernance/d360-roles/action-registry. */
+export interface ActionRegistryResponse {
+  /** module_key → human label. */
+  modules: Record<string, string>;
+  /** Full nested registry (module → pages → {tabs, actions}). */
+  registry: Record<string, ActionRegistryModule>;
+  /** Flat list of every (module, page, tab, action) coordinate. */
+  actions: ActionRegistryEntry[];
+  action_count: number;
+}
+
+/** One ALLOW/DENY permission row. */
+export interface RolePermission {
+  module: string;
+  page: string;
+  tab: string;
+  action: string;
+  access_level: 'ALLOW' | 'DENY' | string;
+}
+
+/** Response of GET /gouvernance/d360-roles/{role}/permissions. */
+export interface RolePermissionsResponse {
+  role_name: string;
+  is_system: boolean;
+  permissions: RolePermission[];
+  allow: RolePermission[];
+  deny: RolePermission[];
+  permission_count: number;
+  /** 'db' = stored rows, 'matrix' = derived from the hardcoded system template. */
+  source: 'db' | 'matrix' | string;
+  /** True when the backing table is absent in this environment. */
+  uninitialized: boolean;
+}
+
+/** Response of GET /gouvernance/d360-roles/my-permissions. */
+export interface MyPermissionsResponse {
+  username: string;
+  snowflake_role: string;
+  d360_role: string;
+  permissions: RolePermission[];
+  permission_count: number;
+  source: 'db' | 'matrix' | string;
+  uninitialized: boolean;
+}
+
+/**
+ * Fetch the full grantable-action catalog (module → page → tab → action).
+ * Static structure on the backend (long TTL) — used to render the permission grid.
+ * GET /gouvernance/d360-roles/action-registry
+ */
+export async function getActionRegistry(): Promise<ActionRegistryResponse> {
+  const response = await apiClient.get('/gouvernance/d360-roles/action-registry');
+  const d = response.data ?? {};
+  return {
+    modules: d.modules ?? {},
+    registry: d.registry ?? {},
+    actions: Array.isArray(d.actions) ? d.actions : [],
+    action_count: d.action_count ?? (Array.isArray(d.actions) ? d.actions.length : 0),
+  };
+}
+
+/**
+ * Resolve the CALLING user's effective Data360 action set (mirrors runtime
+ * enforcement: Snowflake role → highest-priority D360 role → DB-first allow-set
+ * with the hardcoded template as fallback).
+ * GET /gouvernance/d360-roles/my-permissions
+ */
+export async function getMyPermissions(): Promise<MyPermissionsResponse> {
+  const response = await apiClient.get('/gouvernance/d360-roles/my-permissions');
+  const d = response.data ?? {};
+  return {
+    username: d.username ?? '',
+    snowflake_role: d.snowflake_role ?? '',
+    d360_role: d.d360_role ?? '',
+    permissions: Array.isArray(d.permissions) ? d.permissions : [],
+    permission_count: d.permission_count ?? 0,
+    source: d.source ?? 'matrix',
+    uninitialized: Boolean(d.uninitialized),
+  };
+}
+
+/**
+ * Fetch a single role's full module→page→tab→action allow/deny matrix.
+ * System roles return a template-derived matrix (source: 'matrix'); custom roles
+ * return their stored rows (source: 'db').
+ * GET /gouvernance/d360-roles/{role_name}/permissions
+ */
+export async function getRolePermissions(
+  roleName: string
+): Promise<RolePermissionsResponse> {
+  const response = await apiClient.get(
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/permissions`
+  );
+  const d = response.data ?? {};
+  return {
+    role_name: d.role_name ?? roleName,
+    is_system: Boolean(d.is_system),
+    permissions: Array.isArray(d.permissions) ? d.permissions : [],
+    allow: Array.isArray(d.allow) ? d.allow : [],
+    deny: Array.isArray(d.deny) ? d.deny : [],
+    permission_count: d.permission_count ?? 0,
+    source: d.source ?? 'db',
+    uninitialized: Boolean(d.uninitialized),
+  };
+}
+
+/**
+ * Replace a CUSTOM role's permission matrix wholesale (the backend DELETEs then
+ * re-INSERTs the supplied set — there is no per-cell PATCH). Blocked for system
+ * roles (403) and requires an accountadmin Snowflake role.
+ *
+ * @param projectId Forward-compat only — NOT sent to the backend yet (the
+ *   `PermissionBulkSet` model is account-global). Pending PROJECT_ID migration.
+ * PUT /gouvernance/d360-roles/{role_name}/permissions
+ */
+export async function setRolePermissions(
+  roleName: string,
+  permissions: RolePermission[],
+  projectId?: string | null
+): Promise<{ success: boolean; role_name: string; permissions_set: number }> {
+  // projectId is intentionally ignored until the backend accepts PROJECT_ID.
+  void projectId;
+  const response = await apiClient.put(
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/permissions`,
+    {
+      permissions: permissions.map((p) => ({
+        module: p.module,
+        page: p.page,
+        tab: p.tab ?? '*',
+        action: p.action,
+        access_level: (p.access_level || 'ALLOW').toUpperCase(),
+      })),
+    }
+  );
+  return response.data;
+}
+
+/**
+ * Copy a system template's action set onto a custom role.
+ * mode='replace' clears existing rows first; mode='merge' appends.
+ * Blocked for system targets (403); requires an accountadmin Snowflake role.
+ * POST /gouvernance/d360-roles/{role_name}/apply-template
+ */
+export async function applyTemplate(
+  roleName: string,
+  template: string,
+  mode: 'replace' | 'merge' = 'replace'
+): Promise<{
+  success: boolean;
+  role_name: string;
+  template: string;
+  mode: string;
+  permissions_applied?: number;
+}> {
+  const response = await apiClient.post(
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/apply-template`,
+    { template, mode }
   );
   return response.data;
 }

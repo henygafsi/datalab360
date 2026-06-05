@@ -35,10 +35,8 @@ import {
   type D360Role,
   type D360RoleTemplate,
 } from '@/app/services/governance/fetch_roles';
-import { useAuth } from '@/hooks/useAuth';
-
-/** Roles allowed to mutate D360 RBAC (create/edit/delete custom roles). */
-const D360_ADMIN_ROLES = ['ACCOUNTADMIN', 'SECURITYADMIN', 'SYSADMIN'];
+import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 
 type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -187,8 +185,9 @@ function SourceProductGrantsPanel() {
  * Delete is gated behind a strict role check + ConfirmDialog (focus-trapping).
  */
 function D360RolesPanel() {
-  const { role: currentRole } = useAuth();
-  const canManage = D360_ADMIN_ROLES.includes((currentRole || '').toUpperCase());
+  // RBAC gating seam (System 2) — replaces the old hardcoded D360_ADMIN_ROLES
+  // check. "Can manage D360 roles" maps to the gouvernance:roles:*:create action.
+  const { allowed: canManage } = useCanPerform('gouvernance', 'create');
 
   const [roles, setRoles] = useState<D360Role[]>([]);
   const [templates, setTemplates] = useState<D360RoleTemplate[]>([]);
@@ -307,12 +306,17 @@ function D360RolesPanel() {
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
         </div>
-        {canManage && (
-          <Button size="sm" onClick={() => openCreate()} className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white">
-            <HiOutlinePlus className="w-4 h-4 mr-1.5" />
-            New Role
-          </Button>
-        )}
+        <PermissionGatedButton
+          module="gouvernance"
+          action="create"
+          size="sm"
+          onClick={() => openCreate()}
+          deniedReason="Requires the create permission on Governance → Roles (Action-RBAC)."
+          className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white"
+        >
+          <HiOutlinePlus className="w-4 h-4 mr-1.5" />
+          New Role
+        </PermissionGatedButton>
       </div>
 
       {feedback && (
