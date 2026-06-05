@@ -38,10 +38,13 @@ import {
   applyTemplate,
   getD360Roles,
   getD360RoleTemplates,
+  getEffectiveUserPermissions,
   type ActionRegistryResponse,
   type RolePermission,
   type D360Role,
   type D360RoleTemplate,
+  type EffectiveUserPermissionsResponse,
+  type EffectivePermission,
 } from '@/app/services/governance/fetch_roles';
 import {
   getUsersWithRolesAndModules,
@@ -495,6 +498,215 @@ function ActionRbacEditor({
 // Preview ("test as role | user") — cross-module effective permissions
 // ===========================================================================
 
+/**
+ * Provenance badge: distinguishes an EXPLICIT grant (`matrix`/`db`) from a
+ * fail-open `default` (the module is not covered by the role matrix, so access
+ * is granted by default — not an intentional grant). Load-bearing: without it an
+ * admin reads "10/10 allowed" and wrongly assumes everything was truly granted.
+ */
+function SourceBadge({ source }: { source: string }) {
+  const isDefault = source === 'default';
+  return (
+    <span
+      className={cn(
+        'rounded px-1 py-0.5 text-[8px] font-semibold uppercase tracking-wide',
+        isDefault
+          ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+      )}
+      title={
+        isDefault
+          ? 'Fail-open default: this module is not covered by the role matrix, so access is granted by default — NOT an explicit grant.'
+          : `Explicitly granted (source: ${source}).`
+      }
+    >
+      {isDefault ? 'default' : source}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "Test as user" — EXACT effective resolution via the backend effective endpoint
+// (mirrors runtime enforcement, unlike the legacy optimistic role-union).
+// ---------------------------------------------------------------------------
+function UserEffectiveView({
+  registry,
+  data,
+}: {
+  registry: ActionRegistryResponse;
+  data: EffectiveUserPermissionsResponse;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpand = (m: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(m)) next.delete(m);
+      else next.add(m);
+      return next;
+    });
+
+  // Authoritative rollup from the endpoint, enriched with the allowed
+  // permissions (grouped per module) and their provenance split.
+  const modules = useMemo(() => {
+    const allowByModule = new Map<string, EffectivePermission[]>();
+    for (const p of data.permissions) {
+      if (p.decision !== 'allow') continue;
+      const arr = allowByModule.get(p.module) ?? [];
+      arr.push(p);
+      allowByModule.set(p.module, arr);
+    }
+    return data.modules_summary.map((m) => {
+      const perms = allowByModule.get(m.module) ?? [];
+      const failOpen = perms.filter((p) => p.source === 'default').length;
+      return {
+        module: m.module,
+        label: registry.modules[m.module] || m.module,
+        allowed: m.allowed,
+        total: m.total,
+        perms,
+        failOpen,
+        explicit: perms.length - failOpen,
+      };
+    });
+  }, [data, registry]);
+
+  const totalAllowed = useMemo(
+    () => data.modules_summary.reduce((n, m) => n + m.allowed, 0),
+    [data],
+  );
+  const totalFailOpen = useMemo(
+    () => data.permissions.filter((p) => p.decision === 'allow' && p.source === 'default').length,
+    [data],
+  );
+
+  return (
+    <div className="space-y-3">
+      <GlassPanel depth={1} radius="xl" className="space-y-2 p-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+            <KeyRound className="h-3.5 w-3.5" /> Resolved D360 role
+            <span className="rounded-full bg-[hsl(var(--primary))]/10 px-2 py-0.5 text-[10px] font-semibold text-[hsl(var(--primary))]">
+              {data.d360_role || '—'}
+            </span>
+          </span>
+
+          <span className="flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
+            <Users className="h-3 w-3" /> Snowflake roles:
+            {data.snowflake_roles.length === 0 ? (
+              <span className="italic">none</span>
+            ) : (
+              data.snowflake_roles.map((r) => (
+                <span
+                  key={r}
+                  className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                >
+                  {r}
+                </span>
+              ))
+            )}
+          </span>
+
+          <span className="ml-auto flex items-center gap-1.5">
+            <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+              {totalAllowed} allowed
+            </span>
+            {totalFailOpen > 0 && (
+              <span
+                className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                title="Allowed only because the module is not covered by the matrix (fail-open default)."
+              >
+                {totalFailOpen} fail-open
+              </span>
+            )}
+          </span>
+        </div>
+
+        <p className="flex flex-wrap items-center gap-2 text-[10px] text-slate-400">
+          Exact effective decision (mirrors runtime enforcement). Provenance:
+          <SourceBadge source="matrix" /> explicit grant ·
+          <SourceBadge source="default" /> fail-open (module not covered).
+        </p>
+      </GlassPanel>
+
+      {modules.length === 0 || totalAllowed === 0 ? (
+        <EmptyState icon={KeyRound} compact title="No effective Action-RBAC grants for this user" />
+      ) : (
+        <div className="space-y-2">
+          {modules.map((m) => {
+            const isExpanded = expanded.has(m.module);
+            const pct = m.total ? Math.round((m.allowed / m.total) * 100) : 0;
+            const allFailOpen = m.allowed > 0 && m.explicit === 0;
+            return (
+              <GlassPanel key={m.module} depth={1} radius="xl" className="overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(m.module)}
+                  className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
+                >
+                  <span className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    <span className="text-slate-400">{isExpanded ? '▾' : '▸'}</span>
+                    {m.label}
+                    <span className="font-mono text-[10px] font-normal text-slate-400">{m.module}</span>
+                  </span>
+                  <span className="flex items-center gap-2">
+                    {m.failOpen > 0 && (
+                      <span
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+                        title={
+                          allFailOpen
+                            ? 'Entire module is fail-open: not covered by the matrix, allowed by default.'
+                            : `${m.failOpen} of these grants are fail-open defaults, not explicit.`
+                        }
+                      >
+                        {allFailOpen ? 'fail-open' : `${m.failOpen} fail-open`}
+                      </span>
+                    )}
+                    <span className="h-1.5 w-20 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                      <span
+                        className={cn('block h-full', allFailOpen ? 'bg-amber-500' : 'bg-emerald-500')}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </span>
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                      {m.allowed}/{m.total}
+                    </span>
+                  </span>
+                </button>
+                {isExpanded && (
+                  <div className="space-y-1 border-t border-white/30 px-3 py-2 dark:border-white/10">
+                    {m.perms.length === 0 ? (
+                      <p className="text-[10px] italic text-slate-400">
+                        No per-action detail returned for this module.
+                      </p>
+                    ) : (
+                      <div className="flex flex-wrap gap-1">
+                        {m.perms.map((p) => (
+                          <span
+                            key={`${p.page}:${p.tab}:${p.action}`}
+                            className={cn(
+                              'inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[9px]',
+                              p.source === 'default'
+                                ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300'
+                                : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300',
+                            )}
+                          >
+                            {p.page}:{p.tab}:{p.action}
+                            <SourceBadge source={p.source} />
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </GlassPanel>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ActionRbacPreview({
   registry,
   roles,
@@ -509,8 +721,10 @@ function ActionRbacPreview({
   const [pickedUser, setPickedUser] = useState('');
   const [state, setState] = useState<AsyncState>('idle');
   const [error, setError] = useState<string | null>(null);
+  // "As role" path (unchanged — already exact).
   const [allowed, setAllowed] = useState<Set<string>>(new Set());
-  const [contributingRoles, setContributingRoles] = useState<string[]>([]);
+  // "As user" path — exact effective resolution from the backend.
+  const [userData, setUserData] = useState<EffectiveUserPermissionsResponse | null>(null);
 
   const loadForRole = useCallback(async (role: string) => {
     if (!role) {
@@ -520,7 +734,6 @@ function ActionRbacPreview({
     }
     setState('running');
     setError(null);
-    setContributingRoles([role]);
     try {
       const res = await getRolePermissions(role);
       setAllowed(allowSet(res.permissions));
@@ -531,49 +744,31 @@ function ActionRbacPreview({
     }
   }, []);
 
-  // For a user we union their assigned roles' matrices. Runtime enforcement
-  // resolves to a single highest-priority D360 role, so this is the OPTIMISTIC
-  // upper bound — labelled as such below.
-  const loadForUser = useCallback(
-    async (username: string) => {
-      if (!username) {
-        setState('idle');
-        setAllowed(new Set());
-        return;
-      }
-      const user = users.find((u) => u.username === username);
-      const userRoles = (user?.roles ?? []).map((r) => String(r));
-      // Only roles that exist as D360 roles can be resolved against the matrix.
-      const known = userRoles.filter((r) =>
-        roles.some((dr) => dr.role_name.toUpperCase() === r.toUpperCase()),
-      );
-      setContributingRoles(known);
-      if (known.length === 0) {
-        setAllowed(new Set());
-        setState('done');
-        return;
-      }
-      setState('running');
-      setError(null);
-      try {
-        const results = await Promise.allSettled(known.map((r) => getRolePermissions(r)));
-        const union = new Set<string>();
-        for (const r of results) {
-          if (r.status === 'fulfilled') {
-            for (const k of allowSet(r.value.permissions)) union.add(k);
-          }
-        }
-        setAllowed(union);
-        setState('done');
-      } catch (e) {
-        setError(getApiErrorMessage(e));
-        setState('error');
-      }
-    },
-    [users, roles],
-  );
+  // EXACT "test as user": the backend resolves the user's effective decision per
+  // action (Snowflake roles → single highest-priority D360 role → DB/matrix
+  // allow-set, fail-open `default` for uncovered modules). No more role-union
+  // approximation.
+  const loadForUser = useCallback(async (username: string) => {
+    if (!username) {
+      setState('idle');
+      setUserData(null);
+      return;
+    }
+    setState('running');
+    setError(null);
+    setUserData(null);
+    try {
+      const res = await getEffectiveUserPermissions(username);
+      setUserData(res);
+      setState('done');
+    } catch (e) {
+      setError(getApiErrorMessage(e));
+      setState('error');
+    }
+  }, []);
 
-  // Per-module rollup: allowed vs total actions in the registry.
+  // "As role" per-module rollup vs the registry (user mode uses the endpoint's
+  // own modules_summary instead).
   const rollup = useMemo(() => {
     return Object.entries(registry.registry).map(([mKey, mData]) => {
       let total = 0;
@@ -622,6 +817,7 @@ function ActionRbacPreview({
                   setMode(v);
                   setState('idle');
                   setAllowed(new Set());
+                  setUserData(null);
                   setPickedRole('');
                   setPickedUser('');
                 }}
@@ -677,43 +873,39 @@ function ActionRbacPreview({
             </label>
           )}
 
-          {contributingRoles.length > 0 && state === 'done' && (
+          {mode === 'role' && pickedRole && state === 'done' && (
             <span className="flex flex-wrap items-center gap-1 text-[10px] text-slate-400">
-              <Users className="h-3 w-3" />
-              {mode === 'user' ? 'union of roles:' : 'role:'}
-              {contributingRoles.map((r) => (
-                <span
-                  key={r}
-                  className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                >
-                  {r}
-                </span>
-              ))}
+              <Users className="h-3 w-3" /> role:
+              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {pickedRole}
+              </span>
             </span>
           )}
 
-          {state === 'done' && (pickedRole || pickedUser) && (
+          {mode === 'role' && state === 'done' && pickedRole && (
             <span className="ml-auto rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
               {totalAllowed} actions allowed
             </span>
           )}
         </div>
-
-        {mode === 'user' && (pickedUser || state === 'done') && (
-          <p className="text-[10px] text-amber-600 dark:text-amber-400">
-            Note: runtime enforcement resolves a user to a single highest-priority D360 role. This
-            view shows the optimistic UNION of all assigned, recognized roles — an upper bound on
-            effective access.
-          </p>
-        )}
       </GlassPanel>
 
-      {!pickedRole && !pickedUser ? (
-        <EmptyState icon={ShieldCheck} compact title="Pick a role or user to preview effective access" />
+      {mode === 'user' ? (
+        !pickedUser ? (
+          <EmptyState icon={ShieldCheck} compact title="Pick a user to preview their exact effective access" />
+        ) : state === 'running' ? (
+          <Spinner label="Resolving exact effective permissions…" />
+        ) : state === 'error' ? (
+          <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForUser(pickedUser)} />
+        ) : userData ? (
+          <UserEffectiveView registry={registry} data={userData} />
+        ) : null
+      ) : !pickedRole ? (
+        <EmptyState icon={ShieldCheck} compact title="Pick a role to preview effective access" />
       ) : state === 'running' ? (
         <Spinner label="Resolving effective permissions…" />
       ) : state === 'error' ? (
-        <ErrBox message={error ?? 'Failed'} />
+        <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForRole(pickedRole)} />
       ) : totalAllowed === 0 ? (
         <EmptyState icon={KeyRound} compact title="No effective Action-RBAC grants for this selection" />
       ) : (

@@ -415,6 +415,88 @@ export async function getMyPermissions(): Promise<MyPermissionsResponse> {
   };
 }
 
+// ===========================================================================
+// EFFECTIVE USER PERMISSIONS — exact "test as user" resolution (admin-only).
+// Backend resolves the real runtime decision per action for a given username:
+//   Snowflake roles → highest-priority D360 role → DB/matrix allow-set, with a
+//   fail-open `default` when a module is not covered by the matrix.
+//   GET /gouvernance/d360-roles/effective/{username}
+// ===========================================================================
+
+/**
+ * One effective permission decision for a user.
+ * `source` provenance is load-bearing for the UI:
+ *   - 'db' / 'matrix' → EXPLICITLY granted (stored row or role template).
+ *   - 'default'        → fail-open: the module is not covered, access is granted
+ *                        by default — NOT an intentional grant.
+ */
+export interface EffectivePermission {
+  module: string;
+  page: string;
+  tab: string;
+  action: string;
+  decision: 'allow' | 'deny' | string;
+  source: 'db' | 'matrix' | 'default' | string;
+}
+
+/** Per-module allowed/total rollup as computed by the backend (authoritative). */
+export interface ModuleSummary {
+  module: string;
+  allowed: number;
+  total: number;
+}
+
+/** Response of GET /gouvernance/d360-roles/effective/{username}. */
+export interface EffectiveUserPermissionsResponse {
+  username: string;
+  /** The single highest-priority D360 role the backend resolved the user to. */
+  d360_role: string;
+  /** All Snowflake roles granted to the user that fed the resolution. */
+  snowflake_roles: string[];
+  permissions: EffectivePermission[];
+  modules_summary: ModuleSummary[];
+}
+
+/**
+ * Resolve the EXACT effective Action-RBAC decision set for an arbitrary user
+ * (admin-only) — mirrors runtime enforcement, unlike the optimistic role-union
+ * approximation. Each permission carries its provenance so the UI can flag
+ * fail-open `default` grants vs. explicit `matrix`/`db` grants.
+ * GET /gouvernance/d360-roles/effective/{username}
+ */
+export async function getEffectiveUserPermissions(
+  username: string
+): Promise<EffectiveUserPermissionsResponse> {
+  const response = await apiClient.get(
+    `/gouvernance/d360-roles/effective/${encodeURIComponent(username)}`
+  );
+  const d = response.data ?? {};
+  return {
+    username: d.username ?? username,
+    d360_role: d.d360_role ?? '',
+    snowflake_roles: Array.isArray(d.snowflake_roles)
+      ? d.snowflake_roles.map((r: any) => String(r))
+      : [],
+    permissions: Array.isArray(d.permissions)
+      ? d.permissions.map((p: any) => ({
+          module: p?.module ?? '',
+          page: p?.page ?? '',
+          tab: p?.tab ?? '*',
+          action: p?.action ?? '',
+          decision: String(p?.decision ?? 'deny').toLowerCase(),
+          source: String(p?.source ?? 'default').toLowerCase(),
+        }))
+      : [],
+    modules_summary: Array.isArray(d.modules_summary)
+      ? d.modules_summary.map((m: any) => ({
+          module: m?.module ?? '',
+          allowed: Number(m?.allowed ?? 0),
+          total: Number(m?.total ?? 0),
+        }))
+      : [],
+  };
+}
+
 /**
  * Fetch a single role's full module→page→tab→action allow/deny matrix.
  * System roles return a template-derived matrix (source: 'matrix'); custom roles
