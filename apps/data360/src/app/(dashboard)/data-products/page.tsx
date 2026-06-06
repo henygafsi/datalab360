@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
 import {
   listDataProducts,
@@ -33,6 +34,11 @@ function fmtNum(v: number | null | undefined): string {
 }
 
 function DataProductsPage() {
+  // System 2 Action-RBAC (module 'data_products'): Create Product → create.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('data_products', 'create');
+  const canCreateProduct = createPerm.allowed || createPerm.loading;
+
   const [products, setProducts] = useState<DataProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,6 +186,8 @@ function DataProductsPage() {
               size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
               onClick={() => setShowCreate((v) => !v)}
               aria-expanded={showCreate}
+              disabled={!canCreateProduct}
+              title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}
             >
               <Plus className="h-3.5 w-3.5" />Create Product
             </Button>
@@ -261,7 +269,7 @@ function DataProductsPage() {
                 {search || filterStatus ? 'No products match your filters' : 'No data products yet'}
               </h3>
               {!search && !filterStatus && (
-                <Button size="sm" className="mt-2 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(true)}>
+                <Button size="sm" className="mt-2 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(true)} disabled={!canCreateProduct} title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}>
                   <Plus className="h-3.5 w-3.5" />Create your first product
                 </Button>
               )}
@@ -413,6 +421,11 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
   onSelect: () => void; onSubscribe: () => void; subscribing: boolean;
   subscribeError: string | null;
 }) {
+  // System 2 Action-RBAC: subscribing → data_products:subscribe.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const subscribePerm = useCanPerform('data_products', 'subscribe');
+  const canSubscribe = subscribePerm.allowed || subscribePerm.loading;
+
   const qualityColor = product.QUALITY_THRESHOLD >= 90
     ? 'text-emerald-600 dark:text-emerald-400'
     : product.QUALITY_THRESHOLD >= 70
@@ -493,7 +506,8 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
         <Button
           size="sm"
           className="h-7 text-xs gap-1 px-2 bg-blue-600 hover:bg-blue-700 text-white"
-          disabled={subscribing}
+          disabled={subscribing || !canSubscribe}
+          title={!canSubscribe ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.' : undefined}
           onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
         >
           {subscribing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
