@@ -258,9 +258,13 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
   const writePerm = useCanPerform('explore_design', 'create', projectId);
   const approvePerm = useCanPerform('explore_design', 'approve', projectId);
   const deployPerm = useCanPerform('explore_design', 'deploy', projectId);
+  const executePerm = useCanPerform('explore_design', 'execute', projectId);
   const canWrite = writePerm.allowed || writePerm.loading;
   const canApprove = approvePerm.allowed || approvePerm.loading;
   const canDeploy = deployPerm.allowed || deployPerm.loading;
+  // Distinct from canWrite: running/refreshing an existing object is `execute`,
+  // not `create` — so a role granted execute-only can run without modelling rights.
+  const canExecute = executePerm.allowed || executePerm.loading;
   const isStage = table.table.startsWith('@') || table.schema === 'STAGES' || (table as any).objectType === 'STAGE';
   const isView = (table as any).objectType === 'VIEW' || table.table.startsWith('V_');
   const isDynamicTable = (table as any).objectType === 'DYNAMIC_TABLE' || table.table.startsWith('DT_');
@@ -304,7 +308,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         </div>
         <div className="flex flex-wrap gap-1.5">
           <ActionBtn label="Configure" icon={RefreshCw} disabled={!canWrite} onClick={() => onFocusAction('ingestion')} />
-          <ActionBtn label="Run refresh" icon={Play} disabled={!canWrite} onClick={() => {
+          <ActionBtn label="Run refresh" icon={Play} disabled={!canExecute} onClick={() => {
             onAddEvent({ type: 'INGESTION_MODE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { mode: 'full_refresh' } });
             toast.success('Refresh added to draft');
           }} />
@@ -412,7 +416,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
                 toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
               } catch { toast.error('DDL diff not available — no pending changes'); }
             }} />
-            <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canWrite} onClick={() => {
+            <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
               toast.success('View refresh added to draft');
             }} />
@@ -428,7 +432,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Dynamic Table</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canWrite} onClick={() => {
+            <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
               toast.success('Dynamic table refresh added to deployment draft');
             }} />

@@ -2,6 +2,7 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import PermissionGate from '@/components/ui/PermissionGate';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -4654,12 +4655,20 @@ export default function ExploreDesignPage() {
         customSize="1050px"
       >
         <ErrorBoundary>
-          <DeploymentValidation
-            onClose={() => setShowDeploymentModal(false)}
-            database={selectedDatabase /*|| 'CP_DATA360'*/}
-            schemas={schemaKeys}
-            projectId={selectedProjectId!}
-          />
+          <PermissionGate
+            module="explore_design"
+            action="deploy"
+            projectId={selectedProjectId}
+            title="Deployment restricted"
+            description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+          >
+            <DeploymentValidation
+              onClose={() => setShowDeploymentModal(false)}
+              database={selectedDatabase /*|| 'CP_DATA360'*/}
+              schemas={schemaKeys}
+              projectId={selectedProjectId!}
+            />
+          </PermissionGate>
         </ErrorBoundary>
       </Modal>
 
