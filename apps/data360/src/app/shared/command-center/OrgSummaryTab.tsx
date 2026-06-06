@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Layers,
   ChevronRight,
+  ChevronsUpDown,
   Calendar,
   Filter,
   RefreshCw,
@@ -31,6 +32,7 @@ import {
   XCircle,
   ShieldX,
   Activity,
+  Percent,
   PlugZap,
   Lock,
   AlertTriangle,
@@ -59,6 +61,8 @@ interface Controls {
   role: string;
   module: string;
   account: string;
+  username: string;
+  project_id: string;
 }
 
 const DEFAULT_CONTROLS: Controls = {
@@ -69,6 +73,8 @@ const DEFAULT_CONTROLS: Controls = {
   role: '',
   module: '',
   account: '',
+  username: '',
+  project_id: '',
 };
 
 function controlsToParams(c: Controls): OrgSummaryParams {
@@ -81,6 +87,8 @@ function controlsToParams(c: Controls): OrgSummaryParams {
     role: c.role || undefined,
     module: c.module || undefined,
     account: c.account || undefined,
+    username: c.username || undefined,
+    project_id: c.project_id || undefined,
   };
 }
 
@@ -94,6 +102,11 @@ function fmt(n: number | null | undefined): string {
 /** A leaf/branch with all-zero (or absent) activity renders "—", not 0. */
 function cell(n: number | null | undefined): string {
   return typeof n === 'number' && n > 0 ? n.toLocaleString() : '—';
+}
+
+/** Percentage of `numer` over `denom`, rounded; null when there is no traffic. */
+function rate(numer: number, denom: number): number | null {
+  return denom > 0 ? Math.round((numer / denom) * 100) : null;
 }
 
 const EMPTY_TOTALS: OrgSummaryTotals = {
@@ -133,7 +146,8 @@ export default function OrgSummaryTab() {
       setData(res);
       // Seed the option lists only when this is an unfiltered fetch (so we
       // capture the full universe of roles/modules/accounts once).
-      const noFilters = !c.role && !c.module && !c.account;
+      const noFilters =
+        !c.role && !c.module && !c.account && !c.username && !c.project_id;
       if (noFilters) {
         const roles = new Set<string>();
         const modules = new Set<string>();
@@ -192,6 +206,20 @@ export default function OrgSummaryTab() {
   }, [paramsKey]);
 
   const opts = optionsRef.current;
+
+  // Expand/collapse-all broadcast for the role tree. Roles render COLLAPSED by
+  // default; pressing the toggle pushes a new signal that every RoleNode syncs
+  // to, while leaving per-row toggling intact between broadcasts.
+  const [allExpanded, setAllExpanded] = useState(false);
+  const [expandSignal, setExpandSignal] = useState<{
+    open: boolean;
+    n: number;
+  } | null>(null);
+  const toggleAll = () => {
+    const next = !allExpanded;
+    setAllExpanded(next);
+    setExpandSignal({ open: next, n: Date.now() });
+  };
 
   return (
     <div className="space-y-5">
@@ -340,7 +368,23 @@ export default function OrgSummaryTab() {
             options={opts.accounts}
             onChange={(v) => setControls((c) => ({ ...c, account: v }))}
           />
-          {(controls.role || controls.module || controls.account) && (
+          <FilterText
+            label="User"
+            value={controls.username}
+            placeholder="username"
+            onCommit={(v) => setControls((c) => ({ ...c, username: v }))}
+          />
+          <FilterText
+            label="Project"
+            value={controls.project_id}
+            placeholder="project_id"
+            onCommit={(v) => setControls((c) => ({ ...c, project_id: v }))}
+          />
+          {(controls.role ||
+            controls.module ||
+            controls.account ||
+            controls.username ||
+            controls.project_id) && (
             <button
               type="button"
               onClick={() =>
@@ -349,6 +393,8 @@ export default function OrgSummaryTab() {
                   role: '',
                   module: '',
                   account: '',
+                  username: '',
+                  project_id: '',
                 }))
               }
               className="rounded-md px-2 py-1 text-[11px] text-slate-500 underline-offset-2 hover:text-slate-800 hover:underline dark:text-slate-400 dark:hover:text-slate-200"
@@ -426,9 +472,27 @@ export default function OrgSummaryTab() {
       ) : data && (data.roles?.length ?? 0) > 0 ? (
         <>
           <TotalsStrip totals={data.totals} />
+          <div className="flex items-center justify-between px-1">
+            <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              {data.roles.length} role{data.roles.length === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              onClick={toggleAll}
+              aria-expanded={allExpanded}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
+              <ChevronsUpDown className="h-3.5 w-3.5" />
+              {allExpanded ? 'Collapse all' : 'Expand all'}
+            </button>
+          </div>
           <div className="space-y-2.5">
             {data.roles.map((role) => (
-              <RoleNode key={role.role} role={role} />
+              <RoleNode
+                key={role.role}
+                role={role}
+                expandSignal={expandSignal}
+              />
             ))}
           </div>
         </>
@@ -479,6 +543,49 @@ function FilterSelect({
   );
 }
 
+function FilterText({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder?: string;
+  onCommit: (v: string) => void;
+}) {
+  // Keep a local draft so a free-text filter only refetches on Enter/blur,
+  // never on every keystroke. Re-sync when the committed value changes
+  // externally (e.g. "Clear filters").
+  const [draft, setDraft] = useState(value);
+  useEffect(() => {
+    setDraft(value);
+  }, [value]);
+  const commit = () => {
+    const next = draft.trim();
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <label className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs dark:border-slate-700 dark:bg-slate-800">
+      <span className="text-slate-500 dark:text-slate-400">{label}</span>
+      <input
+        type="text"
+        value={draft}
+        placeholder={placeholder}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        className="w-24 bg-transparent text-xs font-medium text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-200"
+      />
+    </label>
+  );
+}
+
 function AppliedFilter({ k, v }: { k: string; v: string | null }) {
   if (!v) return null;
   return (
@@ -509,12 +616,13 @@ function TotalsStrip({
   totals: OrgSummaryTotals;
   embedded?: boolean;
 }) {
+  const successRate = rate(totals?.success ?? 0, totals?.requests ?? 0);
   return (
     <div
       className={
         embedded
-          ? 'grid grid-cols-2 gap-3 p-4 sm:grid-cols-5'
-          : 'grid grid-cols-2 gap-3 sm:grid-cols-5'
+          ? 'grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 lg:grid-cols-6'
+          : 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6'
       }
     >
       {METRICS.map(({ key, label, icon: Icon, tone }) => (
@@ -533,6 +641,18 @@ function TotalsStrip({
           </p>
         </div>
       ))}
+      {/* Derived: success rate over the window (success / requests). */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-center gap-1.5">
+          <Percent className="h-3.5 w-3.5 text-emerald-500" />
+          <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-400">
+            Success rate
+          </span>
+        </div>
+        <p className="mt-1 text-xl font-semibold tabular-nums text-slate-900 dark:text-white">
+          {successRate === null ? '—' : `${successRate}%`}
+        </p>
+      </div>
     </div>
   );
 }
@@ -540,8 +660,27 @@ function TotalsStrip({
 /** Compact inline counters used on every tree row. */
 function Counts({ totals: t }: { totals: OrgSummaryTotals | undefined }) {
   const totals = t ?? EMPTY_TOTALS;
+  const successRate = rate(totals.success, totals.requests);
+  const denialRate = rate(totals.denied, totals.requests);
   return (
     <div className="flex shrink-0 items-center gap-3 text-xs tabular-nums">
+      {/* Derived per-row health: success rate + denial-rate badge. */}
+      {successRate !== null && (
+        <span
+          className="hidden items-center font-medium text-emerald-600 dark:text-emerald-400 sm:inline-flex"
+          title="Success rate"
+        >
+          {successRate}%
+        </span>
+      )}
+      {denialRate !== null && denialRate > 0 && (
+        <span
+          className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:bg-rose-900/40 dark:text-rose-300"
+          title="Denial rate"
+        >
+          {denialRate}% denied
+        </span>
+      )}
       <span className="text-slate-700 dark:text-slate-300" title="Requests">
         {cell(totals.requests)}
       </span>
@@ -565,8 +704,19 @@ function Counts({ totals: t }: { totals: OrgSummaryTotals | undefined }) {
   );
 }
 
-function RoleNode({ role }: { role: OrgSummaryRole }) {
-  const [open, setOpen] = useState(true);
+function RoleNode({
+  role,
+  expandSignal,
+}: {
+  role: OrgSummaryRole;
+  expandSignal: { open: boolean; n: number } | null;
+}) {
+  // Collapsed by default; re-sync whenever the parent broadcasts expand/collapse
+  // all. Between broadcasts the row keeps its own open/closed state.
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (expandSignal) setOpen(expandSignal.open);
+  }, [expandSignal]);
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
       <button

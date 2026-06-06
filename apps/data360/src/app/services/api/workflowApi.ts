@@ -189,9 +189,14 @@ export async function validateWorkflow(workflowId: string) {
 // ============================================================================
 
 export async function listRuns(workflowId: string, params?: ListWorkflowRunsParams) {
+  // The backend run-history route paginates on `page_size` (not `limit`); send the
+  // requested limit under the param name the route reads, otherwise it silently
+  // falls back to the default page size of 20 no matter what the UI asked for.
+  const { limit, ...rest } = params ?? {};
+  const query = { ...rest, ...(limit != null ? { page_size: limit } : {}) };
   const { data } = await apiClient.get<WorkflowRunsResponse>(
     `${PREFIX}/${workflowId}/runs`,
-    { params },
+    { params: query },
   );
   return data;
 }

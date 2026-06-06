@@ -49,6 +49,11 @@ export interface DashboardOverviewResponse {
     managed_accounts_count?: number;
     network_policies_count?: number;
     org_admin_available?: boolean;
+    /** True only when the connection's Snowflake role is ORGADMIN (real org-wide
+     *  data). When false, credits/storage are the caller's OWN account. */
+    is_org_admin?: boolean;
+    /** "org" = ORGANIZATION_USAGE roll-ups; "account" = caller's own account. */
+    scope?: 'org' | 'account';
   };
   accounts?: ClientAccount[];
   generated_at: string;
@@ -267,6 +272,22 @@ export interface Warehouse {
   compute_credits: number;
   cloud_credits: number;
   metering_hours: number;
+  // ── Additive (optional): aggregated /warehouses (get_warehouses) emits
+  // cloud_services_credits rather than cloud_credits. ──
+  cloud_services_credits?: number;
+  // ── Additive (optional): per-account /warehouses/{account}
+  // (get_account_warehouses) returns credits_* (not *_credits) plus live
+  // SHOW WAREHOUSES state. SnowflakeAccountsTab charts dataKey="credits_used".
+  // All optional so the shared aggregated shape is unaffected. ──
+  credits_used?: number;
+  credits_compute?: number;
+  credits_cloud_services?: number;
+  active_days?: number;
+  size?: string | null;
+  state?: string | null;
+  auto_suspend?: number | null;
+  auto_resume?: boolean | string | null;
+  warehouse_type?: string | null;
 }
 
 export interface WarehousesResponse {
@@ -403,6 +424,9 @@ export interface FailedLogin {
   error_code: string;
   error_message: string;
   event_timestamp: string;
+  // ── Additive (optional): get_failed_logins also returns the reported
+  // client type (REPORTED_CLIENT_TYPE). ──
+  client_type?: string | null;
 }
 
 export interface FailedLoginsResponse {
@@ -418,6 +442,14 @@ export interface LoginEvent {
   is_success: boolean;
   error_message: string | null;
   event_timestamp: string;
+  // ── Additive (optional): the per-account /logins/{account} feed
+  // (get_account_logins) returns error_code (not error_message) plus the
+  // reported client type and auth factor; the org-wide /logins feed returns
+  // both error_code and error_message. SnowflakeAccountsTab reads error_code
+  // to flag failed logins. ──
+  error_code?: string | null;
+  client_type?: string | null;
+  auth_factor?: string | null;
 }
 
 export interface AccountLoginHistoryResponse {

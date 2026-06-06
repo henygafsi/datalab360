@@ -35,6 +35,11 @@ export interface AnalyticsSummary {
   WARNING_COUNT: number;
   AVG_EXECUTION_TIME_MS: number;
   LAST_ANALYSIS_AT: string | null;
+  // Additive zero-query rollups (router.py:3441-3449). Set inside a try/except,
+  // so they may be absent if the rollup failed — keep optional and guard reads.
+  potential_time_saved_ms?: number;
+  redundancy_ratio?: number;
+  severity_breakdown?: { critical: number; warning: number; info: number };
   top_error_patterns: Array<{ error: string; count: number }>;
   most_redundant_queries: Array<{
     QUERY_HASH: string;

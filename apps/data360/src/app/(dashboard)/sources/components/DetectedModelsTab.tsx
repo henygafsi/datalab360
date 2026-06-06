@@ -83,6 +83,9 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
       const h = healthResult.value;
       setHealth({
         overall_score: h.overall_score,
+        // Coverage card was always '—' (coverage never set). Map it to the
+        // real completeness sub-score the schema-health endpoint returns.
+        coverage: h.sub_scores?.completeness?.score,
         relations_count: relResult.value?.relationships?.length,
         issues_count: h.sub_scores?.naming?.violations?.length,
       });

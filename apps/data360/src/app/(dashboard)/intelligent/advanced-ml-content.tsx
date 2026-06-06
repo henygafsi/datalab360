@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, memo } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { Button, Input, Loader, Badge, Textarea } from 'rizzui';
 import {
   PiGearDuotone,
@@ -737,7 +737,6 @@ async function uploadDocumentFile(file: File) {
   return data;
 }
 async function extractToTable(body: any) { const { data } = await apiClient.post(`${PREFIX}/ml/document-ai/extract-to-table`, body); return data; }
-async function getDocumentTemplates() { const { data } = await apiClient.get(`${PREFIX}/ml/document-ai/templates`); return data; }
 
 function DocumentAISection() {
   const [showCreate, setShowCreate] = useState(false);
@@ -752,8 +751,6 @@ function DocumentAISection() {
   const [uploadedFile, setUploadedFile] = useState<{ name: string; stage: string; path: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [templates, setTemplates] = useState<any[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [saveTarget, setSaveTarget] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -840,11 +837,6 @@ function DocumentAISection() {
     }
   };
 
-  // Load templates on mount
-  useEffect(() => {
-    getDocumentTemplates().then((r) => setTemplates(r?.data?.templates || r?.templates || [])).catch(() => {});
-  }, []);
-
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -903,33 +895,6 @@ function DocumentAISection() {
             </div>
             {uploadError && <InlineError message={uploadError} onDismiss={() => setUploadError(null)} />}
           </div>
-
-          {/* Template Selector */}
-          {templates.length > 0 && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Document Template</label>
-              <div className="flex flex-wrap gap-2">
-                {templates.map((tpl: any, idx: number) => {
-                  const isSel = selectedTemplate === tpl.name;
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      aria-pressed={isSel}
-                      onClick={() => setSelectedTemplate(isSel ? null : tpl.name)}
-                      className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${
-                        isSel
-                          ? 'border-red-300 bg-red-100 text-red-700 dark:border-red-700 dark:bg-red-900/40 dark:text-red-300'
-                          : 'border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-                      }`}
-                    >
-                      {tpl.name}{typeof tpl.fields?.length === 'number' ? ` · ${tpl.fields.length} fields` : ''}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
 
           <Input label="Model Name" value={predictForm.model_name} onChange={(e) => setPredictForm({ ...predictForm, model_name: e.target.value })} />
           <Input label="Stage" placeholder="@my_stage" value={predictForm.stage} onChange={(e) => setPredictForm({ ...predictForm, stage: e.target.value })} />

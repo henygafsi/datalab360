@@ -31,6 +31,14 @@ export interface DataProduct {
    * When present it is authoritative and used as-is by `normalizeProductStatus()`.
    */
   STATUS_NORMALIZED?: string;
+  /**
+   * Backend-derived publish flag — `true` once the product backs a live Secure
+   * Data Share (has a `SHARE_NAME`) or its status is `PUBLISHED`. Subscribing
+   * requires a published product (the backend 409s otherwise), so the card gates
+   * the Subscribe affordance on this. Optional: falls back to a `STATUS` check
+   * when an older backend doesn't supply it.
+   */
+  is_published?: boolean;
   CONSUMERS: number;
   CREATED_BY: string;
   CREATED_AT: string;
@@ -70,7 +78,13 @@ export interface SubscribeResponse {
   name: string;
   share_name?: string;
   consumer_account?: string;
-  consumers: number;
+  /**
+   * Authoritative post-subscribe consumer count (the product's `CONSUMERS`
+   * column, the same field the list endpoint returns). The backend reads it
+   * back after an idempotent grant, so it can be `null` when the row read
+   * returns nothing — callers must guard before using it (e.g. `.toLocaleString()`).
+   */
+  consumers: number | null;
   subscribed_by: string;
   already_granted?: boolean;
   message: string;

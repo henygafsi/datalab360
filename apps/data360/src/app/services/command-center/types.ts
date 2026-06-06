@@ -260,6 +260,41 @@ export interface CreditBalance {
   rollover: number;
 }
 
+// Snowflake system-function enrichment shapes (cost breakdown only).
+// NOTE: CostResourceMonitor deliberately has NO `status` field — unlike the
+// warehouse-performance `ResourceMonitor`, get_cost_breakdown's SHOW RESOURCE
+// MONITORS rollup returns only name/quota/used/remaining.
+export interface CostResourceMonitor {
+  name: string;
+  quota: number;
+  used: number;
+  remaining: number;
+}
+
+export interface CostDataTransfer {
+  cloud: string;
+  region: string;
+  gb: number;
+}
+
+export interface ClusteredTable {
+  table: string;
+  clustering_key: string;
+  active_bytes: number;
+}
+
+export interface QueryAccelerationEligibility {
+  warehouse: string;
+  total: number;
+  eligible: number;
+  pct: number;
+}
+
+export interface ServerlessFeatureUsage {
+  feature: string;
+  credits: number;
+}
+
 export interface CostBreakdownResponse {
   total_credits: number;
   credit_trend_pct: number;
@@ -268,6 +303,14 @@ export interface CostBreakdownResponse {
   daily_trend: DailyTrendPoint[];
   top_warehouses: TopWarehouse[];
   balance: CreditBalance;
+  // Snowflake system-function enrichment — each optional: the source view may be
+  // unavailable (org-level visibility) or simply empty, in which case the backend
+  // returns an empty array. (get_cost_breakdown does NOT return `anomalies`.)
+  clustered_tables?: ClusteredTable[];
+  query_acceleration?: QueryAccelerationEligibility[];
+  resource_monitors?: CostResourceMonitor[];
+  data_transfer?: CostDataTransfer[];
+  serverless_usage?: ServerlessFeatureUsage[];
   execution_time_ms: number;
 }
 

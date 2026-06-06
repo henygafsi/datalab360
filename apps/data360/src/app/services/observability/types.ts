@@ -439,6 +439,14 @@ export interface ObservabilityAlert {
   resource?: string;
   detected_at?: string;
   status?: string;
+  // Cross-module (get_cross_module_alerts) returns alert_type / source_module /
+  // timestamp / suggested_action; threshold (get_threshold_alerts) returns type.
+  // Read defensively as fallbacks for the category/detected columns and details.
+  alert_type?: string;
+  type?: string;
+  source_module?: string;
+  timestamp?: string;
+  suggested_action?: string;
 }
 
 export interface AlertsResponse {
@@ -457,9 +465,20 @@ export interface SloRecord {
   name?: string;
   objective?: string;
   category?: string;
+  // Backend (get_slo_tracking) emits target/actual + a unit ('%' | 'seconds'),
+  // a boolean `breach`, and per-SLO sample/failure counts. The legacy *_percent
+  // fields are kept for back-compat (older payloads / other producers).
+  target?: number | null;
+  actual?: number | null;
+  unit?: string;
+  breach?: boolean;
+  sample_size?: number | null;
+  failures?: number | null;
+  p99_seconds?: number | null;
+  avg_seconds?: number | null;
   target_percent?: number | null;
   actual_percent?: number | null;
-  status?: 'meeting' | 'at_risk' | 'breached' | string;
+  status?: 'meeting' | 'at_risk' | 'breached' | 'OK' | 'BREACH' | string;
   error_budget_remaining_percent?: number | null;
   window_days?: number | null;
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { Badge, Button, Loader } from 'rizzui';
 import {
   X, Columns3, RefreshCw, GitBranch, ArrowRight, Shield,
@@ -203,23 +204,34 @@ export default function TableDetailPanel({
                       <SeverityDot severity={r.severity} />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{r.title}</p>
-                        <p className="text-[10px] text-gray-500 line-clamp-1">{r.explanation}</p>
+                        {(r.rationale ?? r.explanation) && (
+                          <p className="text-[10px] text-gray-500 line-clamp-1">{r.rationale ?? r.explanation}</p>
+                        )}
                       </div>
-                      <Badge size="sm" className="text-[9px] shrink-0">{r.category}</Badge>
+                      {(r.feature ?? r.category) && (
+                        <Badge size="sm" className="text-[9px] shrink-0">{r.feature ?? r.category}</Badge>
+                      )}
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* FinOps */}
-            {data360.finops && (
+            {/* FinOps — hidden when the slice is the ACCOUNT_USAGE-ungranted
+                error variant (no queries_last_30d) instead of showing blanks. */}
+            {data360.finops && data360.finops.queries_last_30d != null && (
               <div>
                 <h4 className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-2">FinOps (30d)</h4>
                 <div className="grid grid-cols-3 gap-2">
                   <MiniStat label="Queries" value={data360.finops.queries_last_30d} />
                   <MiniStat label="Users" value={data360.finops.distinct_users} />
                   <MiniStat label="Errors" value={data360.finops.errored_queries} alert={data360.finops.errored_queries > 0} />
+                  {data360.finops.bytes_scanned_total != null && (
+                    <MiniStat label="Scanned" value={fmtBytes(data360.finops.bytes_scanned_total)} />
+                  )}
+                  {data360.finops.credits_cloud_services != null && (
+                    <MiniStat label="Credits" value={data360.finops.credits_cloud_services.toFixed(3)} />
+                  )}
                 </div>
               </div>
             )}
@@ -330,6 +342,12 @@ function ObjectTier({ data, onRecompute, recomputing, recomputeError }: {
   data: Object360Response; onRecompute: () => void; recomputing: boolean; recomputeError: string | null;
 }) {
   const { identity, profiling, governance } = data.tiers.object;
+  const persisted = data.persisted_scores;
+  const sm = data.snowflake_metadata;
+  const hasStorageMeta = !!sm && (
+    sm.clustering_key != null || sm.retention_time_days != null ||
+    sm.active_bytes != null || sm.time_travel_bytes != null || sm.failsafe_bytes != null
+  );
   return (
     <div className="space-y-4">
       {/* Identity */}
@@ -395,6 +413,54 @@ function ObjectTier({ data, onRecompute, recomputing, recomputeError }: {
         </div>
       </div>
 
+      {/* Trust scores (persisted) — all six dimensions the recompute produces;
+          the header chips only surface trust + quality. */}
+      {persisted && (
+        <div>
+          <h5 className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Trust Scores</h5>
+          <div className="grid grid-cols-3 gap-2">
+            <MiniStat label="Quality" value={fmtScore(persisted.scores.quality_score)} />
+            <MiniStat label="Governance" value={fmtScore(persisted.scores.governance_score)} />
+            <MiniStat label="Modeling" value={fmtScore(persisted.scores.modeling_score)} />
+            <MiniStat label="FinOps" value={fmtScore(persisted.scores.finops_score)} />
+            <MiniStat label="ML-Ready" value={fmtScore(persisted.scores.ml_ready_score)} />
+            <MiniStat label="Trust" value={fmtScore(persisted.scores.trust_score)} />
+          </div>
+        </div>
+      )}
+
+      {/* Snowflake storage & metadata (additive — snowflake_metadata block).
+          Each field guarded: the live INFORMATION_SCHEMA read (clustering /
+          retention) and the ACCOUNT_USAGE storage read (bytes split) populate
+          independently and either can be absent. */}
+      {hasStorageMeta && sm && (
+        <div>
+          <h5 className="text-[11px] font-semibold text-gray-600 dark:text-gray-400 mb-1.5">Storage &amp; Metadata</h5>
+          <div className="grid grid-cols-2 gap-2">
+            {sm.clustering_key != null && (
+              <MiniStat label="Clustering" value={sm.clustering_key} />
+            )}
+            {sm.retention_time_days != null && (
+              <MiniStat label="Time Travel" value={`${sm.retention_time_days}d`} />
+            )}
+            {sm.active_bytes != null && (
+              <MiniStat label="Active" value={fmtBytes(sm.active_bytes)} />
+            )}
+            {sm.time_travel_bytes != null && (
+              <MiniStat label="Time-Travel" value={fmtBytes(sm.time_travel_bytes)} />
+            )}
+            {sm.failsafe_bytes != null && (
+              <MiniStat label="Fail-Safe" value={fmtBytes(sm.failsafe_bytes)} />
+            )}
+          </div>
+          {sm.last_ddl_at && (
+            <p className="text-[10px] text-gray-400 mt-1">
+              Last DDL: {new Date(sm.last_ddl_at).toLocaleDateString()}
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Recompute */}
       <div>
         <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={onRecompute} disabled={recomputing}>
@@ -416,9 +482,13 @@ function ProductTierCard({ tier }: { tier: Object360Response['tiers']['product']
         <Package className="h-8 w-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
         <p className="text-xs text-gray-500 mb-1">No product match detected</p>
         {tier.hint && <p className="text-[10px] text-gray-400">{tier.hint}</p>}
-        <Button size="sm" variant="outline" className="mt-3 gap-1.5">
-          <Plus className="h-3 w-3" />Create Product
-        </Button>
+        {/* Was a no-op button; product creation/curation lives on the Data
+            Products surface, so hand off there instead of a dead control. */}
+        <Link href="/data-products">
+          <Button size="sm" variant="outline" className="mt-3 gap-1.5">
+            <Plus className="h-3 w-3" />Create Product
+          </Button>
+        </Link>
       </div>
     );
   }
@@ -537,6 +607,17 @@ function ScoreChip({ label, value, compact }: { label: string; value: number | n
       {Math.round(value)}
     </span>
   );
+}
+
+function fmtBytes(n: number): string {
+  if (!n || n <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function fmtScore(n: number | null): string {
+  return n == null ? '—' : String(Math.round(n));
 }
 
 function MiniStat({ label, value, alert }: { label: string; value: string | number; alert?: boolean }) {

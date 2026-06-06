@@ -141,6 +141,21 @@ export interface Recommendation {
   explanation: string;
   expected_gain: string;
   status: string;
+  // Actual wire field names. Both /catalog/recommendations
+  // (recommendations_facade.list_recommendations_for_scope) and the embedded
+  // object_360 recommendations (object_360._open_recommendations_for_object)
+  // SELECT the raw AI_RECOMMENDATIONS columns aliased as feature / rationale /
+  // estimated_savings_usd — NOT category / explanation / expected_gain. The
+  // legacy names above are kept for back-compat with existing consumers but are
+  // never populated at runtime; read these and fall back to the legacy names.
+  feature?: string;
+  rationale?: string;
+  estimated_savings_usd?: number | null;
+  proposed_action?: string | null;
+  proposed_sql?: string | null;
+  drilldown_url?: string | null;
+  target?: string | null;
+  first_detected_at?: string | null;
 }
 
 export interface ObjectAction {
@@ -174,6 +189,25 @@ export interface Object360Response {
     profiling_columns_with_nulls: number | null;
   };
   persisted_scores: PersistedScores | null;
+  // Additive per-object Snowflake metadata (catalog/services/snowflake_metrics.
+  // object_storage_metadata). Live INFORMATION_SCHEMA (owner/clustering/
+  // retention/last DDL) and ACCOUNT_USAGE storage split populate independently
+  // and either can be absent — every field is optional; the block is null when
+  // both sources are unreachable.
+  snowflake_metadata: {
+    table_type?: string | null;
+    owner?: string | null;
+    clustering_key?: string | null;
+    retention_time_days?: number | null;
+    last_ddl_at?: string | null;
+    created_at?: string | null;
+    last_altered_at?: string | null;
+    comment?: string | null;
+    active_bytes?: number | null;
+    time_travel_bytes?: number | null;
+    failsafe_bytes?: number | null;
+    total_storage_bytes?: number | null;
+  } | null;
   usage: any | null;
   finops: {
     queries_last_30d: number;
@@ -241,13 +275,19 @@ export interface ApplyRecoResponse {
 
 export interface RefreshResponse {
   run_id: string;
-  status: 'running' | 'succeeded' | 'failed';
+  // POST /catalog/refresh (start_refresh) returns "queued"; GET /catalog/
+  // refresh/{run_id} (get_refresh_status) reconstructs running/partial/
+  // succeeded/failed, or "unknown" when the run's events are absent.
+  status: 'queued' | 'running' | 'partial' | 'succeeded' | 'failed' | 'unknown';
   scope_type?: string;
   scope_value?: string;
   objects_discovered?: number;
   objects_scored?: number;
+  objects_failed?: number;
+  error_log?: Array<{ fqn: string; error: string }> | null;
   started_at?: string;
   completed_at?: string;
+  source?: string;
 }
 
 // ---------------------------------------------------------------------------

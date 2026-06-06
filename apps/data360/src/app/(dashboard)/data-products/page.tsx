@@ -135,9 +135,17 @@ function DataProductsPage() {
     setSubscribing(productId);
     setSubscribeError(null);
     try {
-      await subscribeToProduct(productId);
+      const res = await subscribeToProduct(productId);
+      // Use the authoritative post-subscribe count the backend returns (the
+      // `CONSUMERS` column, the same field the list endpoint exposes). The server
+      // increments idempotently — re-subscribing an already-granted account does
+      // NOT bump the count — so a blind optimistic +1 over-counts on repeat
+      // subscribes. Fall back to an optimistic increment only if the backend
+      // omits the count.
       setProducts((prev) => prev.map((p) =>
-        p.PRODUCT_ID === productId ? { ...p, CONSUMERS: (p.CONSUMERS ?? 0) + 1 } : p
+        p.PRODUCT_ID === productId
+          ? { ...p, CONSUMERS: res.consumers ?? (p.CONSUMERS ?? 0) + 1 }
+          : p
       ));
     } catch (err) {
       setSubscribeError({ id: productId, message: getApiErrorMessage(err) });
@@ -470,6 +478,18 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
   const subscribePerm = useCanPerform('data_products', 'subscribe');
   const canSubscribe = subscribePerm.allowed || subscribePerm.loading;
 
+  // Subscribe requires a PUBLISHED product (the backend 409s on a DRAFT with no
+  // SHARE_NAME). Gate the affordance on the backend-derived `is_published`,
+  // falling back to a raw STATUS check when an older backend omits the field, so
+  // the button isn't offered on products that can't accept subscribers yet.
+  const isPublished =
+    product.is_published ?? (product.STATUS || '').toUpperCase() === 'PUBLISHED';
+  const subscribeDisabledReason = !canSubscribe
+    ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.'
+    : !isPublished
+      ? 'Not published yet — publish this product as a Snowflake share first to enable subscriptions.'
+      : undefined;
+
   const qualityColor = product.QUALITY_THRESHOLD >= 90
     ? 'text-emerald-600 dark:text-emerald-400'
     : product.QUALITY_THRESHOLD >= 70
@@ -551,8 +571,8 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
         <Button
           size="sm"
           className="h-7 text-xs gap-1 px-2 bg-blue-600 hover:bg-blue-700 text-white"
-          disabled={subscribing || !canSubscribe}
-          title={!canSubscribe ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.' : undefined}
+          disabled={subscribing || !canSubscribe || !isPublished}
+          title={subscribeDisabledReason}
           onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
         >
           {subscribing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}

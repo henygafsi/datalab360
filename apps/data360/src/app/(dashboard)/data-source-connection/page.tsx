@@ -271,7 +271,29 @@ type StageConnection = {
     schema_name?: string;
     database_name?: string;
     connector_type?: string | null;
+    // additive: real freshness from GET /connect/stages (list_stages) — replaces the cosmetic "Active" dot
+    freshness_status?: 'active' | 'stale' | 'unknown' | null;
+    age_hours?: number | null;
 };
+
+// Derive the connection-card freshness indicator from the stage's real
+// freshness_status / age_hours (list_stages), instead of a hardcoded "Active".
+function stageFreshnessView(
+    status?: string | null,
+    ageHours?: number | null,
+): { dot: string; text: string; label: string; pulse: boolean } {
+    const ageLabel =
+        typeof ageHours === 'number'
+            ? ageHours < 1 ? 'just now' : ageHours < 24 ? `${Math.round(ageHours)}h ago` : `${Math.round(ageHours / 24)}d ago`
+            : null;
+    if (status === 'active') {
+        return { dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400', label: ageLabel ? `Active · ${ageLabel}` : 'Active', pulse: true };
+    }
+    if (status === 'stale') {
+        return { dot: 'bg-amber-400', text: 'text-amber-600 dark:text-amber-400', label: ageLabel ? `Idle · ${ageLabel}` : 'Idle', pulse: false };
+    }
+    return { dot: 'bg-slate-400', text: 'text-slate-500 dark:text-slate-400', label: 'Unknown', pulse: false };
+}
 
 // Snowflake integration property keys surfaced by getIntegrationDetails(). The
 // backend may return them either at the top level or nested under `properties`
@@ -468,6 +490,8 @@ export default function DataSourceConnectionPage() {
           schema_name: s.schema_name,
           database_name: s.database_name,
           connector_type: s.connector_type || null,
+          freshness_status: s.freshness_status ?? null,
+          age_hours: typeof s.age_hours === 'number' ? s.age_hours : null,
         }));
       setActiveConnections(connections);
     } catch (err) {
@@ -2874,10 +2898,15 @@ export default function DataSourceConnectionPage() {
                                                             <span className="truncate">{conn.schema_name}</span>
                                                         </div>
                                                     )}
-                                                    <div className="flex items-center text-green-600 dark:text-green-400 mt-2">
-                                                        <div className="h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
-                                                        <span>Active</span>
-                                                    </div>
+                                                    {(() => {
+                                                        const fv = stageFreshnessView(conn.freshness_status, conn.age_hours);
+                                                        return (
+                                                            <div className={`flex items-center mt-2 ${fv.text}`}>
+                                                                <div className={`h-2 w-2 rounded-full mr-2 ${fv.dot}${fv.pulse ? ' animate-pulse' : ''}`}></div>
+                                                                <span>{fv.label}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         ))}

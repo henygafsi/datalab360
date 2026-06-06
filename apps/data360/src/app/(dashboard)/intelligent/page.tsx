@@ -61,6 +61,8 @@ interface CortexSemanticView {
 }
 
 interface CortexVectorColumn {
+  schema_name?: string;
+  SCHEMA_NAME?: string;
   table_name?: string;
   TABLE_NAME?: string;
   column_name?: string;
@@ -193,6 +195,14 @@ export default function IntelligentPage() {
     { cacheKeys: [CACHE_KEYS.CORTEX] }
   );
   const kpisError = kpisErrorObj?.message ?? null;
+  // Real Cortex spend (additive block from /cortex/kpis). Absent unless the
+  // ACCOUNT_USAGE grant + usage view are available; render only when present.
+  const cortexUsage = kpis?.cortex_usage ?? null;
+  const hasCortexUsage =
+    cortexUsage != null &&
+    (cortexUsage.total_credits != null ||
+      cortexUsage.total_tokens != null ||
+      cortexUsage.total_calls != null);
 
   // ── Cortex Agents via useCacheAwareQuery ──
   const fetchAgents = useCallback(async () => {
@@ -226,6 +236,19 @@ export default function IntelligentPage() {
     { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'vector-search', initialData: [] }
   );
   const vectorColumnsError = vectorColumnsErrorObj?.message ?? null;
+  // Distinct (schema.table) pairs holding a vector column — derived from the
+  // rows already fetched, so no extra request and no contract change.
+  const tablesWithVectors = useMemo(() => {
+    const cols = vectorColumns ?? [];
+    if (cols.length === 0) return 0;
+    const tables = new Set<string>();
+    for (const c of cols) {
+      const schema = c.SCHEMA_NAME ?? c.schema_name ?? '';
+      const table = c.TABLE_NAME ?? c.table_name ?? '';
+      if (table) tables.add(`${schema}.${table}`);
+    }
+    return tables.size;
+  }, [vectorColumns]);
 
   return (
     <ErrorBoundary>
@@ -301,6 +324,39 @@ export default function IntelligentPage() {
           loading={kpisLoading}
         />
       </div>
+
+      {/* Real Cortex spend strip — additive, scalars only, hidden when absent */}
+      {hasCortexUsage && cortexUsage && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 text-sm">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
+            Cortex usage{cortexUsage.period_days ? ` · last ${cortexUsage.period_days}d` : ''}
+          </span>
+          {cortexUsage.total_credits != null && (
+            <span className="text-gray-500 dark:text-gray-400">
+              Credits{' '}
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {cortexUsage.total_credits.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </span>
+            </span>
+          )}
+          {cortexUsage.total_tokens != null && (
+            <span className="text-gray-500 dark:text-gray-400">
+              Tokens{' '}
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {cortexUsage.total_tokens.toLocaleString()}
+              </span>
+            </span>
+          )}
+          {cortexUsage.total_calls != null && (
+            <span className="text-gray-500 dark:text-gray-400">
+              Calls{' '}
+              <span className="font-semibold text-gray-900 dark:text-white">
+                {cortexUsage.total_calls.toLocaleString()}
+              </span>
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Main Content Card with Tabs */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-muted dark:border-gray-700 shadow-sm overflow-hidden">
@@ -597,7 +653,14 @@ export default function IntelligentPage() {
                 <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 flex items-center justify-between">
                     <h4 className="text-sm font-medium text-gray-900 dark:text-white">Vector Columns</h4>
-                    <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">{(vectorColumns ?? []).length} columns</Badge>
+                    <div className="flex items-center gap-2">
+                      {tablesWithVectors > 0 && (
+                        <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">
+                          {tablesWithVectors} {tablesWithVectors === 1 ? 'table' : 'tables'}
+                        </Badge>
+                      )}
+                      <Badge className="bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300 text-xs">{(vectorColumns ?? []).length} columns</Badge>
+                    </div>
                   </div>
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50/50 dark:bg-gray-800/50">

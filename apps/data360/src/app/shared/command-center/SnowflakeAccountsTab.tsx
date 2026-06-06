@@ -83,6 +83,22 @@ function fmtBytes(b: number | null | undefined): string {
   return `${b} B`;
 }
 
+/** Credit values are usually small decimals — keep one decimal, abbreviate large totals. */
+function fmtCredits(n: number | null | undefined): string {
+  if (n == null) return '—';
+  if (n >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(1)}k`;
+  return n.toFixed(1);
+}
+
+/** Execution-time helper: ms → ms/s/m. */
+function fmtMs(ms: number | null | undefined): string {
+  if (ms == null) return '—';
+  if (ms >= 60000) return `${(ms / 60000).toFixed(1)}m`;
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+
 /**
  * Detect an API error envelope returned as 200 OK ({error_code, message} or
  * {success:false}). `/org-accounts/accounts` returns this when the current
@@ -204,6 +220,8 @@ export default function SnowflakeAccountsTab() {
     [warehouseRows],
   );
 
+  // Single 24h failed-login window, reused by the KPI strip and both Health
+  // tiles (login "errors" here are exactly the failed login attempts).
   const failedLogins24h = useMemo(() => {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
     return loginRows.reduce((acc: number, r: any) => {
@@ -220,28 +238,27 @@ export default function SnowflakeAccountsTab() {
     }, 0);
   }, [loginRows]);
 
-  const errors24h = useMemo(() => {
-    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return loginRows.reduce((acc: number, r: any) => {
-      const status = String(
-        r?.is_success ?? r?.status ?? r?.event_status ?? '',
-      ).toUpperCase();
-      const ts = r?.event_timestamp ?? r?.timestamp;
-      const tsMs = ts ? new Date(ts).getTime() : NaN;
-      const isErr =
-        status === 'FAIL' || status === 'FAILED' || status === 'FALSE' ||
-        status === 'NO' || r?.is_success === false || r?.error_code != null;
-      const inWindow = Number.isFinite(tsMs) && tsMs >= cutoff;
-      return acc + (isErr && inWindow ? 1 : 0);
-    }, 0);
-  }, [loginRows]);
-
   const accountSummary = state.detail?.account ?? null;
   const storage = state.detail?.storage ?? null;
+  const credits = state.detail?.credits ?? null;
+  const queries = state.detail?.queries ?? null;
+  const loginsSummary = state.detail?.logins ?? null;
+  const detailWarehouses = state.detail?.warehouses ?? [];
   const accountParams = (accountSummary as any)?.parameters as
     | Record<string, unknown>
     | null
     | undefined;
+
+  // Real "uptime" proxy: time the account has been active, measured from the
+  // first observed login (detail.logins.first_login) to now.
+  const uptimeLabel = useMemo(() => {
+    const first = loginsSummary?.first_login;
+    if (!first) return '—';
+    const t = new Date(first).getTime();
+    if (!Number.isFinite(t)) return '—';
+    const days = Math.max(0, Math.floor((Date.now() - t) / 86400000));
+    return `${days}d`;
+  }, [loginsSummary]);
 
   const selectedAccount = useMemo(
     () =>
@@ -527,6 +544,92 @@ export default function SnowflakeAccountsTab() {
         </table>
       </section>
 
+      {/* Query activity + Login summary */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+            <Activity className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Query Activity (30d)
+            </h3>
+          </header>
+          {queries ? (
+            <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-3">
+              <StatStripItem label="Queries" value={fmt(queries.query_count)} />
+              <StatStripItem label="Unique users" value={fmt(queries.unique_users)} />
+              <StatStripItem label="Avg exec" value={fmtMs(queries.avg_execution_time_ms)} />
+              <StatStripItem label="Max exec" value={fmtMs(queries.max_execution_time_ms)} />
+              <StatStripItem label="Bytes scanned" value={fmtBytes(queries.total_bytes_scanned)} />
+              <StatStripItem label="Rows produced" value={fmt(queries.total_rows_produced)} />
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-center text-xs text-slate-400">
+              {state.loadingDetail ? 'Loading…' : 'No query activity in the last 30 days.'}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+          <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+            <Users className="h-4 w-4 text-slate-500" />
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+              Login Summary (30d)
+            </h3>
+          </header>
+          {loginsSummary ? (
+            <div className="space-y-3 p-4">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <StatStripItem label="Unique users" value={fmt(loginsSummary.unique_users)} />
+                <StatStripItem label="Total logins" value={fmt(loginsSummary.total_logins)} />
+                <StatStripItem label="Successful" value={fmt(loginsSummary.successful_logins)} />
+                <StatStripItem label="Failed" value={fmt(loginsSummary.failed_logins)} />
+              </div>
+              {(() => {
+                const total = loginsSummary.total_logins ?? 0;
+                const ok = loginsSummary.successful_logins ?? 0;
+                const fail = loginsSummary.failed_logins ?? 0;
+                const okPct = total > 0 ? (ok / total) * 100 : 0;
+                const failPct = total > 0 ? (fail / total) * 100 : 0;
+                return (
+                  <div>
+                    <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                      <div
+                        className="h-full bg-emerald-500"
+                        style={{ width: `${okPct}%` }}
+                        title={`Successful: ${fmt(ok)}`}
+                      />
+                      <div
+                        className="h-full bg-rose-500"
+                        style={{ width: `${failPct}%` }}
+                        title={`Failed: ${fmt(fail)}`}
+                      />
+                    </div>
+                    <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                      <span>{okPct.toFixed(0)}% success</span>
+                      <span>{failPct.toFixed(0)}% failed</span>
+                    </div>
+                  </div>
+                );
+              })()}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                <dt className="text-slate-500">First login</dt>
+                <dd className="truncate text-slate-700 dark:text-slate-200" title={loginsSummary.first_login ?? ''}>
+                  {loginsSummary.first_login || '—'}
+                </dd>
+                <dt className="text-slate-500">Last login</dt>
+                <dd className="truncate text-slate-700 dark:text-slate-200" title={loginsSummary.last_login ?? ''}>
+                  {loginsSummary.last_login || '—'}
+                </dd>
+              </dl>
+            </div>
+          ) : (
+            <div className="px-4 py-6 text-center text-xs text-slate-400">
+              {state.loadingDetail ? 'Loading…' : 'No login summary for the last 30 days.'}
+            </div>
+          )}
+        </section>
+      </div>
+
       {/* Health & SLA */}
       <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
@@ -539,7 +642,7 @@ export default function SnowflakeAccountsTab() {
           <HealthTile
             icon={CheckCircle2}
             label="Uptime"
-            value="—"
+            value={uptimeLabel}
             tone="ok"
           />
           <HealthTile
@@ -551,14 +654,30 @@ export default function SnowflakeAccountsTab() {
           <HealthTile
             icon={Activity}
             label="Errors 24h"
-            value={fmt(errors24h)}
-            tone={errors24h > 0 ? 'warn' : 'ok'}
+            value={fmt(failedLogins24h)}
+            tone={failedLogins24h > 0 ? 'warn' : 'ok'}
           />
         </div>
       </section>
 
       {/* Cost chart */}
-      <ChartPanel title="Credit history (30d)" icon={CreditCard}>
+      <ChartPanel
+        title={`Credit history — ${state.selected ?? ''} (30d)`}
+        icon={CreditCard}
+      >
+        {credits && (
+          <div className="mb-3 flex flex-wrap gap-2 text-xs">
+            <span className="rounded-md bg-slate-100 px-2 py-1 font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-200">
+              Total {fmtCredits(credits.total_credits)}
+            </span>
+            <span className="rounded-md bg-blue-50 px-2 py-1 font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              Compute {fmtCredits(credits.compute_credits)}
+            </span>
+            <span className="rounded-md bg-violet-50 px-2 py-1 font-medium text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              Cloud services {fmtCredits(credits.cloud_services_credits)}
+            </span>
+          </div>
+        )}
         <ResponsiveContainer width="100%" height={220}>
           <LineChart data={creditSeries}>
             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -597,6 +716,56 @@ export default function SnowflakeAccountsTab() {
         </ResponsiveContainer>
       </ChartPanel>
 
+      {/* Warehouse credit breakdown (from account detail) */}
+      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
+          <Zap className="h-4 w-4 text-slate-500" />
+          <h3 className="text-sm font-semibold text-slate-900 dark:text-white">
+            Warehouse Credit Breakdown (30d)
+          </h3>
+          <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+            {detailWarehouses.length}
+          </span>
+        </header>
+        <div className="max-h-72 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800/50">
+              <tr>
+                <th className="px-3 py-2 text-left">Warehouse</th>
+                <th className="px-3 py-2 text-right">Compute</th>
+                <th className="px-3 py-2 text-right">Cloud svcs</th>
+                <th className="px-3 py-2 text-right">Metering (h)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {detailWarehouses.map((w, i) => (
+                <tr key={`${w.warehouse_name}-${i}`} className="hover:bg-slate-50 dark:hover:bg-slate-800">
+                  <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">
+                    {w.warehouse_name || '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
+                    {fmtCredits(w.compute_credits)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
+                    {fmtCredits(w.cloud_credits)}
+                  </td>
+                  <td className="px-3 py-1.5 text-right text-slate-900 dark:text-white">
+                    {w.metering_hours == null ? '—' : w.metering_hours.toFixed(1)}
+                  </td>
+                </tr>
+              ))}
+              {!state.loadingDetail && detailWarehouses.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-400">
+                    No warehouse credit usage in the last 30 days.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       {/* Recent logins */}
       <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
         <header className="flex items-center gap-2 border-b px-4 py-3 dark:border-slate-700">
@@ -615,7 +784,9 @@ export default function SnowflakeAccountsTab() {
                 <th className="px-3 py-2 text-left">When</th>
                 <th className="px-3 py-2 text-left">User</th>
                 <th className="px-3 py-2 text-left">Client</th>
-                <th className="px-3 py-2 text-right">Status</th>
+                <th className="px-3 py-2 text-left">Client IP</th>
+                <th className="px-3 py-2 text-center">Status</th>
+                <th className="px-3 py-2 text-left">Error</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -633,7 +804,10 @@ export default function SnowflakeAccountsTab() {
                   <td className="px-3 py-1.5 text-xs text-slate-500">
                     {row.client_application ?? '—'}
                   </td>
-                  <td className="px-3 py-1.5 text-right">
+                  <td className="px-3 py-1.5 font-mono text-xs text-slate-500">
+                    {row.client_ip ?? '—'}
+                  </td>
+                  <td className="px-3 py-1.5 text-center">
                     <span
                       className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
                         row.is_success === false || row.error_code
@@ -646,12 +820,18 @@ export default function SnowflakeAccountsTab() {
                         : 'success'}
                     </span>
                   </td>
+                  <td
+                    className="max-w-[18rem] truncate px-3 py-1.5 text-xs text-slate-500"
+                    title={row.error_message ?? row.error_code ?? ''}
+                  >
+                    {row.error_message ?? row.error_code ?? '—'}
+                  </td>
                 </tr>
               ))}
               {!state.loadingDetail && loginRows.length === 0 && (
                 <tr>
                   <td
-                    colSpan={4}
+                    colSpan={6}
                     className="px-3 py-6 text-center text-xs text-slate-400"
                   >
                     No login history in the last 30 days.
@@ -684,6 +864,23 @@ function KpiCard({
         <Icon className="h-3.5 w-3.5 text-slate-400" />
       </div>
       <div className="mt-1 truncate text-lg font-semibold text-slate-900 dark:text-white">
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatStripItem({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
+      <div className="text-[11px] text-slate-500">{label}</div>
+      <div className="mt-0.5 truncate text-sm font-semibold text-slate-900 dark:text-white">
         {value}
       </div>
     </div>

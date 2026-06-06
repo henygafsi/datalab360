@@ -26,6 +26,16 @@ function severityClasses(severity?: string): string {
   return 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300';
 }
 
+/** Cross-module alerts carry `timestamp`; threshold alerts carry none. */
+function fmtTimestamp(ts?: string): string {
+  return ts ? ts.replace('T', ' ').split('.')[0] : '—';
+}
+
+/** Category falls back across the two backend alert shapes. */
+function alertCategory(a: ObservabilityAlert): string {
+  return a.category ?? a.alert_type ?? a.type ?? a.source_module ?? '—';
+}
+
 export default function AlertsPage() {
   const [scope, setScope] = useState<'all' | 'cross-module'>('all');
   const [alerts, setAlerts] = useState<ObservabilityAlert[]>([]);
@@ -146,12 +156,12 @@ export default function AlertsPage() {
                   <td className="px-3 py-2 font-medium text-gray-900 dark:text-white">
                     {a.title ?? a.message ?? '—'}
                   </td>
-                  <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{a.category ?? '—'}</td>
+                  <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{alertCategory(a)}</td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-600 dark:text-gray-400">
                     {a.resource ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">
-                    {a.detected_at ? a.detected_at.replace('T', ' ').split('.')[0] : '—'}
+                    {fmtTimestamp(a.detected_at ?? a.timestamp)}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <Button
@@ -188,13 +198,23 @@ export default function AlertsPage() {
               </Badge>
             </div>
             <div>
+              <p className="text-xs uppercase tracking-wide text-gray-400">Category</p>
+              <p className="text-gray-800 dark:text-gray-200">{alertCategory(selected)}</p>
+            </div>
+            {selected.source_module && (
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-400">Source module</p>
+                <p className="text-gray-800 dark:text-gray-200">{selected.source_module}</p>
+              </div>
+            )}
+            <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Resource</p>
               <p className="font-mono text-gray-800 dark:text-gray-200">{selected.resource ?? '—'}</p>
             </div>
             <div>
               <p className="text-xs uppercase tracking-wide text-gray-400">Detected</p>
               <p className="text-gray-800 dark:text-gray-200">
-                {selected.detected_at ? selected.detected_at.replace('T', ' ').split('.')[0] : '—'}
+                {fmtTimestamp(selected.detected_at ?? selected.timestamp)}
               </p>
             </div>
             <div>
@@ -203,6 +223,14 @@ export default function AlertsPage() {
                 {selected.description ?? selected.message ?? '—'}
               </p>
             </div>
+            {selected.suggested_action && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-950/30">
+                <p className="text-xs uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                  Suggested action
+                </p>
+                <p className="mt-0.5 text-gray-700 dark:text-gray-300">{selected.suggested_action}</p>
+              </div>
+            )}
           </div>
         )}
       </ActionRail>

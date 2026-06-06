@@ -494,76 +494,153 @@ export async function listConnectors(): Promise<{ connectors: ConnectorInfo[] }>
 
 // --- Connector health (GET /connect/connectors/health) ---
 
-/** Normalized health verdict for a single connector / integration. */
+/** Normalized health verdict for a single stage / pipe. */
 export interface ConnectorHealthItem {
     id: string;
     name: string;
-    /** Coarse status used to colour the strip; 'unknown' when the backend omits it. */
-    status: 'healthy' | 'degraded' | 'down' | 'unknown';
+    /** Whether this row is a storage stage or a Snowpipe. */
+    kind: 'stage' | 'pipe';
+    /**
+     * Per-item verdict driving the dot colour:
+     * - `healthy`  active stage / running pipe
+     * - `degraded` paused pipe (ingestion stopped — actionable)
+     * - `stale`    stage with no activity in 24h (informational, not an alarm)
+     * - `down`     reserved for hard failures (this endpoint reports none per-item)
+     * - `unknown`  age could not be determined
+     */
+    status: 'healthy' | 'degraded' | 'down' | 'stale' | 'unknown';
     detail?: string;
     last_checked?: string | null;
 }
 
-export interface ConnectorsHealthSummary {
-    items: ConnectorHealthItem[];
-    healthy: number;
-    degraded: number;
-    down: number;
-    total: number;
+/** 7-day ingestion / load / task roll-ups (source: SNOWFLAKE.ACCOUNT_USAGE). */
+export interface ConnectorHealthMetrics {
+    files_inserted_7d: number;
+    bytes_inserted_7d: number;
+    credits_used_7d: number;
+    active_pipes: number;
+    failed_loads_7d: number;
+    row_errors_7d: number;
+    tasks_failed_1d: number;
 }
 
-/** Map an arbitrary backend status token onto our coarse verdict. */
-function coerceHealthStatus(raw: unknown): ConnectorHealthItem['status'] {
-    const s = String(raw ?? '').toLowerCase();
-    if (['healthy', 'ok', 'up', 'connected', 'online', 'pass', 'passing', 'green'].includes(s)) return 'healthy';
-    if (['degraded', 'warning', 'warn', 'partial', 'slow', 'amber', 'yellow'].includes(s)) return 'degraded';
-    if (['down', 'error', 'failed', 'failing', 'unhealthy', 'disconnected', 'offline', 'red'].includes(s)) return 'down';
-    return 'unknown';
+export interface ConnectorsHealthSummary {
+    items: ConnectorHealthItem[];
+    /** active stages + running pipes */
+    healthy: number;
+    /** paused pipes (actionable) */
+    degraded: number;
+    /** hard per-item failures (currently always 0 — the endpoint has no per-item failure signal) */
+    down: number;
+    /** stale stages (informational, excluded from the alarm verdict) */
+    stale: number;
+    total: number;
+    total_stages: number;
+    total_pipes: number;
+    metrics: ConnectorHealthMetrics;
+    /** Overall verdict: red only on real load/task failures, amber on paused pipes. */
+    overall: 'healthy' | 'degraded' | 'down' | 'unknown';
+}
+
+function healthNum(v: unknown): number {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : 0;
 }
 
 /**
- * Fetch connector / integration health. The backend response shape is not
- * contractually pinned (no existing consumer), so we defensively accept either
- * `{ connectors: [...] }`, `{ items: [...] }`, `{ health: {...} }` or a bare
- * array, and normalize to a stable summary the UI can always render.
+ * Fetch the connector-health roll-up. Parses the real backend contract
+ * (`api_connector_health`): `{ stages[], pipes[], total_stages, total_pipes,
+ * healthy, stale, ingestion_7d, loads_7d, tasks_1d }`. Stages map
+ * active→healthy / stale→stale / else→unknown; pipes map running→healthy /
+ * paused→degraded. The overall verdict is driven by real failure signals
+ * (failed loads, row errors, failed tasks), so ordinary stage staleness never
+ * forces the strip into a red/amber alarm.
  */
 export async function getConnectorsHealth(): Promise<ConnectorsHealthSummary> {
     try {
         const response = await apiClient.get('/connect/connectors/health');
-        const raw = response.data;
-        const list: unknown[] = Array.isArray(raw)
-            ? raw
-            : Array.isArray(raw?.connectors) ? raw.connectors
-            : Array.isArray(raw?.items) ? raw.items
-            : Array.isArray(raw?.health) ? raw.health
-            : raw && typeof raw === 'object'
-                // Object keyed by connector id → flatten to entries.
-                ? Object.entries(raw as Record<string, unknown>)
-                    .filter(([, v]) => v && typeof v === 'object')
-                    .map(([k, v]) => ({ id: k, ...(v as Record<string, unknown>) }))
-                : [];
+        const raw = (response.data ?? {}) as Record<string, unknown>;
 
-        const items: ConnectorHealthItem[] = list.map((entry, i) => {
-            const e = (entry ?? {}) as Record<string, unknown>;
-            const id = String(e.id ?? e.connector_id ?? e.name ?? `connector-${i}`);
+        const stages = Array.isArray(raw.stages) ? (raw.stages as Record<string, unknown>[]) : [];
+        const pipes = Array.isArray(raw.pipes) ? (raw.pipes as Record<string, unknown>[]) : [];
+
+        const stageItems: ConnectorHealthItem[] = stages.map((s, i) => {
+            const st = String(s.status ?? '').toLowerCase();
+            const status: ConnectorHealthItem['status'] =
+                st === 'active' ? 'healthy' : st === 'stale' ? 'stale' : 'unknown';
+            const name = String(s.name ?? `stage-${i}`);
+            const ageRaw = s.age_hours;
+            const detail =
+                typeof ageRaw === 'number'
+                    ? status === 'stale'
+                        ? `No activity for ${Math.round(ageRaw)}h`
+                        : `Updated ${Math.round(ageRaw)}h ago`
+                    : 'Last activity unknown';
             return {
-                id,
-                name: String(e.name ?? e.connector ?? e.id ?? id),
-                status: coerceHealthStatus(e.status ?? e.health ?? e.state),
-                detail: typeof e.detail === 'string' ? e.detail
-                    : typeof e.message === 'string' ? e.message
-                    : typeof e.error === 'string' ? e.error
-                    : undefined,
-                last_checked: (e.last_checked ?? e.checked_at ?? e.last_check ?? null) as string | null,
+                id: `stage:${String(s.schema ?? '')}.${name}`,
+                name,
+                kind: 'stage',
+                status,
+                detail,
+                last_checked: (s.last_altered as string | null) ?? null,
             };
         });
 
+        const pipeItems: ConnectorHealthItem[] = pipes.map((p, i) => {
+            const st = String(p.status ?? '').toLowerCase();
+            const status: ConnectorHealthItem['status'] = st === 'running' ? 'healthy' : 'degraded';
+            const name = String(p.name ?? `pipe-${i}`);
+            return {
+                id: `pipe:${String(p.schema ?? '')}.${name}`,
+                name,
+                kind: 'pipe',
+                status,
+                detail: status === 'degraded' ? 'Snowpipe paused' : 'Snowpipe running',
+                last_checked: (p.last_loaded as string | null) ?? null,
+            };
+        });
+
+        // Pipes first so the actionable rows surface within any display cap.
+        const items = [...pipeItems, ...stageItems];
+
+        const ingestion = (raw.ingestion_7d ?? {}) as Record<string, unknown>;
+        const loads = (raw.loads_7d ?? {}) as Record<string, unknown>;
+        const tasks = (raw.tasks_1d ?? {}) as Record<string, unknown>;
+        const metrics: ConnectorHealthMetrics = {
+            files_inserted_7d: healthNum(ingestion.files_inserted),
+            bytes_inserted_7d: healthNum(ingestion.bytes_inserted),
+            credits_used_7d: healthNum(ingestion.credits_used),
+            active_pipes: healthNum(ingestion.active_pipes),
+            failed_loads_7d: healthNum(loads.failed_loads),
+            row_errors_7d: healthNum(loads.row_errors),
+            tasks_failed_1d: healthNum(tasks.failed),
+        };
+
+        const healthy = items.filter((x) => x.status === 'healthy').length;
+        const degraded = items.filter((x) => x.status === 'degraded').length;
+        const stale = items.filter((x) => x.status === 'stale').length;
+        const hasFailures =
+            metrics.failed_loads_7d > 0 || metrics.row_errors_7d > 0 || metrics.tasks_failed_1d > 0;
+
+        const overall: ConnectorsHealthSummary['overall'] = hasFailures
+            ? 'down'
+            : degraded > 0
+                ? 'degraded'
+                : healthy > 0
+                    ? 'healthy'
+                    : 'unknown';
+
         return {
             items,
-            healthy: items.filter((x) => x.status === 'healthy').length,
-            degraded: items.filter((x) => x.status === 'degraded').length,
-            down: items.filter((x) => x.status === 'down').length,
+            healthy,
+            degraded,
+            down: 0,
+            stale,
             total: items.length,
+            total_stages: healthNum(raw.total_stages) || stages.length,
+            total_pipes: healthNum(raw.total_pipes) || pipes.length,
+            metrics,
+            overall,
         };
     } catch (error) {
         throw new Error(extractErrorMessage(error, 'Failed to load connector health'));

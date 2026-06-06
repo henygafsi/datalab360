@@ -1602,7 +1602,11 @@ function CommandCenterDashboardInner() {
       }
       setSecurityData(data);
       setLastUpdated(new Date());
-      tabDataCache.current['security-adv'] = {
+      // Cache key must match the tab id read by the switch effect
+      // (`tabDataCache.current[activeTab]`). The Security tab id is 'security'
+      // (see tabs[]), so writing under 'security-adv' meant the 2-min cache
+      // never hit and every visit refetched (and remounted the audit tables).
+      tabDataCache.current['security'] = {
         data: true,
         timestamp: Date.now(),
         filtersKey: buildFiltersKey(filters),
@@ -1709,7 +1713,9 @@ function CommandCenterDashboardInner() {
         cortex_total: cortexCredits,
       } as CostBreakdownResponse);
       setLastUpdated(new Date());
-      tabDataCache.current['cost'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
+      // Cache key must match the tab id ('finops', see tabs[]) read by the
+      // switch effect; writing under 'cost' meant the 2-min cache never hit.
+      tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
@@ -2140,7 +2146,7 @@ function CommandCenterDashboardInner() {
               </Suspense>
             )}
             {activeTab === 'finops' && (
-              <CostTab data={costData} loading={tabLoading.cost} />
+              <CostTab data={costData} loading={tabLoading.cost} days={filters.days} />
             )}
             {activeTab === 'modules' && (
               <Suspense fallback={<LoadingSection />}>
@@ -2615,6 +2621,50 @@ const OverviewTab = memo(function OverviewTab({
     return `${d.toLocaleDateString()} (${diffDays >= 0 ? `${diffDays}d left` : `${Math.abs(diffDays)}d ago`})`;
   })();
 
+  // ── P1 zero-cost derived KPIs (all fields already in the response types).
+  //    kpis-derived values respect the `provisioned` gate at render; summary-
+  //    derived ones guard on the relevant sub-object existing. Every ratio
+  //    guards its denominator so a 0 never renders as "NaN%". ──────────────
+  const fmtBytes = (b: number): string => {
+    if (!b || b <= 0) return '0 B';
+    const tb = b / 1024 ** 4;
+    if (tb >= 1) return `${tb.toFixed(2)} TB`;
+    const gb = b / 1024 ** 3;
+    if (gb >= 1) return `${gb.toFixed(2)} GB`;
+    const mb = b / 1024 ** 2;
+    if (mb >= 1) return `${mb.toFixed(1)} MB`;
+    const kb = b / 1024;
+    if (kb >= 1) return `${kb.toFixed(1)} KB`;
+    return `${Math.round(b)} B`;
+  };
+  const deploySuccessRate = (() => {
+    const total = safeNum(kpis?.deployments_30d, 0);
+    const failed = safeNum(kpis?.deployments_30d_failed, 0);
+    // null (not 0) when there's nothing to report — the Overview tab renders
+    // "—" rather than a fake 0% (which would read as "everything failed").
+    return total > 0 ? Math.round(((total - failed) / total) * 100) : null;
+  })();
+  const taskFailureRate = (() => {
+    const total = safeNum(kpis?.workflow_runs_24h, 0);
+    const failed = safeNum(kpis?.workflow_runs_24h_failed, 0);
+    return total > 0 ? Math.round((failed / total) * 100) : null;
+  })();
+  const adoptionRate = (() => {
+    const total = safeNum(summary?.platform?.total_users, 0);
+    const active = safeNum(summary?.platform?.active_users_7d, 0);
+    return total > 0 ? Math.round((active / total) * 100) : null;
+  })();
+  const cortexSpend = safeNum(kpis?.cortex_credits, 0);
+  const failedLogins7d = safeNum(summary?.security?.failed_logins_7d, 0);
+  const securityPolicies =
+    safeNum(summary?.security?.masking_policies, 0) +
+    safeNum(summary?.security?.rls_policies, 0);
+  const hasSecuritySummary = !!summary?.security;
+  const hasPlatformSummary = !!summary?.platform;
+  const storageTotalBytes = safeNum(kpis?.storage_bytes, 0);
+  const stageBytes = safeNum(kpis?.stage_bytes, 0);
+  const failsafeBytes = safeNum(kpis?.failsafe_bytes, 0);
+
   return (
     <div className="space-y-6">
       {/* Backend served an empty envelope — the Snowflake metadata tables or
@@ -2836,6 +2886,98 @@ const OverviewTab = memo(function OverviewTab({
       </div>
       </section>
 
+      {/* ── Operations & security section (P1 zero-cost renders) ────────── */}
+      <section>
+        <h2 className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+          Operations &amp; security
+        </h2>
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+        <KpiCard
+          label="Deploy Success (30d)"
+          value={
+            provisioned && deploySuccessRate !== null
+              ? `${deploySuccessRate}%`
+              : '—'
+          }
+          icon={Rocket}
+          color="green"
+        />
+        <KpiCard
+          label="Task Failure (24h)"
+          value={
+            provisioned && taskFailureRate !== null
+              ? `${taskFailureRate}%`
+              : '—'
+          }
+          icon={AlertTriangle}
+          color={
+            provisioned && (taskFailureRate ?? 0) > 0 ? 'rose' : 'green'
+          }
+        />
+        <KpiCard
+          label="Cortex Spend"
+          value={provisioned ? cortexSpend.toLocaleString() : '—'}
+          icon={Sparkles}
+          color="violet"
+        />
+        <KpiCard
+          label="Adoption Rate"
+          value={
+            hasPlatformSummary && adoptionRate !== null
+              ? `${adoptionRate}%`
+              : '—'
+          }
+          icon={Users}
+          color="blue"
+        />
+        <KpiCard
+          label="Failed Logins (7d)"
+          value={hasSecuritySummary ? failedLogins7d : '—'}
+          icon={Lock}
+          color={hasSecuritySummary && failedLogins7d > 0 ? 'rose' : 'green'}
+        />
+        <KpiCard
+          label="Security Policies"
+          value={hasSecuritySummary ? securityPolicies : '—'}
+          icon={ShieldCheck}
+          color="indigo"
+        />
+      </div>
+      </section>
+
+      {/* Storage breakdown (database/total vs stage vs failsafe) — from the
+          cached KPI payload; shows "—" until OVERVIEW_KPIS is provisioned. */}
+      <SectionCard title="Storage Breakdown">
+        {provisioned ? (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
+              <p className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                {fmtBytes(storageTotalBytes)}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Total</p>
+            </div>
+            <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
+              <p className="text-xl font-bold text-violet-600 dark:text-violet-400">
+                {fmtBytes(stageBytes)}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">Stage</p>
+            </div>
+            <div className="rounded-lg bg-amber-50 p-4 text-center dark:bg-amber-900/20">
+              <p className="text-xl font-bold text-amber-600 dark:text-amber-400">
+                {fmtBytes(failsafeBytes)}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Failsafe
+              </p>
+            </div>
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-gray-400">
+            Storage breakdown appears once the KPI cache is provisioned.
+          </p>
+        )}
+      </SectionCard>
+
       {/* Module Health Grid */}
       {moduleHealth && Array.isArray(moduleHealth.modules) && moduleHealth.modules.length > 0 && (
         <SectionCard title="Module Health">
@@ -2848,21 +2990,76 @@ const OverviewTab = memo(function OverviewTab({
                 (typeof m.key_metric === 'string' && m.key_metric) ||
                 '';
               const dot = STATUS_BG[m.status] ?? 'bg-gray-300 dark:bg-gray-600';
+              const healthScore =
+                typeof m.health_score === 'number' ? m.health_score : null;
+              const issues = Array.isArray(m.issues) ? m.issues : [];
+              const hasCritical = issues.some(
+                (it) => (it?.severity ?? '').toLowerCase() === 'critical',
+              );
               return (
                 <div
                   key={m.module_key}
-                  className="flex items-center gap-3 rounded-lg border border-gray-100 p-3 dark:border-gray-800"
+                  className="rounded-lg border border-gray-100 p-3 dark:border-gray-800"
                   title={m.status}
                 >
-                  <div className={cn('h-2.5 w-2.5 rounded-full', dot)} />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
-                      {safeStr(m.module)}
-                    </p>
-                    <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                      {subtitle}
-                    </p>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={cn(
+                        'h-2.5 w-2.5 flex-shrink-0 rounded-full',
+                        dot,
+                      )}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-gray-900 dark:text-white">
+                        {safeStr(m.module)}
+                      </p>
+                      <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                        {subtitle}
+                      </p>
+                    </div>
+                    {issues.length > 0 && (
+                      <span
+                        className={cn(
+                          'flex-shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                          hasCritical
+                            ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                            : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+                        )}
+                        title={issues
+                          .map((it) => safeStr(it?.message))
+                          .filter(Boolean)
+                          .join('\n')}
+                      >
+                        {issues.length}{' '}
+                        {issues.length === 1 ? 'issue' : 'issues'}
+                      </span>
+                    )}
                   </div>
+                  {healthScore !== null && (
+                    <div className="mt-2">
+                      <div className="mb-1 flex items-center justify-between text-[10px] text-gray-500 dark:text-gray-400">
+                        <span>Health</span>
+                        <span className="tabular-nums">
+                          {Math.round(healthScore)}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                        <div
+                          className={cn(
+                            'h-full rounded-full transition-all',
+                            healthScore >= 80
+                              ? 'bg-green-500'
+                              : healthScore >= 50
+                                ? 'bg-amber-500'
+                                : 'bg-red-500',
+                          )}
+                          style={{
+                            width: `${Math.max(0, Math.min(100, healthScore))}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -2884,17 +3081,10 @@ const OverviewTab = memo(function OverviewTab({
           kpis?.deployments_30d ??
           ((summary as unknown as { platform?: { deployments_30d?: number } })
             ?.platform?.deployments_30d ?? 0);
-        const workflowRuns30d =
-          ((summary as unknown as { platform?: { workflow_runs_30d?: number } })
-            ?.platform?.workflow_runs_30d ?? null) ??
-          (kpis?.workflow_runs_24h ?? 0);
-
-        const qualityTrend =
-          ((summary as unknown as { quality?: { daily_trend?: Array<{ date: string; value: number }> | null } })
-            ?.quality?.daily_trend ?? null);
-        const storageTrend =
-          ((kpis as unknown as { storage_trend?: Array<{ date: string; value: number }> | null })
-            ?.storage_trend ?? null);
+        // Real 24h workflow-run count from the cached KPI payload. (The old
+        // summary.platform.workflow_runs_30d read was phantom — not in any
+        // response type — so the value was always the 24h figure anyway.)
+        const workflowRuns24h = kpis?.workflow_runs_24h ?? 0;
 
         const toDonutData = (rec: Record<string, number> | null) => {
           if (!rec) return [];
@@ -2958,74 +3148,6 @@ const OverviewTab = memo(function OverviewTab({
                     }}
                   />
                 </PieChart>
-              </ResponsiveContainer>
-            </div>
-          );
-        };
-
-        const AreaTrend = ({
-          data,
-          color,
-          label,
-        }: {
-          data: Array<{ date: string; value: number }> | null;
-          color: string;
-          label: string;
-        }) => {
-          if (!data || data.length === 0) {
-            return (
-              <div className="flex h-40 flex-col items-center justify-center rounded-lg border border-dashed border-gray-200 text-center dark:border-gray-700">
-                <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  Trend data not yet available
-                </p>
-                <p className="mt-1 text-[11px] text-gray-400">
-                  {label} will appear here once collected.
-                </p>
-              </div>
-            );
-          }
-          return (
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={data}
-                  margin={{ top: 5, right: 5, left: 0, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient
-                      id={`grad-${label}`}
-                      x1="0"
-                      y1="0"
-                      x2="0"
-                      y2="1"
-                    >
-                      <stop offset="0%" stopColor={color} stopOpacity={0.4} />
-                      <stop offset="100%" stopColor={color} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke="#374151" strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
-                  />
-                  <YAxis tick={{ fill: '#9CA3AF', fontSize: 10 }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: '#1F2937',
-                      border: 'none',
-                      borderRadius: 6,
-                      fontSize: 11,
-                      color: '#F9FAFB',
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="value"
-                    stroke={color}
-                    fill={`url(#grad-${label})`}
-                    strokeWidth={2}
-                  />
-                </AreaChart>
               </ResponsiveContainer>
             </div>
           );
@@ -3123,33 +3245,11 @@ const OverviewTab = memo(function OverviewTab({
                 </div>
                 <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
                   <p className="text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Workflow Runs (30d)
+                    Workflow Runs (24h)
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {workflowRuns30d ?? 0}
+                    {workflowRuns24h ?? 0}
                   </p>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Data Quality Trend
-                  </p>
-                  <AreaTrend
-                    data={qualityTrend}
-                    color="#10B981"
-                    label="quality"
-                  />
-                </div>
-                <div className="rounded-lg border border-gray-100 p-3 dark:border-gray-800">
-                  <p className="mb-1 text-[11px] font-medium text-gray-500 dark:text-gray-400">
-                    Storage Trend
-                  </p>
-                  <AreaTrend
-                    data={storageTrend}
-                    color="#3B82F6"
-                    label="storage"
-                  />
                 </div>
               </div>
             </div>
@@ -3480,6 +3580,19 @@ const ProjectsTab = memo(function ProjectsTab({
       }));
   }, [data]);
 
+  // Project status mix (summary.by_status) — distinct from deployment status
+  // above; this is the lifecycle state of the projects themselves.
+  const statusByProjectData = useMemo(() => {
+    const byStatus: Record<string, number> =
+      (data?.summary as any)?.by_status || {};
+    return Object.entries(byStatus)
+      .filter(([, v]) => Number(v) > 0)
+      .map(([name, value]) => ({
+        name: name.replace(/_/g, ' '),
+        value: Number(value),
+      }));
+  }, [data]);
+
   if (loading || !data) return <LoadingSection />;
 
   const summary = data.summary || ({} as any);
@@ -3543,6 +3656,30 @@ const ProjectsTab = memo(function ProjectsTab({
           value={`${summary.deployment_success_rate ?? 0}%`}
           icon={CheckCircle}
           color="green"
+        />
+      </div>
+
+      {/* Secondary KPI row — fields the backend already computes but the UI
+          never surfaced (failed deployments / total deployment volume /
+          unique members across projects). */}
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+        <KpiCard
+          label="Failed Deployments"
+          value={summary.failed_deployments ?? 0}
+          icon={XCircle}
+          color="red"
+        />
+        <KpiCard
+          label="Deployment Volume"
+          value={(summary.deployments_period ?? 0).toLocaleString()}
+          icon={Upload}
+          color="cyan"
+        />
+        <KpiCard
+          label="Unique Members"
+          value={summary.unique_members ?? 0}
+          icon={Users}
+          color="indigo"
         />
       </div>
 
@@ -3657,6 +3794,97 @@ const ProjectsTab = memo(function ProjectsTab({
         </SectionCard>
       </div>
 
+      {/* Project status mix + deployment duration/step detail — all from
+          fields the projects-overview endpoint already returns. */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SectionCard title="Projects by Status">
+          {statusByProjectData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={statusByProjectData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={90}
+                    paddingAngle={2}
+                  >
+                    {statusByProjectData.map((_entry, i) => (
+                      <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-gray-400">
+              No projects
+            </p>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Deployment Duration & Steps">
+          {executionDaily.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={executionDaily}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  />
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fill: '#9CA3AF', fontSize: 11 }}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="steps_executed"
+                    fill="#3B82F6"
+                    name="Steps"
+                    stackId="s"
+                    radius={[0, 0, 0, 0]}
+                  />
+                  <Bar
+                    yAxisId="left"
+                    dataKey="steps_failed"
+                    fill="#EF4444"
+                    name="Steps Failed"
+                    stackId="s"
+                    radius={[4, 4, 0, 0]}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="avg_duration"
+                    stroke="#F59E0B"
+                    strokeWidth={2}
+                    name="Avg Duration (s)"
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="py-8 text-center text-sm text-gray-400">
+              No execution data
+            </p>
+          )}
+        </SectionCard>
+      </div>
+
       {/* Recent Deployments Audit Table */}
       <AuditTable
         data={recentDeployments}
@@ -3697,6 +3925,20 @@ const ProjectsTab = memo(function ProjectsTab({
             ),
           },
           {
+            key: 'deployment_type',
+            label: 'Deploy Type',
+            sortable: true,
+            filterable: true,
+            render: (v: string) =>
+              v ? (
+                <Badge size="sm" variant="flat" color="secondary">
+                  {v.replace(/_/g, ' ')}
+                </Badge>
+              ) : (
+                <span className="text-gray-400">—</span>
+              ),
+          },
+          {
             key: 'environment',
             label: 'Env',
             sortable: true,
@@ -3714,6 +3956,33 @@ const ProjectsTab = memo(function ProjectsTab({
             label: 'Deployed',
             sortable: true,
             render: (v: string) => <span title={v}>{relativeTime(v)}</span>,
+          },
+          {
+            key: 'retry_count',
+            label: 'Retries',
+            sortable: true,
+            align: 'right',
+            render: (v: number) =>
+              v && v > 0 ? (
+                <Badge size="sm" variant="flat" color="warning">
+                  {v}
+                </Badge>
+              ) : (
+                <span className="text-gray-400">0</span>
+              ),
+          },
+          {
+            key: 'rejection_reason',
+            label: 'Rejection Reason',
+            filterable: true,
+            render: (v: string) =>
+              v ? (
+                <span className="block max-w-xs truncate" title={v}>
+                  {v}
+                </span>
+              ) : (
+                <span className="text-gray-400">—</span>
+              ),
           },
           {
             key: 'deployment_id',
@@ -4055,10 +4324,16 @@ const ProjectsTab = memo(function ProjectsTab({
 const CostTab = memo(function CostTab({
   data,
   loading,
+  days = 30,
 }: {
   data: CostBreakdownResponse | null;
   loading: boolean;
+  /** Active global Time Range (days) — drives period labels instead of a
+   * hardcoded "30d". CostBreakdownResponse carries no period field, so the
+   * parent passes filters.days; defaults to 30 for back-compat. */
+  days?: number;
 }) {
+  const periodDays = days ?? 30;
   const categoryPieData = useMemo(() => {
     const byCategory = data?.by_category || {};
     return Object.entries(byCategory)
@@ -4140,14 +4415,14 @@ const CostTab = memo(function CostTab({
       {/* KPI Cards — 6 cards per Screens/Account-overview/03-finops spec */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
         <KpiCard
-          label="Credits (30d)"
+          label={`Credits (${periodDays}d)`}
           value={(data?.total_credits ?? 0).toLocaleString()}
           icon={DollarSign}
           color="amber"
           trend={data?.credit_trend_pct}
         />
         <KpiCard
-          label="∆ vs prev 30d"
+          label={`∆ vs prev ${periodDays}d`}
           value={`${(data?.credit_trend_pct ?? 0) > 0 ? '+' : ''}${data?.credit_trend_pct ?? 0}%`}
           icon={(data?.credit_trend_pct ?? 0) >= 0 ? TrendingUp : TrendingDown}
           color={(data?.credit_trend_pct ?? 0) >= 0 ? 'red' : 'green'}
@@ -4165,13 +4440,13 @@ const CostTab = memo(function CostTab({
           color="violet"
         />
         <KpiCard
-          label="Cortex Spend (30d)"
+          label={`Cortex Spend (${periodDays}d)`}
           value={Number(cortexCredits).toLocaleString()}
           icon={Zap}
           color="purple"
         />
         <KpiCard
-          label="Balance"
+          label="Capacity"
           value={(balance.capacity ?? 0).toLocaleString()}
           icon={DollarSign}
           color="green"
@@ -4187,7 +4462,7 @@ const CostTab = memo(function CostTab({
           color="amber"
         />
         <KpiCard
-          label="Active Warehouses"
+          label="Top Warehouses"
           value={activeWarehouses.toLocaleString()}
           icon={Server}
           color="blue"
@@ -4201,7 +4476,7 @@ const CostTab = memo(function CostTab({
       </div>
 
       {/* Daily Credit Trend */}
-      <SectionCard title="Daily Credit Trend (30d)">
+      <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>
         <div className="h-64">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={dailyTrend}>
@@ -4225,7 +4500,7 @@ const CostTab = memo(function CostTab({
       {/* Iter 4 — Compute vs Storage stacked area + Optimization Recommendations rail */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <SectionCard
-          title="Compute vs Storage (30d)"
+          title={`Compute vs Storage (${periodDays}d)`}
           className="lg:col-span-3"
         >
           {hasComputeStorageSplit && computeVsStorage.length > 0 ? (
@@ -4569,7 +4844,7 @@ const CostTab = memo(function CostTab({
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-gray-400">
-              No cost anomalies detected in the last 30 days.
+              No cost anomalies detected in the last {periodDays} days.
             </p>
           )}
         </SectionCard>
@@ -6279,6 +6554,21 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
     ? platformData.module_usage
     : [];
 
+  // Module action breakdown — aggregate module_usage[].action across modules
+  // (the backend already returns a per-(module, action) count). Surfaces the
+  // verb mix (view/create/run/delete…) that the module-name pie hides.
+  const moduleActionData = (() => {
+    const agg: Record<string, number> = {};
+    safeModuleUsage.forEach((m) => {
+      const action = (m?.action ?? '').toString().trim() || 'unknown';
+      agg[action] = (agg[action] || 0) + (Number(m?.count) || 0);
+    });
+    return Object.entries(agg)
+      .map(([name, value]) => ({ name: name.replace(/_/g, ' '), value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 10);
+  })();
+
   // Iter 5 — extra KPIs + heatmap + top users + client types + notifications
   const totals = (platformData as any)?.totals ?? {};
   const bytesScanned: number = totals.bytes_scanned ?? 0;
@@ -6365,7 +6655,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           color="green"
         />
         <KpiCard
-          label="Peak Users"
+          label="Max Daily Users"
           value={uniqueUsersTotal}
           icon={Users}
           color="violet"
@@ -6502,46 +6792,43 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
           )}
         </SectionCard>
 
-        {/* Governance Stats */}
-        <SectionCard title="Platform Governance">
-          {(platformData?.governance_stats?.roles ?? 0) +
-            (platformData?.governance_stats?.permissions ?? 0) +
-            (platformData?.governance_stats?.module_grants ?? 0) >
-          0 ? (
-            <div className="mb-4 grid grid-cols-3 gap-3">
-              <div className="rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-900/20">
-                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
-                  {platformData?.governance_stats?.roles ?? 0}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Roles
-                </p>
-              </div>
-              <div className="rounded-lg bg-green-50 p-4 text-center dark:bg-green-900/20">
-                <p className="text-2xl font-bold text-green-600 dark:text-green-400">
-                  {platformData?.governance_stats?.permissions ?? 0}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Permissions
-                </p>
-              </div>
-              <div className="rounded-lg bg-violet-50 p-4 text-center dark:bg-violet-900/20">
-                <p className="text-2xl font-bold text-violet-600 dark:text-violet-400">
-                  {platformData?.governance_stats?.module_grants ?? 0}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Module Grants
-                </p>
-              </div>
+        {/* Module Action Breakdown — replaces the duplicated Platform
+            Governance card (Roles/Permissions are already shown as KPI cards
+            above, and full governance lives on its own tab). */}
+        <SectionCard title="Action Breakdown">
+          {moduleActionData.length > 0 ? (
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={moduleActionData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    width={110}
+                    tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar
+                    dataKey="value"
+                    fill="#06B6D4"
+                    radius={[0, 4, 4, 0]}
+                    name="Events"
+                  />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <div className="text-sm font-medium text-gray-600 dark:text-gray-300">
-                No governance objects configured yet
+                No module activity yet
               </div>
               <p className="mt-1 text-xs text-gray-500">
-                Role, permission, and module-grant counts appear here once
-                governance has been provisioned in Snowflake.
+                A breakdown of actions (view, create, run…) appears here once
+                users start interacting with Data360 modules.
               </p>
             </div>
           )}
@@ -6697,7 +6984,7 @@ const PlatformActivityTab = memo(function PlatformActivityTab({
         data={activityRows}
         title="Activity Feed"
         emptyMessage="No recent activity"
-        pageSize={20}
+        pageSize={50}
         columns={[
           {
             key: 'module',

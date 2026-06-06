@@ -979,18 +979,16 @@ export async function getCreditsTrend(days = 30): Promise<CreditTrendResponse> {
 }
 
 /**
- * Per-account credit history. The backend has no per-account credit endpoint, so
- * this adapts the org-wide /credits/trend into the AccountCreditHistoryResponse shape.
+ * GET /org-accounts/credits/history/{account_name} — per-account daily credit
+ * history. Sourced server-side from ORGANIZATION_USAGE.USAGE_IN_CURRENCY_DAILY
+ * filtered to the account; returns the AccountCreditHistoryResponse shape
+ * (history is CreditTrendPoint[], one row per day).
  */
 export async function getAccountCreditHistory(accountName: string, days = 30): Promise<AccountCreditHistoryResponse> {
-  const { data } = await apiClient.get<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
-  return {
-    account_name: accountName,
-    period_days: data.period_days ?? days,
-    history: data.trend ?? [],
-    count: data.trend?.length ?? 0,
-    execution_time_ms: data.execution_time_ms ?? 0,
-  };
+  const { data } = await apiClient.get<AccountCreditHistoryResponse>(
+    `${BASE_URL}/credits/history/${encodeURIComponent(accountName)}?days=${days}`
+  );
+  return data;
 }
 
 /** GET /org-accounts/health/{account_name} — per-account health detail. */
