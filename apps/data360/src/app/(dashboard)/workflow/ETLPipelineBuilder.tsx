@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import ReactFlow, {
   Node,
   Edge,
@@ -621,10 +622,23 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Role-based access
+  // Role-based access. `userRole` is the project-CONTRIBUTOR role (owner/editor/
+  // viewer) — orthogonal to Data360 Action-RBAC, which gates the mutating CTAs
+  // below via System 2 (useCanPerform), scoped to the active workflow project.
   const { username: currentUsername } = useAuth();
   const [userRole, setUserRole] = useState<ContributorRole | null>(null);
   const isReadOnly = userRole === 'viewer';
+
+  // ─── System 2 Action-RBAC gates (project-scoped to the active workflow) ───
+  // While the allow-set loads we keep CTAs enabled (fail-open, like useCanPerform
+  // on a hard error) so there's no flash of disabled controls; the gate tightens
+  // once permissions resolve and re-resolves live when an admin edits the matrix.
+  const wfExecutePerm = useCanPerform('workflow', 'execute', activeWorkflowId ?? undefined);
+  const wfDeployPerm = useCanPerform('workflow', 'deploy', activeWorkflowId ?? undefined);
+  const canWfExecute = wfExecutePerm.allowed || wfExecutePerm.loading;
+  const canWfDeploy = wfDeployPerm.allowed || wfDeployPerm.loading;
+  const EXECUTE_DENIED_HINT = 'You lack the "execute" permission on workflow. Ask an administrator to grant it.';
+  const DEPLOY_DENIED_HINT = 'You lack the "deploy" permission on workflow. Ask an administrator to grant it.';
 
   const readOnlyGuard = useCallback(() => {
     if (isReadOnly) {
@@ -3038,9 +3052,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               whileHover={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 1.04 } : undefined}
               whileTap={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(true)}
-              disabled={isExecuting || !activeWorkflowId || isActionUnavailable('compile')}
+              disabled={isExecuting || !activeWorkflowId || isActionUnavailable('compile') || !canWfExecute}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isActionUnavailable('compile') ? UNAVAILABLE_HINT : 'Preview the compiled SQL without executing it (dry run)'}
+              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('compile') ? UNAVAILABLE_HINT : 'Preview the compiled SQL without executing it (dry run)'}
             >
               {lifecycle.compile?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
               SQL{phaseSuffix('compile')}
@@ -3085,9 +3099,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
               whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(false)}
-              disabled={isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)}
+              disabled={isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved) || !canWfExecute}
               className="group relative flex h-7 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isActionUnavailable('execute') ? UNAVAILABLE_HINT : isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
+              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('execute') ? UNAVAILABLE_HINT : isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
@@ -3183,9 +3197,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 1.04 } : undefined}
               whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 0.96 } : undefined}
               onClick={handleSubmitForApproval}
-              disabled={!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running'}
+              disabled={!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running' || !canWfDeploy}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-500/40 transition-shadow hover:shadow-md hover:shadow-violet-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isActionUnavailable('deploy') ? UNAVAILABLE_HINT : isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
+              title={!canWfDeploy ? DEPLOY_DENIED_HINT : isActionUnavailable('deploy') ? UNAVAILABLE_HINT : isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
             >
               {lifecycle.deploy?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertCircle className="h-3 w-3" />}
               Approve{phaseSuffix('deploy')}

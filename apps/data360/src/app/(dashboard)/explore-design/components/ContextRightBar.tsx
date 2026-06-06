@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -248,9 +249,17 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
   userRole?: string; database?: string; onDeselectTable?: () => void;
 }) {
   const piiCount = columns.filter((c) => c.isSensitive).length;
-  const canWrite = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN', 'DATA_MODELER', 'DATA_ENGINEER', 'AI_ENGINEER'].includes(userRole);
-  const canApprove = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'DATA_STEWARD', 'DBA'].includes(userRole);
-  const canDeploy = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'DATA_MODELER', 'DATA_ENGINEER'].includes(userRole);
+  // System 2 Action-RBAC (replaces the old hardcoded Snowflake-role allow-lists).
+  // Project-scoped via the active explore-design project. While the allow-set is
+  // still loading we keep controls enabled (fail-open) to avoid a flash of
+  // disabled buttons; the gate tightens once permissions resolve, and useCanPerform
+  // also fail-opens on a hard backend error so a hiccup never locks a user out.
+  const writePerm = useCanPerform('explore_design', 'create', projectId);
+  const approvePerm = useCanPerform('explore_design', 'approve', projectId);
+  const deployPerm = useCanPerform('explore_design', 'deploy', projectId);
+  const canWrite = writePerm.allowed || writePerm.loading;
+  const canApprove = approvePerm.allowed || approvePerm.loading;
+  const canDeploy = deployPerm.allowed || deployPerm.loading;
   const isStage = table.table.startsWith('@') || table.schema === 'STAGES' || (table as any).objectType === 'STAGE';
   const isView = (table as any).objectType === 'VIEW' || table.table.startsWith('V_');
   const isDynamicTable = (table as any).objectType === 'DYNAMIC_TABLE' || table.table.startsWith('DT_');

@@ -105,7 +105,17 @@ function SourceProductGrantsPanel() {
             </select>
           </div>
         </div>
-        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleGrant} disabled={!grantRole || !grantTarget}>Grant Access</Button>
+        <PermissionGatedButton
+          module="gouvernance"
+          action="grant"
+          deniedReason="You lack the &quot;grant&quot; permission on governance. Ask an administrator to grant it."
+          size="sm"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          onClick={handleGrant}
+          disabled={!grantRole || !grantTarget}
+        >
+          Grant Access
+        </PermissionGatedButton>
       </div>
 
       {loading ? (
@@ -186,8 +196,10 @@ function SourceProductGrantsPanel() {
  */
 function D360RolesPanel() {
   // RBAC gating seam (System 2) — replaces the old hardcoded D360_ADMIN_ROLES
-  // check. "Can manage D360 roles" maps to the gouvernance:roles:*:create action.
+  // check. Create/edit map to gouvernance:create; destructive delete is gated
+  // separately on gouvernance:delete so a create-only role can't drop roles.
   const { allowed: canManage } = useCanPerform('gouvernance', 'create');
+  const { allowed: canDelete } = useCanPerform('gouvernance', 'delete');
 
   const [roles, setRoles] = useState<D360Role[]>([]);
   const [templates, setTemplates] = useState<D360RoleTemplate[]>([]);
@@ -422,8 +434,8 @@ function D360RolesPanel() {
                               size="sm"
                               variant="outline"
                               className="text-xs h-7 px-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              disabled={!canManage || isSystem}
-                              title={isSystem ? 'System roles cannot be deleted' : !canManage ? 'Requires an admin role' : 'Delete role'}
+                              disabled={!canDelete || isSystem}
+                              title={isSystem ? 'System roles cannot be deleted' : !canDelete ? 'Requires the "delete" permission on governance' : 'Delete role'}
                               onClick={() => setDeleteTarget(r)}
                             >
                               <HiOutlineTrash className="w-3.5 h-3.5" />
