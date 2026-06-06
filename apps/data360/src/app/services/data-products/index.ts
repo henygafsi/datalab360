@@ -19,7 +19,18 @@ export interface DataProduct {
   SLA_FRESHNESS_HOURS: number;
   QUALITY_THRESHOLD: number;
   TAGS: string[];
+  /**
+   * Raw lifecycle status as emitted by the backend (e.g. `DRAFT` / `PUBLISHED`,
+   * uppercase). Do NOT compare this directly in the UI — backend casing and
+   * vocabulary differ from the front's `draft` / `active` / `certified` model.
+   * Use `normalizeProductStatus()` (page-level helper) at every consumption site.
+   */
   STATUS: string;
+  /**
+   * Optional backend-provided normalized status (`draft` / `active` / `certified`).
+   * When present it is authoritative and used as-is by `normalizeProductStatus()`.
+   */
+  STATUS_NORMALIZED?: string;
   CONSUMERS: number;
   CREATED_BY: string;
   CREATED_AT: string;

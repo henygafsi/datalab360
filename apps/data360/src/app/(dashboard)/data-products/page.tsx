@@ -33,6 +33,47 @@ function fmtNum(v: number | null | undefined): string {
   return v === null || v === undefined ? '—' : String(v);
 }
 
+/** The front's canonical lifecycle vocabulary. */
+type NormalizedProductStatus = 'draft' | 'active' | 'certified';
+
+/**
+ * Normalize a data product's status to the front's `draft | active | certified`
+ * model — the P0 contract fix. The backend emits uppercase `DRAFT` / `PUBLISHED`
+ * (and may later add a `STATUS_NORMALIZED` field), so a raw `p.STATUS === 'active'`
+ * comparison silently matches nothing and zeroes out filters + KPI tiles.
+ *
+ * Pure & case-insensitive. Prefers `STATUS_NORMALIZED` when the backend supplies it.
+ * IMPORTANT: this is applied only at consumption sites — `product.STATUS` is left
+ * untouched in state so raw-status consumers (e.g. PublishGate) keep working.
+ */
+function normalizeProductStatus(product: Pick<DataProduct, 'STATUS' | 'STATUS_NORMALIZED'>): NormalizedProductStatus {
+  const raw = (product.STATUS_NORMALIZED || product.STATUS || '').trim().toLowerCase();
+  switch (raw) {
+    case 'certified':
+      return 'certified';
+    case 'draft':
+    case 'unpublished':
+    case 'pending':
+      return 'draft';
+    // PUBLISHED / ACTIVE / LIVE and anything else known-live → active
+    case 'published':
+    case 'active':
+    case 'live':
+      return 'active';
+    default:
+      // Unknown / empty status defaults to draft (not yet live) rather than a
+      // fake "active", so KPI tiles never over-count availability.
+      return 'draft';
+  }
+}
+
+/** Human-friendly label for a normalized status. */
+const STATUS_LABELS: Record<NormalizedProductStatus, string> = {
+  draft: 'Draft',
+  active: 'Active',
+  certified: 'Certified',
+};
+
 function DataProductsPage() {
   // System 2 Action-RBAC (module 'data_products'): Create Product → create.
   // Fail-open while the allow-set loads (no flash of disabled).
@@ -117,7 +158,7 @@ function DataProductsPage() {
       );
     }
     if (filterStatus) {
-      result = result.filter((p) => p.STATUS === filterStatus);
+      result = result.filter((p) => normalizeProductStatus(p) === filterStatus);
     }
     return result;
   }, [products, search, filterStatus]);
@@ -126,12 +167,15 @@ function DataProductsPage() {
     const hasProducts = products.length > 0;
     return {
       total: products.length,
-      active: products.filter((p) => p.STATUS === 'active' || p.STATUS === 'certified').length,
+      active: products.filter((p) => {
+        const s = normalizeProductStatus(p);
+        return s === 'active' || s === 'certified';
+      }).length,
       consumers: hasProducts ? products.reduce((s, p) => s + (p.CONSUMERS ?? 0), 0) : null,
       avgQuality: hasProducts
         ? Math.round(products.reduce((s, p) => s + (p.QUALITY_THRESHOLD || 0), 0) / products.length)
         : null,
-      certified: products.filter((p) => p.STATUS === 'certified').length,
+      certified: products.filter((p) => normalizeProductStatus(p) === 'certified').length,
       domains: new Set(products.flatMap((p) => p.TAGS || [])).size,
     };
   }, [products]);
@@ -431,7 +475,8 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
     : product.QUALITY_THRESHOLD >= 70
       ? 'text-amber-600 dark:text-amber-400'
       : 'text-red-600 dark:text-red-400';
-  const isCertified = product.STATUS === 'certified' || product.STATUS === 'active';
+  const normStatus = normalizeProductStatus(product);
+  const isCertified = normStatus === 'certified' || normStatus === 'active';
 
   return (
     <div
@@ -456,12 +501,12 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
             size="sm"
             className={cn(
               'text-[10px] px-2',
-              product.STATUS === 'certified' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                : product.STATUS === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              normStatus === 'certified' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                : normStatus === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
             )}
           >
-            {product.STATUS}
+            {STATUS_LABELS[normStatus]}
           </Badge>
           <span className={cn('text-xs font-semibold', qualityColor)}>{product.QUALITY_THRESHOLD}%</span>
         </div>
@@ -533,12 +578,13 @@ function ProductDetailPanel({
   onPublished: () => void;
 }) {
   const qualityColor = product.QUALITY_THRESHOLD >= 90 ? 'emerald' : product.QUALITY_THRESHOLD >= 70 ? 'amber' : 'red';
+  const detailStatus = normalizeProductStatus(product);
 
   const metrics: { label: string; value: string; color: string }[] = [
     { label: 'Quality', value: `${product.QUALITY_THRESHOLD}%`, color: qualityColor },
     { label: 'SLA', value: `${product.SLA_FRESHNESS_HOURS}h`, color: 'blue' },
     { label: 'Consumers', value: fmtNum(product.CONSUMERS), color: 'amber' },
-    { label: 'Status', value: product.STATUS, color: product.STATUS === 'certified' ? 'emerald' : 'gray' },
+    { label: 'Status', value: STATUS_LABELS[detailStatus], color: detailStatus === 'certified' ? 'emerald' : detailStatus === 'active' ? 'blue' : 'gray' },
   ];
 
   return (
