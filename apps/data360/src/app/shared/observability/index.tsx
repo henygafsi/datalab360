@@ -24,6 +24,7 @@ import {
   PiCaretRight,
   PiCaretDown,
   PiGitBranch,
+  PiHeartbeatDuotone,
 } from 'react-icons/pi';
 
 // Services
@@ -53,6 +54,9 @@ import TableSkeleton from '@/components/ui/TableSkeleton';
 // React Flow views
 import { DependencyFlowView, LineageFlowView } from './cross-module-flow';
 
+// Health & Insights overview (routes the orphaned health/KPI/security/perf/activity cards)
+import HealthOverviewTab from './health-overview-tab';
+
 interface TabItem {
   id: string;
   label: string;
@@ -61,6 +65,7 @@ interface TabItem {
 }
 
 const tabs: TabItem[] = [
+  { id: 'overview', label: 'Health & Insights', icon: PiHeartbeatDuotone, description: 'Health score, KPIs, security, performance & activity' },
   { id: 'compliance', label: 'Compliance', icon: PiShieldCheckDuotone, description: 'GDPR & SOC 2 reports' },
   { id: 'tasks-lineage', label: 'Tasks & Lineage', icon: PiClockCounterClockwise, description: 'Snowflake tasks, dependencies & lineage graph' },
   { id: 'cross-module', label: 'Cross-Modules & Objects', icon: PiGitBranch, description: 'Lineage, dependencies & module explorer' },
@@ -1353,7 +1358,7 @@ function ImpactAnalysisTab() {
 }
 
 export default function ObservabilityDashboard() {
-  const [activeTab, setActiveTab] = useState('compliance');
+  const [activeTab, setActiveTab] = useState('overview');
   const [, startTabTransition] = useTransition();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1450,6 +1455,9 @@ export default function ObservabilityDashboard() {
 
       {/* Tab Content */}
       <div className="space-y-6">
+        {/* Health & Insights Tab (routes orphaned health/KPI/security/perf/activity cards) */}
+        {activeTab === 'overview' && <HealthOverviewTab />}
+
         {/* Compliance Tab */}
         {activeTab === 'compliance' && (
           <div className="grid grid-cols-1 gap-6 @4xl:grid-cols-2">
