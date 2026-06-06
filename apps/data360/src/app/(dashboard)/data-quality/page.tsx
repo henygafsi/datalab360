@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import {
   CheckCircle2, AlertTriangle, Database, Clock,
@@ -999,6 +1000,18 @@ export default function DataQualityPage() {
   // tab, never an empty state (which is indistinguishable from "no data").
   const [tabErrors, setTabErrors] = useState<Record<string, string | null>>({});
 
+  // ── System 2 Action-RBAC (module 'data_quality'). Registry actions:
+  // run (Run Check), associate (DMF Associate), create (custom DMF), schedule.
+  // Fail-open while the allow-set loads (no flash of disabled). ──
+  const runPerm = useCanPerform('data_quality', 'run');
+  const associatePerm = useCanPerform('data_quality', 'associate');
+  const createDmfPerm = useCanPerform('data_quality', 'create');
+  const schedulePerm = useCanPerform('data_quality', 'schedule');
+  const canRunCheck = runPerm.allowed || runPerm.loading;
+  const canAssociateDmf = associatePerm.allowed || associatePerm.loading;
+  const canCreateDmf = createDmfPerm.allowed || createDmfPerm.loading;
+  const canScheduleDmf = schedulePerm.allowed || schedulePerm.loading;
+
   // ── DMF lifecycle (no-code) — drives the ActionRail panels ──
   const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule'>();
   // Available DMF definitions (built-in + custom), loaded lazily when the rail opens.
@@ -1511,6 +1524,8 @@ export default function DataQualityPage() {
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
+            disabled={!canRunCheck}
+            title={!canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-green-500/80 hover:bg-green-500 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1519,6 +1534,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('associate')}
+            disabled={!canAssociateDmf}
+            title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1527,6 +1544,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('custom')}
+            disabled={!canCreateDmf}
+            title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1535,6 +1554,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('schedule')}
+            disabled={!canScheduleDmf}
+            title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1882,13 +1903,13 @@ export default function DataQualityPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')} disabled={!canAssociateDmf} title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <Link2 className="h-3.5 w-3.5" /> Associate
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('custom')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('custom')} disabled={!canCreateDmf} title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <Plus className="h-3.5 w-3.5" /> Custom DMF
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')} disabled={!canScheduleDmf} title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <CalendarClock className="h-3.5 w-3.5" /> Schedule
                 </Button>
               </div>
