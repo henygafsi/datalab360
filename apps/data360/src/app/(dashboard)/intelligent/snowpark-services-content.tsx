@@ -28,6 +28,7 @@ import type {
   StreamlitApp,
   ImageRepo,
 } from '@/app/services/cortex/snowpark';
+import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
 
 type SubTab = 'compute-pools' | 'services' | 'streamlit' | 'image-repos';
 
@@ -146,7 +147,16 @@ function ComputePoolsPanel() {
         </div>
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={load} />
-          <Button size="sm" className="gap-1" onClick={() => setShowCreate(!showCreate)}><PiPlus className="w-4 h-4" /> Create Pool</Button>
+          <PermissionGatedButton
+            module="cortex"
+            action="manage-compute-pools"
+            size="sm"
+            className="gap-1"
+            onClick={() => setShowCreate(!showCreate)}
+            deniedReason="Requires the manage-compute-pools permission on Intelligence → Container Apps."
+          >
+            <PiPlus className="w-4 h-4" /> Create Pool
+          </PermissionGatedButton>
         </div>
       </div>
 
@@ -189,9 +199,17 @@ function ComputePoolsPanel() {
                 <td className="px-4 py-3 text-center">{p.min_nodes} / {p.max_nodes}</td>
                 <td className="px-4 py-3 text-center">{p.auto_suspend_secs}s</td>
                 <td className="px-4 py-3 text-right">
-                  <Button variant="outline" size="sm" className="gap-1" onClick={() => handleToggle(p)}>
+                  <PermissionGatedButton
+                    module="cortex"
+                    action="manage-compute-pools"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => handleToggle(p)}
+                    deniedReason="Requires the manage-compute-pools permission on Intelligence → Container Apps."
+                  >
                     {(p.state || '').toUpperCase() === 'SUSPENDED' ? <><PiPlay className="w-3.5 h-3.5" /> Resume</> : <><PiPause className="w-3.5 h-3.5" /> Suspend</>}
-                  </Button>
+                  </PermissionGatedButton>
                 </td>
               </tr>
             ))}
@@ -249,7 +267,16 @@ function ContainerServicesPanel() {
         <KPIBadge label="Total Services" value={services.length} />
         <div className="flex gap-2">
           <RefreshBtn loading={loading} onClick={load} />
-          <Button size="sm" className="gap-1" onClick={() => setShowCreate(!showCreate)}><PiPlus className="w-4 h-4" /> Deploy Service</Button>
+          <PermissionGatedButton
+            module="cortex"
+            action="manage-services"
+            size="sm"
+            className="gap-1"
+            onClick={() => setShowCreate(!showCreate)}
+            deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
+          >
+            <PiPlus className="w-4 h-4" /> Deploy Service
+          </PermissionGatedButton>
         </div>
       </div>
 
@@ -357,15 +384,27 @@ function StreamlitAppsPanel() {
           {/* AI-guided app builder. Lives HERE (Container Apps → Data Apps),
               not as a top-level "Deploy App" menu module — app hosting
               + versioning belong with container services. */}
-          <Button
+          <PermissionGatedButton
+            module="cortex"
+            action="manage-streamlit"
             size="sm"
             variant="outline"
             className="gap-1 border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300"
             onClick={() => router.push('/deploy-app')}
+            deniedReason="Requires the manage-streamlit permission on Intelligence → Container Apps."
           >
             <PiSparkle className="w-4 h-4" /> Build with AI
-          </Button>
-          <Button size="sm" className="gap-1" onClick={() => setShowCreate(!showCreate)}><PiPlus className="w-4 h-4" /> Create App</Button>
+          </PermissionGatedButton>
+          <PermissionGatedButton
+            module="cortex"
+            action="manage-streamlit"
+            size="sm"
+            className="gap-1"
+            onClick={() => setShowCreate(!showCreate)}
+            deniedReason="Requires the manage-streamlit permission on Intelligence → Container Apps."
+          >
+            <PiPlus className="w-4 h-4" /> Create App
+          </PermissionGatedButton>
         </div>
       </div>
 

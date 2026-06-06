@@ -8,8 +8,38 @@ import { createColumnHelper } from '@tanstack/react-table';
 import { Checkbox, Text } from 'rizzui';
 import TableRowActionGroup from '@core/components/table-utils/table-row-action-group';
 import { RoleTableDataType } from './table';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 const columnHelper = createColumnHelper<RoleTableDataType>();
+
+/**
+ * Row action group for a role. Delete is gated on System 2 Action-RBAC
+ * (gouvernance:delete); when denied the trash control is disabled with a tooltip.
+ * Extracted into a component so `useCanPerform` runs in a proper hook context.
+ */
+function RoleRowActions({
+  row,
+  onDelete,
+}: {
+  row: RoleTableDataType;
+  onDelete: () => void;
+}) {
+  const { allowed, loading } = useCanPerform('gouvernance', 'delete');
+  const canDelete = allowed || loading; // fail-open while the allow-set loads
+  return (
+    <TableRowActionGroup
+      editUrl={`/governance/roles/edit/${row.id}`}
+      viewUrl={`/governance/roles/view/${row.id}`}
+      onDelete={onDelete}
+      deleteDisabled={!canDelete}
+      deleteDisabledReason={
+        !canDelete
+          ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.'
+          : undefined
+      }
+    />
+  );
+}
 
 export const roleListColumns = [
   columnHelper.display({
@@ -99,9 +129,8 @@ export const roleListColumns = [
         options: { meta },
       },
     }) => (
-      <TableRowActionGroup
-        editUrl={`/governance/roles/edit/${row.original.id}`}
-        viewUrl={`/governance/roles/view/${row.original.id}`}
+      <RoleRowActions
+        row={row.original}
         onDelete={() => {
           if (row.original && row.original.id) {
             meta?.handleDeleteRow?.(row.original);
