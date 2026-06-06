@@ -174,7 +174,6 @@ function buildItems(
       key: 'reset',
       label: 'Reset admin password',
       Icon: KeyRound,
-      beta: true,
       endpoint: 'POST /org-accounts/accounts/{name}/reset-password',
     });
   }
@@ -185,7 +184,6 @@ function buildItems(
       key: 'rotate',
       label: 'Rotate authentication keys',
       Icon: RefreshCcw,
-      beta: true,
       endpoint: 'POST /org-accounts/accounts/{name}/rotate-keys',
     });
   }
@@ -196,7 +194,6 @@ function buildItems(
       key: 'toggle-active',
       label: account.is_active ? 'Suspend account' : 'Activate account',
       Icon: account.is_active ? PowerOff : Power,
-      beta: true,
       endpoint: account.is_active
         ? 'POST /org-accounts/accounts/{name}/suspend'
         : 'POST /org-accounts/accounts/{name}/activate',
@@ -209,7 +206,6 @@ function buildItems(
       key: 'mfa',
       label: 'Toggle MFA enforcement',
       Icon: ShieldCheck,
-      beta: true,
       endpoint: 'PATCH /org-accounts/accounts/{name}/mfa',
     });
   }
@@ -220,7 +216,6 @@ function buildItems(
       key: 'transfer',
       label: 'Transfer ownership',
       Icon: ArrowRightLeft,
-      beta: true,
       endpoint: 'POST /org-accounts/accounts/{name}/transfer-ownership',
       divider: true,
     });

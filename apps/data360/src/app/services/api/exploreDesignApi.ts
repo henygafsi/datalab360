@@ -33,6 +33,7 @@ import type {
   DetectSensitiveResponse,
   DetectRelationsRequest,
   DetectRelationsResponse,
+  RelationDetection,
   // Schema Clone
   SchemaCloneRequest,
   SchemaClone,
@@ -312,23 +313,43 @@ export async function columnPreview(
 // ============================================================================
 
 /**
- * NOTE: /{project_id}/detect/relations DOES NOT EXIST on backend.
- * Backend exposes GET /smart/detect-fk and GET /smart/detect-pk with table FQN query param.
- * Wrapped in try-catch with safe fallback.
+ * Detect relationships across the given tables.
+ *
+ * The legacy `/{project_id}/detect/relations` route never existed on the
+ * backend. The live equivalent is the Cortex-backed
+ * `/{project_id}/ai/discover-relationships` (same route the Explore & Design
+ * page and DetectedModelsTab use). We repoint here and adapt the response into
+ * the `DetectRelationsResponse` shape the AI-guided wizard consumes.
+ *
+ * NOTE: errors are intentionally NOT swallowed. The wizard's
+ * `ai-guided-strategy` caller falls back to name-match heuristics only when
+ * this call throws — returning an empty result here would silently produce
+ * zero relations with no fallback.
  */
-export async function detectRelations(projectId: string, body: DetectRelationsRequest) {
-  try {
-    const { data } = await apiClient.post<DetectRelationsResponse>(
-      `${PREFIX}/${projectId}/detect/relations`,
-      body,
-    );
-    return data;
-  } catch (error) {
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('[detectRelations] Endpoint not on backend; use /smart/detect-fk instead.', error);
-    }
-    return { project_id: projectId, relations: [] } as DetectRelationsResponse;
-  }
+export async function detectRelations(
+  projectId: string,
+  body: DetectRelationsRequest,
+): Promise<DetectRelationsResponse> {
+  const { data } = await apiClient.post<DiscoverRelationshipsResult>(
+    `${PREFIX}/${projectId}/ai/discover-relationships`,
+    {
+      tables: body.tables.map((t) => ({
+        database: t.database,
+        schema: t.schema,
+        table_name: t.table,
+      })),
+    },
+  );
+  const relations: RelationDetection[] = (data.relationships ?? []).map((r, i) => ({
+    detection_id: `${r.source_table}.${r.source_column}->${r.target_table}.${r.target_column}` || `rel-${i}`,
+    left_table: r.source_table,
+    left_column: r.source_column,
+    right_table: r.target_table,
+    right_column: r.target_column,
+    relation_type: r.discovery_method || 'FOREIGN_KEY',
+    confidence: r.confidence,
+  }));
+  return { project_id: projectId, relations };
 }
 
 // ============================================================================

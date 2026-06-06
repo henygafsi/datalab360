@@ -1,0 +1,209 @@
+{
+  "tabReport": {
+    "Overview": {
+      "apiCalls": [],
+      "emptyStateHits": 1,
+      "tableRows": 6,
+      "glassPanels": 19
+    },
+    "Performance": {
+      "apiCalls": [
+        "200 http://localhost:3000/api-proxy/observability/performance/slow-queries?days=7",
+        "200 http://localhost:3000/api-proxy/admin/endpoint-usage?days=7&limit=40"
+      ],
+      "emptyStateHits": 3,
+      "tableRows": 0,
+      "glassPanels": 3
+    },
+    "Events": {
+      "apiCalls": [
+        "200 http://localhost:3000/api-proxy/admin/activity-stats?days=7",
+        "200 http://localhost:3000/api-proxy/command-center/activity-feed?limit=200&days=7",
+        "404 http://localhost:3000/api-proxy/deployments/track"
+      ],
+      "emptyStateHits": 2,
+      "tableRows": 0,
+      "glassPanels": 5
+    },
+    "Cache": {
+      "apiCalls": [
+        "405 http://localhost:3000/api-proxy/api/data360/cache-config",
+        "200 http://localhost:3000/api-proxy/cache/breakdown",
+        "200 http://localhost:3000/api-proxy/cache/invalidations?limit=100",
+        "200 http://localhost:3000/api-proxy/api/data360/cache-entries",
+        "200 http://localhost:3000/api-proxy/api/data360/config"
+      ],
+      "emptyStateHits": 15,
+      "tableRows": 19,
+      "glassPanels": 10
+    },
+    "Access": {
+      "apiCalls": [
+        "200 http://localhost:3000/api-proxy/gouvernance/gui-permissions",
+        "200 http://localhost:3000/api-proxy/gouvernance/users-with-roles",
+        "200 http://localhost:3000/api-proxy/gouvernance/roles",
+        "200 http://localhost:3000/api-proxy/gouvernance/grants-for-role/ACCOUNTADMIN",
+        "200 http://localhost:3000/api-proxy/gouvernance/users-with-roles"
+      ],
+      "emptyStateHits": 5,
+      "tableRows": 3,
+      "glassPanels": 6
+    }
+  },
+  "api": [
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/notifications/unread-count",
+      "snippet": "{\"success\":true,\"data\":{\"unread\":0},\"error\":null,\"execution_time_ms\":176}"
+    },
+    {
+      "tab": "load",
+      "status": 404,
+      "url": "http://localhost:3000/api-proxy/deployments/track",
+      "snippet": "{\"detail\":{\"error_code\":\"OBJECT_NOT_FOUND\",\"message\":\"deployments.track.list: 002003 (42S02): 01c4d309-0107-05c4-0004-fd6200143152: SQL compilation error:\\nObject 'CP_DATA360.EVENT_STORE.DEPLOYMENT_PROGRESS_VW' does not exist or not authorized.\",\"snowflake_cod"
+    },
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/command-center/module-health",
+      "snippet": "{\"modules\":[{\"module\":\"Connect Data\",\"module_key\":\"connect\",\"status\":\"healthy\",\"status_reason\":\"6 stages, 0 streams, 1 tasks\",\"kpi1\":6,\"kpi1_label\":\"Stages\",\"kpi1_status\":\"ok\",\"kpi2\":0,\"kpi2_label\":\"Streams\",\"kpi2_status\":\"ok\",\"kpi3\":1,\"kpi3_label\":\"Tasks\",\"kp"
+    },
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/command-center/activity-feed?limit=100&days=1",
+      "snippet": "{\"events\":[{\"username\":\"HAHA\",\"module\":\"GOUVERNANCE\",\"event_type\":\"GET_GRANTS_FOR_ROLE\",\"status\":\"SUCCESS\",\"timestamp\":\"2026-06-04T04:37:01.856000-07:00\"},{\"username\":\"HAHA\",\"module\":\"GOUVERNANCE\",\"event_type\":\"GET_ROLES\",\"status\":\"SUCCESS\",\"timestamp\":\"2026-0"
+    },
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/observability/performance/metrics?days=7",
+      "snippet": "{\"TOTAL_QUERIES\":39347,\"SUCCESSFUL_QUERIES\":17898,\"FAILED_QUERIES\":21449,\"AVG_EXECUTION_TIME_MS\":\"155.44\",\"P50_EXECUTION_TIME_MS\":\"35.00\",\"P95_EXECUTION_TIME_MS\":\"579.70\",\"P99_EXECUTION_TIME_MS\":\"2283.54\",\"TOTAL_BYTES_SCANNED\":455624316788,\"TOTAL_ROWS_PRODUCED"
+    },
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/health",
+      "snippet": "{\"status\":\"ok\",\"execution_time_ms\":0}"
+    },
+    {
+      "tab": "load",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/analytics/user-activity/summary?days=7",
+      "snippet": "{\"period\":{\"start_date\":\"2026-05-28\",\"end_date\":\"2026-06-04\",\"days\":7},\"module_stats\":[{\"module_name\":\"EXPLORE_DESIGN\",\"event_count\":39,\"unique_users\":1,\"success_count\":39,\"failure_count\":0,\"success_rate\":100},{\"module_name\":\"GOUVERNANCE\",\"event_count\":27,\"uni"
+    },
+    {
+      "tab": "Performance",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/observability/performance/slow-queries?days=7",
+      "snippet": "{\"slow_queries\":[],\"count\":0,\"threshold_seconds\":60,\"execution_time_ms\":9}"
+    },
+    {
+      "tab": "Performance",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/admin/endpoint-usage?days=7&limit=40",
+      "snippet": "{\"endpoints\":[],\"total_requests\":0,\"window_days\":7,\"source_unavailable\":true,\"note\":\"EVENT_STORE.AUDIT_LOG not yet created — no request audit data recorded.\",\"execution_time_ms\":9}"
+    },
+    {
+      "tab": "Events",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/admin/activity-stats?days=7",
+      "snippet": "{\"by_module\":[{\"module\":\"EXPLORE_DESIGN\",\"events\":39,\"failures\":0},{\"module\":\"GOUVERNANCE\",\"events\":27,\"failures\":0},{\"module\":\"WORKFLOW\",\"events\":7,\"failures\":0},{\"module\":\"CHAT\",\"events\":3,\"failures\":0},{\"module\":\"BI_DASHBOARD\",\"events\":2,\"failures\":0}],\"by_"
+    },
+    {
+      "tab": "Events",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/command-center/activity-feed?limit=200&days=7",
+      "snippet": "{\"events\":[{\"username\":\"HAHA\",\"module\":\"GOUVERNANCE\",\"event_type\":\"GET_GRANTS_FOR_ROLE\",\"status\":\"SUCCESS\",\"timestamp\":\"2026-06-04T04:37:01.856000-07:00\"},{\"username\":\"HAHA\",\"module\":\"GOUVERNANCE\",\"event_type\":\"GET_ROLES\",\"status\":\"SUCCESS\",\"timestamp\":\"2026-0"
+    },
+    {
+      "tab": "Events",
+      "status": 404,
+      "url": "http://localhost:3000/api-proxy/deployments/track",
+      "snippet": "{\"detail\":{\"error_code\":\"OBJECT_NOT_FOUND\",\"message\":\"deployments.track.list: 002003 (42S02): 01c4d309-0107-05c4-0004-fd620014315a: SQL compilation error:\\nObject 'CP_DATA360.EVENT_STORE.DEPLOYMENT_PROGRESS_VW' does not exist or not authorized.\",\"snowflake_cod"
+    },
+    {
+      "tab": "Cache",
+      "status": 405,
+      "url": "http://localhost:3000/api-proxy/api/data360/cache-config",
+      "snippet": "{\"detail\":\"Method Not Allowed\",\"execution_time_ms\":3}"
+    },
+    {
+      "tab": "Cache",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/cache/breakdown",
+      "snippet": "{\"by_class\":[{\"class\":\"query_results\",\"prefix\":\"sf:query:\",\"count\":0,\"oldest_ttl\":null,\"newest_ttl\":null,\"ttl_sampled\":0},{\"class\":\"table_metadata\",\"prefix\":\"sf:meta:table:\",\"count\":0,\"oldest_ttl\":null,\"newest_ttl\":null,\"ttl_sampled\":0},{\"class\":\"last_load\",\"p"
+    },
+    {
+      "tab": "Cache",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/cache/invalidations?limit=100",
+      "snippet": "{\"events\":[{\"table\":\"user_permissions\",\"module\":\"user_login\",\"triggered_by\":\"system\",\"ts\":\"2026-06-04T12:57:13.918283\"}],\"total\":1,\"by_table\":{\"user_permissions\":1},\"source\":\"in-memory\",\"note\":null,\"generated_at\":\"2026-06-04T12:57:35.639307+00:00\",\"execution_t"
+    },
+    {
+      "tab": "Cache",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/api/data360/cache-entries",
+      "snippet": "{\"entries\":[{\"key\":\"user:session:HAHA:HAHA:modules:ACCOUNTADMIN\",\"module\":null,\"user\":null,\"ttl_remaining\":1756,\"age_seconds\":null,\"size_bytes\":408},{\"key\":\"session:HAHA:HAHA:route_grants_for_role:73ea0291902885b32ce231d3052e5e49\",\"module\":\"route_grants_for_ro"
+    },
+    {
+      "tab": "Cache",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/api/data360/config",
+      "snippet": "{\"metadata_database\":\"CP_DATA360\",\"metadata_schemas\":[{\"name\":\"EVENT_STORE\",\"description\":\"Events and application tables\"},{\"name\":\"STAGING\",\"description\":\"Staging and tasks\"},{\"name\":\"GOUVERNANCE\",\"description\":\"Governance and axes\"}],\"metadata_tables\":[{\"dat"
+    },
+    {
+      "tab": "Access",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/gouvernance/gui-permissions",
+      "snippet": "{\"data\":[],\"count\":0,\"execution_time_ms\":17}"
+    },
+    {
+      "tab": "Access",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/gouvernance/users-with-roles",
+      "snippet": "[{\"name\":\"HAHA\",\"created_on\":\"2026-05-11 05:17:24.337000-07:00\",\"login_name\":\"HAHA\",\"display_name\":\"_D360_TEST_doc\",\"first_name\":null,\"last_name\":null,\"email\":\"HAHA@HAHA.tn\",\"mins_to_unlock\":null,\"days_to_expiry\":null,\"comment\":null,\"disabled\":\"false\",\"must_ch"
+    },
+    {
+      "tab": "Access",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/gouvernance/roles",
+      "snippet": "{\"data\":[{\"created_on\":\"2026-05-11 05:17:24.433000-07:00\",\"name\":\"ACCOUNTADMIN\",\"is_default\":\"N\",\"is_current\":\"Y\",\"is_inherited\":\"N\",\"assigned_to_users\":1,\"granted_to_roles\":3,\"granted_roles\":2,\"owner\":\"\",\"comment\":\"Account administrator can manage all aspects"
+    },
+    {
+      "tab": "Access",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/gouvernance/grants-for-role/ACCOUNTADMIN",
+      "snippet": "[{\"created_on\":\"2026-05-11 05:17:24.559000-07:00\",\"privilege\":\"APPLY AGGREGATION POLICY\",\"granted_on\":\"ACCOUNT\",\"name\":\"SF21772\",\"granted_to\":\"ROLE\",\"grantee_name\":\"ACCOUNTADMIN\",\"grant_option\":\"true\",\"granted_by\":\"\"},{\"created_on\":\"2026-05-11 05:17:24.518000-"
+    },
+    {
+      "tab": "Access",
+      "status": 200,
+      "url": "http://localhost:3000/api-proxy/gouvernance/users-with-roles",
+      "snippet": "[{\"name\":\"HAHA\",\"created_on\":\"2026-05-11 05:17:24.337000-07:00\",\"login_name\":\"HAHA\",\"display_name\":\"_D360_TEST_doc\",\"first_name\":null,\"last_name\":null,\"email\":\"HAHA@HAHA.tn\",\"mins_to_unlock\":null,\"days_to_expiry\":null,\"comment\":null,\"disabled\":\"false\",\"must_ch"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "tab": "load",
+      "text": "Warning: In HTML, %s cannot be a descendant of <%s>.\nThis will cause a hydration error.%s <button> button \n    at button\n    at DragHandle (webpack-internal:///(app-pages-browser)/../../packages/data360-core/src/components/dnd/dnd-sortable-item.tsx:72:11)\n    at span\n    at button\n    at eval (webpa"
+    },
+    {
+      "tab": "load",
+      "text": "Warning: Function components cannot be given refs. Attempts to access this ref will fail. Did you mean to use React.forwardRef()?%s%s \n\nCheck the render method of `PopoverTrigger`. \n    at BellWithBadge (webpack-internal:///(app-pages-browser)/./src/layouts/header-menu-right.tsx:23:94)\n    at Et (we"
+    },
+    {
+      "tab": "load",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "tab": "Events",
+      "text": "Failed to load resource: the server responded with a status of 404 (Not Found)"
+    },
+    {
+      "tab": "Cache",
+      "text": "Failed to load resource: the server responded with a status of 405 (Method Not Allowed)"
+    }
+  ]
+}

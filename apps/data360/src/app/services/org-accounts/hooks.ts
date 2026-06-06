@@ -184,6 +184,11 @@ export interface DropAccountResponse {
  * Snowflake `DROP ACCOUNT` is irreversible after the grace period;
  * the server is expected to enforce the grace window. We pass `reason`
  * to populate the org audit log.
+ *
+ * The backend requires explicit confirmation: it accepts either
+ * `confirm_token == <account name>` or `confirm: true`. Sending `{ reason }`
+ * alone returns 400. We send both — `confirm_token` (the canonical contract)
+ * plus `confirm: true` as a belt-and-suspenders fallback.
  */
 export async function dropAccount(
   accountName: string,
@@ -191,7 +196,13 @@ export async function dropAccount(
 ): Promise<DropAccountResponse> {
   const { data } = await apiClient.delete<DropAccountResponse>(
     `${BASE_URL}/accounts/${encodeURIComponent(accountName)}`,
-    { data: reason ? { reason } : undefined },
+    {
+      data: {
+        confirm_token: accountName,
+        confirm: true,
+        ...(reason ? { reason } : {}),
+      },
+    },
   );
   return data;
 }

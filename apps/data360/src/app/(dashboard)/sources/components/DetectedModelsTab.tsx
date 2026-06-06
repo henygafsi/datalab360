@@ -60,7 +60,15 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
     setLoading(true);
     setError(null);
     const [relResult, healthResult] = await Promise.allSettled([
-      discoverRelationships(projectId, { tables: sourceTables }),
+      // Backend expects `table_name` (not `table`) — mirror the proven payload
+      // shape used by the Explore & Design discover-relationships call.
+      discoverRelationships(projectId, {
+        tables: sourceTables.map((t) => ({
+          database: t.database,
+          schema: t.schema,
+          table_name: t.table,
+        })),
+      }),
       getSchemaHealth(projectId),
     ]);
 

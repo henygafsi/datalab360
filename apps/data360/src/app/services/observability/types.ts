@@ -487,3 +487,85 @@ export interface PlatformConfigResponse {
   config: PlatformConfigEntry[];
   count?: number;
 }
+
+// =============================================================================
+// FINOPS — RESOURCE MONITORS (write surface)
+//   GET/POST /observability/cost/monitors
+//   GET/PUT  /observability/cost/monitors/{name}
+//   POST     /observability/cost/monitors/{name}/assign
+//   DELETE   /observability/cost/monitors/{name}?confirm=true
+// =============================================================================
+
+export type CostMonitorAction = 'NOTIFY' | 'SUSPEND' | 'SUSPEND_IMMEDIATE';
+
+export interface CostMonitorTrigger {
+  /** Credit-usage threshold percent (1–2000). */
+  percent: number;
+  action: CostMonitorAction;
+}
+
+/**
+ * A Snowflake RESOURCE MONITOR row. The backend forwards SHOW RESOURCE MONITORS
+ * output, whose key casing varies (UPPERCASE from the driver, lowercase once
+ * transformed). Consumers normalize defensively, so we keep this indexable.
+ */
+export interface CostMonitor {
+  name?: string;
+  credit_quota?: number | null;
+  used_credits?: number | null;
+  remaining_credits?: number | null;
+  frequency?: string | null;
+  level?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CostMonitorsResponse {
+  monitors: CostMonitor[];
+  count: number;
+}
+
+export interface CreateCostMonitorRequest {
+  name: string;
+  credit_quota: number;
+  frequency?: string;
+  triggers?: CostMonitorTrigger[];
+  notify_users?: string[];
+  warehouses?: string[];
+  if_not_exists?: boolean;
+}
+
+export interface UpdateCostMonitorRequest {
+  credit_quota?: number;
+  frequency?: string;
+  triggers?: CostMonitorTrigger[];
+  notify_users?: string[];
+  warehouses?: string[];
+}
+
+// =============================================================================
+// FINOPS — SPEND BUDGETS
+//   GET/POST   /observability/budgets
+//   PUT/DELETE /observability/budgets/{name}
+// =============================================================================
+
+export interface SpendBudget {
+  name: string;
+  monthly_credit_limit?: number | null;
+  warehouses?: string[];
+  alert_at_pct?: number | null;
+  resource_monitor_backed?: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface SpendBudgetsResponse {
+  budgets: SpendBudget[];
+  count?: number;
+}
+
+export interface CreateSpendBudgetRequest {
+  name: string;
+  monthly_credit_limit: number;
+  warehouses?: string[];
+  alert_at_pct?: number;
+}

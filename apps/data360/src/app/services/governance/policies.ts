@@ -1348,14 +1348,9 @@ export async function removeAggregationPolicy(
   table: string
 ): Promise<any> {
   try {
-    // Backend uses POST /gouvernance/policies/aggregation/remove (not DELETE)
-    const response = await apiClient.post<StandardResponse>(`${POLICIES_API}/aggregation/remove`, null, {
-      params: {
-        database,
-        schema,
-        table,
-      },
-    });
+    // Backend spec: DELETE /gouvernance/policies/aggregation/{database}/{schema}/{table}
+    const url = `${POLICIES_API}/aggregation/${encodeURIComponent(database)}/${encodeURIComponent(schema)}/${encodeURIComponent(table)}`;
+    const response = await apiClient.delete<StandardResponse>(url);
     return response.data.data;
   } catch (error: any) {
     console.error('Remove aggregation policy error:', {
