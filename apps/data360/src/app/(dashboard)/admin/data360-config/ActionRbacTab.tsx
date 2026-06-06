@@ -11,8 +11,11 @@
  * This lives next to the legacy GUI page-visibility hints (System 1, advisory).
  * Unlike those, edits here target D360_ROLE_ACTIONS, the enforced allow-set.
  *
- * PROJECT_ID: the backend permission model is account-global today, so the
- * project selector is rendered disabled with a "migration required" tooltip.
+ * PROJECT_ID: the editor + preview share a project-scope selector. "Global (all
+ * projects)" reads/writes the account-global rows; picking a project reads/writes
+ * that project's overlay (getRolePermissions/setRolePermissions/effective accept
+ * `project_id`). If the backend PROJECT_ID column is not migrated, writes degrade
+ * to global and a `column_missing` banner is shown.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -50,8 +53,13 @@ import {
   getUsersWithRolesAndModules,
   type UserGrantTableData,
 } from '@/app/services/governance/user_roles';
+import { listProjects } from '@/app/services/api/projectsApi';
+import type { Project } from '@/app/services/api/types';
 
 type AsyncState = 'idle' | 'running' | 'done' | 'error';
+
+/** Sentinel value of the project <select> meaning "no project scope" (account-wide). */
+const GLOBAL_SCOPE = '';
 
 const keyOf = (m: string, p: string, t: string, a: string) => `${m}:${p}:${t}:${a}`;
 
@@ -113,24 +121,59 @@ function EnforcedBanner() {
   );
 }
 
-/** Disabled project selector — PROJECT_ID is not yet accepted by the backend. */
-function ProjectSelector() {
+/**
+ * Functional project-scope selector. "Global (all projects)" writes/reads the
+ * account-global (`PROJECT_ID IS NULL`) rows; picking a project reads/writes that
+ * project's overlay. Honoured by getRolePermissions / setRolePermissions /
+ * getEffectiveUserPermissions. If the backend PROJECT_ID column is not migrated
+ * the write degrades to global and surfaces a `column_missing` banner.
+ */
+function ProjectSelector({
+  projects,
+  value,
+  onChange,
+  disabled,
+}: {
+  projects: Project[];
+  value: string;
+  onChange: (projectId: string) => void;
+  disabled?: boolean;
+}) {
   return (
-    <label
-      className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400"
-      title="Per-project scoping requires the backend PROJECT_ID migration (D360_ROLE_ACTIONS is account-global today)."
-    >
-      <Layers className="h-3.5 w-3.5" /> Project
-      <select
-        disabled
-        className="cursor-not-allowed rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-400 dark:border-slate-700 dark:bg-slate-800/50"
-      >
-        <option>Global (account-wide)</option>
-      </select>
-      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
-        migration required
+    <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
+      <span className="flex items-center gap-1.5">
+        <Layers className="h-3.5 w-3.5" /> Project scope
       </span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value)}
+        title="Scope these grants to a single project (overlay) or keep them account-wide."
+        className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+      >
+        <option value={GLOBAL_SCOPE}>Global (all projects)</option>
+        {projects.map((p) => (
+          <option key={p.project_id} value={p.project_id}>
+            {p.project_name}
+          </option>
+        ))}
+      </select>
     </label>
+  );
+}
+
+/** Banner shown when the backend saved/read globally because PROJECT_ID is not migrated. */
+function ProjectMigrationBanner() {
+  return (
+    <div className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-[11px] text-amber-800 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+      <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <p>
+        <span className="font-semibold">Project scoping inactive.</span> The{' '}
+        <code className="font-mono">PROJECT_ID</code> migration has not run yet, so these grants are
+        read and saved <span className="font-semibold">account-global</span> (applied to every
+        project) regardless of the selected scope.
+      </p>
+    </div>
   );
 }
 
@@ -143,11 +186,17 @@ function ActionRbacEditor({
   roles,
   templates,
   users,
+  projects,
+  projectId,
+  onProjectChange,
 }: {
   registry: ActionRegistryResponse;
   roles: D360Role[];
   templates: D360RoleTemplate[];
   users: UserGrantTableData[];
+  projects: Project[];
+  projectId: string;
+  onProjectChange: (projectId: string) => void;
 }) {
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [permState, setPermState] = useState<AsyncState>('idle');
@@ -156,6 +205,7 @@ function ActionRbacEditor({
   const [allowed, setAllowed] = useState<Set<string>>(new Set());
   const [isSystem, setIsSystem] = useState(false);
   const [source, setSource] = useState<string>('db');
+  const [columnMissing, setColumnMissing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirm, setConfirm] = useState<null | { kind: 'save' } | { kind: 'template'; template: string }>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -174,7 +224,7 @@ function ActionRbacEditor({
     ).length;
   }, [users, selectedRole]);
 
-  const loadPerms = useCallback(async (role: string) => {
+  const loadPerms = useCallback(async (role: string, pid: string) => {
     if (!role) {
       setPermState('idle');
       setOriginal(new Set());
@@ -184,18 +234,25 @@ function ActionRbacEditor({
     setPermState('running');
     setPermError(null);
     try {
-      const res = await getRolePermissions(role);
+      const res = await getRolePermissions(role, pid || undefined);
       const s = allowSet(res.permissions);
       setOriginal(new Set(s));
       setAllowed(new Set(s));
       setIsSystem(res.is_system);
       setSource(res.source);
+      setColumnMissing(res.column_missing);
       setPermState('done');
     } catch (e) {
       setPermError(getApiErrorMessage(e));
       setPermState('error');
     }
   }, []);
+
+  // Re-read the matrix whenever the project scope changes (a role is selected).
+  useEffect(() => {
+    if (selectedRole) void loadPerms(selectedRole, projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const dirty = useMemo(() => {
     if (original.size !== allowed.size) return true;
@@ -232,17 +289,28 @@ function ActionRbacEditor({
     if (!selectedRole) return;
     setSaving(true);
     try {
-      const res = await setRolePermissions(selectedRole, setToPermissions(allowed));
+      const res = await setRolePermissions(
+        selectedRole,
+        setToPermissions(allowed),
+        projectId || undefined,
+      );
       setOriginal(new Set(allowed));
+      setColumnMissing(res.column_missing);
       invalidateMyPermissions(); // admin may have edited their own effective role
-      toast({ title: `${selectedRole}: ${res.permissions_set} permissions saved` });
+      const scope =
+        projectId && !res.column_missing
+          ? ` (project ${projects.find((p) => p.project_id === projectId)?.project_name ?? projectId})`
+          : projectId && res.column_missing
+            ? ' (saved global — PROJECT_ID migration pending)'
+            : '';
+      toast({ title: `${selectedRole}: ${res.permissions_set} permissions saved${scope}` });
       setSource('db');
     } catch (e) {
       toast({ title: getApiErrorMessage(e) });
     } finally {
       setSaving(false);
     }
-  }, [selectedRole, allowed]);
+  }, [selectedRole, allowed, projectId, projects]);
 
   const doApplyTemplate = useCallback(
     async (template: string) => {
@@ -253,14 +321,14 @@ function ActionRbacEditor({
         const res = await applyTemplate(selectedRole, template, 'replace');
         invalidateMyPermissions();
         toast({ title: `Applied "${template}" → ${selectedRole} (${res.permissions_applied ?? 0} perms)` });
-        await loadPerms(selectedRole);
+        await loadPerms(selectedRole, projectId);
       } catch (e) {
         toast({ title: getApiErrorMessage(e) });
       } finally {
         setSaving(false);
       }
     },
-    [selectedRole, loadPerms],
+    [selectedRole, loadPerms, projectId],
   );
 
   const modules = Object.entries(registry.registry);
@@ -268,6 +336,7 @@ function ActionRbacEditor({
   return (
     <div className="space-y-3">
       <EnforcedBanner />
+      {projectId !== GLOBAL_SCOPE && columnMissing && <ProjectMigrationBanner />}
 
       <GlassPanel depth={1} radius="xl" className="space-y-3 p-3">
         <div className="flex flex-wrap items-end gap-3">
@@ -279,7 +348,7 @@ function ActionRbacEditor({
               value={selectedRole}
               onChange={(e) => {
                 setSelectedRole(e.target.value);
-                void loadPerms(e.target.value);
+                void loadPerms(e.target.value, projectId);
               }}
               className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
             >
@@ -293,7 +362,12 @@ function ActionRbacEditor({
             </select>
           </label>
 
-          <ProjectSelector />
+          <ProjectSelector
+            projects={projects}
+            value={projectId}
+            onChange={onProjectChange}
+            disabled={saving}
+          />
 
           {/* Apply template */}
           <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-600 dark:text-slate-300">
@@ -373,7 +447,7 @@ function ActionRbacEditor({
       ) : permState === 'running' || permState === 'idle' ? (
         <Spinner label="Loading role matrix…" />
       ) : permState === 'error' ? (
-        <ErrBox message={permError ?? 'Failed'} onRetry={() => void loadPerms(selectedRole)} />
+        <ErrBox message={permError ?? 'Failed'} onRetry={() => void loadPerms(selectedRole, projectId)} />
       ) : (
         <div className="space-y-2">
           {modules.map(([mKey, mData]) => {
@@ -711,10 +785,16 @@ function ActionRbacPreview({
   registry,
   roles,
   users,
+  projects,
+  projectId,
+  onProjectChange,
 }: {
   registry: ActionRegistryResponse;
   roles: D360Role[];
   users: UserGrantTableData[];
+  projects: Project[];
+  projectId: string;
+  onProjectChange: (projectId: string) => void;
 }) {
   const [mode, setMode] = useState<'role' | 'user'>('role');
   const [pickedRole, setPickedRole] = useState('');
@@ -726,7 +806,7 @@ function ActionRbacPreview({
   // "As user" path — exact effective resolution from the backend.
   const [userData, setUserData] = useState<EffectiveUserPermissionsResponse | null>(null);
 
-  const loadForRole = useCallback(async (role: string) => {
+  const loadForRole = useCallback(async (role: string, pid: string) => {
     if (!role) {
       setState('idle');
       setAllowed(new Set());
@@ -735,7 +815,7 @@ function ActionRbacPreview({
     setState('running');
     setError(null);
     try {
-      const res = await getRolePermissions(role);
+      const res = await getRolePermissions(role, pid || undefined);
       setAllowed(allowSet(res.permissions));
       setState('done');
     } catch (e) {
@@ -748,7 +828,7 @@ function ActionRbacPreview({
   // action (Snowflake roles → single highest-priority D360 role → DB/matrix
   // allow-set, fail-open `default` for uncovered modules). No more role-union
   // approximation.
-  const loadForUser = useCallback(async (username: string) => {
+  const loadForUser = useCallback(async (username: string, pid: string) => {
     if (!username) {
       setState('idle');
       setUserData(null);
@@ -758,7 +838,7 @@ function ActionRbacPreview({
     setError(null);
     setUserData(null);
     try {
-      const res = await getEffectiveUserPermissions(username);
+      const res = await getEffectiveUserPermissions(username, pid || undefined);
       setUserData(res);
       setState('done');
     } catch (e) {
@@ -766,6 +846,13 @@ function ActionRbacPreview({
       setState('error');
     }
   }, []);
+
+  // Re-resolve the active selection when the project scope changes.
+  useEffect(() => {
+    if (mode === 'role' && pickedRole) void loadForRole(pickedRole, projectId);
+    if (mode === 'user' && pickedUser) void loadForUser(pickedUser, projectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   // "As role" per-module rollup vs the registry (user mode uses the endpoint's
   // own modules_summary instead).
@@ -833,6 +920,8 @@ function ActionRbacPreview({
             ))}
           </div>
 
+          <ProjectSelector projects={projects} value={projectId} onChange={onProjectChange} />
+
           {mode === 'role' ? (
             <label className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600 dark:text-slate-300">
               <KeyRound className="h-3.5 w-3.5" /> Role
@@ -840,7 +929,7 @@ function ActionRbacPreview({
                 value={pickedRole}
                 onChange={(e) => {
                   setPickedRole(e.target.value);
-                  void loadForRole(e.target.value);
+                  void loadForRole(e.target.value, projectId);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
@@ -859,7 +948,7 @@ function ActionRbacPreview({
                 value={pickedUser}
                 onChange={(e) => {
                   setPickedUser(e.target.value);
-                  void loadForUser(e.target.value);
+                  void loadForUser(e.target.value, projectId);
                 }}
                 className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 outline-none focus:border-[hsl(var(--primary))] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
               >
@@ -896,7 +985,7 @@ function ActionRbacPreview({
         ) : state === 'running' ? (
           <Spinner label="Resolving exact effective permissions…" />
         ) : state === 'error' ? (
-          <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForUser(pickedUser)} />
+          <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForUser(pickedUser, projectId)} />
         ) : userData ? (
           <UserEffectiveView registry={registry} data={userData} />
         ) : null
@@ -905,7 +994,7 @@ function ActionRbacPreview({
       ) : state === 'running' ? (
         <Spinner label="Resolving effective permissions…" />
       ) : state === 'error' ? (
-        <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForRole(pickedRole)} />
+        <ErrBox message={error ?? 'Failed'} onRetry={() => void loadForRole(pickedRole, projectId)} />
       ) : totalAllowed === 0 ? (
         <EmptyState icon={KeyRound} compact title="No effective Action-RBAC grants for this selection" />
       ) : (
@@ -972,21 +1061,26 @@ export default function ActionRbacTab() {
   const [roles, setRoles] = useState<D360Role[]>([]);
   const [templates, setTemplates] = useState<D360RoleTemplate[]>([]);
   const [users, setUsers] = useState<UserGrantTableData[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  // Shared project scope across editor + preview ('' = Global / account-wide).
+  const [projectId, setProjectId] = useState<string>(GLOBAL_SCOPE);
 
   const load = useCallback(async () => {
     setState('running');
     setError(null);
     try {
-      const [reg, rl, tpl, us] = await Promise.all([
+      const [reg, rl, tpl, us, prj] = await Promise.all([
         getActionRegistry(),
         getD360Roles(),
         getD360RoleTemplates().catch(() => [] as D360RoleTemplate[]),
         getUsersWithRolesAndModules().catch(() => [] as UserGrantTableData[]),
+        listProjects().then((r) => r.projects).catch(() => [] as Project[]),
       ]);
       setRegistry(reg);
       setRoles(rl);
       setTemplates(tpl);
       setUsers(us);
+      setProjects(prj);
       setState('done');
     } catch (e) {
       setError(getApiErrorMessage(e));
@@ -1026,9 +1120,24 @@ export default function ActionRbacTab() {
       </div>
 
       {sub === 'editor' ? (
-        <ActionRbacEditor registry={registry} roles={roles} templates={templates} users={users} />
+        <ActionRbacEditor
+          registry={registry}
+          roles={roles}
+          templates={templates}
+          users={users}
+          projects={projects}
+          projectId={projectId}
+          onProjectChange={setProjectId}
+        />
       ) : (
-        <ActionRbacPreview registry={registry} roles={roles} users={users} />
+        <ActionRbacPreview
+          registry={registry}
+          roles={roles}
+          users={users}
+          projects={projects}
+          projectId={projectId}
+          onProjectChange={setProjectId}
+        />
       )}
     </div>
   );

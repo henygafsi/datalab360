@@ -312,9 +312,15 @@ export async function deleteD360Role(roleName: string): Promise<{ message: strin
 //   PUT  /gouvernance/d360-roles/{role_name}/permissions    — wholesale replace (custom roles only)
 //   POST /gouvernance/d360-roles/{role_name}/apply-template — copy a system template onto a custom role
 //
-// NOTE — PROJECT_ID: the backend `PermissionBulkSet` model has NO project_id field
-// yet (account-global only). The `projectId?` params below are forward-compat
-// placeholders and are intentionally NOT sent until the backend migration lands.
+// PROJECT_ID (per-project overlay) — backend contract NOW LIVE:
+//   GET  …/{role}/permissions?project_id=     → effective overlay for that project
+//   PUT  …/{role}/permissions {…, project_id} → scoped replace for that project
+//   GET  …/effective/{username}?project_id=   → echoes project_id
+// All three are tolerant of the PROJECT_ID column not being migrated yet: they
+// fall back to account-global and flag it via `column_missing:true`
+// (+ an `X-RBAC-Project-Warning` response header).
+// NOTE: `my-permissions` is account-global ONLY (no project_id) — so the
+// frontend content gate (useCanPerform) stays project-agnostic for now.
 // ===========================================================================
 
 /** A single grantable action coordinate (one cell of the matrix). */
@@ -366,6 +372,13 @@ export interface RolePermissionsResponse {
   source: 'db' | 'matrix' | string;
   /** True when the backing table is absent in this environment. */
   uninitialized: boolean;
+  /** Echoed project scope of this matrix (null = account-global). */
+  project_id: string | null;
+  /**
+   * True when the PROJECT_ID column is not migrated yet — the backend returned
+   * the account-global rows regardless of the requested project scope.
+   */
+  column_missing: boolean;
 }
 
 /** Response of GET /gouvernance/d360-roles/my-permissions. */
@@ -465,10 +478,12 @@ export interface EffectiveUserPermissionsResponse {
  * GET /gouvernance/d360-roles/effective/{username}
  */
 export async function getEffectiveUserPermissions(
-  username: string
+  username: string,
+  projectId?: string | null
 ): Promise<EffectiveUserPermissionsResponse> {
   const response = await apiClient.get(
-    `/gouvernance/d360-roles/effective/${encodeURIComponent(username)}`
+    `/gouvernance/d360-roles/effective/${encodeURIComponent(username)}`,
+    projectId ? { params: { project_id: projectId } } : undefined
   );
   const d = response.data ?? {};
   return {
@@ -504,10 +519,12 @@ export async function getEffectiveUserPermissions(
  * GET /gouvernance/d360-roles/{role_name}/permissions
  */
 export async function getRolePermissions(
-  roleName: string
+  roleName: string,
+  projectId?: string | null
 ): Promise<RolePermissionsResponse> {
   const response = await apiClient.get(
-    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/permissions`
+    `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/permissions`,
+    projectId ? { params: { project_id: projectId } } : undefined
   );
   const d = response.data ?? {};
   return {
@@ -519,6 +536,8 @@ export async function getRolePermissions(
     permission_count: d.permission_count ?? 0,
     source: d.source ?? 'db',
     uninitialized: Boolean(d.uninitialized),
+    project_id: d.project_id ?? projectId ?? null,
+    column_missing: Boolean(d.column_missing),
   };
 }
 
@@ -527,17 +546,24 @@ export async function getRolePermissions(
  * re-INSERTs the supplied set — there is no per-cell PATCH). Blocked for system
  * roles (403) and requires an accountadmin Snowflake role.
  *
- * @param projectId Forward-compat only — NOT sent to the backend yet (the
- *   `PermissionBulkSet` model is account-global). Pending PROJECT_ID migration.
+ * @param projectId When set, scopes the replace to that project's overlay (the
+ *   global rows of other scopes are preserved). When omitted/null the write
+ *   targets the account-global (`PROJECT_ID IS NULL`) rows. If the PROJECT_ID
+ *   column is not migrated yet the backend degrades to a global write and
+ *   returns `column_missing:true` (+ `X-RBAC-Project-Warning` header).
  * PUT /gouvernance/d360-roles/{role_name}/permissions
  */
 export async function setRolePermissions(
   roleName: string,
   permissions: RolePermission[],
   projectId?: string | null
-): Promise<{ success: boolean; role_name: string; permissions_set: number }> {
-  // projectId is intentionally ignored until the backend accepts PROJECT_ID.
-  void projectId;
+): Promise<{
+  success: boolean;
+  role_name: string;
+  permissions_set: number;
+  project_id: string | null;
+  column_missing: boolean;
+}> {
   const response = await apiClient.put(
     `/gouvernance/d360-roles/${encodeURIComponent(roleName)}/permissions`,
     {
@@ -548,9 +574,19 @@ export async function setRolePermissions(
         action: p.action,
         access_level: (p.access_level || 'ALLOW').toUpperCase(),
       })),
+      // Only send project_id when scoping to a project — omit for global writes
+      // so pre-migration backends keep their legacy wholesale-replace behaviour.
+      ...(projectId ? { project_id: projectId } : {}),
     }
   );
-  return response.data;
+  const d = response.data ?? {};
+  return {
+    success: Boolean(d.success ?? true),
+    role_name: d.role_name ?? roleName,
+    permissions_set: d.permissions_set ?? permissions.length,
+    project_id: d.project_id ?? projectId ?? null,
+    column_missing: Boolean(d.column_missing),
+  };
 }
 
 /**
