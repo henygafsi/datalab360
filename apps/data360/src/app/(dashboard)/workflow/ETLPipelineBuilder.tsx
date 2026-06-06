@@ -3,6 +3,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGate from '@/components/ui/PermissionGate';
 import ReactFlow, {
   Node,
   Edge,
@@ -635,10 +636,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   // once permissions resolve and re-resolves live when an admin edits the matrix.
   const wfExecutePerm = useCanPerform('workflow', 'execute', activeWorkflowId ?? undefined);
   const wfDeployPerm = useCanPerform('workflow', 'deploy', activeWorkflowId ?? undefined);
+  const wfEditPerm = useCanPerform('workflow', 'edit', activeWorkflowId ?? undefined);
+  const wfCreatePerm = useCanPerform('workflow', 'create', activeWorkflowId ?? undefined);
+  const wfDeletePerm = useCanPerform('workflow', 'delete', activeWorkflowId ?? undefined);
   const canWfExecute = wfExecutePerm.allowed || wfExecutePerm.loading;
   const canWfDeploy = wfDeployPerm.allowed || wfDeployPerm.loading;
+  const canWfEdit = wfEditPerm.allowed || wfEditPerm.loading;
+  const canWfCreate = wfCreatePerm.allowed || wfCreatePerm.loading;
+  const canWfDelete = wfDeletePerm.allowed || wfDeletePerm.loading;
   const EXECUTE_DENIED_HINT = 'You lack the "execute" permission on workflow. Ask an administrator to grant it.';
   const DEPLOY_DENIED_HINT = 'You lack the "deploy" permission on workflow. Ask an administrator to grant it.';
+  const EDIT_DENIED_HINT = 'You lack the "edit" permission on workflow. Ask an administrator to grant it.';
+  const DELETE_DENIED_HINT = 'You lack the "delete" permission on workflow. Ask an administrator to grant it.';
 
   const readOnlyGuard = useCallback(() => {
     if (isReadOnly) {
@@ -2788,31 +2797,34 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           {/* ── Cluster 1: Create ── */}
           <div className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
             <motion.button
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.92 }}
+              whileHover={canWfCreate ? { scale: 1.06 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.92 } : undefined}
               onClick={handleNewPipeline}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50"
-              title="Create new workflow"
+              disabled={!canWfCreate}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Create new workflow' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
             </motion.button>
             <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={canWfCreate ? { y: -1 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
               onClick={() => setShowAiGenerate(true)}
-              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
-              title="Generate workflow with AI"
+              disabled={!canWfCreate}
+              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Generate workflow with AI' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               <Sparkles className="h-3 w-3" />
               AI
             </motion.button>
             <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={canWfCreate ? { y: -1 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
               onClick={() => setShowImportTasks(true)}
-              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60"
-              title="Import Snowflake task graphs as workflow projects"
+              disabled={!canWfCreate}
+              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Import Snowflake task graphs as workflow projects' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <Download className="h-3 w-3" />
               <span className="hidden md:inline">Import</span>
@@ -3024,9 +3036,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               whileHover={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
               whileTap={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
               onClick={handleSavePipeline}
-              disabled={isSaving || isReadOnly || isPendingApproval}
+              disabled={isSaving || isReadOnly || isPendingApproval || (activeWorkflowId ? !canWfEdit : !canWfCreate)}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-500/40 transition-shadow hover:shadow-md hover:shadow-blue-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
+              title={activeWorkflowId && !canWfEdit ? EDIT_DENIED_HINT : !activeWorkflowId && !canWfCreate ? 'You lack the "create" permission on workflow. Ask an administrator to grant it.' : isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
             >
               {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
               Save{phaseSuffix('save')}
@@ -3275,11 +3287,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             {activeWorkflowId && !isReadOnly && !confirmDeletePipeline && (
               <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.92 }}
+                whileHover={canWfDelete ? { scale: 1.1 } : undefined}
+                whileTap={canWfDelete ? { scale: 0.92 } : undefined}
                 onClick={handleDeletePipeline}
-                className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                title="Delete workflow"
+                disabled={!canWfDelete}
+                className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20"
+                title={canWfDelete ? 'Delete workflow' : DELETE_DENIED_HINT}
                 aria-label="Delete workflow"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -3859,14 +3872,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     </p>
                   </div>
                 )}
-                <ScheduleManager
-                  pipelineId={activeWorkflowId}
-                  pipelineName={activeWorkflowName}
+                {/* Schedule is a pure-action surface → content-gate on
+                    workflow:schedule (project-scoped to the active workflow). */}
+                <PermissionGate
+                  module="workflow"
+                  action="schedule"
+                  projectId={activeWorkflowId ?? undefined}
                   compact
-                  isReadOnly={isReadOnly}
-                  className="-mx-4 -mt-4"
-                  onScheduleChange={refetchHeaderSchedules}
-                />
+                  title="Scheduling restricted"
+                  description="You don't have the &quot;schedule&quot; permission on workflow. Ask an administrator to grant it to manage this pipeline's schedule."
+                >
+                  <ScheduleManager
+                    pipelineId={activeWorkflowId}
+                    pipelineName={activeWorkflowName}
+                    compact
+                    isReadOnly={isReadOnly}
+                    className="-mx-4 -mt-4"
+                    onScheduleChange={refetchHeaderSchedules}
+                  />
+                </PermissionGate>
               </>
             )}
 

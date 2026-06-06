@@ -37,6 +37,7 @@ import {
 } from '@/app/services/governance/fetch_roles';
 import { useCanPerform } from '@/hooks/useCanPerform';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
+import PermissionGate from '@/components/ui/PermissionGate';
 
 type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -82,7 +83,14 @@ function SourceProductGrantsPanel() {
         <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can access sources (databases, stages) and data products. Grants propagate to Snowflake objects.</p>
       </div>
 
-      {/* Grant form */}
+      {/* Grant form — pure action surface: content-gated on gouvernance:grant
+          (non-granters get a clear "access restricted" state, not a dead form). */}
+      <PermissionGate
+        module="gouvernance"
+        action="grant"
+        title="Granting access is restricted"
+        description="You don't have the &quot;grant&quot; permission on governance. Ask an administrator to grant it in Admin → Data360 config → Action RBAC."
+      >
       <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10 space-y-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Add Grant</h3>
         <div className="grid grid-cols-3 gap-3">
@@ -105,18 +113,16 @@ function SourceProductGrantsPanel() {
             </select>
           </div>
         </div>
-        <PermissionGatedButton
-          module="gouvernance"
-          action="grant"
-          deniedReason="You lack the &quot;grant&quot; permission on governance. Ask an administrator to grant it."
+        <Button
           size="sm"
           className="bg-emerald-600 hover:bg-emerald-700 text-white"
           onClick={handleGrant}
           disabled={!grantRole || !grantTarget}
         >
           Grant Access
-        </PermissionGatedButton>
+        </Button>
       </div>
+      </PermissionGate>
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

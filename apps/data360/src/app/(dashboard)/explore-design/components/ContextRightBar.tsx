@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGate from '@/components/ui/PermissionGate';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -984,6 +985,13 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
   }, [projectId, pendingEvents, pendingEventsCount, getDbSchema, log, approvalRequested, approvalNote, stepOutput.deploy]);
 
   return (
+    <PermissionGate
+      module="explore_design"
+      action="deploy"
+      projectId={projectId}
+      title="Deployment restricted"
+      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to Snowflake requires an administrator to grant deploy access."
+    >
     <div className="p-4 space-y-4">
       {/* Header */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
@@ -1080,6 +1088,7 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
         </div>
       )}
     </div>
+    </PermissionGate>
   );
 }
 
