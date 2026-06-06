@@ -55,7 +55,8 @@ export default function KpiCategoryCard({
   metrics,
   className,
 }: KpiCategoryCardProps) {
-  const colors = statusColors[status];
+  // Guard against unexpected status casing/values from the API.
+  const colors = statusColors[String(status).toLowerCase() as keyof typeof statusColors] ?? statusColors.warning;
 
   return (
     <div

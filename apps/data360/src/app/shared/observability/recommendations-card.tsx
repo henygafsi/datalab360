@@ -61,7 +61,8 @@ export default function RecommendationsCard({ recommendations, className }: Reco
 
       <div className="mt-4 space-y-3">
         {recommendations.map((rec, index) => {
-          const config = priorityConfig[rec.priority];
+          // Guard against unexpected priority casing/values from the API.
+          const config = priorityConfig[String(rec.priority).toLowerCase() as keyof typeof priorityConfig] ?? priorityConfig.low;
           const Icon = config.icon;
 
           return (
