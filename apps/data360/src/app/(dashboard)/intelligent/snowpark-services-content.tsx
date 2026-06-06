@@ -8,6 +8,7 @@ import {
   PiCpu, PiCloudArrowUp, PiPlay, PiPause, PiPlus,
   PiArrowsClockwise, PiWarningCircle, PiTerminalWindow,
   PiArrowSquareOut, PiPackage, PiCopy, PiSparkle,
+  PiTrash, PiTimer,
 } from 'react-icons/pi';
 import {
   listComputePools,
@@ -28,7 +29,14 @@ import type {
   StreamlitApp,
   ImageRepo,
 } from '@/app/services/cortex/snowpark';
+import {
+  suspendService,
+  resumeService,
+  dropService,
+  autoStopService,
+} from '@/app/services/cortex/ai';
 import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
+import { ConfirmDestructiveDialog, ConfirmDialog } from '@/components/ui/confirm-dialog';
 
 type SubTab = 'compute-pools' | 'services' | 'streamlit' | 'image-repos';
 
@@ -231,6 +239,13 @@ function ContainerServicesPanel() {
   const [creating, setCreating] = useState(false);
   const [logPanel, setLogPanel] = useState<{ name: string; logs: string } | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
+  // Lifecycle: suspend/resume (per-row busy), drop (confirm), auto-stop (modal).
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<ContainerService | null>(null);
+  const [dropping, setDropping] = useState(false);
+  const [autoStopTarget, setAutoStopTarget] = useState<ContainerService | null>(null);
+  const [autoStopForm, setAutoStopForm] = useState<{ seconds: number; mode: 'suspend' | 'drop' }>({ seconds: 3600, mode: 'suspend' });
+  const [autoStopBusy, setAutoStopBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -240,6 +255,44 @@ function ContainerServicesPanel() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const errMsg = (e: any) => e?.response?.data?.detail || e?.message || 'Action failed';
+  const svcParams = (s: ContainerService) => ({ database: s.database_name, schema: s.schema_name });
+  const isSuspended = (s: ContainerService) => ['SUSPENDED', 'STOPPED'].includes((s.status || '').toUpperCase());
+
+  const handleToggle = async (svc: ContainerService) => {
+    const suspended = isSuspended(svc);
+    setActionBusy(svc.name);
+    try {
+      suspended ? await resumeService(svc.name, svcParams(svc)) : await suspendService(svc.name, svcParams(svc));
+      toast.success(`${svc.name} ${suspended ? 'resumed' : 'suspended'}`);
+      await load();
+    } catch (e: any) { toast.error(errMsg(e)); }
+    finally { setActionBusy(null); }
+  };
+
+  const handleDrop = async () => {
+    if (!dropTarget) return;
+    setDropping(true);
+    try {
+      await dropService(dropTarget.name, svcParams(dropTarget));
+      toast.success(`Service ${dropTarget.name} dropped`);
+      setDropTarget(null);
+      await load();
+    } catch (e: any) { toast.error(errMsg(e)); }
+    finally { setDropping(false); }
+  };
+
+  const handleAutoStop = async () => {
+    if (!autoStopTarget) return;
+    setAutoStopBusy(true);
+    try {
+      await autoStopService(autoStopTarget.name, autoStopForm.seconds, autoStopForm.mode);
+      toast.success(`Auto-${autoStopForm.mode} scheduled for ${autoStopTarget.name} in ${autoStopForm.seconds}s`);
+      setAutoStopTarget(null);
+    } catch (e: any) { toast.error(errMsg(e)); }
+    finally { setAutoStopBusy(false); }
+  };
 
   const handleCreate = async () => {
     if (!form.name || !form.compute_pool || !form.spec_yaml) { toast.error('Name, compute pool, and spec YAML required'); return; }
@@ -319,13 +372,111 @@ function ContainerServicesPanel() {
                 <td className="px-4 py-3 text-center">{s.min_instances} / {s.max_instances}</td>
                 <td className="px-4 py-3 text-gray-500 dark:text-gray-400">{s.created_on ? new Date(s.created_on).toLocaleDateString() : '—'}</td>
                 <td className="px-4 py-3 text-right">
-                  <Button variant="outline" size="sm" className="gap-1" onClick={() => viewLogs(s)}><PiTerminalWindow className="w-3.5 h-3.5" /> Logs</Button>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button variant="outline" size="sm" className="gap-1" onClick={() => viewLogs(s)}><PiTerminalWindow className="w-3.5 h-3.5" /> Logs</Button>
+                    <PermissionGatedButton
+                      module="cortex"
+                      action="manage-services"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      disabled={actionBusy === s.name}
+                      onClick={() => handleToggle(s)}
+                      deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
+                    >
+                      {actionBusy === s.name
+                        ? <Loader size="sm" />
+                        : isSuspended(s) ? <><PiPlay className="w-3.5 h-3.5" /> Resume</> : <><PiPause className="w-3.5 h-3.5" /> Suspend</>}
+                    </PermissionGatedButton>
+                    <PermissionGatedButton
+                      module="cortex"
+                      action="manage-services"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1"
+                      title="Schedule automatic suspend/drop after a delay (saves credits)"
+                      onClick={() => { setAutoStopForm({ seconds: 3600, mode: 'suspend' }); setAutoStopTarget(s); }}
+                      deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
+                    >
+                      <PiTimer className="w-3.5 h-3.5" /> Auto-stop
+                    </PermissionGatedButton>
+                    <PermissionGatedButton
+                      module="cortex"
+                      action="manage-services"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1 text-red-600 hover:text-red-700 dark:text-red-400"
+                      onClick={() => setDropTarget(s)}
+                      deniedReason="Requires the manage-services permission on Intelligence → Container Apps."
+                    >
+                      <PiTrash className="w-3.5 h-3.5" /> Drop
+                    </PermissionGatedButton>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Drop service — irreversible, type-to-confirm */}
+      <ConfirmDestructiveDialog
+        open={!!dropTarget}
+        onOpenChange={(open) => { if (!open) setDropTarget(null); }}
+        tier="hard"
+        title="Drop container service"
+        resourceLabel="service"
+        resourceName={dropTarget?.name ?? ''}
+        body={<>Dropping <span className="font-mono font-semibold">{dropTarget?.name}</span> permanently removes the service and frees all of its compute credits. This cannot be undone.</>}
+        irreversibleNote="The running containers are torn down immediately and any in-flight work is lost."
+        confirmLabel="Drop service"
+        loading={dropping}
+        onConfirm={handleDrop}
+        onCancel={() => setDropTarget(null)}
+      />
+
+      {/* Auto-stop — schedule a delayed suspend or drop */}
+      <ConfirmDialog
+        open={!!autoStopTarget}
+        onOpenChange={(open) => { if (!open) setAutoStopTarget(null); }}
+        variant="warning"
+        title="Schedule auto-stop"
+        confirmLabel="Schedule"
+        loading={autoStopBusy}
+        onConfirm={handleAutoStop}
+        onCancel={() => setAutoStopTarget(null)}
+        body={
+          <div className="space-y-3">
+            <p>
+              Automatically {autoStopForm.mode === 'drop' ? 'drop' : 'suspend'}{' '}
+              <span className="font-mono font-semibold">{autoStopTarget?.name}</span>{' '}
+              after the delay below. Useful for ephemeral or demo workloads so idle credits are never wasted.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Delay (seconds)</label>
+                <Input
+                  type="number"
+                  min={60}
+                  value={String(autoStopForm.seconds)}
+                  onChange={(e) => setAutoStopForm((f) => ({ ...f, seconds: Math.max(60, parseInt(e.target.value) || 60) }))}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Action</label>
+                <select
+                  className="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white px-3 py-2 text-sm"
+                  value={autoStopForm.mode}
+                  onChange={(e) => setAutoStopForm((f) => ({ ...f, mode: e.target.value as 'suspend' | 'drop' }))}
+                >
+                  <option value="suspend">Suspend (resumable)</option>
+                  <option value="drop">Drop (irreversible)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+        }
+      />
 
       {logPanel && (
         <div className="rounded-lg border border-gray-700 bg-gray-900 p-4">
