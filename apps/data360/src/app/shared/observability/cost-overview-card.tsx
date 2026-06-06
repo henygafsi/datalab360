@@ -116,7 +116,7 @@ export default function CostOverviewCard({
       </div>
 
       {/* Total Estimated Cost */}
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-100/50">
+      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-700/30">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <PiCurrencyDollarDuotone className="h-6 w-6 text-green-600" />
@@ -191,7 +191,7 @@ export default function CostOverviewCard({
             {warehouseData.warehouses.slice(0, 5).map((warehouse) => (
               <div
                 key={warehouse.warehouse_name || 'unknown'}
-                className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-100/50"
+                className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-700/30"
               >
                 <div>
                   <Text className="font-medium">{warehouse.warehouse_name || 'Unknown'}</Text>

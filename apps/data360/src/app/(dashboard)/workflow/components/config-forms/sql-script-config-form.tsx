@@ -6,7 +6,7 @@ import { Sparkles, Loader2, Save } from 'lucide-react';
 import { FormField } from './_shared';
 import { CodeEditor } from './_code-editor';
 import { AIGenerateDrawer } from './_ai-drawer';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 
 /**
  * SQLScriptConfigForm — handles block type(s): `sql_script`.
@@ -38,14 +38,15 @@ const SQLScriptConfigForm: React.FC<{
     setTestError(null);
     try {
       const response = await apiClient.post('/workflow/run-sql', { sql: config.sql_code, limit: 10 });
-      const result = response.data as Record<string, any>;
-      if (result.status === 'success') {
-        setTestResult({ columns: result.columns || [], rows: result.rows || [], count: result.count || 0 });
-      } else {
-        setTestError((result.detail as any)?.message || result.message || 'Execution failed');
-      }
-    } catch (err: any) {
-      setTestError(err.message || 'Test failed');
+      // The /workflow/run-sql route wraps the service result one level deep:
+      // { data: { data: rows[], columns: string[] } }. Unwrap it the same way the
+      // canonical dev-tools caller does, then map to the table's expected shape.
+      const result = (response.data?.data ?? response.data ?? {}) as Record<string, any>;
+      const rows = (Array.isArray(result.data) ? result.data : (result.rows ?? [])) as Record<string, any>[];
+      const columns = (Array.isArray(result.columns) ? result.columns : []) as string[];
+      setTestResult({ columns, rows, count: rows.length });
+    } catch (err) {
+      setTestError(getApiErrorMessage(err));
     } finally {
       setIsTesting(false);
     }

@@ -139,7 +139,7 @@ export default function PerformanceMetricsCard({
       </div>
 
       {/* Query Stats Summary */}
-      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-100/50">
+      <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-700/30">
         <div className="grid grid-cols-3 gap-4 text-center">
           <div>
             <Text className="text-xs text-gray-500">Total Queries</Text>

@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { Suspense, useState, useCallback } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { Badge, Button } from 'rizzui';
 import {
   Database, Brain, Plus, RefreshCw, CheckCircle2, AlertTriangle,
@@ -12,6 +13,7 @@ import SourceTree from './components/SourceTree';
 import SourcesOverview from './components/SourcesOverview';
 import TableDetailPanel from './components/TableDetailPanel';
 import DetectedModelsTab from './components/DetectedModelsTab';
+import ProjectSelector from '@/app/(dashboard)/explore-design/components/ProjectSelector';
 import { refreshCatalog } from '@/app/services/catalog';
 import { getApiErrorMessage } from '@/lib/api-client';
 
@@ -24,10 +26,18 @@ interface SelectedTable {
 }
 
 function SourcesPage() {
+  // Accept both `?project=` (used by the "Open in Modeler" deep-link below)
+  // and `?project_id=` (used by Explore & Design) for consistent deep-linking.
+  const searchParams = useSearchParams();
+  const urlProjectId = searchParams.get('project') ?? searchParams.get('project_id');
+
   const [tab, setTab] = useState<TabId>('sources');
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const [selectedTable, setSelectedTable] = useState<SelectedTable | null>(null);
-  const [projectId] = useState<string | undefined>(undefined);
+  // Real project selection — drives the AI Detected Models flow. Was hardcoded
+  // to `undefined`, which left DetectedModelsTab permanently in its
+  // "No Project Selected" empty state.
+  const [projectId, setProjectId] = useState<string | undefined>(urlProjectId ?? undefined);
   const [sourceTables, setSourceTables] = useState<Array<{ database: string; schema: string; table: string }>>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<{ ok: boolean; message: string } | null>(null);
@@ -87,6 +97,11 @@ function SourcesPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <ProjectSelector
+              selectedProjectId={projectId ?? null}
+              onProjectSelect={(id) => setProjectId(id)}
+              autoSelectProjectId={urlProjectId}
+            />
             {refreshStatus && (
               <span
                 role="status"
@@ -178,7 +193,10 @@ function SourcesPage() {
 export default function SourcesPageWrapper() {
   return (
     <ErrorBoundary>
-      <SourcesPage />
+      {/* Suspense boundary required for useSearchParams() in the App Router. */}
+      <Suspense fallback={null}>
+        <SourcesPage />
+      </Suspense>
     </ErrorBoundary>
   );
 }

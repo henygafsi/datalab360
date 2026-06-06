@@ -13,15 +13,34 @@ import type { SloRecord } from '@/app/services/observability/types';
 import { getApiErrorMessage } from '@/lib/api-client';
 
 function statusClasses(status?: string): string {
+  // Backend get_slo_tracking emits OK / BREACH (lowercased here); older payloads
+  // used meeting / at_risk / breached.
   const s = (status || '').toLowerCase();
-  if (s === 'breached') return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
+  if (s === 'breached' || s === 'breach') return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400';
   if (s === 'at_risk') return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400';
-  if (s === 'meeting') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
+  if (s === 'meeting' || s === 'ok') return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400';
   return 'bg-slate-100 text-slate-700 dark:bg-slate-700 dark:text-slate-300';
+}
+
+function statusLabel(status?: string): string {
+  const s = (status || '').toLowerCase();
+  if (s === 'ok' || s === 'meeting') return 'Meeting';
+  if (s === 'breach' || s === 'breached') return 'Breached';
+  if (s === 'at_risk') return 'At risk';
+  return status ?? '—';
 }
 
 function pct(v?: number | null): string {
   return v == null ? '—' : `${v.toFixed(1)}%`;
+}
+
+/** Format an SLO target/actual using its declared unit ('%' default, or seconds). */
+function sloValue(v?: number | null, unit?: string): string {
+  if (v == null) return '—';
+  const u = (unit || '%').toLowerCase();
+  if (u === 'seconds' || u === 'sec' || u === 's') return `${v.toFixed(1)}s`;
+  if (u === 'ms') return `${v.toFixed(0)}ms`;
+  return `${v.toFixed(1)}%`;
 }
 
 export default function SloPage() {
@@ -78,7 +97,7 @@ export default function SloPage() {
       <FreshnessDisclaimer className="mb-4" />
 
       {loading ? (
-        <TableSkeleton rows={5} columns={5} />
+        <TableSkeleton rows={5} columns={7} />
       ) : notDeployed ? (
         <EmptyState
           icon={PiWarningCircleBold}
@@ -105,6 +124,7 @@ export default function SloPage() {
                 <th className="px-3 py-2">Category</th>
                 <th className="px-3 py-2">Target</th>
                 <th className="px-3 py-2">Actual</th>
+                <th className="px-3 py-2">Sample</th>
                 <th className="px-3 py-2">Error budget</th>
                 <th className="px-3 py-2">Status</th>
               </tr>
@@ -119,14 +139,30 @@ export default function SloPage() {
                     {slo.name ?? slo.objective ?? '—'}
                   </td>
                   <td className="px-3 py-2 text-gray-600 dark:text-gray-400">{slo.category ?? '—'}</td>
-                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{pct(slo.target_percent)}</td>
-                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{pct(slo.actual_percent)}</td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                    {sloValue(slo.target ?? slo.target_percent, slo.unit)}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                    {sloValue(slo.actual ?? slo.actual_percent, slo.unit)}
+                  </td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
+                    {slo.sample_size != null ? (
+                      <span>
+                        {slo.sample_size.toLocaleString()}
+                        {slo.failures != null && slo.failures > 0 && (
+                          <span className="ml-1 text-xs text-red-500">({slo.failures} failed)</span>
+                        )}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-gray-700 dark:text-gray-300">
                     {pct(slo.error_budget_remaining_percent)}
                   </td>
                   <td className="px-3 py-2">
                     <Badge size="sm" className={cn(statusClasses(slo.status))}>
-                      {slo.status ?? '—'}
+                      {statusLabel(slo.status)}
                     </Badge>
                   </td>
                 </tr>

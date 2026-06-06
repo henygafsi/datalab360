@@ -97,3 +97,29 @@ export async function grantPermission(
   }
 }
 
+/**
+ * Revokes a specific permission from a role on an object.
+ * Mirror of grantPermission — backed by POST /gouvernance/revoke-permission
+ * (real Snowflake `REVOKE <priv> ON <object> FROM ROLE`, traced as REVOKE_PERMISSION).
+ */
+export async function revokePermission(
+  privileges: string[],
+  object_type: string,
+  object_name: string,
+  role_name: string
+): Promise<string> {
+  try {
+    const params = new URLSearchParams();
+    privileges.forEach(p => params.append('privileges', p));
+    params.append('object_type', object_type);
+    params.append('object_name', object_name);
+    params.append('role_name', role_name);
+
+    const response = await apiClient.post(`/gouvernance/revoke-permission?${params.toString()}`);
+    return response.data;
+  } catch (error: any) {
+    console.error('Error revoking permission:', error.response?.data || error.message);
+    throw error;
+  }
+}
+

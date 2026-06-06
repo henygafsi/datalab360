@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { getApiErrorMessage } from '@/lib/api-client';
 import {
   listDataProducts,
@@ -32,7 +33,53 @@ function fmtNum(v: number | null | undefined): string {
   return v === null || v === undefined ? '—' : String(v);
 }
 
+/** The front's canonical lifecycle vocabulary. */
+type NormalizedProductStatus = 'draft' | 'active' | 'certified';
+
+/**
+ * Normalize a data product's status to the front's `draft | active | certified`
+ * model — the P0 contract fix. The backend emits uppercase `DRAFT` / `PUBLISHED`
+ * (and may later add a `STATUS_NORMALIZED` field), so a raw `p.STATUS === 'active'`
+ * comparison silently matches nothing and zeroes out filters + KPI tiles.
+ *
+ * Pure & case-insensitive. Prefers `STATUS_NORMALIZED` when the backend supplies it.
+ * IMPORTANT: this is applied only at consumption sites — `product.STATUS` is left
+ * untouched in state so raw-status consumers (e.g. PublishGate) keep working.
+ */
+function normalizeProductStatus(product: Pick<DataProduct, 'STATUS' | 'STATUS_NORMALIZED'>): NormalizedProductStatus {
+  const raw = (product.STATUS_NORMALIZED || product.STATUS || '').trim().toLowerCase();
+  switch (raw) {
+    case 'certified':
+      return 'certified';
+    case 'draft':
+    case 'unpublished':
+    case 'pending':
+      return 'draft';
+    // PUBLISHED / ACTIVE / LIVE and anything else known-live → active
+    case 'published':
+    case 'active':
+    case 'live':
+      return 'active';
+    default:
+      // Unknown / empty status defaults to draft (not yet live) rather than a
+      // fake "active", so KPI tiles never over-count availability.
+      return 'draft';
+  }
+}
+
+/** Human-friendly label for a normalized status. */
+const STATUS_LABELS: Record<NormalizedProductStatus, string> = {
+  draft: 'Draft',
+  active: 'Active',
+  certified: 'Certified',
+};
+
 function DataProductsPage() {
+  // System 2 Action-RBAC (module 'data_products'): Create Product → create.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('data_products', 'create');
+  const canCreateProduct = createPerm.allowed || createPerm.loading;
+
   const [products, setProducts] = useState<DataProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,9 +135,17 @@ function DataProductsPage() {
     setSubscribing(productId);
     setSubscribeError(null);
     try {
-      await subscribeToProduct(productId);
+      const res = await subscribeToProduct(productId);
+      // Use the authoritative post-subscribe count the backend returns (the
+      // `CONSUMERS` column, the same field the list endpoint exposes). The server
+      // increments idempotently — re-subscribing an already-granted account does
+      // NOT bump the count — so a blind optimistic +1 over-counts on repeat
+      // subscribes. Fall back to an optimistic increment only if the backend
+      // omits the count.
       setProducts((prev) => prev.map((p) =>
-        p.PRODUCT_ID === productId ? { ...p, CONSUMERS: (p.CONSUMERS ?? 0) + 1 } : p
+        p.PRODUCT_ID === productId
+          ? { ...p, CONSUMERS: res.consumers ?? (p.CONSUMERS ?? 0) + 1 }
+          : p
       ));
     } catch (err) {
       setSubscribeError({ id: productId, message: getApiErrorMessage(err) });
@@ -111,7 +166,7 @@ function DataProductsPage() {
       );
     }
     if (filterStatus) {
-      result = result.filter((p) => p.STATUS === filterStatus);
+      result = result.filter((p) => normalizeProductStatus(p) === filterStatus);
     }
     return result;
   }, [products, search, filterStatus]);
@@ -120,12 +175,15 @@ function DataProductsPage() {
     const hasProducts = products.length > 0;
     return {
       total: products.length,
-      active: products.filter((p) => p.STATUS === 'active' || p.STATUS === 'certified').length,
+      active: products.filter((p) => {
+        const s = normalizeProductStatus(p);
+        return s === 'active' || s === 'certified';
+      }).length,
       consumers: hasProducts ? products.reduce((s, p) => s + (p.CONSUMERS ?? 0), 0) : null,
       avgQuality: hasProducts
         ? Math.round(products.reduce((s, p) => s + (p.QUALITY_THRESHOLD || 0), 0) / products.length)
         : null,
-      certified: products.filter((p) => p.STATUS === 'certified').length,
+      certified: products.filter((p) => normalizeProductStatus(p) === 'certified').length,
       domains: new Set(products.flatMap((p) => p.TAGS || [])).size,
     };
   }, [products]);
@@ -180,6 +238,8 @@ function DataProductsPage() {
               size="sm" className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
               onClick={() => setShowCreate((v) => !v)}
               aria-expanded={showCreate}
+              disabled={!canCreateProduct}
+              title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}
             >
               <Plus className="h-3.5 w-3.5" />Create Product
             </Button>
@@ -261,7 +321,7 @@ function DataProductsPage() {
                 {search || filterStatus ? 'No products match your filters' : 'No data products yet'}
               </h3>
               {!search && !filterStatus && (
-                <Button size="sm" className="mt-2 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(true)}>
+                <Button size="sm" className="mt-2 gap-1.5 bg-blue-600 hover:bg-blue-700 text-white" onClick={() => setShowCreate(true)} disabled={!canCreateProduct} title={!canCreateProduct ? 'You lack the "create" permission on data products. Ask an administrator to grant it.' : undefined}>
                   <Plus className="h-3.5 w-3.5" />Create your first product
                 </Button>
               )}
@@ -413,12 +473,30 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
   onSelect: () => void; onSubscribe: () => void; subscribing: boolean;
   subscribeError: string | null;
 }) {
+  // System 2 Action-RBAC: subscribing → data_products:subscribe.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const subscribePerm = useCanPerform('data_products', 'subscribe');
+  const canSubscribe = subscribePerm.allowed || subscribePerm.loading;
+
+  // Subscribe requires a PUBLISHED product (the backend 409s on a DRAFT with no
+  // SHARE_NAME). Gate the affordance on the backend-derived `is_published`,
+  // falling back to a raw STATUS check when an older backend omits the field, so
+  // the button isn't offered on products that can't accept subscribers yet.
+  const isPublished =
+    product.is_published ?? (product.STATUS || '').toUpperCase() === 'PUBLISHED';
+  const subscribeDisabledReason = !canSubscribe
+    ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.'
+    : !isPublished
+      ? 'Not published yet — publish this product as a Snowflake share first to enable subscriptions.'
+      : undefined;
+
   const qualityColor = product.QUALITY_THRESHOLD >= 90
     ? 'text-emerald-600 dark:text-emerald-400'
     : product.QUALITY_THRESHOLD >= 70
       ? 'text-amber-600 dark:text-amber-400'
       : 'text-red-600 dark:text-red-400';
-  const isCertified = product.STATUS === 'certified' || product.STATUS === 'active';
+  const normStatus = normalizeProductStatus(product);
+  const isCertified = normStatus === 'certified' || normStatus === 'active';
 
   return (
     <div
@@ -443,12 +521,12 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
             size="sm"
             className={cn(
               'text-[10px] px-2',
-              product.STATUS === 'certified' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                : product.STATUS === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
+              normStatus === 'certified' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+                : normStatus === 'active' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
                   : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
             )}
           >
-            {product.STATUS}
+            {STATUS_LABELS[normStatus]}
           </Badge>
           <span className={cn('text-xs font-semibold', qualityColor)}>{product.QUALITY_THRESHOLD}%</span>
         </div>
@@ -493,7 +571,8 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
         <Button
           size="sm"
           className="h-7 text-xs gap-1 px-2 bg-blue-600 hover:bg-blue-700 text-white"
-          disabled={subscribing}
+          disabled={subscribing || !canSubscribe || !isPublished}
+          title={subscribeDisabledReason}
           onClick={(e) => { e.stopPropagation(); onSubscribe(); }}
         >
           {subscribing ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
@@ -519,12 +598,13 @@ function ProductDetailPanel({
   onPublished: () => void;
 }) {
   const qualityColor = product.QUALITY_THRESHOLD >= 90 ? 'emerald' : product.QUALITY_THRESHOLD >= 70 ? 'amber' : 'red';
+  const detailStatus = normalizeProductStatus(product);
 
   const metrics: { label: string; value: string; color: string }[] = [
     { label: 'Quality', value: `${product.QUALITY_THRESHOLD}%`, color: qualityColor },
     { label: 'SLA', value: `${product.SLA_FRESHNESS_HOURS}h`, color: 'blue' },
     { label: 'Consumers', value: fmtNum(product.CONSUMERS), color: 'amber' },
-    { label: 'Status', value: product.STATUS, color: product.STATUS === 'certified' ? 'emerald' : 'gray' },
+    { label: 'Status', value: STATUS_LABELS[detailStatus], color: detailStatus === 'certified' ? 'emerald' : detailStatus === 'active' ? 'blue' : 'gray' },
   ];
 
   return (

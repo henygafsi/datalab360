@@ -66,6 +66,23 @@ interface StepLike {
   attempt?: number;
 }
 
+// Workflow-global run metrics ride alongside `runs` on GET /workflow/{id}/runs
+// (router adds `result["metrics"] = get_run_metrics(...)`). The shared response
+// type doesn't declare it, so we read it through a local widening — never edit
+// the cross-module `services/api/types.ts` for a module-local field.
+interface RunMetrics {
+  total_runs: number;
+  succeeded: number;
+  failed: number;
+  running: number;
+  cancelled: number;
+  success_rate: number;
+  avg_duration_seconds: number | null;
+  max_duration_seconds: number | null;
+  p95_duration_seconds: number | null;
+  last_run_at: string | null;
+}
+
 function getStepsResults(run: WorkflowRun): StepLike[] {
   const details = run.execution_details as Record<string, unknown> | null | undefined;
   const raw = details?.['steps_results'];
@@ -209,6 +226,10 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
   const { isConnected: sseConnected } = useCacheInvalidationContext();
 
   const allRuns = useMemo<WorkflowRun[]>(() => runsData?.runs ?? [], [runsData]);
+  // Workflow-global summary served inline with the runs page (best-effort — the
+  // backend drops it on aggregate failure, so treat as optional).
+  const metrics =
+    (runsData as { metrics?: RunMetrics } | null | undefined)?.metrics ?? null;
   const error = fetchError?.message ?? null;
 
   // Apply hide-expected filter for display
@@ -590,6 +611,47 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
           <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
         </button>
       </div>
+
+      {/* Workflow-global run summary — served inline with the runs page
+          (metrics block), workflow-wide rather than just the loaded page. */}
+      {metrics && metrics.total_runs > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-slate-200 px-3 py-2 text-xs dark:border-slate-700">
+          <span className="font-medium text-slate-600 dark:text-slate-300">All-time</span>
+          <span className="inline-flex items-center gap-1 text-slate-500 dark:text-slate-400">
+            <span
+              className={cn(
+                'font-semibold',
+                metrics.success_rate >= 90
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : metrics.success_rate >= 50
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-red-600 dark:text-red-400',
+              )}
+            >
+              {metrics.success_rate}%
+            </span>
+            success
+          </span>
+          <span className="text-slate-300 dark:text-slate-600">·</span>
+          <span className="text-slate-500 dark:text-slate-400">{metrics.total_runs} runs</span>
+          {metrics.failed > 0 && (
+            <span className="text-red-500 dark:text-red-400">{metrics.failed} failed</span>
+          )}
+          {metrics.avg_duration_seconds != null && (
+            <>
+              <span className="text-slate-300 dark:text-slate-600">·</span>
+              <span className="text-slate-500 dark:text-slate-400">
+                avg {formatDuration(Math.round(metrics.avg_duration_seconds))}
+              </span>
+            </>
+          )}
+          {metrics.p95_duration_seconds != null && (
+            <span className="text-slate-400 dark:text-slate-500">
+              p95 {formatDuration(Math.round(metrics.p95_duration_seconds))}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Weekly cumulative cost banner */}
       {allRuns.length > 0 && (

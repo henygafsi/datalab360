@@ -2,6 +2,8 @@
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGate from '@/components/ui/PermissionGate';
 import ReactFlow, {
   Node,
   Edge,
@@ -26,7 +28,7 @@ import {
   Play, Save, Trash2, ChevronRight, ChevronLeft,
   Loader2, History, AlertCircle, AlertTriangle, CheckCircle,
   Eye, Code, Calendar, Sparkles, Users, X, Clock,
-  Download, Copy, FolderOpen, Plus, Pause, Tag, Bug,
+  Download, Upload, Copy, FolderOpen, Plus, Pause, Tag, Bug, Settings, Wrench,
 } from 'lucide-react';
 import { Loader, Button } from 'rizzui';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -39,6 +41,7 @@ import WorkflowProjectGate from './components/WorkflowProjectGate';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 
 import ETLExecutionHistory from './components/ETLExecutionHistory';
+import RunFixRail from './components/RunFixRail';
 import AccessManagementSlot from '@/app/(dashboard)/explore-design/components/AccessManagementSlot';
 import { etlNodeTypes } from './components/ETLNodeTypes';
 import { getBlockByType, convertLegacyType } from './components/etl-blocks';
@@ -78,6 +81,8 @@ import type {
   WorkflowExecutionResponse,
   CompileWorkflowResponse,
   ValidateWorkflowResponse,
+  WorkflowCapabilities,
+  CloneDataTestsResult,
 } from '@/app/services/api/types';
 
 // ============================================
@@ -100,6 +105,18 @@ function extractErrorString(err: unknown): string {
     const obj = err as Record<string, unknown>;
     if (typeof obj.message === 'string') return obj.message;
     if (typeof obj.detail === 'string') return obj.detail;
+    if (typeof obj.error === 'string') return obj.error;
+    // CTE engine shape: { failed_steps: [{ step_name, error, ... }] } — surface
+    // the per-step messages instead of dumping the raw JSON blob.
+    if (Array.isArray(obj.failed_steps)) {
+      const msgs = (obj.failed_steps as Array<Record<string, unknown>>)
+        .map((s) => {
+          const label = s.step_name || s.cte_alias || s.action_type || s.action || s.step_id || 'step';
+          return `${label}: ${typeof s.error === 'string' ? s.error : 'failed'}`;
+        })
+        .filter(Boolean);
+      if (msgs.length) return msgs.join('\n');
+    }
     if (typeof obj.error_code === 'string') return obj.error_code;
     return JSON.stringify(err);
   }
@@ -184,6 +201,29 @@ function friendlyError(raw: string): { headline: string; hint?: string; isPlatfo
 function generateId(): string {
   return `comp_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 }
+
+/** True when an error is an HTTP 404 — i.e. the route is unavailable on this backend. */
+function is404(err: unknown): boolean {
+  const r = (err as { response?: { status?: number } } | null)?.response;
+  return r?.status === 404;
+}
+
+// ── Lifecycle state machine ──────────────────────────────────────────────
+// Every lifecycle action (save / validate / compile / clone-test / deploy /
+// execute) is driven through one of these phases so the UI can honestly
+// show idle → running(+elapsed) → completed / empty / error, and — critically —
+// flip to `unavailable` (honest disabled state) the moment its route 404s,
+// instead of leaving a button that silently 404s on every click.
+type LifecyclePhase = 'idle' | 'running' | 'completed' | 'empty' | 'error' | 'unavailable';
+type LifecycleAction = 'save' | 'validate' | 'compile' | 'cloneTest' | 'deploy' | 'execute';
+interface LifecycleEntry {
+  phase: LifecyclePhase;
+  startedAt?: number;   // epoch ms while running, for the elapsed-time ticker
+  message?: string;     // human-friendly headline for error / empty / unavailable
+}
+type LifecycleState = Partial<Record<LifecycleAction, LifecycleEntry>>;
+
+const UNAVAILABLE_HINT = 'Not available on this backend yet';
 
 // Build CreateWorkflowStepInput array from ReactFlow nodes/edges
 // Payload uses flat keys matching the API (database_name, schema_name, etc.)
@@ -286,6 +326,39 @@ function nodesToStepInputs(nodes: Node[], edges: Edge[]) {
       },
     };
   });
+}
+
+// Build the FromGraphRequest node/edge payload from the ReactFlow canvas.
+// Used by the RESAVE path (the purged /steps CRUD's bulk replacement).
+// from-graph maps node.id → step, stashes `config` as the step payload, and
+// reads join handles from edge.targetHandle ('input1'/'input2' → 'left'/'right').
+function nodesToFromGraph(nodes: Node[], edges: Edge[]): {
+  nodes: { id: string; type: string; config: Record<string, unknown> }[];
+  edges: { source: string; target: string; targetHandle?: string }[];
+} {
+  // Reuse nodesToStepInputs so the same flat-key derivation (filter_condition,
+  // agg flattening, etc.) the backend templates expect is applied here too.
+  const stepInputs = nodesToStepInputs(nodes, edges);
+  const graphNodes = nodes.map((node, i) => {
+    const { inputs: _inputs, cte_alias: _cte, position: _pos, nodeId: _nid, ...config } =
+      stepInputs[i].payload as Record<string, unknown>;
+    return {
+      id: node.id,
+      // Normalize legacy ReactFlow aliases to canonical action types so the
+      // saved steps map to seeded DEFAULT_ACTIONS (required for later
+      // compile/run to emit SQL). Idempotent on already-canonical types.
+      type: convertLegacyType(node.type || 'source'),
+      config: { ...config, position: node.position, nodeId: node.id },
+    };
+  });
+  const graphEdges = edges.map((e) => {
+    const handle =
+      e.targetHandle === 'input1' ? 'left'
+      : e.targetHandle === 'input2' ? 'right'
+      : undefined;
+    return { source: e.source, target: e.target, ...(handle ? { targetHandle: handle } : {}) };
+  });
+  return { nodes: graphNodes, edges: graphEdges };
 }
 
 // Convert workflow steps to ReactFlow nodes/edges
@@ -550,10 +623,31 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  // Role-based access
+  // Role-based access. `userRole` is the project-CONTRIBUTOR role (owner/editor/
+  // viewer) — orthogonal to Data360 Action-RBAC, which gates the mutating CTAs
+  // below via System 2 (useCanPerform), scoped to the active workflow project.
   const { username: currentUsername } = useAuth();
   const [userRole, setUserRole] = useState<ContributorRole | null>(null);
   const isReadOnly = userRole === 'viewer';
+
+  // ─── System 2 Action-RBAC gates (project-scoped to the active workflow) ───
+  // While the allow-set loads we keep CTAs enabled (fail-open, like useCanPerform
+  // on a hard error) so there's no flash of disabled controls; the gate tightens
+  // once permissions resolve and re-resolves live when an admin edits the matrix.
+  const wfExecutePerm = useCanPerform('workflow', 'execute', activeWorkflowId ?? undefined);
+  const wfDeployPerm = useCanPerform('workflow', 'deploy', activeWorkflowId ?? undefined);
+  const wfEditPerm = useCanPerform('workflow', 'edit', activeWorkflowId ?? undefined);
+  const wfCreatePerm = useCanPerform('workflow', 'create', activeWorkflowId ?? undefined);
+  const wfDeletePerm = useCanPerform('workflow', 'delete', activeWorkflowId ?? undefined);
+  const canWfExecute = wfExecutePerm.allowed || wfExecutePerm.loading;
+  const canWfDeploy = wfDeployPerm.allowed || wfDeployPerm.loading;
+  const canWfEdit = wfEditPerm.allowed || wfEditPerm.loading;
+  const canWfCreate = wfCreatePerm.allowed || wfCreatePerm.loading;
+  const canWfDelete = wfDeletePerm.allowed || wfDeletePerm.loading;
+  const EXECUTE_DENIED_HINT = 'You lack the "execute" permission on workflow. Ask an administrator to grant it.';
+  const DEPLOY_DENIED_HINT = 'You lack the "deploy" permission on workflow. Ask an administrator to grant it.';
+  const EDIT_DENIED_HINT = 'You lack the "edit" permission on workflow. Ask an administrator to grant it.';
+  const DELETE_DENIED_HINT = 'You lack the "delete" permission on workflow. Ask an administrator to grant it.';
 
   const readOnlyGuard = useCallback(() => {
     if (isReadOnly) {
@@ -569,8 +663,110 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [validation, setValidation] = useState<ValidateWorkflowResponse | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<string | null>(null);
   const [aiSuggestionsLoading, setAiSuggestionsLoading] = useState(false);
+  // Failed-run fix rail (docked, explore-design style). Opens automatically
+  // when a run fails so the per-step diagnosis is front-and-center.
+  const [showFixRail, setShowFixRail] = useState(false);
   // Persistent error display (shown in Runs panel instead of disappearing toast)
   const [pipelineError, setPipelineError] = useState<string | null>(null);
+
+  // ─── Lifecycle state machine + capability gating ───────────────────────
+  // `lifecycle` holds the phase of each lifecycle action. `caps` is the
+  // backend's advisory capabilities hint (treated as a HINT only). `caps404`
+  // records lifecycle actions whose route returned 404 at runtime — those are
+  // gated to an honest disabled state regardless of what capabilities claims.
+  const [lifecycle, setLifecycle] = useState<LifecycleState>({});
+  const [caps, setCaps] = useState<WorkflowCapabilities | null>(null);
+  const [unavailableRoutes, setUnavailableRoutes] = useState<Set<LifecycleAction>>(new Set());
+  // Ticks every second while any action is running so elapsed time re-renders.
+  const [, setElapsedTick] = useState(0);
+
+  const setPhase = useCallback((action: LifecycleAction, entry: LifecycleEntry) => {
+    setLifecycle((prev) => ({ ...prev, [action]: entry }));
+  }, []);
+
+  const markUnavailable = useCallback((action: LifecycleAction) => {
+    setUnavailableRoutes((prev) => {
+      if (prev.has(action)) return prev;
+      const next = new Set(prev);
+      next.add(action);
+      return next;
+    });
+    setPhase(action, { phase: 'unavailable', message: UNAVAILABLE_HINT });
+  }, [setPhase]);
+
+  // Fetch capabilities once we have a token. Capabilities is advisory: a 404
+  // here just means the hint is unavailable, NOT that lifecycle is broken —
+  // the per-action runtime 404 path is the real gate.
+  useEffect(() => {
+    if (!accessToken) return;
+    let cancelled = false;
+    workflowApi
+      .getWorkflowCapabilities()
+      .then((c) => { if (!cancelled) setCaps(c); })
+      .catch(() => { if (!cancelled) setCaps(null); });
+    return () => { cancelled = true; };
+  }, [accessToken]);
+
+  // Drive the elapsed-time ticker only while something is running.
+  const anyRunning = useMemo(
+    () => Object.values(lifecycle).some((e) => e?.phase === 'running'),
+    [lifecycle],
+  );
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = window.setInterval(() => setElapsedTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [anyRunning]);
+
+  // Gating: an action is unavailable if it 404'd at runtime, OR if the backend
+  // capabilities hint explicitly says it's unsupported. Only `builder.*`
+  // capability flags are authoritative-negative; absence of a flag is treated
+  // as "unknown / allowed" (the runtime 404 path will catch a purged route).
+  const capabilityDenies = useCallback(
+    (action: LifecycleAction): boolean => {
+      if (!caps?.builder) return false;
+      if (action === 'compile' && caps.builder.supports_compile === false) return true;
+      if (action === 'validate' && caps.builder.supports_validate === false) return true;
+      if (action === 'cloneTest' && caps.builder.supports_clone_data_tests === false) return true;
+      return false;
+    },
+    [caps],
+  );
+
+  const isActionUnavailable = useCallback(
+    (action: LifecycleAction): boolean =>
+      unavailableRoutes.has(action) || capabilityDenies(action),
+    [unavailableRoutes, capabilityDenies],
+  );
+
+  // Live elapsed seconds for a running action — read by the toolbar buttons.
+  const elapsedSeconds = useCallback(
+    (action: LifecycleAction): number | null => {
+      const e = lifecycle[action];
+      if (e?.phase !== 'running' || !e.startedAt) return null;
+      return Math.max(0, Math.floor((Date.now() - e.startedAt) / 1000));
+    },
+    [lifecycle],
+  );
+
+  // Suffix appended to a lifecycle button's label to surface its phase:
+  // running shows "· 3s", completed a check, empty/error/unavailable a marker.
+  const phaseSuffix = useCallback(
+    (action: LifecycleAction): string => {
+      if (isActionUnavailable(action)) return '';
+      const e = lifecycle[action];
+      if (!e) return '';
+      if (e.phase === 'running') {
+        const s = elapsedSeconds(action);
+        return s != null ? ` · ${s}s` : ' · …';
+      }
+      if (e.phase === 'completed') return ' ✓';
+      if (e.phase === 'empty') return ' —';
+      if (e.phase === 'error') return ' !';
+      return '';
+    },
+    [lifecycle, elapsedSeconds, isActionUnavailable],
+  );
 
   // ─── Live client-side validation ───────────────────────────────────────
   // Runs on every graph change (debounced) so a stale "Validation: …" banner
@@ -827,12 +1023,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkflowId]);
 
-  // Auto-fit canvas after loading a workflow
+  // Auto-fit canvas after loading a workflow AND whenever the node count
+  // changes (drag-drop, import, template load) so the graph stays centered in
+  // the canvas instead of clustering at the top-left origin.
   useEffect(() => {
     if (reactFlowInstance && nodes.length > 0 && !isLoading) {
-      setTimeout(() => reactFlowInstance.fitView({ padding: 0.2, duration: 300 }), 100);
+      const t = setTimeout(
+        () => reactFlowInstance.fitView({ padding: 0.25, duration: 300, includeHiddenNodes: true }),
+        120,
+      );
+      return () => clearTimeout(t);
     }
-  }, [reactFlowInstance, isLoading]);
+  }, [reactFlowInstance, isLoading, nodes.length]);
 
   // Collapse right panel on small screens
   useEffect(() => {
@@ -1040,6 +1242,37 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       toast.success('Node configuration saved');
     },
     [setNodes]
+  );
+
+  // One-click apply of a structured fix proposed by the AI fix-rail. Currently
+  // supports repointing a source block's database/schema/table (the most common
+  // failure: a template ships pointing at a table that doesn't exist in the
+  // account). Deterministic — patches node.data.config and marks dirty; the user
+  // still re-runs. Returns true if applied.
+  const applyNodeConfigPatch = useCallback(
+    (nodeId: string, patch: Record<string, unknown>): boolean => {
+      if (readOnlyGuard()) return false;
+      let found = false;
+      setNodes((nds) =>
+        nds.map((node) => {
+          if (node.id !== nodeId) return node;
+          found = true;
+          return {
+            ...node,
+            data: { ...node.data, config: { ...(node.data?.config || {}), ...patch } },
+          };
+        }),
+      );
+      if (found) {
+        setIsDirty(true);
+        dirtyNodeIdsRef.current.add(nodeId);
+        toast.success('Fix applied — Save and Run again to verify');
+      } else {
+        toast.error('Could not locate that block on the canvas');
+      }
+      return found;
+    },
+    [setNodes, readOnlyGuard],
   );
 
   const handleNodeDelete = useCallback(
@@ -1428,7 +1661,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         toast.success(`Loaded workflow: ${wf.name}`);
       } catch (error) {
         console.error('Failed to load workflow:', error);
-        toast.error(getApiErrorMessage(error) || 'Failed to load workflow');
+        // Be honest: the steps-read route (/steps) is purged on this backend,
+        // so existing workflows can't reconstruct their canvas. Don't leave an
+        // empty canvas pretending it loaded — surface why and leave state clean.
+        if (is404(error)) {
+          setPipelineError(
+            `Can't reopen this saved workflow — reading its steps is ${UNAVAILABLE_HINT.toLowerCase()}. You can still build and save a new graph.`,
+          );
+          toast.error('Reopening saved workflows is not available on this backend yet');
+        } else {
+          toast.error(getApiErrorMessage(error) || 'Failed to load workflow');
+        }
       } finally {
         setIsPipelineLoading(false);
       }
@@ -1465,48 +1708,68 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     setIsSaving(true);
     setPipelineError(null);
+    setPhase('save', { phase: 'running', startedAt: Date.now() });
+    // from-graph ALWAYS creates a fresh project (it does not upsert), so a
+    // resave of an existing workflow produces a duplicate copy, surfaced
+    // honestly in the toast rather than claiming an in-place "new version".
     try {
-      const stepInputs = nodesToStepInputs(nodes, edges);
-
-      if (activeWorkflowId) {
-        // Incremental save: only update modified steps
-        const existing = await workflowApi.listSteps(activeWorkflowId);
-        const existingSteps = existing.steps || [];
-        const dirtyIds = dirtyNodeIdsRef.current;
-
-        for (let i = 0; i < stepInputs.length; i++) {
-          const nodeId = stepInputs[i].payload?.nodeId;
-          const isNew = i >= existingSteps.length;
-          const isModified = !nodeId || dirtyIds.has(nodeId) || dirtyIds.size === 0;
-
-          if (isNew) {
-            await workflowApi.addStep(activeWorkflowId, stepInputs[i]);
-          } else if (isModified) {
-            await workflowApi.updateStep(activeWorkflowId, existingSteps[i].step_id, {
-              step_name: stepInputs[i].step_name,
-              payload: { ...stepInputs[i].payload, action_type: stepInputs[i].action_type },
-            });
-          }
-          // else: unchanged — skip API call
-        }
-
-        // Delete removed steps
-        if (existingSteps.length > stepInputs.length) {
-          for (let i = stepInputs.length; i < existingSteps.length; i++) {
-            await workflowApi.deleteStep(activeWorkflowId, existingSteps[i].step_id).catch(() => {});
-          }
-        }
-
-        toast.success('Workflow updated');
-      } else {
-        // Create new
-        const response = await workflowApi.createWorkflow({
+      if (!activeWorkflowId) {
+        // CREATE path — POST /workflow (audit-verified wired). Keep new-workflow
+        // saves on the proven endpoint rather than the bulk graph route.
+        const stepInputs = nodesToStepInputs(nodes, edges);
+        const created = await workflowApi.createWorkflow({
           project_name: pipelineName,
+          tags: workflowTags.length ? workflowTags : undefined,
           steps: stepInputs,
         });
-        setActiveWorkflowId(response.project_id);
-        setActiveWorkflowName(response.project_name);
+        setActiveWorkflowId(created.project_id);
+        setActiveWorkflowName(created.project_name);
+        lastLoadedUpdatedAtRef.current = Date.now();
+        setPhase('save', { phase: 'completed' });
         toast.success('Workflow created');
+      } else {
+        // RESAVE / UPDATE path — the per-step /steps CRUD is purged backend-side,
+        // so the only working persist for an existing graph is the bulk
+        // POST /workflow/from-graph. It creates a NEW project, so we re-point the
+        // active id at the copy and tell the user it's a copy.
+        const { nodes: graphNodes, edges: graphEdges } = nodesToFromGraph(nodes, edges);
+        const response = await workflowApi.saveWorkflowFromGraph({
+          project_name: pipelineName,
+          nodes: graphNodes,
+          edges: graphEdges,
+          tags: workflowTags.length ? workflowTags : undefined,
+        });
+
+        // Re-point the active workflow at the saved copy so downstream lifecycle
+        // controls (validate / compile / clone-test / run / deploy) target it.
+        if (response.project_id) {
+          setActiveWorkflowId(response.project_id);
+          setActiveWorkflowName(pipelineName);
+          lastLoadedUpdatedAtRef.current = Date.now();
+        }
+
+        // Surface partial failures honestly instead of claiming a clean save.
+        const partialErrors = (response.errors || [])
+          .map((e) => (typeof e === 'string' ? e : `${e.node_id ?? 'node'}: ${e.error}`));
+        const serverValidationError =
+          response.validation && response.validation.valid === false
+            ? response.validation.error
+            : undefined;
+
+        if (partialErrors.length > 0) {
+          setPhase('save', { phase: 'error', message: partialErrors[0] });
+          setPipelineError(`Saved as a new copy with ${partialErrors.length} issue(s): ${partialErrors.join('; ')}`);
+          toast.error(`Saved with ${partialErrors.length} issue(s)`);
+        } else {
+          setPhase('save', { phase: 'completed' });
+          if (serverValidationError) {
+            setPipelineError(`Validation: ${serverValidationError}`);
+            toast.success('Saved as a new workflow copy (validation flagged issues)');
+          } else {
+            // Honest: from-graph cannot update in place, it forks a new copy.
+            toast.success('Saved as a new workflow copy');
+          }
+        }
       }
 
       // Mark clean
@@ -1527,13 +1790,21 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       await loadWorkflows();
     } catch (error: any) {
       console.error('Failed to save workflow:', error);
-      const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
-      toast.error(errMsg);
-      setPipelineError(`Save failed: ${errMsg}`);
+      if (is404(error)) {
+        // The bulk save route itself is unavailable — honest disabled state.
+        markUnavailable('save');
+        setPipelineError(`Save unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        const errMsg = getApiErrorMessage(error) || 'Failed to save workflow';
+        setPhase('save', { phase: 'error', message: errMsg });
+        toast.error(errMsg);
+        setPipelineError(`Save failed: ${errMsg}`);
+      }
     } finally {
       setIsSaving(false);
     }
-  }, [nodes, edges, pipelineName, activeWorkflowId, autosaveKey]);
+  }, [nodes, edges, pipelineName, activeWorkflowId, autosaveKey, workflowTags, setPhase, markUnavailable]);
   handleSaveRef.current = handleSavePipeline;
 
   const handleDeletePipeline = useCallback(() => {
@@ -1619,14 +1890,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         return;
       }
 
+      const action: LifecycleAction = dryRun ? 'compile' : 'execute';
       setIsExecuting(true);
+      setPhase(action, { phase: 'running', startedAt: Date.now() });
       try {
         if (dryRun) {
           // Compile (dry-run): generates SQL without executing
           const compileResult = await workflowApi.compileWorkflow(activeWorkflowId);
           setCompiledSql(compileResult);
           setActiveTab('sql');
-          toast.success('SQL generated (dry run)');
+          const hasSql = !!compileResult?.compiled_sql?.trim();
+          setPhase('compile', { phase: hasSql ? 'completed' : 'empty' });
+          toast.success(hasSql ? 'SQL generated (dry run)' : 'Compiled — no SQL produced');
         } else {
           // Execute
           const response = await workflowApi.executeWorkflow(activeWorkflowId, {
@@ -1635,28 +1910,44 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           setLastExecution(response);
 
           if (response.status === 'completed' || response.status === 'success') {
+            setPhase('execute', { phase: 'completed' });
             toast.success(`Executed successfully! ${response.rows_affected || 0} rows affected`);
             // Auto-load destination table preview
             loadResultsPreview();
-          } else if (response.status === 'failed') {
+          } else if (response.status === 'failed' || response.status === 'partial_failure') {
             const errorDetail = response.error
               ? extractErrorString(response.error)
               : 'Check execution history for details';
+            setPhase('execute', { phase: 'error', message: errorDetail });
             setPipelineError(`Execution failed: ${errorDetail}`);
-            setActiveTab('runs'); // Switch to runs tab to show error details
+            // Open the docked fix-rail so the per-step diagnosis + AI fix is
+            // front-and-centre rather than buried in a tab.
+            setShowFixRail(true);
+            setActiveTab('runs');
+          } else {
+            setPhase('execute', { phase: 'completed' });
           }
         }
       } catch (error: any) {
-        console.error('Execution failed:', error);
-        setPipelineError(getApiErrorMessage(error) || 'Execution failed');
-        setActiveTab('runs');
+        if (is404(error)) {
+          markUnavailable(action);
+          const label = dryRun ? 'SQL preview (compile)' : 'Run (execute)';
+          setPipelineError(`${label} unavailable: ${UNAVAILABLE_HINT}`);
+          toast.error(UNAVAILABLE_HINT);
+        } else {
+          console.error('Execution failed:', error);
+          const errMsg = getApiErrorMessage(error) || 'Execution failed';
+          setPhase(action, { phase: 'error', message: errMsg });
+          setPipelineError(errMsg);
+          if (!dryRun) setActiveTab('runs');
+        }
       } finally {
         setIsExecuting(false);
         // Force execution history to refresh after execution completes
-        setExecutionRefreshKey((k) => k + 1);
+        if (!dryRun) setExecutionRefreshKey((k) => k + 1);
       }
     },
-    [activeWorkflowId, nodes]
+    [activeWorkflowId, nodes, setPhase, markUnavailable, loadResultsPreview]
   );
   handleExecuteRef.current = handleExecute;
 
@@ -1667,30 +1958,117 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       return;
     }
 
+    setPhase('validate', { phase: 'running', startedAt: Date.now() });
     try {
       setAiSuggestions(null);
       const result = await workflowApi.validateWorkflow(activeWorkflowId);
       setValidation(result);
 
       if (result.valid) {
+        setPhase('validate', { phase: 'completed' });
         toast.success('Pipeline is valid');
         setPipelineError(null);
       } else {
         const errMsg = extractErrorString(result.error) || 'Check the error panel for details';
+        setPhase('validate', { phase: 'error', message: errMsg });
         setPipelineError(`Validation: ${errMsg}`);
       }
     } catch (error: any) {
-      console.error('Validation failed:', error);
-      setPipelineError(getApiErrorMessage(error) || 'Validation failed');
+      if (is404(error)) {
+        markUnavailable('validate');
+        setPipelineError(`Validate unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        console.error('Validation failed:', error);
+        const errMsg = getApiErrorMessage(error) || 'Validation failed';
+        setPhase('validate', { phase: 'error', message: errMsg });
+        setPipelineError(errMsg);
+      }
     }
-  }, [activeWorkflowId]);
+  }, [activeWorkflowId, setPhase, markUnavailable]);
 
+  // ============================================
+  // CLONE-DATA TESTS — "Test on cloned data"
+  // ============================================
+  // The standard's test-real-life-via-clone step: runs the pipeline's source
+  // connectors against a CLONED copy of the real business data (no prod write).
+  // Sits between dry-run (compile) and deploy. Connector ids are derived from
+  // the source nodes on the canvas.
+  const cloneTestConnectorIds = useMemo(() => {
+    const ids = new Set<string>();
+    nodes.forEach((n) => {
+      const cfg = (n.data?.config || n.data || {}) as Record<string, unknown>;
+      const candidate =
+        (cfg.connector_id as string) ||
+        (cfg.connection_id as string) ||
+        (cfg.connectorId as string);
+      if (candidate) ids.add(candidate);
+    });
+    return Array.from(ids);
+  }, [nodes]);
+
+  const [cloneTestResult, setCloneTestResult] = useState<CloneDataTestsResult | null>(null);
+
+  const handleCloneDataTests = useCallback(async () => {
+    if (!activeWorkflowId) {
+      toast.error('Save the workflow first before testing on cloned data');
+      return;
+    }
+    if (cloneTestConnectorIds.length === 0) {
+      toast.error('No source connector found — add a connector-backed source to test on cloned data');
+      return;
+    }
+    setPipelineError(null);
+    setCloneTestResult(null);
+    setPhase('cloneTest', { phase: 'running', startedAt: Date.now() });
+    try {
+      const result = await workflowApi.runCloneDataTests(activeWorkflowId, cloneTestConnectorIds);
+      setCloneTestResult(result);
+      setShowRightPanel(true);
+      setActiveTab('results');
+      if (!result.reports || result.reports.length === 0) {
+        setPhase('cloneTest', { phase: 'empty', message: 'No tables were tested on the clone' });
+        toast('Clone test ran but produced no results');
+      } else if (result.ok) {
+        setPhase('cloneTest', { phase: 'completed' });
+        toast.success(`Clone test passed — ${result.connectors_passed}/${result.connector_count} connectors`);
+      } else {
+        setPhase('cloneTest', {
+          phase: 'error',
+          message: `${result.connectors_failed} connector(s) failed on the cloned data`,
+        });
+        setPipelineError(`Clone test: ${result.connectors_failed} connector(s) failed against the cloned data`);
+      }
+    } catch (error: any) {
+      if (is404(error)) {
+        markUnavailable('cloneTest');
+        setPipelineError(`Test on cloned data unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+      } else {
+        const errMsg = getApiErrorMessage(error) || 'Clone test failed';
+        setPhase('cloneTest', { phase: 'error', message: errMsg });
+        setPipelineError(`Clone test failed: ${errMsg}`);
+      }
+    }
+  }, [activeWorkflowId, cloneTestConnectorIds, setPhase, markUnavailable]);
+
+  // AI assist. When a real run exists, ask Cortex to analyze it for a root-cause
+  // + fix (live POST /workflow/{id}/runs/{runId}/analyze). Otherwise fall back
+  // to summarizing the static validation result.
   const handleGetAiSuggestions = useCallback(async () => {
-    if (!validation) return;
+    const runId = (lastExecution as any)?.run_id;
     setAiSuggestionsLoading(true);
     setAiSuggestions(null);
     try {
-      // AI suggestions not available via workflow API — show validation info
+      if (activeWorkflowId && runId) {
+        const res = await workflowApi.analyzeRun(activeWorkflowId, runId);
+        setAiSuggestions(res?.ai_analysis?.trim() || 'No analysis returned.');
+        return;
+      }
+      if (!validation) {
+        setAiSuggestions('Run the workflow (or Validate) first so the AI has something to analyze.');
+        return;
+      }
       const info: string[] = [];
       if (validation.error) info.push(`Error: ${extractErrorString(validation.error)}`);
       if (validation.mode) info.push(`Mode: ${validation.mode}`);
@@ -1698,12 +2076,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       if (validation.destination) info.push(`Destination: ${validation.destination}`);
       setAiSuggestions(info.length > 0 ? info.join('\n') : 'No suggestions available.');
     } catch (err: any) {
-      toast.error('AI suggestions unavailable');
-      setAiSuggestions(null);
+      if (is404(err)) {
+        markUnavailable('execute');
+        setAiSuggestions('AI run-analysis is not available on this deployment.');
+      } else {
+        toast.error('AI analysis failed');
+        setAiSuggestions(`Could not analyze the run: ${getApiErrorMessage(err) || 'unknown error'}`);
+      }
     } finally {
       setAiSuggestionsLoading(false);
     }
-  }, [validation]);
+  }, [activeWorkflowId, lastExecution, validation, markUnavailable]);
 
   // ============================================
   // SUBMIT FOR APPROVAL
@@ -1716,11 +2099,13 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     }
     if (readOnlyGuard()) return;
 
+    setPhase('deploy', { phase: 'running', startedAt: Date.now() });
     try {
       // Get the latest version ID
       const versionsResponse = await workflowApi.listVersions(activeWorkflowId, { limit: 1 });
       const versions = (versionsResponse as any)?.versions || [];
       if (versions.length === 0) {
+        setPhase('deploy', { phase: 'empty', message: 'No version to deploy' });
         toast.error('No version found. Save the pipeline first to create a version.');
         return;
       }
@@ -1730,9 +2115,17 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         version_id: latestVersionId,
         deployment_type: 'with_approval',
       });
+      setPhase('deploy', { phase: 'completed' });
       toast.success('Pipeline submitted for approval!');
       setApprovalStatus('pending');
     } catch (error: any) {
+      if (is404(error)) {
+        // The deployment lifecycle routes are purged — honest disabled state.
+        markUnavailable('deploy');
+        setPipelineError(`Submit for approval unavailable: ${UNAVAILABLE_HINT}`);
+        toast.error(UNAVAILABLE_HINT);
+        return;
+      }
       console.error('Submit for approval failed:', error);
       // Snowflake compile errors come back as a wall of text. Pipe through
       // friendlyError() so the toast reads "Couldn't request approval —
@@ -1741,10 +2134,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       // pipelineError banner so the user can drill into the raw payload.
       const raw = getApiErrorMessage(error) || 'Failed to submit for approval';
       const { headline, hint } = friendlyError(raw);
+      setPhase('deploy', { phase: 'error', message: headline });
       toast.error(headline);
       setPipelineError(`Approval: ${raw}${hint ? `  —  ${hint}` : ''}`);
     }
-  }, [activeWorkflowId, readOnlyGuard]);
+  }, [activeWorkflowId, readOnlyGuard, setPhase, markUnavailable]);
 
   // ============================================
   // EXPORT & DUPLICATE
@@ -1766,6 +2160,43 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     URL.revokeObjectURL(url);
     toast.success('Workflow exported');
   }, [pipelineName, activeWorkflowId, nodes, edges]);
+
+  // Import a workflow/template from a JSON file. Accepts either the raw canvas
+  // shape `{name|pipelineName, nodes, edges}` (template files) or the exported
+  // step shape `{name, steps[]}` (re-uses stepsToReactFlow for the round-trip).
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const handleImportJSON = useCallback((file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '')) as {
+          name?: string; pipelineName?: string;
+          nodes?: Node[]; edges?: Edge[]; steps?: WorkflowStep[];
+        };
+        let nextNodes: Node[] = [];
+        let nextEdges: Edge[] = [];
+        if (Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+          nextNodes = parsed.nodes;
+          nextEdges = Array.isArray(parsed.edges) ? parsed.edges : [];
+        } else if (Array.isArray(parsed.steps) && parsed.steps.length > 0) {
+          const flow = stepsToReactFlow(parsed.steps);
+          nextNodes = flow.nodes;
+          nextEdges = flow.edges;
+        } else {
+          toast.error('Unrecognized workflow file — expected { nodes, edges } or { steps }');
+          return;
+        }
+        setNodes(nextNodes);
+        setEdges(nextEdges);
+        setPipelineName(parsed.name || parsed.pipelineName || 'Imported Workflow');
+        setIsDirty(true);
+        toast.success(`Imported "${parsed.name || parsed.pipelineName || 'workflow'}" — review, then Save to persist`);
+      } catch {
+        toast.error('Invalid JSON — could not import workflow');
+      }
+    };
+    reader.readAsText(file);
+  }, [setNodes, setEdges]);
 
   const handleDuplicate = useCallback(async () => {
     if (nodes.length === 0) {
@@ -1816,6 +2247,73 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     return errors;
   }, [validationErrors]);
 
+  // Normalize the per-step results across BOTH execution engines. The CTE
+  // engine returns them under `steps` (+ failures under `error.failed_steps`),
+  // the legacy engine under `execution_details.steps_results`. Reading only the
+  // latter is why a CTE failure used to collapse into one workflow-level error.
+  const normalizedSteps = useMemo(() => {
+    if (!lastExecution) return [] as any[];
+    const le = lastExecution as any;
+    const fromDetails =
+      le?.execution_details?.steps ||
+      le?.execution_details?.steps_results ||
+      le?.steps ||
+      le?.steps_results ||
+      [];
+    if (Array.isArray(fromDetails) && fromDetails.length > 0) return fromDetails;
+    // Last resort: only the failed steps came back (error_log.failed_steps).
+    const failed = le?.error?.failed_steps || le?.error_log?.failed_steps || [];
+    return Array.isArray(failed) ? failed : [];
+  }, [lastExecution]);
+
+  // The subset that failed, with a human label resolved per step.
+  const failedSteps = useMemo(
+    () =>
+      normalizedSteps
+        .filter((s: any) => s?.status === 'failed' || s?.status === 'error')
+        .map((s: any, i: number) => ({
+          ...s,
+          _label:
+            s.step_name || s.cte_alias || s.action_type || s.action || s.step_id || `Step ${s.step_order ?? i + 1}`,
+          _order: s.step_order ?? i + 1,
+        })),
+    [normalizedSteps],
+  );
+
+  // Derive deterministic one-click fixes from the failed steps. The dominant
+  // failure is a source/destination block pointing at an object that doesn't
+  // exist (Snowflake 002003 "does not exist or not authorized"). We can't guess
+  // the correct table, but we CAN detect the offending block and pre-stage a
+  // repoint: clear the stale table so the config form forces a fresh pick.
+  const fixSuggestions = useMemo(() => {
+    const out: Array<{ nodeId: string; label: string; description: string; patch: Record<string, unknown> }> = [];
+    for (const s of failedSteps) {
+      const nodeId = (s.node_id || s.step_id) as string | undefined;
+      if (!nodeId) continue;
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) continue;
+      const errText = extractErrorString(s.error);
+      const missingObj = /does not exist or not authorized|002003|invalid identifier/i.test(errText);
+      const cfg = (node.data?.config || {}) as Record<string, unknown>;
+      const isLocational = cfg.table != null || cfg.database != null;
+      if (missingObj && isLocational) {
+        const fqn = [cfg.database, cfg.schema, cfg.table].filter(Boolean).join('.');
+        out.push({
+          nodeId,
+          label: `${s._label}: object not found`,
+          description: fqn
+            ? `${fqn} doesn't exist or isn't granted. Clear the table to re-pick a valid one, then Save & Run.`
+            : 'Re-pick a valid table for this block, then Save & Run.',
+          // Clearing table/columns makes the source form re-prompt for a real
+          // selection (it cascades database → schema → table). Database/schema
+          // are kept so the user starts from the right place.
+          patch: { table: '', columns: [] },
+        });
+      }
+    }
+    return out;
+  }, [failedSteps, nodes]);
+
   // Map execution step results to nodes for post-execution visual states
   const executionNodeState = useMemo(() => {
     const state: Record<string, {
@@ -1828,10 +2326,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     if (!lastExecution) return state;
 
-    // Map step results to node IDs by step order (nodes are ordered as steps)
-    const stepResults = (lastExecution as any)?.execution_details?.steps_results
-      || (lastExecution as any)?.steps_results
-      || [];
+    // Normalized across CTE + legacy engines (see normalizedSteps above).
+    const stepResults = normalizedSteps;
 
     // Try to match by step_id first, then by order
     const orderedNodeIds = nodes
@@ -1863,16 +2359,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
     // If execution failed but no step results, mark all as failed
     if (stepResults.length === 0 && (lastExecution.status === 'failed' || lastExecution.status === 'partial_failure')) {
-      const errMsg = typeof lastExecution.error === 'string'
-        ? lastExecution.error
-        : (lastExecution as any).error_log || 'Execution failed';
+      const errMsg = extractErrorString((lastExecution as any).error) || 'Execution failed';
       orderedNodeIds.forEach((id, idx) => {
         state[id] = { executionStatus: 'failed', error: errMsg, stepIndex: idx + 1 };
       });
     }
 
     return state;
-  }, [lastExecution, nodes]);
+  }, [lastExecution, normalizedSteps, nodes]);
 
   // Also set execution state when pipeline is running
   const runningNodeState = useMemo(() => {
@@ -2303,31 +2797,34 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           {/* ── Cluster 1: Create ── */}
           <div className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
             <motion.button
-              whileHover={{ scale: 1.06 }}
-              whileTap={{ scale: 0.92 }}
+              whileHover={canWfCreate ? { scale: 1.06 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.92 } : undefined}
               onClick={handleNewPipeline}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50"
-              title="Create new workflow"
+              disabled={!canWfCreate}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Create new workflow' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
             </motion.button>
             <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={canWfCreate ? { y: -1 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
               onClick={() => setShowAiGenerate(true)}
-              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60"
-              title="Generate workflow with AI"
+              disabled={!canWfCreate}
+              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Generate workflow with AI' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               <Sparkles className="h-3 w-3" />
               AI
             </motion.button>
             <motion.button
-              whileHover={{ y: -1 }}
-              whileTap={{ scale: 0.96 }}
+              whileHover={canWfCreate ? { y: -1 } : undefined}
+              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
               onClick={() => setShowImportTasks(true)}
-              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60"
-              title="Import Snowflake task graphs as workflow projects"
+              disabled={!canWfCreate}
+              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+              title={canWfCreate ? 'Import Snowflake task graphs as workflow projects' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <Download className="h-3 w-3" />
               <span className="hidden md:inline">Import</span>
@@ -2539,49 +3036,88 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               whileHover={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
               whileTap={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
               onClick={handleSavePipeline}
-              disabled={isSaving || isReadOnly || isPendingApproval}
+              disabled={isSaving || isReadOnly || isPendingApproval || (activeWorkflowId ? !canWfEdit : !canWfCreate)}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-500/40 transition-shadow hover:shadow-md hover:shadow-blue-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
+              title={activeWorkflowId && !canWfEdit ? EDIT_DENIED_HINT : !activeWorkflowId && !canWfCreate ? 'You lack the "create" permission on workflow. Ask an administrator to grant it.' : isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
             >
               {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save
+              Save{phaseSuffix('save')}
             </motion.button>
 
+            {/* ── Validate (compile-time lint of the DAG, server-side) ──
+                Honest disabled state when the route 404s on this backend. */}
             <motion.button
-              whileHover={activeWorkflowId ? { scale: 1.04 } : undefined}
-              whileTap={activeWorkflowId ? { scale: 0.96 } : undefined}
+              whileHover={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 1.04 } : undefined}
+              whileTap={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 0.96 } : undefined}
               onClick={handleValidate}
-              disabled={!activeWorkflowId}
+              disabled={!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running'}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/40 transition-shadow hover:shadow-md hover:shadow-amber-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title="Check for errors in the workflow DAG before execution"
+              title={isActionUnavailable('validate') ? UNAVAILABLE_HINT : 'Check for errors in the workflow DAG before execution'}
             >
-              <CheckCircle className="h-3 w-3" />
-              Validate
+              {lifecycle.validate?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+              Validate{phaseSuffix('validate')}
             </motion.button>
 
+            {/* ── SQL — dry-run (compile, generate SQL, no write) ──
+                Honest disabled state when the compile route 404s. */}
             <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId) ? { scale: 0.96 } : undefined}
+              whileHover={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(true)}
-              disabled={isExecuting || !activeWorkflowId}
+              disabled={isExecuting || !activeWorkflowId || isActionUnavailable('compile') || !canWfExecute}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title="Preview the compiled SQL without executing it"
+              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('compile') ? UNAVAILABLE_HINT : 'Preview the compiled SQL without executing it (dry run)'}
             >
-              <Eye className="h-3 w-3" />
-              SQL
+              {lifecycle.compile?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
+              SQL{phaseSuffix('compile')}
             </motion.button>
 
+            {/* ── Test on cloned data — the standard's "test real-life via
+                clone" step, between dry-run and deploy. Disabled honestly when
+                the route 404s, or when no connector-backed source exists. */}
+            {(() => {
+              const noConnector = cloneTestConnectorIds.length === 0;
+              const cloneDisabled =
+                !activeWorkflowId ||
+                isActionUnavailable('cloneTest') ||
+                noConnector ||
+                lifecycle.cloneTest?.phase === 'running';
+              const cloneTitle = isActionUnavailable('cloneTest')
+                ? UNAVAILABLE_HINT
+                : !activeWorkflowId
+                  ? 'Save the workflow first'
+                  : noConnector
+                    ? 'Add a connector-backed source to test on cloned data'
+                    : 'Run the pipeline against a cloned copy of the real source data (no production write)';
+              return (
+                <motion.button
+                  whileHover={!cloneDisabled ? { scale: 1.04 } : undefined}
+                  whileTap={!cloneDisabled ? { scale: 0.96 } : undefined}
+                  onClick={handleCloneDataTests}
+                  disabled={cloneDisabled}
+                  className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
+                  title={cloneTitle}
+                  aria-label="Test on cloned data"
+                >
+                  {lifecycle.cloneTest?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bug className="h-3 w-3" />}
+                  Clone test{phaseSuffix('cloneTest')}
+                </motion.button>
+              );
+            })()}
+
+            {/* ── Run — execute the workflow (writes results) ──
+                Honest disabled state when the execute route 404s. */}
             <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
+              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
+              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
               onClick={() => handleExecute(false)}
-              disabled={isExecuting || !activeWorkflowId || isReadOnly || (isPendingApproval && !isApproved)}
+              disabled={isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved) || !canWfExecute}
               className="group relative flex h-7 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
+              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('execute') ? UNAVAILABLE_HINT : isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
             >
               <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
               {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              Run
+              Run{phaseSuffix('execute')}
             </motion.button>
 
             {/* ── Suspend / Resume — mutually exclusive single slot ──
@@ -2667,16 +3203,18 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </motion.button>
             )}
 
+            {/* ── Approve / Deploy — request a production deployment ──
+                Honest disabled state when the deployment routes 404. */}
             <motion.button
-              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
-              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
+              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 1.04 } : undefined}
+              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 0.96 } : undefined}
               onClick={handleSubmitForApproval}
-              disabled={!activeWorkflowId || isReadOnly || isPendingApproval}
+              disabled={!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running' || !canWfDeploy}
               className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-500/40 transition-shadow hover:shadow-md hover:shadow-violet-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
+              title={!canWfDeploy ? DEPLOY_DENIED_HINT : isActionUnavailable('deploy') ? UNAVAILABLE_HINT : isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
             >
-              <AlertCircle className="h-3 w-3" />
-              Approve
+              {lifecycle.deploy?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertCircle className="h-3 w-3" />}
+              Approve{phaseSuffix('deploy')}
             </motion.button>
 
             {/* ── Rollback — opens RollbackVersionDialog with diff preview ──
@@ -2702,6 +3240,27 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
           {/* ── Cluster 4: Utility icons ── */}
           <div className="flex shrink-0 items-center gap-0.5">
+            <input
+              ref={importFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleImportJSON(file);
+                e.target.value = '';
+              }}
+            />
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.92 }}
+              onClick={() => importFileRef.current?.click()}
+              className="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+              title="Import workflow / template from JSON"
+              aria-label="Import workflow"
+            >
+              <Upload className="h-3.5 w-3.5" />
+            </motion.button>
             <motion.button
               whileHover={nodes.length > 0 ? { scale: 1.1 } : undefined}
               whileTap={nodes.length > 0 ? { scale: 0.92 } : undefined}
@@ -2728,11 +3287,12 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
             {activeWorkflowId && !isReadOnly && !confirmDeletePipeline && (
               <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.92 }}
+                whileHover={canWfDelete ? { scale: 1.1 } : undefined}
+                whileTap={canWfDelete ? { scale: 0.92 } : undefined}
                 onClick={handleDeletePipeline}
-                className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                title="Delete workflow"
+                disabled={!canWfDelete}
+                className="rounded-md p-1.5 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20"
+                title={canWfDelete ? 'Delete workflow' : DELETE_DENIED_HINT}
                 aria-label="Delete workflow"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -2852,6 +3412,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             nodesDraggable={!isReadOnly}
             nodeTypes={etlNodeTypes}
             fitView
+            fitViewOptions={{ padding: 0.25, includeHiddenNodes: true, minZoom: 0.2, maxZoom: 1.5 }}
+            minZoom={0.2}
+            maxZoom={1.5}
+            proOptions={{ hideAttribution: true }}
             deleteKeyCode={null}
             onlyRenderVisibleElements
             className="bg-slate-50 dark:bg-slate-900"
@@ -2987,6 +3551,19 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             />
           )}
 
+          {/* Persistent reopen path for the fix-rail once a run has failed. */}
+          {!isExecuting && !showFixRail
+            && (lastExecution?.status === 'failed' || lastExecution?.status === 'partial_failure') && (
+            <button
+              type="button"
+              onClick={() => setShowFixRail(true)}
+              className="mx-4 mt-2 inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/40"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              Diagnose &amp; fix {failedSteps.length > 0 ? `(${failedSteps.length})` : ''}
+            </button>
+          )}
+
           {/* Persistent error banner (replaces disappearing toasts).
               Snowflake DML errors come back as a wall of text — friendlyError()
               parses common codes (100072 = non-null violation, 22000 = data
@@ -3060,6 +3637,37 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div className="flex-1 overflow-auto p-4">
             {activeTab === 'results' && (
               <div className="space-y-3 -mx-4 -mt-4">
+                {/* Clone-data test report — "test real-life via clone" results.
+                    Shows the per-connector pass/fail of the run against the
+                    cloned copy of real source data. */}
+                {cloneTestResult && (
+                  <div className="px-4 pt-4 space-y-2">
+                    <div className={cn(
+                      'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium',
+                      cloneTestResult.ok
+                        ? 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400'
+                        : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400',
+                    )}>
+                      <Bug className="h-4 w-4" />
+                      <span>Clone test {cloneTestResult.ok ? 'passed' : 'failed'}</span>
+                      <span className="text-xs opacity-75 ml-auto">
+                        {cloneTestResult.connectors_passed}/{cloneTestResult.connector_count} connectors
+                      </span>
+                    </div>
+                    {(cloneTestResult.reports || []).map((r, i) => (
+                      <div key={r.connector_id || i} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-700/50">
+                        <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', r.ok ? 'bg-green-500' : 'bg-red-500')} />
+                        <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                          {r.connector_type || r.connector_id}
+                        </span>
+                        <span className="text-slate-500 dark:text-slate-400 ml-auto">
+                          {r.tables_passed}/{r.tables_tested} tables · {Math.round((r.pass_rate ?? 0) * 100)}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {/* Execution summary */}
                 {lastExecution && (
                   <div className="px-4 pt-4 space-y-2">
@@ -3083,23 +3691,88 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                       </span>
                     </div>
 
-                    {/* Step-by-step results */}
-                    {lastExecution.execution_details?.steps_results?.length > 0 && (
-                      <div className="space-y-1">
-                        {lastExecution.execution_details.steps_results.map((step: any, i: number) => (
-                          <div key={i} className="flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-slate-50 dark:bg-slate-700/50">
-                            <span className={cn(
-                              'w-1.5 h-1.5 rounded-full flex-shrink-0',
-                              step.status === 'completed' || step.status === 'success' ? 'bg-green-500' : 'bg-red-500'
-                            )} />
-                            <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
-                              {step.cte_alias || step.step_id || `Step ${i + 1}`}
-                            </span>
-                            {step.rows_affected != null && (
-                              <span className="ml-auto text-slate-500">{step.rows_affected} rows</span>
-                            )}
-                          </div>
-                        ))}
+                    {/* Per-step results — normalized across CTE + legacy engines.
+                        Failed steps expand to show their own error + targeted
+                        fix CTAs so the user knows WHICH block broke and why. */}
+                    {normalizedSteps.length > 0 && (
+                      <div className="space-y-1.5">
+                        {normalizedSteps.map((step: any, i: number) => {
+                          const isFail = step.status === 'failed' || step.status === 'error';
+                          const label = step.step_name || step.cte_alias || step.action_type
+                            || step.action || step.step_id || `Step ${step.step_order ?? i + 1}`;
+                          const nodeId = step.step_id || step.node_id;
+                          return (
+                            <div
+                              key={step.step_id || i}
+                              className={cn(
+                                'rounded-lg border text-xs',
+                                isFail
+                                  ? 'border-red-200 dark:border-red-800 bg-red-50/70 dark:bg-red-900/15'
+                                  : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/40',
+                              )}
+                            >
+                              <div className="flex items-center gap-2 px-3 py-1.5">
+                                <span className={cn(
+                                  'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                                  isFail ? 'bg-red-500' : 'bg-green-500',
+                                )} />
+                                <span className="text-[10px] font-mono text-slate-400 tabular-nums">
+                                  {step.step_order ?? i + 1}
+                                </span>
+                                <span className="font-medium text-slate-700 dark:text-slate-200 truncate">
+                                  {label}
+                                </span>
+                                {step.action_type && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-600/50 text-slate-500 dark:text-slate-300">
+                                    {step.action_type}
+                                  </span>
+                                )}
+                                {step.rows_affected != null && !isFail && (
+                                  <span className="ml-auto text-slate-500">{step.rows_affected} rows</span>
+                                )}
+                                {isFail && <span className="ml-auto text-red-500 font-semibold">failed</span>}
+                              </div>
+                              {isFail && (
+                                <div className="px-3 pb-2 space-y-2">
+                                  {step.error && (
+                                    <p className="text-[11px] text-red-700 dark:text-red-300 font-mono whitespace-pre-wrap break-words leading-snug">
+                                      {extractErrorString(step.error)}
+                                    </p>
+                                  )}
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    {nodeId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const target = nodes.find((n) => n.id === nodeId);
+                                          if (target) {
+                                            setSelectedNode(target);
+                                            setShowSidebar(true);
+                                          } else {
+                                            toast.error('Could not locate this block on the canvas');
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 rounded-md border border-red-300 dark:border-red-700 px-2 py-1 text-[10px] font-semibold text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors"
+                                      >
+                                        <Settings className="h-3 w-3" />
+                                        Fix this block
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => { setActiveTab('ai'); handleGetAiSuggestions(); }}
+                                      disabled={aiSuggestionsLoading}
+                                      className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-violet-700 disabled:opacity-50 transition-colors"
+                                    >
+                                      <Sparkles className="h-3 w-3" />
+                                      Ask AI to fix
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -3199,14 +3872,25 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                     </p>
                   </div>
                 )}
-                <ScheduleManager
-                  pipelineId={activeWorkflowId}
-                  pipelineName={activeWorkflowName}
+                {/* Schedule is a pure-action surface → content-gate on
+                    workflow:schedule (project-scoped to the active workflow). */}
+                <PermissionGate
+                  module="workflow"
+                  action="schedule"
+                  projectId={activeWorkflowId ?? undefined}
                   compact
-                  isReadOnly={isReadOnly}
-                  className="-mx-4 -mt-4"
-                  onScheduleChange={refetchHeaderSchedules}
-                />
+                  title="Scheduling restricted"
+                  description="You don't have the &quot;schedule&quot; permission on workflow. Ask an administrator to grant it to manage this pipeline's schedule."
+                >
+                  <ScheduleManager
+                    pipelineId={activeWorkflowId}
+                    pipelineName={activeWorkflowName}
+                    compact
+                    isReadOnly={isReadOnly}
+                    className="-mx-4 -mt-4"
+                    onScheduleChange={refetchHeaderSchedules}
+                  />
+                </PermissionGate>
               </>
             )}
 
@@ -3253,59 +3937,114 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               );
             })()}
 
-            {activeTab === 'ai' && (
-              <div className="space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Corrections, warnings, and optimizations for your workflow.
-                </p>
-                {validation ? (
-                  <>
-                    {validation.error && (
-                      <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
-                        <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Errors</div>
-                        <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
-                      </div>
-                    )}
-                    {!validation.valid && !validation.error && (
-                      <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
-                        <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</div>
-                        <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={handleGetAiSuggestions}
-                      disabled={aiSuggestionsLoading}
-                      className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 flex items-center justify-center gap-2 disabled:opacity-50"
-                    >
-                      {aiSuggestionsLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Sparkles className="h-4 w-4" />
-                      )}
-                      {aiSuggestionsLoading ? 'Analyzing...' : 'AI Suggestions (Cortex)'}
-                    </button>
-                    {aiSuggestions != null && (
-                      <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 p-3">
-                        <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-2">AI Response</div>
-                        <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap">
-                          {aiSuggestions}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="text-sm text-slate-500 text-center py-4">
-                    Click &quot;Validate&quot; to see errors, warnings, and request AI suggestions.
+            {activeTab === 'ai' && (() => {
+              const hasRun = !!(lastExecution as any)?.run_id;
+              const runFailed = lastExecution?.status === 'failed'
+                || lastExecution?.status === 'partial_failure';
+              return (
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    {hasRun
+                      ? 'AI root-cause analysis & fix suggestions for the last run (Cortex).'
+                      : 'Corrections, warnings, and optimizations for your workflow.'}
                   </p>
-                )}
-              </div>
-            )}
+
+                  {/* Failed-step summary — which blocks broke, at a glance. */}
+                  {runFailed && failedSteps.length > 0 && (
+                    <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-900/10 p-2.5 space-y-1.5">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400">
+                        <AlertCircle className="h-3.5 w-3.5" />
+                        {failedSteps.length} step{failedSteps.length > 1 ? 's' : ''} failed
+                      </div>
+                      {failedSteps.map((s: any, i: number) => (
+                        <div key={s.step_id || i} className="text-[11px] text-red-600 dark:text-red-300">
+                          <span className="font-medium">{s._order}. {s._label}</span>
+                          {s.error && (
+                            <span className="block font-mono opacity-80 break-words leading-snug">
+                              {extractErrorString(s.error)}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Static validation errors (when no run yet). */}
+                  {!hasRun && validation?.error && (
+                    <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10 p-2">
+                      <div className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Errors</div>
+                      <p className="text-xs text-red-600 dark:text-red-300">{extractErrorString(validation.error)}</p>
+                    </div>
+                  )}
+                  {!hasRun && validation && !validation.valid && !validation.error && (
+                    <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10 p-2">
+                      <div className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-1">Warnings</div>
+                      <p className="text-xs text-amber-600 dark:text-amber-300">Pipeline validation failed</p>
+                    </div>
+                  )}
+
+                  {hasRun || validation ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleGetAiSuggestions}
+                        disabled={aiSuggestionsLoading}
+                        className="w-full px-3 py-2 text-sm font-medium rounded-lg bg-violet-600 text-white hover:bg-violet-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {aiSuggestionsLoading ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="h-4 w-4" />
+                        )}
+                        {aiSuggestionsLoading
+                          ? 'Analyzing…'
+                          : hasRun ? 'Analyze this run with AI' : 'AI Suggestions (Cortex)'}
+                      </button>
+                      {aiSuggestions != null && (
+                        <div className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/10 p-3">
+                          <div className="flex items-center gap-1.5 text-xs font-medium text-violet-700 dark:text-violet-300 mb-2">
+                            <Sparkles className="h-3.5 w-3.5" />
+                            AI Analysis &amp; Fix
+                          </div>
+                          <div className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                            {aiSuggestions}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <p className="text-sm text-slate-500 text-center py-4">
+                      Run the workflow or click &quot;Validate&quot; — then ask AI to analyze and fix it.
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
 
 
           </div>
         </div>
         )}
+
+        {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
+            and live Cortex AI analysis. Opens automatically on a failed run. */}
+        <RunFixRail
+          open={showFixRail}
+          onClose={() => setShowFixRail(false)}
+          steps={normalizedSteps}
+          runStatus={lastExecution?.status}
+          extractError={extractErrorString}
+          onOpenBlock={(nodeId) => {
+            const target = nodes.find((n) => n.id === nodeId);
+            if (target) { setSelectedNode(target); setShowSidebar(true); }
+            else toast.error('Could not locate this block on the canvas');
+          }}
+          onApplyPatch={applyNodeConfigPatch}
+          onAskAi={handleGetAiSuggestions}
+          aiText={aiSuggestions}
+          aiLoading={aiSuggestionsLoading}
+          suggestions={fixSuggestions}
+        />
 
         {/* Config sidebar */}
         {showSidebar && selectedNode && (

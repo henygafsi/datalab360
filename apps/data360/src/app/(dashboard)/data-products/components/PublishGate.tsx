@@ -15,6 +15,7 @@
  * ACCOUNTADMIN-tier; a 403/409 surfaces inline.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   AlertCircle,
   CheckCircle2,
@@ -69,6 +70,11 @@ export default function PublishGate({
   status,
   onPublished,
 }: PublishGateProps) {
+  // System 2 Action-RBAC: publishing → data_products:publish.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const publishPerm = useCanPerform('data_products', 'publish');
+  const canPublish = publishPerm.allowed || publishPerm.loading;
+
   const objectId = deriveObjectId(tableFqn);
   const [scoreState, setScoreState] = useState<AsyncState>('idle');
   const [obj, setObj] = useState<Object360Response | null>(null);
@@ -206,8 +212,10 @@ export default function PublishGate({
             disabled={
               publishState === 'running' ||
               scoreState !== 'done' ||
-              !allPass
+              !allPass ||
+              !canPublish
             }
+            title={!canPublish ? 'You lack the "publish" permission on data products. Ask an administrator to grant it.' : undefined}
             onClick={() => void doPublish()}
             className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >

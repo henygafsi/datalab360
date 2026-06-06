@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, memo } from 'react';
 import { Button, Input, Badge, Loader, Select } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
 import {
   HiOutlinePlus,
@@ -65,6 +66,18 @@ function InlineError({ message, onDismiss }: { message: string; onDismiss?: () =
 }
 
 function SemanticModelsContent() {
+  // System 2 Action-RBAC (module 'cortex', alias backend 'ai_intelligence').
+  // Semantic-models registry actions: create, edit, delete, generate (all exist).
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('cortex', 'create');
+  const editPerm = useCanPerform('cortex', 'edit');
+  const deletePerm = useCanPerform('cortex', 'delete');
+  const generatePerm = useCanPerform('cortex', 'generate');
+  const canCreateModel = createPerm.allowed || createPerm.loading;
+  const canEditModel = editPerm.allowed || editPerm.loading;
+  const canDeleteModel = deletePerm.allowed || deletePerm.loading;
+  const canGenerateModel = generatePerm.allowed || generatePerm.loading;
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [selectedModel, setSelectedModel] = useState<SemanticModel | null>(null);
@@ -342,6 +355,8 @@ function SemanticModelsContent() {
           </Button>
           <Button
             onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+            disabled={!canCreateModel}
+            title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
             className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white shadow-lg shadow-violet-500/25"
           >
             <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -390,6 +405,8 @@ function SemanticModelsContent() {
             </p>
             <Button
               onClick={() => { setCreateError(null); setShowCreateModal(true); }}
+              disabled={!canCreateModel}
+              title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
               className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
             >
               <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -432,8 +449,9 @@ function SemanticModelsContent() {
                   </div>
                   <button
                     onClick={() => setConfirmDeleteModel(model.name)}
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                    title="Delete model"
+                    disabled={!canDeleteModel}
+                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-slate-400 disabled:hover:bg-transparent"
+                    title={canDeleteModel ? 'Delete model' : 'You lack the "delete" permission on intelligence. Ask an administrator to grant it.'}
                   >
                     <HiOutlineTrash className="w-4 h-4" />
                   </button>
@@ -650,7 +668,8 @@ function SemanticModelsContent() {
                 <Button
                   size="sm"
                   onClick={handleGenerate}
-                  disabled={!database || !schema || generating}
+                  disabled={!database || !schema || generating || !canGenerateModel}
+                  title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
                   className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white disabled:opacity-50"
                 >
                   {generating ? (
@@ -668,7 +687,8 @@ function SemanticModelsContent() {
                 <Button
                   size="sm"
                   onClick={handleGenerateAndSave}
-                  disabled={!database || !schema || generating}
+                  disabled={!database || !schema || generating || !canGenerateModel}
+                  title={!canGenerateModel ? 'You lack the "generate" permission on intelligence. Ask an administrator to grant it.' : undefined}
                   className="flex-1 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white disabled:opacity-50"
                 >
                   {generating ? (
@@ -760,7 +780,8 @@ tables:
             {createStep < 3 && (
               <Button
                 onClick={handleCreate}
-                disabled={creating || !modelName || !yamlContent}
+                disabled={creating || !modelName || !yamlContent || !canCreateModel}
+                title={!canCreateModel ? 'You lack the "create" permission on intelligence. Ask an administrator to grant it.' : undefined}
                 className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
               >
                 {creating ? (
@@ -812,6 +833,8 @@ tables:
                     size="sm"
                     variant="outline"
                     onClick={handleStartEdit}
+                    disabled={!canEditModel}
+                    title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
                     className="border-violet-200 dark:border-violet-700 text-violet-600 dark:text-violet-400 hover:bg-violet-50 dark:hover:bg-violet-900/20"
                   >
                     <HiOutlineDocumentDuplicate className="w-4 h-4 mr-1" />
@@ -821,7 +844,8 @@ tables:
                   <Button
                     size="sm"
                     onClick={handleSaveEdit}
-                    disabled={saving}
+                    disabled={saving || !canEditModel}
+                    title={!canEditModel ? 'You lack the "edit" permission on intelligence. Ask an administrator to grant it.' : undefined}
                     className="bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white"
                   >
                     {saving ? <Loader className="w-4 h-4 mr-1 animate-spin" /> : <HiOutlineCloudArrowUp className="w-4 h-4 mr-1" />}

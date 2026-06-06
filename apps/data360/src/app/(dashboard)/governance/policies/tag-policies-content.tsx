@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Button, Input, Select, type SelectOption } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -54,6 +55,13 @@ const OBJECT_TYPES = [
 ];
 
 export default function TagPoliciesContent() {
+  // System 2 Action-RBAC: Create → gouvernance:create, Apply → gouvernance:apply.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showApplyPanel, setShowApplyPanel] = useState(false);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
@@ -231,6 +239,8 @@ export default function TagPoliciesContent() {
         </div>
         <Button
           onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
+          disabled={!canCreatePolicy}
+          title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
           className="bg-green-600 hover:bg-green-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -289,7 +299,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
+            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-green-600 hover:bg-green-700">Create Tag</Button>
           </>
         }
       >
@@ -340,7 +350,7 @@ export default function TagPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => { setShowApplyPanel(false); setSelectedTag(null); resetApplyForm(); }}>Cancel</Button>
-            <Button onClick={handleApply} disabled={!database || !tagValue} className="bg-green-600 hover:bg-green-700">Apply Tag</Button>
+            <Button onClick={handleApply} disabled={!canApplyPolicy || !database || !tagValue} title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined} className="bg-green-600 hover:bg-green-700">Apply Tag</Button>
           </>
         }
       >

@@ -12,6 +12,8 @@ import {
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGate from '@/components/ui/PermissionGate';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -248,9 +250,21 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
   userRole?: string; database?: string; onDeselectTable?: () => void;
 }) {
   const piiCount = columns.filter((c) => c.isSensitive).length;
-  const canWrite = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'SECURITYADMIN', 'DATA_MODELER', 'DATA_ENGINEER', 'AI_ENGINEER'].includes(userRole);
-  const canApprove = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'DATA_STEWARD', 'DBA'].includes(userRole);
-  const canDeploy = !userRole || ['ACCOUNTADMIN', 'SYSADMIN', 'DATA_MODELER', 'DATA_ENGINEER'].includes(userRole);
+  // System 2 Action-RBAC (replaces the old hardcoded Snowflake-role allow-lists).
+  // Project-scoped via the active explore-design project. While the allow-set is
+  // still loading we keep controls enabled (fail-open) to avoid a flash of
+  // disabled buttons; the gate tightens once permissions resolve, and useCanPerform
+  // also fail-opens on a hard backend error so a hiccup never locks a user out.
+  const writePerm = useCanPerform('explore_design', 'create', projectId);
+  const approvePerm = useCanPerform('explore_design', 'approve', projectId);
+  const deployPerm = useCanPerform('explore_design', 'deploy', projectId);
+  const executePerm = useCanPerform('explore_design', 'execute', projectId);
+  const canWrite = writePerm.allowed || writePerm.loading;
+  const canApprove = approvePerm.allowed || approvePerm.loading;
+  const canDeploy = deployPerm.allowed || deployPerm.loading;
+  // Distinct from canWrite: running/refreshing an existing object is `execute`,
+  // not `create` — so a role granted execute-only can run without modelling rights.
+  const canExecute = executePerm.allowed || executePerm.loading;
   const isStage = table.table.startsWith('@') || table.schema === 'STAGES' || (table as any).objectType === 'STAGE';
   const isView = (table as any).objectType === 'VIEW' || table.table.startsWith('V_');
   const isDynamicTable = (table as any).objectType === 'DYNAMIC_TABLE' || table.table.startsWith('DT_');
@@ -294,7 +308,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
         </div>
         <div className="flex flex-wrap gap-1.5">
           <ActionBtn label="Configure" icon={RefreshCw} disabled={!canWrite} onClick={() => onFocusAction('ingestion')} />
-          <ActionBtn label="Run refresh" icon={Play} disabled={!canWrite} onClick={() => {
+          <ActionBtn label="Run refresh" icon={Play} disabled={!canExecute} onClick={() => {
             onAddEvent({ type: 'INGESTION_MODE_SET', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: { mode: 'full_refresh' } });
             toast.success('Refresh added to draft');
           }} />
@@ -402,7 +416,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
                 toast.success(`DDL: ${res?.diffs?.length || 0} changes found`);
               } catch { toast.error('DDL diff not available — no pending changes'); }
             }} />
-            <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canWrite} onClick={() => {
+            <ActionBtn label="Refresh view" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'VIEW_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
               toast.success('View refresh added to draft');
             }} />
@@ -418,7 +432,7 @@ function ActionsPanel({ table, columns, projectId, focusedAction, onFocusAction,
             <h4 className="text-xs font-semibold text-slate-800 dark:text-slate-200">Dynamic Table</h4>
           </div>
           <div className="flex flex-wrap gap-2">
-            <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canWrite} onClick={() => {
+            <ActionBtn label="Refresh" icon={RefreshCw} disabled={!canExecute} onClick={() => {
               onAddEvent({ type: 'DYNAMIC_TABLE_REFRESH', projectId, target: { database: table.database, schema: table.schema, table: table.table }, payload: {} });
               toast.success('Dynamic table refresh added to deployment draft');
             }} />
@@ -975,6 +989,13 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
   }, [projectId, pendingEvents, pendingEventsCount, getDbSchema, log, approvalRequested, approvalNote, stepOutput.deploy]);
 
   return (
+    <PermissionGate
+      module="explore_design"
+      action="deploy"
+      projectId={projectId}
+      title="Deployment restricted"
+      description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. You can keep modelling, but applying changes to Snowflake requires an administrator to grant deploy access."
+    >
     <div className="p-4 space-y-4">
       {/* Header */}
       <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 flex items-center justify-between">
@@ -1071,6 +1092,7 @@ function DeployPanel({ projectId, pendingEventsCount, onOpenDeployModal, pending
         </div>
       )}
     </div>
+    </PermissionGate>
   );
 }
 

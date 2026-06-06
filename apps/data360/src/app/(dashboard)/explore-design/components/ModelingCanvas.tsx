@@ -1169,7 +1169,7 @@ const ModelingCanvasInner: React.FC<ModelingCanvasProps> = ({
         onlyRenderVisibleElements
         fitView
         fitViewOptions={{ padding: 0.2 }}
-        minZoom={0.1}
+        minZoom={0.02}
         maxZoom={2}
         nodeExtent={[[-5000, -5000], [10000, 10000]]}
         defaultEdgeOptions={{

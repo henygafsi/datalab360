@@ -52,6 +52,22 @@ export interface CacheConfigOverrideRequest {
   value_seconds: number;
 }
 
+export interface CacheEntry {
+  key: string;
+  module: string | null;
+  user: string | null;
+  ttl_remaining: number;
+  age_seconds: number | null;
+  size_bytes: number | null;
+}
+
+export interface CacheEntriesResponse {
+  entries: CacheEntry[];
+  total_scanned: number;
+  truncated: boolean;
+  redis_connected: boolean;
+}
+
 async function apiCall<T>(endpoint: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
   const { data } = await apiClient.request<T>({
     url: endpoint,
@@ -83,4 +99,13 @@ export async function getCacheConfig(): Promise<Record<string, number>> {
 
 export async function patchCacheConfig(body: CacheConfigOverrideRequest): Promise<{ status: string; key: string; value_seconds: number }> {
   return apiCall('/api/data360/cache-config', 'PATCH', body);
+}
+
+/**
+ * Inventory of live cache entries (keys only — values are never exposed).
+ * GET /api/data360/cache-entries
+ * May 404 until the backend route is deployed; callers should honest-gate to empty.
+ */
+export async function getCacheEntries(): Promise<CacheEntriesResponse> {
+  return apiCall<CacheEntriesResponse>('/api/data360/cache-entries');
 }

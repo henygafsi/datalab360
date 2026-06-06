@@ -32,7 +32,9 @@ const statusConfig = {
 };
 
 export default function HealthScoreCard({ score, status, className }: HealthScoreCardProps) {
-  const config = statusConfig[status];
+  // Guard against unexpected casing/values from the API (keys are lowercased on
+  // transform but values are not) — avoid an undefined-config crash.
+  const config = statusConfig[String(status).toLowerCase() as keyof typeof statusConfig] ?? statusConfig.warning;
 
   return (
     <div

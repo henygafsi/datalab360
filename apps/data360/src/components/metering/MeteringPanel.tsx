@@ -3,62 +3,127 @@
 /**
  * MeteringPanel — Account-overview "Cost & Metering" card.
  *
- * Surfaces the data360 cost model across its priced dimensions:
- *   • account base
- *   • per connected source
- *   • per active project
- *   • per module activation
- *   • cost of modules
+ * Surfaces the account's REAL commercial terms:
+ *   • Contract line-items   → GET /org-accounts/contract
+ *   • Per-account rate sheet → GET /org-accounts/rate-sheet
  *
- * The numbers come from `useMeteringEstimate`, which tries
- * `GET /billing/estimate` first and falls back to the local
- * `pricing-reference.json` table. Until the real billing endpoint lands,
- * every `reference_price` is 0 — so every price cell carries an explicit
- * "(reference)" tag and a violet Backend-gap note names the missing
- * endpoints. NO fabricated prices.
+ * History: this panel used to call `GET /billing/estimate` + `/billing/pricing`,
+ * neither of which exists on the backend — so it rendered all-zero "reference"
+ * prices behind a misleading "$DISCOVERY_GAP … reference placeholder" banner.
+ * Those endpoints are gone; we now read the contract + rate-sheet that the
+ * backend actually exposes. Their shapes are line-items + rate cards (NOT a
+ * per-source/project/module estimate), so we render them honestly as a contract
+ * table + a rate sheet rather than forcing them into the old estimate layout.
  *
- * Personas served:
- *   Superadmin — total cost broken down by source / project / module / account.
- *   Admin      — "does this cost credits?" + free-discovery allowance.
- *   QA         — free-discovery cap clearly delineated from paid usage.
+ * Honest-gating: contract/rate-sheet are ORGADMIN-gated and may not be present
+ * on every deployment — 403 (not permitted) and 404 (endpoint/object missing)
+ * render explicit empty/unavailable states, never fabricated numbers.
  */
 
-import { Coins, Lock } from 'lucide-react';
-import {
-  useMeteringEstimate,
-  type MeteringInput,
-  type MeteringBreakdownRow,
-} from '@/hooks/useMeteringEstimate';
-import VolumeLockBadge from './VolumeLockBadge';
+import { useEffect, useState } from 'react';
+import { Coins, FileText, Receipt, Lock, AlertTriangle } from 'lucide-react';
+import { getContract, getRateSheet } from '@/app/services/org-accounts/hooks';
+import { formatDate, extractApiError } from '@/app/services/org-accounts/utils';
+import type {
+  ContractItem,
+  RateSheetEntry,
+} from '@/app/services/org-accounts/types';
 
 export interface MeteringPanelProps {
-  /**
-   * Account scope used to compute the estimate. Until the real account
-   * shell wires live counts, callers may pass 0s — the panel renders the
-   * model structure honestly with reference prices.
-   */
-  scope?: MeteringInput;
   /** Optional title override. */
   title?: string;
+  /**
+   * Retained for backward compatibility with prior callers; no longer used
+   * (the panel now reads the real contract/rate-sheet instead of an estimate).
+   */
+  scope?: unknown;
 }
 
-const DEFAULT_SCOPE: MeteringInput = {
-  sources: 0,
-  projects: 0,
-  modulesActive: [],
-};
+interface SectionState {
+  status: 'unavailable' | 'forbidden' | 'error';
+  message: string;
+}
 
-function formatCredits(value: number): string {
-  if (value === 0) return '0';
-  return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
+function formatCurrency(amount: number, currency = 'USD'): string {
+  if (!Number.isFinite(amount)) return '—';
+  try {
+    return amount.toLocaleString('en-US', {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  } catch {
+    // Unknown currency code → fall back to a plain number + code suffix.
+    return `${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  }
+}
+
+/** Map a thrown API error to the section state (403 vs 404 vs other). */
+function classify(err: unknown): SectionState {
+  const status = (err as { response?: { status?: number } })?.response?.status;
+  if (status === 403) {
+    return {
+      status: 'forbidden',
+      message: 'Requires an organization-admin role.',
+    };
+  }
+  if (status === 404 || status === 405) {
+    return {
+      status: 'unavailable',
+      message: 'Not available on this backend yet.',
+    };
+  }
+  return { status: 'error', message: extractApiError(err, 'Could not load') };
 }
 
 export default function MeteringPanel({
-  scope = DEFAULT_SCOPE,
   title = 'Cost & Metering',
 }: MeteringPanelProps) {
-  const estimate = useMeteringEstimate(scope);
-  const isReference = estimate.source === 'reference';
+  const [loading, setLoading] = useState(true);
+  const [contracts, setContracts] = useState<ContractItem[]>([]);
+  const [rates, setRates] = useState<RateSheetEntry[]>([]);
+  const [contractState, setContractState] = useState<SectionState | null>(null);
+  const [rateState, setRateState] = useState<SectionState | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    Promise.allSettled([getContract(), getRateSheet()]).then(
+      ([contractRes, rateRes]) => {
+        if (!alive) return;
+        if (contractRes.status === 'fulfilled') {
+          setContracts(
+            Array.isArray(contractRes.value?.contracts)
+              ? contractRes.value.contracts
+              : [],
+          );
+          setContractState(null);
+        } else {
+          setContractState(classify(contractRes.reason));
+        }
+        if (rateRes.status === 'fulfilled') {
+          setRates(
+            Array.isArray(rateRes.value?.rates) ? rateRes.value.rates : [],
+          );
+          setRateState(null);
+        } else {
+          setRateState(classify(rateRes.reason));
+        }
+        setLoading(false);
+      },
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Contract total, grouped by currency (line-items can mix currencies).
+  const contractTotals = contracts.reduce<Record<string, number>>((acc, c) => {
+    const cur = c.currency || 'USD';
+    acc[cur] = (acc[cur] ?? 0) + (Number(c.amount) || 0);
+    return acc;
+  }, {});
 
   return (
     <section
@@ -77,202 +142,211 @@ export default function MeteringPanel({
               {title}
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Cost broken down per source, project, module and account base.
+              Contract terms and per-account rate sheet for this organization.
             </p>
           </div>
         </div>
-        <span
-          className={
-            isReference
-              ? 'shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
-              : 'shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-          }
-        >
-          {isReference ? 'Reference pricing' : 'Live pricing'}
-        </span>
+        {!loading &&
+          Object.keys(contractTotals).length > 0 &&
+          contractState === null && (
+            <div className="shrink-0 text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Contract value
+              </p>
+              <p className="font-mono text-sm font-bold text-slate-900 dark:text-white">
+                {Object.entries(contractTotals)
+                  .map(([cur, amt]) => formatCurrency(amt, cur))
+                  .join(' · ')}
+              </p>
+            </div>
+          )}
       </div>
 
-      {/* Free-discovery line — prominent, at the top. */}
-      <div className="mt-3">
-        <VolumeLockBadge
-          variant="full"
-          used={estimate.freeDiscovery.used}
-          cap={estimate.freeDiscovery.rowCap}
-        />
-      </div>
+      {loading ? (
+        <div className="mt-4 space-y-3" role="status" aria-label="Loading">
+          <div className="h-24 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+          <div className="h-24 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+        </div>
+      ) : (
+        <div className="mt-4 space-y-5">
+          {/* Contract line-items */}
+          <Subsection icon={FileText} title="Contract">
+            {contractState ? (
+              <StateNote state={contractState} />
+            ) : contracts.length === 0 ? (
+              <EmptyNote label="No contract line-items for this organization." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left dark:border-slate-700">
+                      <Th>Item</Th>
+                      <Th>Contract</Th>
+                      <Th>Period</Th>
+                      <Th className="text-right">Amount</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {contracts.map((c, i) => (
+                      <tr
+                        key={`${c.contract_number}-${c.contract_item}-${i}`}
+                        className="border-b border-slate-100 dark:border-slate-800"
+                      >
+                        <td className="py-2 pr-2 font-medium text-slate-800 dark:text-slate-200">
+                          {c.contract_item || '—'}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-400">
+                          {c.contract_number || '—'}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-400">
+                          {c.start_date ? formatDate(c.start_date) : '—'}
+                          {c.end_date ? ` → ${formatDate(c.end_date)}` : ''}
+                        </td>
+                        <td className="py-2 pl-2 text-right font-mono font-semibold text-slate-900 dark:text-white">
+                          {formatCurrency(Number(c.amount) || 0, c.currency)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Subsection>
 
-      {/* Breakdown table */}
-      <div className="mt-4 overflow-x-auto">
-        <table className="w-full text-sm">
-          <caption className="sr-only">
-            Cost breakdown per priced dimension
-          </caption>
-          <thead>
-            <tr className="border-b border-slate-200 text-left dark:border-slate-700">
-              <th
-                scope="col"
-                className="py-2 pr-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
-              >
-                Dimension
-              </th>
-              <th
-                scope="col"
-                className="py-2 px-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
-              >
-                Count
-              </th>
-              <th
-                scope="col"
-                className="py-2 px-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
-              >
-                Unit price
-              </th>
-              <th
-                scope="col"
-                className="py-2 pl-2 text-right text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400"
-              >
-                Subtotal
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {estimate.breakdown.map((row) => (
-              <BreakdownRowView key={row.dimension} row={row} />
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border-t-2 border-slate-300 dark:border-slate-600">
-              <th
-                scope="row"
-                className="py-2 pr-2 text-left text-sm font-bold text-slate-900 dark:text-white"
-              >
-                Total
-              </th>
-              <td />
-              <td />
-              <td className="py-2 pl-2 text-right font-mono text-sm font-bold text-slate-900 dark:text-white">
-                {formatCredits(estimate.total)} credits
-                {isReference && (
-                  <span className="ml-1 text-[10px] font-normal text-violet-600 dark:text-violet-400">
-                    (reference)
-                  </span>
-                )}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
-
-      {/* Backend gap — names the endpoints that must land. */}
-      <div className="mt-4">
-        <BackendGapNote />
-      </div>
+          {/* Rate sheet */}
+          <Subsection
+            icon={Receipt}
+            title="Rate sheet"
+            count={rateState === null ? rates.length : undefined}
+          >
+            {rateState ? (
+              <StateNote state={rateState} />
+            ) : rates.length === 0 ? (
+              <EmptyNote label="No rate-sheet entries for this organization." />
+            ) : (
+              <div className="max-h-72 overflow-auto rounded-lg border border-slate-100 dark:border-slate-800">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800/80">
+                    <tr className="text-left">
+                      <Th>Account</Th>
+                      <Th>Service</Th>
+                      <Th>Usage type</Th>
+                      <Th className="text-right">Effective rate</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rates.map((r, i) => (
+                      <tr
+                        key={`${r.account_locator}-${r.service_type}-${r.usage_type}-${i}`}
+                        className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                      >
+                        <td className="py-2 pr-2 font-medium text-slate-800 dark:text-slate-200">
+                          {r.account_name || r.account_locator || '—'}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-400">
+                          {r.service_type || '—'}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-400">
+                          {r.usage_type || '—'}
+                        </td>
+                        <td className="py-2 pl-2 text-right font-mono text-slate-900 dark:text-white">
+                          {Number.isFinite(r.effective_rate)
+                            ? `${r.effective_rate} ${r.currency || ''}`.trim()
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Subsection>
+        </div>
+      )}
     </section>
   );
 }
 
-// ───────────────────────────────────────────────────────────────────────────
-// Sub-renderers
-// ───────────────────────────────────────────────────────────────────────────
+// ── Sub-renderers ─────────────────────────────────────────────────────────────
 
-function BreakdownRowView({ row }: { row: MeteringBreakdownRow }) {
-  const isReference = row.source === 'reference';
+function Subsection({
+  icon: Icon,
+  title,
+  count,
+  children,
+}: {
+  icon: React.ElementType;
+  title: string;
+  count?: number;
+  children: React.ReactNode;
+}) {
   return (
-    <tr className="border-b border-slate-100 dark:border-slate-800">
-      <th
-        scope="row"
-        className="py-2 pr-2 text-left font-normal text-slate-800 dark:text-slate-200"
-      >
-        <span className="font-medium">{row.label}</span>
-        <span className="ml-1.5 text-[11px] text-slate-400 dark:text-slate-500">
-          per {row.unit}
-        </span>
-      </th>
-      <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
-        {row.count.toLocaleString()}
-      </td>
-      <td className="py-2 px-2 text-right font-mono text-slate-700 dark:text-slate-300">
-        {formatCredits(row.unit_price)}
-        {isReference && (
-          <span className="ml-1 text-[10px] text-violet-600 dark:text-violet-400">
-            (reference)
+    <div>
+      <div className="mb-2 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-slate-400" aria-hidden />
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+          {title}
+        </h3>
+        {typeof count === 'number' && count > 0 && (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+            {count}
           </span>
         )}
-      </td>
-      <td className="py-2 pl-2 text-right font-mono font-semibold text-slate-900 dark:text-white">
-        {formatCredits(row.subtotal)}
-        {isReference && (
-          <span className="ml-1 text-[10px] font-normal text-violet-600 dark:text-violet-400">
-            (reference)
-          </span>
-        )}
-      </td>
-    </tr>
+      </div>
+      {children}
+    </div>
   );
 }
 
-interface GapEndpoint {
-  method: string;
-  path: string;
-  purpose: string;
+function Th({
+  children,
+  className = '',
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <th
+      scope="col"
+      className={`py-2 px-2 text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 first:pl-0 last:pr-0 ${className}`}
+    >
+      {children}
+    </th>
+  );
 }
 
-const GAP_ENDPOINTS: GapEndpoint[] = [
-  {
-    method: 'GET',
-    path: '/billing/pricing',
-    purpose: 'The real per-dimension prices (per source / project / module / account base).',
-  },
-  {
-    method: 'GET',
-    path: '/billing/estimate?account_id=',
-    purpose: 'Returns { sources, projects, modules[], total, period } for the account.',
-  },
-  {
-    method: 'GET',
-    path: '/account/{id}/usage',
-    purpose: 'Free-discovery rows consumed against the 1000-row allowance.',
-  },
-];
-
-/**
- * BackendGapNote — replicates the violet "Backend gap" callout style from
- * workflow/components/WizardPreflightPanel.tsx. Names every endpoint the
- * backend must expose before the panel can show real numbers.
- */
-function BackendGapNote() {
+function EmptyNote({ label }: { label: string }) {
   return (
-    <div className="rounded-lg border border-violet-200 bg-violet-50 p-3 dark:border-violet-900/40 dark:bg-violet-900/20">
-      <div className="flex items-center gap-2">
-        <Lock className="h-3 w-3 text-violet-500" aria-hidden />
-        <p className="text-[11px] font-semibold uppercase tracking-wider text-violet-700 dark:text-violet-300">
-          Backend gap — UX target
-        </p>
+    <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-400 dark:border-slate-700 dark:text-slate-500">
+      {label}
+    </p>
+  );
+}
+
+function StateNote({ state }: { state: SectionState }) {
+  if (state.status === 'forbidden') {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
+        <Lock className="h-3.5 w-3.5 text-slate-400" aria-hidden />
+        <span>{state.message}</span>
       </div>
-      <p className="mt-1.5 text-[11px] text-slate-700 dark:text-slate-300">
-        No billing endpoint is exposed today. Every price above is a{' '}
-        <span className="font-semibold text-violet-700 dark:text-violet-300">
-          reference placeholder (0)
-        </span>{' '}
-        from <code className="font-mono">pricing-reference.json</code>. The
-        following endpoints unlock real metering:
-      </p>
-      <dl className="mt-2 space-y-1.5 text-[11px]">
-        {GAP_ENDPOINTS.map((ep) => (
-          <div key={ep.path} className="grid grid-cols-[auto_1fr] gap-2">
-            <dt className="font-mono font-semibold text-violet-700 dark:text-violet-300">
-              {ep.method} {ep.path}
-            </dt>
-            <dd className="text-slate-700 dark:text-slate-300">{ep.purpose}</dd>
-          </div>
-        ))}
-      </dl>
-      <div className="mt-2 rounded bg-violet-100 px-2 py-1 dark:bg-violet-900/40">
-        <span className="text-[10px] text-violet-800 dark:text-violet-200">
-          Until these land, the panel renders the cost-model structure with
-          reference prices — no figure here is a real bill.
-        </span>
+    );
+  }
+  if (state.status === 'unavailable') {
+    return (
+      <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-300">
+        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+        <span>{state.message}</span>
       </div>
+    );
+  }
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-3 text-xs text-red-600 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400"
+    >
+      <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+      <span>{state.message}</span>
     </div>
   );
 }

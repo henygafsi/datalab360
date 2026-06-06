@@ -51,6 +51,7 @@ import {
   getDashboardOverview,
   getDashboardTrends,
   getReaderAccounts,
+  getReplication,
   getShares,
 } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
@@ -59,6 +60,7 @@ import type {
   ClientAccount,
   DashboardOverviewResponse,
   DashboardTrendsResponse,
+  ReplicationResponse,
 } from '@/app/services/org-accounts/types';
 
 const COLORS = [
@@ -74,6 +76,7 @@ interface OrgAccountsState {
   overview: DashboardOverviewResponse | null;
   accounts: AccountsListResponse | null;
   trends: DashboardTrendsResponse | null;
+  replication: ReplicationResponse | null;
   readers: number;
   shares: number;
   readerList: Array<{ name: string; cloud?: string; region?: string }>;
@@ -118,6 +121,7 @@ export default function OrgAccountsTab() {
     overview: null,
     accounts: null,
     trends: null,
+    replication: null,
     readers: 0,
     shares: 0,
     readerList: [],
@@ -138,13 +142,14 @@ export default function OrgAccountsTab() {
     //   • a fulfilled 200-OK error envelope = the Snowflake role can't read
     //     ORGANIZATION_USAGE.* → not an error, degrade to the friendly
     //     "not a Snowflake Organization account" state (handled downstream).
-    const [overviewR, accountsR, trendsR, readerR, shareR] =
+    const [overviewR, accountsR, trendsR, readerR, shareR, replicationR] =
       await Promise.allSettled([
         getDashboardOverview(),
         getAccounts(),
         getDashboardTrends(30),
         getReaderAccounts(),
         getShares(),
+        getReplication(30),
       ]);
 
     const val = <T,>(r: PromiseSettledResult<T>): T | null =>
@@ -162,12 +167,16 @@ export default function OrgAccountsTab() {
     const trendsRaw = val(trendsR);
     const readerRes = val(readerR);
     const shareRes = val(shareR);
+    const replicationRaw = val(replicationR);
 
     // Treat error-envelope 200s (role can't read org views) as "no data" so
     // the UI shows the friendly not-an-org state instead of a wall of zeros.
     const overview = isApiError(overviewRaw) ? null : overviewRaw;
     const accounts = isApiError(accountsRaw) ? null : accountsRaw;
     const trends = isApiError(trendsRaw) ? null : trendsRaw;
+    // Replication is a best-effort footnote panel (like reader/shares): a
+    // failure here must not blank the page, so it is NOT part of coreRejection.
+    const replication = isApiError(replicationRaw) ? null : replicationRaw;
     const readerList = (readerRes?.reader_accounts ?? []) as Array<{
       name: string;
       cloud?: string;
@@ -189,6 +198,7 @@ export default function OrgAccountsTab() {
       overview,
       accounts,
       trends,
+      replication,
       readers: readerList.length,
       shares: shareList.length,
       readerList,
@@ -211,22 +221,55 @@ export default function OrgAccountsTab() {
   }, [state.overview]);
 
   const creditTrend = useMemo(() => {
-    // Backend (DashboardTrendsResponse.credits → CreditTrendPoint) uses
-    // `usage_date` / `total_credits`, not `date` / `credits`.
-    const rows = state.trends?.credits ?? [];
+    // `/dashboard/trends` emits each credit point as {date, credits}. The shared
+    // CreditTrendPoint type (usage_date/total_credits) describes the *separate*
+    // /credits/trend endpoint and is stale here, so cast to the real shape and
+    // read the keys the backend actually returns.
+    const rows = (state.trends?.credits ?? []) as Array<{
+      date?: string;
+      credits?: number;
+    }>;
     return rows.map((r) => ({
-      date: r.usage_date,
-      credits: r.total_credits ?? 0,
+      date: r.date ?? '',
+      credits: r.credits ?? 0,
     }));
   }, [state.trends]);
 
   const storageTrend = useMemo(() => {
-    // StorageTrendPoint uses `usage_date` / `total_bytes`.
-    const rows = state.trends?.storage ?? [];
+    // `/dashboard/trends` emits each storage point as {date, bytes}.
+    const rows = (state.trends?.storage ?? []) as Array<{
+      date?: string;
+      bytes?: number;
+    }>;
     return rows.map((r) => ({
-      date: r.usage_date,
-      storage_gb: (r.total_bytes ?? 0) / 1e9,
+      date: r.date ?? '',
+      storage_gb: (r.bytes ?? 0) / 1e9,
     }));
+  }, [state.trends]);
+
+  // Account distribution by region / cloud. The /dashboard/overview handler may
+  // omit these (optional in the contract), so guard with `?? {}` — the charts
+  // below render only when the backend actually supplies the breakdown.
+  const regionDist = useMemo(() => {
+    const byRegion = state.overview?.overview?.accounts_by_region ?? {};
+    return Object.entries(byRegion).map(([region, count]) => ({
+      region,
+      count,
+    }));
+  }, [state.overview]);
+
+  const cloudDist = useMemo(() => {
+    const byCloud = state.overview?.overview?.accounts_by_cloud ?? {};
+    return Object.entries(byCloud).map(([cloud, count]) => ({ cloud, count }));
+  }, [state.overview]);
+
+  // Query-volume trend from the already-fetched trends payload. `/dashboard/
+  // trends` does not currently return a `queries` array, so this stays empty
+  // (the panel is suppressed) until the backend adds it; reads the typed
+  // QueryTrendPoint fields when present.
+  const queryTrend = useMemo(() => {
+    const rows = state.trends?.queries ?? [];
+    return rows.map((q) => ({ date: q.query_date, queries: q.query_count }));
   }, [state.trends]);
 
   // ----- render -----
@@ -243,7 +286,16 @@ export default function OrgAccountsTab() {
   const networkPoliciesCount = o?.network_policies_count ?? 0;
   // Backend tells us when the Snowflake role can't see org-level data so
   // the UI can show a clear empty/CTA state instead of a wall of zeros.
-  const orgAdminAvailable = o?.org_admin_available !== false;
+  // Org-admin gating: prefer the backend's explicit is_org_admin (real ORGADMIN
+  // capability via SHOW ORGANIZATION ACCOUNTS); fall back to the legacy signal.
+  const isOrgAdmin =
+    typeof o?.is_org_admin === 'boolean'
+      ? o.is_org_admin
+      : o?.org_admin_available !== false;
+  const orgAdminAvailable = isOrgAdmin;
+  // When not an org admin the backend returns the caller's OWN account data
+  // (scope="account") — label credit/storage accordingly instead of "Org".
+  const acctScope = o?.scope === 'account' || !isOrgAdmin;
   const accountCount = state.accounts?.accounts?.length ?? 0;
   // "Not a Snowflake Organization account" — the common case. We reach this
   // when loading finished but every org-level call returned null/empty (the
@@ -305,6 +357,30 @@ export default function OrgAccountsTab() {
     );
   }
 
+  // Data-driven recommendations derived from the loaded org data. Each entry is
+  // conditional, so the panel only ever surfaces real, actionable findings.
+  const recommendations: string[] = [];
+  if (
+    replicationGroupsCount === 0 &&
+    (state.replication?.replication?.length ?? 0) === 0
+  ) {
+    recommendations.push(
+      'No replication detected — activate replication on production accounts to enable disaster recovery.',
+    );
+  }
+  if (inactiveAccounts > 0) {
+    recommendations.push(
+      `Review ${inactiveAccounts} inactive account${
+        inactiveAccounts > 1 ? 's' : ''
+      } for decommissioning.`,
+    );
+  }
+  if (totalAccounts > 0 && networkPoliciesCount < totalAccounts) {
+    recommendations.push(
+      `Enable network policies on all accounts (currently ${networkPoliciesCount}/${totalAccounts}).`,
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* ORGADMIN-not-granted notice — the Snowflake role used by this user
@@ -332,13 +408,13 @@ export default function OrgAccountsTab() {
         <KpiCard
           icon={Building2}
           label="Accounts in org"
-          value={fmtNumber(totalAccounts)}
+          value={isOrgAdmin ? fmtNumber(totalAccounts) : '—'}
           loading={state.loading}
         />
         <KpiCard
           icon={ShieldCheck}
           label="Active / Inactive"
-          value={`${activeAccounts} / ${inactiveAccounts}`}
+          value={isOrgAdmin ? `${activeAccounts} / ${inactiveAccounts}` : '—'}
           loading={state.loading}
         />
         <KpiCard
@@ -349,20 +425,21 @@ export default function OrgAccountsTab() {
         />
         <KpiCard
           icon={CreditCard}
-          label="Org credits (30d)"
+          label={acctScope ? 'Account credits (30d)' : 'Org credits (30d)'}
           value={fmtNumber(Math.round(orgCredits))}
           loading={state.loading}
+          trendPct={o?.credits_trend_pct}
         />
         <KpiCard
           icon={HardDrive}
-          label="Org storage"
+          label={acctScope ? 'Account storage' : 'Org storage'}
           value={fmtBytes(orgStorageBytes)}
           loading={state.loading}
         />
         <KpiCard
           icon={Database}
           label="Reader / Shares"
-          value={`${state.readers} / ${state.shares}`}
+          value={isOrgAdmin ? `${state.readers} / ${state.shares}` : '—'}
           loading={state.loading}
         />
         <KpiCard
@@ -380,7 +457,7 @@ export default function OrgAccountsTab() {
         <KpiCard
           icon={Layers}
           label="Managed Accounts"
-          value={fmtNumber(managedAccountsCount)}
+          value={isOrgAdmin ? fmtNumber(managedAccountsCount) : '—'}
           loading={state.loading}
         />
       </div>
@@ -593,6 +670,28 @@ export default function OrgAccountsTab() {
         </ChartPanel>
       </div>
 
+      {/* Query volume trend — renders only when /dashboard/trends supplies a
+          `queries` array (suppressed otherwise so there is no empty chart). */}
+      {queryTrend.length > 0 && (
+        <ChartPanel title="Query volume (30d)" icon={BarChart3}>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={queryTrend}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} />
+              <Tooltip />
+              <Line
+                type="monotone"
+                dataKey="queries"
+                stroke={COLORS[5]}
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      )}
+
       {/* Edition mix */}
       {editionMix.length > 0 && (
         <ChartPanel title="Editions mix" icon={BarChart3}>
@@ -613,10 +712,84 @@ export default function OrgAccountsTab() {
         </ChartPanel>
       )}
 
+      {/* Account distribution by region / cloud — appears when the backend
+          supplies accounts_by_region / accounts_by_cloud. */}
+      {(regionDist.length > 0 || cloudDist.length > 0) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {regionDist.length > 0 && (
+            <ChartPanel title="Accounts by region" icon={Building2}>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={regionDist} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 10 }}
+                    allowDecimals={false}
+                  />
+                  <YAxis
+                    dataKey="region"
+                    type="category"
+                    tick={{ fontSize: 10 }}
+                    width={120}
+                  />
+                  <Tooltip />
+                  <Bar dataKey="count" fill={COLORS[3]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          )}
+          {cloudDist.length > 0 && (
+            <ChartPanel title="Accounts by cloud" icon={Cloud}>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={cloudDist} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 10 }}
+                    allowDecimals={false}
+                  />
+                  <YAxis
+                    dataKey="cloud"
+                    type="category"
+                    tick={{ fontSize: 10 }}
+                    width={120}
+                  />
+                  <Tooltip />
+                  <Bar dataKey="count" fill={COLORS[4]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          )}
+        </div>
+      )}
+
       {/* Footer band — 4 panels */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <FooterPanel title="Replication Groups" icon={GitBranch}>
-          <EmptyHint label="No replication groups exposed" />
+          {(state.replication?.replication?.length ?? 0) === 0 ? (
+            <EmptyHint label="No replication usage in the last 30 days" />
+          ) : (
+            <ul className="space-y-1.5 text-xs">
+              {(state.replication?.replication ?? [])
+                .slice()
+                .sort((a, b) => b.total_credits - a.total_credits)
+                .slice(0, 5)
+                .map((r) => (
+                  <li
+                    key={`repl-${r.account_name}`}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <span className="truncate text-slate-700 dark:text-slate-300">
+                      {r.account_name}
+                    </span>
+                    <span className="whitespace-nowrap text-[10px] text-slate-500">
+                      {fmtNumber(Math.round(r.total_credits))} cr ·{' '}
+                      {fmtBytes(r.total_bytes_transferred)}
+                    </span>
+                  </li>
+                ))}
+            </ul>
+          )}
         </FooterPanel>
         <FooterPanel title="Failover Groups" icon={Zap}>
           <EmptyHint label="No failover groups exposed" />
@@ -689,20 +862,19 @@ export default function OrgAccountsTab() {
               </h3>
             </header>
             <ul className="space-y-2 text-xs text-slate-700 dark:text-slate-300">
-              <li className="flex gap-2">
-                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                Activate replication on production accounts to enable disaster
-                recovery
-              </li>
-              <li className="flex gap-2">
-                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                Review inactive accounts older than 90d for decommissioning
-              </li>
-              <li className="flex gap-2">
-                <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
-                Enable network policies on all accounts (currently{' '}
-                {networkPoliciesCount}/{totalAccounts || 0})
-              </li>
+              {recommendations.length === 0 ? (
+                <li className="flex gap-2">
+                  <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                  No action items — organization configuration looks healthy.
+                </li>
+              ) : (
+                recommendations.map((rec, i) => (
+                  <li key={`rec-${i}`} className="flex gap-2">
+                    <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />
+                    {rec}
+                  </li>
+                ))
+              )}
             </ul>
           </section>
         </div>
@@ -718,11 +890,14 @@ function KpiCard({
   label,
   value,
   loading,
+  trendPct,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string | number;
   loading: boolean;
+  // Optional month-over-month delta (already a percentage, e.g. 12.3 = +12.3%).
+  trendPct?: number | null;
 }) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
@@ -730,8 +905,22 @@ function KpiCard({
         <span>{label}</span>
         <Icon className="h-3.5 w-3.5 text-slate-400" />
       </div>
-      <div className="mt-1 text-xl font-semibold text-slate-900 dark:text-white">
-        {loading ? '…' : value}
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="text-xl font-semibold text-slate-900 dark:text-white">
+          {loading ? '…' : value}
+        </span>
+        {!loading && trendPct != null && (
+          <span
+            title="Month-over-month change"
+            className={`rounded px-1 py-0.5 text-[10px] font-medium ${
+              trendPct >= 0
+                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+            }`}
+          >
+            {trendPct >= 0 ? '▲' : '▼'} {Math.abs(trendPct).toFixed(1)}%
+          </span>
+        )}
       </div>
     </div>
   );

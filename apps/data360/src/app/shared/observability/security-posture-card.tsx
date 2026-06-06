@@ -149,7 +149,7 @@ export default function SecurityPostureCard({ data, isLoading, className }: Secu
           return (
             <div
               key={metric.label}
-              className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-100/50"
+              className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-700/30"
             >
               <div className="flex items-center gap-3">
                 <Icon className="h-5 w-5 text-gray-600" />

@@ -60,7 +60,15 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
     setLoading(true);
     setError(null);
     const [relResult, healthResult] = await Promise.allSettled([
-      discoverRelationships(projectId, { tables: sourceTables }),
+      // Backend expects `table_name` (not `table`) — mirror the proven payload
+      // shape used by the Explore & Design discover-relationships call.
+      discoverRelationships(projectId, {
+        tables: sourceTables.map((t) => ({
+          database: t.database,
+          schema: t.schema,
+          table_name: t.table,
+        })),
+      }),
       getSchemaHealth(projectId),
     ]);
 
@@ -75,6 +83,9 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
       const h = healthResult.value;
       setHealth({
         overall_score: h.overall_score,
+        // Coverage card was always '—' (coverage never set). Map it to the
+        // real completeness sub-score the schema-health endpoint returns.
+        coverage: h.sub_scores?.completeness?.score,
         relations_count: relResult.value?.relationships?.length,
         issues_count: h.sub_scores?.naming?.violations?.length,
       });

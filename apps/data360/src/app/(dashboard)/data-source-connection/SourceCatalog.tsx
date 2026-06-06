@@ -5,7 +5,7 @@ import { Badge, Loader, Tooltip } from 'rizzui';
 import {
   Database, Cloud, Building2, TrendingUp, Shield, Zap, GitBranch,
   RefreshCw, Timer, ExternalLink, Upload, Activity, Clock, HardDrive,
-  Layers, Search, Filter, ChevronDown, ChevronRight, BarChart3,
+  Layers, Search, Filter, ChevronDown, ChevronRight, BarChart3, AlertTriangle,
 } from 'lucide-react';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 
@@ -27,6 +27,10 @@ interface CatalogTable {
   ingestion_type: string;
   freshness_hours: number | null;
   layer: string;
+  // additive enrichment (source: ACCOUNT_USAGE.COPY_HISTORY) — optional for backward compat
+  last_load_time?: string | null;
+  rows_loaded_30d?: number | null;
+  load_errors_30d?: number | null;
 }
 
 interface DomainSummary {
@@ -44,6 +48,10 @@ interface CatalogResponse {
   total_tables: number;
   domains: DomainSummary[];
   total_schemas: number;
+  // additive enrichment — optional for backward compat
+  ingestion_breakdown?: Record<string, number>;
+  tables_loaded_30d?: number;
+  source?: Record<string, string>;
 }
 
 // ============================================
@@ -238,8 +246,16 @@ const DomainCard: React.FC<{
                 key={`${table.schema}.${table.table_name}`}
                 className="grid grid-cols-12 gap-2 px-5 py-2.5 text-sm border-b border-slate-50 dark:border-slate-800/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors"
               >
-                <div className="col-span-3 font-medium text-slate-800 dark:text-slate-200 truncate" title={table.table_name}>
-                  {table.table_name}
+                <div className="col-span-3 flex min-w-0 items-center gap-1.5 font-medium text-slate-800 dark:text-slate-200">
+                  <span className="truncate" title={table.table_name}>{table.table_name}</span>
+                  {(table.load_errors_30d ?? 0) > 0 && (
+                    <Tooltip content={`${table.load_errors_30d} load error${table.load_errors_30d === 1 ? '' : 's'} in the last 30 days`}>
+                      <span className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-red-100 px-1 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                        <AlertTriangle className="h-2.5 w-2.5" />
+                        {formatNumber(table.load_errors_30d ?? 0)}
+                      </span>
+                    </Tooltip>
+                  )}
                 </div>
                 <div className="col-span-2 text-slate-500 dark:text-slate-400 truncate text-xs flex items-center">
                   {table.schema}
@@ -266,7 +282,12 @@ const DomainCard: React.FC<{
                   {formatBytes(table.size_bytes)}
                 </div>
                 <div className="col-span-2 text-right">
-                  <span className={`flex items-center justify-end gap-1 text-xs ${getFreshnessColor(table.freshness_hours)}`}>
+                  <span
+                    className={`flex items-center justify-end gap-1 text-xs ${getFreshnessColor(table.freshness_hours)}`}
+                    title={table.last_load_time
+                      ? `Last load: ${new Date(table.last_load_time).toLocaleString()}${table.rows_loaded_30d != null ? ` · ${formatNumber(table.rows_loaded_30d)} rows loaded (30d)` : ''}`
+                      : undefined}
+                  >
                     <Clock className="h-3 w-3" />
                     {getFreshnessLabel(table.freshness_hours)}
                   </span>
@@ -450,11 +471,12 @@ export default function SourceCatalog() {
 
       {/* KPI Summary Bar */}
       {catalog && !loading && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
             { label: 'Total Tables', value: String(catalog.total_tables), icon: Database, color: 'text-blue-500' },
             { label: 'Domains', value: String(catalog.domains.length), icon: Layers, color: 'text-purple-500' },
             { label: 'Total Rows', value: formatNumber(totalRows), icon: BarChart3, color: 'text-emerald-500' },
+            { label: 'Loaded (30d)', value: String(catalog.tables_loaded_30d ?? 0), icon: TrendingUp, color: 'text-cyan-500' },
             { label: 'Fresh (<24h)', value: String(freshCount), icon: Activity, color: 'text-green-500' },
             { label: 'Stale (>72h)', value: String(staleCount), icon: Clock, color: staleCount > 0 ? 'text-red-500' : 'text-slate-400' },
           ].map((kpi) => (

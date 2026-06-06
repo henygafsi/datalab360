@@ -57,12 +57,18 @@ export const routes = {
   clientAccounts: {
     dashboard: '/client-accounts',
   },
+  // AI Intelligence — one page (/intelligent) with query-param tabs the page reads
+  // via ?tab=<id>. These deep-link to REAL tab ids (see intelligent/page.tsx).
   intelligent: {
     dashboard: '/intelligent',
-    semanticModels: '/intelligent/semantic-models',
-    /** @deprecated Use dataGovernance instead. Cortex Chat tab was replaced by Data & Governance. */
-    cortexChat: '/intelligent',
-    dataGovernance: '/intelligent?tab=data-governance',
+    semanticModels: '/intelligent?tab=semantic-models',
+    aiChat: '/intelligent?tab=cortex-chat',
+    aiAdvisor: '/intelligent?tab=ai-advisor',
+    mlFeatures: '/intelligent?tab=ml-features',
+    /** @deprecated was ?tab=data-governance (no such tab); points at a real tab so referrers resolve. */
+    dataGovernance: '/intelligent?tab=ai-advisor',
+    /** @deprecated alias → AI Chat tab. */
+    cortexChat: '/intelligent?tab=cortex-chat',
   },
 
   eCommerce: {

@@ -61,6 +61,15 @@ export interface OverviewKpiPayload {
   cortex_credits: number;
   computed_at: string | null;
   cache_age_seconds: number | null;
+  /**
+   * False ONLY for the synthetic empty payload returned when the
+   * OVERVIEW_KPIS cache table is unprovisioned (404/400). Lets the Overview
+   * tab tell "genuinely zero" apart from "cache missing" so it can fall the
+   * cards back to /command-center/summary (or "—") instead of rendering fake
+   * zeros, and surface the admin "Provision KPIs" affordance. Undefined/true
+   * on a real payload.
+   */
+  _provisioned?: boolean;
 }
 
 /**
@@ -101,6 +110,7 @@ function emptyOverviewKpiPayload(range: OverviewRange): OverviewKpiPayload {
     cortex_credits: 0,
     computed_at: null,
     cache_age_seconds: null,
+    _provisioned: false,
   };
 }
 
@@ -139,6 +149,42 @@ export async function refreshOverviewKpis(
     // Same fallback as the GET: the cache proc may not be deployed.
     if (status === 404 || status === 400) return;
     throw err;
+  }
+}
+
+/**
+ * Result of a Provision-KPIs attempt. Distinguishes the three states the
+ * admin CTA must report honestly:
+ *   ok            — install proc ran (or the cache was already provisioned)
+ *   not-deployed  — POST .../install returns 404 (endpoint not on this backend yet)
+ *   forbidden     — 403 (caller's role can't create Snowflake objects)
+ *   error         — any other failure; `message` carries the backend detail
+ */
+export type InstallKpisResult =
+  | { status: 'ok' }
+  | { status: 'not-deployed' }
+  | { status: 'forbidden'; message: string }
+  | { status: 'error'; message: string };
+
+/**
+ * Provision the OVERVIEW_KPIS Snowflake cache (table + proc + tasks).
+ * Backs the admin-only "Provision KPIs" button on the Overview tab.
+ * Creates Snowflake objects server-side — gate behind a confirm + admin role.
+ */
+export async function installOverviewKpis(): Promise<InstallKpisResult> {
+  try {
+    await apiClient.post(`${PREFIX}/overview-kpis/install`);
+    return { status: 'ok' };
+  } catch (err: any) {
+    const status = err?.response?.status;
+    if (status === 404) return { status: 'not-deployed' };
+    const detail = err?.response?.data?.detail;
+    const message =
+      (typeof detail === 'string' ? detail : detail?.message) ??
+      err?.message ??
+      'Provisioning failed.';
+    if (status === 403) return { status: 'forbidden', message: String(message) };
+    return { status: 'error', message: String(message) };
   }
 }
 

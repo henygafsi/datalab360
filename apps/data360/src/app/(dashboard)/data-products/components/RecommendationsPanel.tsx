@@ -13,15 +13,11 @@
  * Idle→Running→Completed/Empty/Error throughout.
  */
 import { useCallback, useEffect, useState } from 'react';
-import {
-  AlertCircle,
-  CheckCircle2,
-  Lightbulb,
-  Loader2,
-} from 'lucide-react';
+import { AlertCircle, CheckCircle2, Lightbulb } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
+import { InsightActionButton } from '@/app/shared/insights';
 import {
   applyRecommendation,
   getCatalogRecommendations,
@@ -47,9 +43,7 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
   const [recos, setRecos] = useState<Recommendation[]>([]);
   const [loadState, setLoadState] = useState<AsyncState>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [applied, setApplied] = useState<Record<string, ApplyRecoResponse>>({});
-  const [applyError, setApplyError] = useState<{ id: string; message: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoadState('running');
@@ -67,19 +61,6 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
   useEffect(() => {
     void load();
   }, [load]);
-
-  const apply = useCallback(async (recoId: string) => {
-    setBusy(recoId);
-    setApplyError(null);
-    try {
-      const res = await applyRecommendation(recoId);
-      setApplied((prev) => ({ ...prev, [recoId]: res }));
-    } catch (err) {
-      setApplyError({ id: recoId, message: getApiErrorMessage(err) });
-    } finally {
-      setBusy(null);
-    }
-  }, []);
 
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 p-4 dark:border-slate-700">
@@ -139,16 +120,6 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
                   </span>
                 </div>
 
-                {applyError?.id === r.reco_id && (
-                  <div
-                    role="alert"
-                    className="flex items-start gap-1.5 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-[10px] text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
-                  >
-                    <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-                    <span className="break-words">{applyError.message}</span>
-                  </div>
-                )}
-
                 {result ? (
                   <div className="rounded-md bg-emerald-50 px-2 py-1.5 text-[10px] text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-300">
                     <p className="flex items-center gap-1 font-semibold">
@@ -166,19 +137,19 @@ export default function RecommendationsPanel({ productId }: RecommendationsPanel
                     )}
                   </div>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={busy != null}
-                    onClick={() => void apply(r.reco_id)}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50 dark:border-blue-900/40 dark:text-blue-300 dark:hover:bg-blue-900/20"
-                  >
-                    {busy === r.reco_id ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-3 w-3" />
-                    )}
-                    Apply
-                  </button>
+                  <InsightActionButton
+                    label="Apply"
+                    size="sm"
+                    successToast="Recommendation applied"
+                    pingBell
+                    onAction={() => applyRecommendation(r.reco_id)}
+                    onDone={(res) =>
+                      setApplied((prev) => ({
+                        ...prev,
+                        [r.reco_id]: res as ApplyRecoResponse,
+                      }))
+                    }
+                  />
                 )}
               </li>
             );

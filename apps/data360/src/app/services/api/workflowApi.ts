@@ -38,6 +38,10 @@ import type {
   WorkflowDeploymentListResponse,
   ListWorkflowDeploymentsParams,
   RejectWorkflowDeploymentRequest,
+  FromGraphRequest,
+  FromGraphResponse,
+  WorkflowCapabilities,
+  CloneDataTestsResult,
 } from './types';
 
 const PREFIX = '/workflow';
@@ -53,6 +57,51 @@ export async function createWorkflow(body: CreateWorkflowRequest) {
 
 export async function getWorkflow(workflowId: string) {
   const { data } = await apiClient.get<Workflow>(`${PREFIX}/${workflowId}`);
+  return data;
+}
+
+/**
+ * One-shot canvas save: creates a workflow + all steps from the ReactFlow
+ * node/edge graph in a single round-trip. This is the bulk replacement for
+ * the purged per-step `/steps` CRUD — the builder's Save button wires here.
+ * Partial-failure tolerant: per-node/edge problems come back in `errors[]`.
+ */
+export async function saveWorkflowFromGraph(body: FromGraphRequest) {
+  const { data } = await apiClient.post<FromGraphResponse>(
+    `${PREFIX}/from-graph`,
+    body,
+  );
+  return data;
+}
+
+/**
+ * Advisory capabilities hint — which lifecycle routes the backend exposes.
+ * Treated as a HINT only by the builder (it can advertise purged routes), so
+ * each lifecycle button ALSO self-disables when its route 404s at runtime.
+ */
+export async function getWorkflowCapabilities() {
+  const { data } = await apiClient.get<WorkflowCapabilities>(
+    `${PREFIX}/capabilities`,
+  );
+  return data;
+}
+
+/**
+ * "Test on cloned data" — runs the pipeline against a CLONED copy of the real
+ * source/business data (no write to production). The standard test step that
+ * sits between dry-run (compile) and deploy.
+ */
+export async function runCloneDataTests(
+  workflowId: string,
+  connectorIds: string[],
+  maxTables = 20,
+) {
+  const params = new URLSearchParams();
+  connectorIds.forEach((id) => params.append('connector_ids', id));
+  params.append('max_tables', String(maxTables));
+  const { data } = await apiClient.get<CloneDataTestsResult>(
+    `${PREFIX}/${workflowId}/clone-data-tests?${params.toString()}`,
+  );
   return data;
 }
 
@@ -140,9 +189,14 @@ export async function validateWorkflow(workflowId: string) {
 // ============================================================================
 
 export async function listRuns(workflowId: string, params?: ListWorkflowRunsParams) {
+  // The backend run-history route paginates on `page_size` (not `limit`); send the
+  // requested limit under the param name the route reads, otherwise it silently
+  // falls back to the default page size of 20 no matter what the UI asked for.
+  const { limit, ...rest } = params ?? {};
+  const query = { ...rest, ...(limit != null ? { page_size: limit } : {}) };
   const { data } = await apiClient.get<WorkflowRunsResponse>(
     `${PREFIX}/${workflowId}/runs`,
-    { params },
+    { params: query },
   );
   return data;
 }

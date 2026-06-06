@@ -8,8 +8,38 @@ import { Checkbox, Text, Button, Tooltip } from 'rizzui';
 import TableRowActionGroup from '@core/components/table-utils/table-row-action-group';
 import { UserTableDataType } from './table';
 import { Power, PowerOff } from 'lucide-react';
+import { useCanPerform } from '@/hooks/useCanPerform';
 
 const columnHelper = createColumnHelper<UserTableDataType>();
+
+/**
+ * Row action group for a user. Delete is gated on System 2 Action-RBAC
+ * (gouvernance:delete); when denied the trash control is disabled with a tooltip.
+ * Extracted into a component so `useCanPerform` runs in a proper hook context.
+ */
+function UserRowActions({
+  row,
+  onDelete,
+}: {
+  row: UserTableDataType;
+  onDelete: () => void;
+}) {
+  const { allowed, loading } = useCanPerform('gouvernance', 'delete');
+  const canDelete = allowed || loading; // fail-open while the allow-set loads
+  return (
+    <TableRowActionGroup
+      editUrl={`/governance/users/edit/${row.id}`}
+      viewUrl={`/governance/users/view/${row.id}`}
+      onDelete={onDelete}
+      deleteDisabled={!canDelete}
+      deleteDisabledReason={
+        !canDelete
+          ? 'You lack the "delete" permission on governance. Ask an administrator to grant it.'
+          : undefined
+      }
+    />
+  );
+}
 
 export const userListColumns = [
   columnHelper.display({
@@ -173,9 +203,8 @@ export const userListColumns = [
               )}
             </Button>
           </Tooltip>
-          <TableRowActionGroup
-            editUrl={`/governance/users/edit/${row.original.id}`}
-            viewUrl={`/governance/users/view/${row.original.id}`}
+          <UserRowActions
+            row={row.original}
             onDelete={() => {
               meta?.handleDeleteRow?.(row.original);
             }}

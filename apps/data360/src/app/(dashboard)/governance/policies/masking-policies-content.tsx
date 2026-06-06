@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Button, Input, Select } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -39,6 +40,13 @@ const MASKING_TYPES = [
 ];
 
 export default function MaskingPoliciesContent() {
+  // System 2 Action-RBAC. Create maps to gouvernance:create, apply to
+  // gouvernance:apply. Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showApplyPanel, setShowApplyPanel] = useState(false);
   const [showDetailsPanel, setShowDetailsPanel] = useState(false);
@@ -259,6 +267,8 @@ export default function MaskingPoliciesContent() {
         </div>
         <Button
           onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
+          disabled={!canCreatePolicy}
+          title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
           className="bg-amber-600 hover:bg-amber-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -321,7 +331,7 @@ export default function MaskingPoliciesContent() {
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} className="bg-amber-600 hover:bg-amber-700">
+            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-amber-600 hover:bg-amber-700">
               Create Policy
             </Button>
           </>
@@ -417,7 +427,8 @@ export default function MaskingPoliciesContent() {
             </Button>
             <Button
               onClick={handlePreviewApply}
-              disabled={!database || !schema || !table || !column || previewState === 'loading'}
+              disabled={!canApplyPolicy || !database || !schema || !table || !column || previewState === 'loading'}
+              title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined}
               className="bg-amber-600 hover:bg-amber-700"
             >
               {previewState === 'loading' ? 'Checking target…' : 'Preview & Apply'}

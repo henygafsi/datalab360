@@ -58,6 +58,10 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 import { Label } from '@/components/ui/label';
 import DatalakeBrowser from './DatalakeBrowser';
 import ConnectorAiHelper from './ConnectorAiHelper';
+import ConnectorHealthStrip from './ConnectorHealthStrip';
+import SourceCatalogSection from './SourceCatalogSection';
+import InternalStageCreator from './InternalStageCreator';
+import SnowflakeExplorerTab from '@/app/shared/command-center/snowflake-explorer-tab';
 import { validateConnectorConfig } from './connector-catalog-grounding';
 
 // Modern breadcrumb component – Home links to dashboard
@@ -267,7 +271,29 @@ type StageConnection = {
     schema_name?: string;
     database_name?: string;
     connector_type?: string | null;
+    // additive: real freshness from GET /connect/stages (list_stages) — replaces the cosmetic "Active" dot
+    freshness_status?: 'active' | 'stale' | 'unknown' | null;
+    age_hours?: number | null;
 };
+
+// Derive the connection-card freshness indicator from the stage's real
+// freshness_status / age_hours (list_stages), instead of a hardcoded "Active".
+function stageFreshnessView(
+    status?: string | null,
+    ageHours?: number | null,
+): { dot: string; text: string; label: string; pulse: boolean } {
+    const ageLabel =
+        typeof ageHours === 'number'
+            ? ageHours < 1 ? 'just now' : ageHours < 24 ? `${Math.round(ageHours)}h ago` : `${Math.round(ageHours / 24)}d ago`
+            : null;
+    if (status === 'active') {
+        return { dot: 'bg-green-500', text: 'text-green-600 dark:text-green-400', label: ageLabel ? `Active · ${ageLabel}` : 'Active', pulse: true };
+    }
+    if (status === 'stale') {
+        return { dot: 'bg-amber-400', text: 'text-amber-600 dark:text-amber-400', label: ageLabel ? `Idle · ${ageLabel}` : 'Idle', pulse: false };
+    }
+    return { dot: 'bg-slate-400', text: 'text-slate-500 dark:text-slate-400', label: 'Unknown', pulse: false };
+}
 
 // Snowflake integration property keys surfaced by getIntegrationDetails(). The
 // backend may return them either at the top level or nested under `properties`
@@ -303,6 +329,9 @@ export default function DataSourceConnectionPage() {
   const [transitionLoading, setTransitionLoading] = useState<boolean>(false); // Loading state for provider transitions
   const [currentStep, setCurrentStep] = useState<number>(0);
   const [showDatalakeBrowser, setShowDatalakeBrowser] = useState<boolean>(false);
+  // For a connected Snowflake lake, switch the browse pane between stage files
+  // and the database → schema → table drill (GET /connect/snowflake_lake/*).
+  const [snowflakeBrowseView, setSnowflakeBrowseView] = useState<'files' | 'tables'>('files');
   const [connectedProvider, setConnectedProvider] = useState<'snowflake' | 'azure' | 'aws' | 'gcs' | 'databricks' | 'iceberg' | 'postgres' | 'mysql' | 'oracle' | null>(null);
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null);
   const [activeConnections, setActiveConnections] = useState<StageConnection[]>([]);
@@ -461,6 +490,8 @@ export default function DataSourceConnectionPage() {
           schema_name: s.schema_name,
           database_name: s.database_name,
           connector_type: s.connector_type || null,
+          freshness_status: s.freshness_status ?? null,
+          age_hours: typeof s.age_hours === 'number' ? s.age_hours : null,
         }));
       setActiveConnections(connections);
     } catch (err) {
@@ -2707,6 +2738,17 @@ export default function DataSourceConnectionPage() {
             return (
                 <div className="bg-white/70 dark:bg-slate-800/70 backdrop-blur-sm rounded-3xl border border-slate-200/60 dark:border-slate-700/60 shadow-xl p-8">
 
+                    {/* Connector health at a glance (GET /connect/connectors/health) */}
+                    <ConnectorHealthStrip />
+
+                    {/* Browse already-connected sources (GET /connect/source-catalog) */}
+                    <SourceCatalogSection />
+
+                    {/* Quick action: create an internal stage to upload files into */}
+                    <div className="mb-6">
+                        <InternalStageCreator />
+                    </div>
+
                     {/* Loading skeleton for connections */}
                     {connectionsLoading && activeConnections.length === 0 && (
                         <div className="mb-12 space-y-4">
@@ -2770,14 +2812,37 @@ export default function DataSourceConnectionPage() {
 
                             {/* Tab Content — Browser when a connection is selected, Quick Access otherwise */}
                             {showDatalakeBrowser && connectedProvider ? (
-                                <DatalakeBrowser
-                                    provider={connectedProvider}
-                                    onBack={() => {
-                                        setShowDatalakeBrowser(false);
-                                        setConnectedProvider(null);
-                                        setActiveConnectionId(null);
-                                    }}
-                                />
+                                <div className="space-y-4">
+                                    {/* Snowflake lake: toggle between stage files and table drill */}
+                                    {connectedProvider === 'snowflake' && (
+                                        <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 p-0.5 bg-slate-50 dark:bg-slate-800">
+                                            <button
+                                                onClick={() => setSnowflakeBrowseView('files')}
+                                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${snowflakeBrowseView === 'files' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                            >
+                                                Stages & Files
+                                            </button>
+                                            <button
+                                                onClick={() => setSnowflakeBrowseView('tables')}
+                                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${snowflakeBrowseView === 'tables' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
+                                            >
+                                                Databases & Tables
+                                            </button>
+                                        </div>
+                                    )}
+                                    {connectedProvider === 'snowflake' && snowflakeBrowseView === 'tables' ? (
+                                        <SnowflakeExplorerTab />
+                                    ) : (
+                                        <DatalakeBrowser
+                                            provider={connectedProvider}
+                                            onBack={() => {
+                                                setShowDatalakeBrowser(false);
+                                                setConnectedProvider(null);
+                                                setActiveConnectionId(null);
+                                            }}
+                                        />
+                                    )}
+                                </div>
                             ) : (
                             <div className="bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-800/50 dark:to-slate-900/50 rounded-xl p-6 border border-slate-200 dark:border-slate-700">
                                 <div className="space-y-4">
@@ -2833,10 +2898,15 @@ export default function DataSourceConnectionPage() {
                                                             <span className="truncate">{conn.schema_name}</span>
                                                         </div>
                                                     )}
-                                                    <div className="flex items-center text-green-600 dark:text-green-400 mt-2">
-                                                        <div className="h-2 w-2 rounded-full bg-green-500 mr-2 animate-pulse"></div>
-                                                        <span>Active</span>
-                                                    </div>
+                                                    {(() => {
+                                                        const fv = stageFreshnessView(conn.freshness_status, conn.age_hours);
+                                                        return (
+                                                            <div className={`flex items-center mt-2 ${fv.text}`}>
+                                                                <div className={`h-2 w-2 rounded-full mr-2 ${fv.dot}${fv.pulse ? ' animate-pulse' : ''}`}></div>
+                                                                <span>{fv.label}</span>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         ))}

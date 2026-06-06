@@ -1,0 +1,16 @@
+{
+  "name": "Incremental CDC Merge (template)",
+  "description": "Source → CDC merge into a target → materialize as a dynamic table. Tests the merge + scheduling path.",
+  "nodes": [
+    { "id": "src1", "type": "source", "position": { "x": 60, "y": 140 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "ORDERS_STAGING" } } },
+    { "id": "cdc1", "type": "cdc_merge", "position": { "x": 440, "y": 140 },
+      "data": { "config": { "target_database": "CP_DATA360", "target_schema": "EVENT_STORE", "target_table": "ORDERS_DIM", "merge_keys": ["ORDER_ID"], "when_matched": "UPDATE", "when_not_matched": "INSERT" } } },
+    { "id": "dyn1", "type": "dynamic_table", "position": { "x": 820, "y": 140 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "name": "ORDERS_DIM_DT", "target_lag": "1 hour", "warehouse": "COMPUTE_WH", "refresh_mode": "INCREMENTAL" } } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src1", "target": "cdc1" },
+    { "id": "e2", "source": "cdc1", "target": "dyn1" }
+  ]
+}

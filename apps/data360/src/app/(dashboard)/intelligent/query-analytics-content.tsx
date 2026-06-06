@@ -237,6 +237,20 @@ export default function QueryAnalyticsContent() {
             <p className="text-2xl font-bold text-red-700 dark:text-red-300">{summary.CRITICAL_COUNT ?? 0}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Critical</p>
           </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{formatTime(summary.AVG_EXECUTION_TIME_MS ?? null)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Avg Exec Time</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+            <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatTime(summary.potential_time_saved_ms ?? null)}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Potential Time Saved</p>
+          </div>
+          <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
+            <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+              {summary.redundancy_ratio != null ? `${(summary.redundancy_ratio * 100).toFixed(1)}%` : '—'}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Redundancy Rate</p>
+          </div>
         </div>
       )}
 

@@ -6,6 +6,7 @@ import { Button } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { PiUserPlusBold } from 'react-icons/pi';
 import { useModal } from '@/app/shared/modal-views/use-modal';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import AddUserForm from './add-user-form';
 
 type AddUserButtonProps = {
@@ -24,9 +25,19 @@ export default function AddUserButton({
   onAddUserSuccess,
 }: React.PropsWithChildren<AddUserButtonProps>) {
   const { openModal, closeModal } = useModal();
+  // System 2 Action-RBAC: creating users maps to gouvernance:create. Keep enabled
+  // while the allow-set loads (fail-open) so there's no flash of a disabled CTA.
+  const { allowed, loading } = useCanPerform('gouvernance', 'create');
+  const denied = !allowed && !loading;
 
   return (
     <Button
+      disabled={denied}
+      title={
+        denied
+          ? 'You lack the "create" permission on governance. Ask an administrator to grant it.'
+          : undefined
+      }
       onClick={() =>
         openModal({
           view: (

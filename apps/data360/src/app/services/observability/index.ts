@@ -23,6 +23,12 @@ import type {
   SloTrackingResponse,
   PlatformConfigResponse,
   PlatformConfigEntry,
+  CostMonitor,
+  CostMonitorsResponse,
+  CreateCostMonitorRequest,
+  UpdateCostMonitorRequest,
+  SpendBudgetsResponse,
+  CreateSpendBudgetRequest,
 } from './types';
 
 /**
@@ -471,6 +477,131 @@ export async function updatePlatformConfigEntry(
  */
 export async function resetPlatformConfig(): Promise<PlatformConfigResponse> {
   return apiCall<PlatformConfigResponse>('/api/data360/platform-config/reset', 'POST');
+}
+
+// =============================================================================
+// FINOPS — RESOURCE MONITORS (cost-control write surface)
+// -----------------------------------------------------------------------------
+// Reads/writes Snowflake RESOURCE MONITORs via /observability/cost/monitors.
+// Writes require ACCOUNTADMIN + the configure-budget action server-side, so a
+// gated-but-denied click can still 403/422 — callers surface getApiErrorMessage
+// inline. Routes may 404 until deployed → callers use isRouteNotDeployed().
+// =============================================================================
+
+/**
+ * List all resource monitors with quota / used / remaining credits.
+ * GET /observability/cost/monitors
+ */
+export async function getCostMonitors(): Promise<CostMonitorsResponse> {
+  return apiCall<CostMonitorsResponse>('/observability/cost/monitors');
+}
+
+/**
+ * Read a single resource monitor by name (404 if absent).
+ * GET /observability/cost/monitors/{name}
+ */
+export async function getCostMonitor(name: string): Promise<{ monitor: CostMonitor }> {
+  return apiCall<{ monitor: CostMonitor }>(`/observability/cost/monitors/${encodeURIComponent(name)}`);
+}
+
+/**
+ * Create a resource monitor (CREATE RESOURCE MONITOR ... WITH CREDIT_QUOTA ...).
+ * POST /observability/cost/monitors
+ */
+export async function createCostMonitor(body: CreateCostMonitorRequest): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>('/observability/cost/monitors', body);
+  return data;
+}
+
+/**
+ * Update a resource monitor (ALTER — quota / frequency / triggers / notify / assign).
+ * Only supplied fields change; at least one is required (422 otherwise).
+ * PUT /observability/cost/monitors/{name}
+ */
+export async function updateCostMonitor(
+  name: string,
+  body: UpdateCostMonitorRequest,
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.put<Record<string, unknown>>(
+    `/observability/cost/monitors/${encodeURIComponent(name)}`,
+    body,
+  );
+  return data;
+}
+
+/**
+ * Attach a warehouse to a resource monitor.
+ * POST /observability/cost/monitors/{name}/assign
+ */
+export async function assignCostMonitorWarehouse(
+  name: string,
+  warehouse: string,
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>(
+    `/observability/cost/monitors/${encodeURIComponent(name)}/assign`,
+    { warehouse },
+  );
+  return data;
+}
+
+/**
+ * Drop a resource monitor (destructive — requires confirm).
+ * DELETE /observability/cost/monitors/{name}?confirm=true
+ */
+export async function deleteCostMonitor(name: string): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.delete<Record<string, unknown>>(
+    `/observability/cost/monitors/${encodeURIComponent(name)}`,
+    { params: { confirm: true } },
+  );
+  return data;
+}
+
+// =============================================================================
+// FINOPS — SPEND BUDGETS
+// =============================================================================
+
+/**
+ * List user-defined spend budgets (event-log snapshot, RESOURCE MONITOR-backed).
+ * GET /observability/budgets
+ */
+export async function listSpendBudgets(): Promise<SpendBudgetsResponse> {
+  return apiCall<SpendBudgetsResponse>('/observability/budgets');
+}
+
+/**
+ * Create a spend budget (persisted + best-effort RESOURCE MONITOR backing).
+ * POST /observability/budgets
+ */
+export async function createSpendBudget(body: CreateSpendBudgetRequest): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.post<Record<string, unknown>>('/observability/budgets', body);
+  return data;
+}
+
+/**
+ * Update a spend budget (latest-wins re-snapshot + re-apply backing monitor).
+ * PUT /observability/budgets/{name}
+ */
+export async function updateSpendBudget(
+  name: string,
+  body: CreateSpendBudgetRequest,
+): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.put<Record<string, unknown>>(
+    `/observability/budgets/${encodeURIComponent(name)}`,
+    body,
+  );
+  return data;
+}
+
+/**
+ * Delete a spend budget (drops backing monitor — requires confirm).
+ * DELETE /observability/budgets/{name}?confirm=true
+ */
+export async function deleteSpendBudget(name: string): Promise<Record<string, unknown>> {
+  const { data } = await apiClient.delete<Record<string, unknown>>(
+    `/observability/budgets/${encodeURIComponent(name)}`,
+    { params: { confirm: true } },
+  );
+  return data;
 }
 
 // Re-export types for convenience

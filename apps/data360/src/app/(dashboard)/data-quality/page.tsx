@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { Badge, Button, Input, Tooltip } from 'rizzui';
 import {
   CheckCircle2, AlertTriangle, Database, Clock,
@@ -249,9 +250,9 @@ function StatusBadge({ status }: { status: string | unknown }) {
   const s = String(status ?? '').toUpperCase();
   if (s === 'PASS' || s === 'LOADED' || s === 'UNIQUE')
     return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{s}</span>;
-  if (s === 'FAIL' || s === 'LOAD_FAILED' || s === 'HAS_DUPLICATES')
+  if (s === 'FAIL' || s === 'LOAD_FAILED' || s === 'LOAD FAILED' || s === 'HAS_DUPLICATES')
     return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">{s}</span>;
-  if (s === 'WARNING' || s === 'PARTIALLY_LOADED')
+  if (s === 'WARNING' || s === 'PARTIALLY_LOADED' || s === 'PARTIALLY LOADED')
     return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">{s}</span>;
   return <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">{s || '—'}</span>;
 }
@@ -440,13 +441,13 @@ function generateRecommendations(allTabData: Record<string, MetricRow[]>, summar
   const ingestion = allTabData.ingestion || [];
   for (const row of ingestion) {
     const status = String(row.STATUS || '').toUpperCase();
-    if (status === 'LOAD_FAILED' || status === 'FAIL') {
+    if (status === 'LOAD_FAILED' || status === 'LOAD FAILED' || status === 'FAIL') {
       recs.push({
         id: `rec-${id++}`,
         severity: 'critical',
         category: 'Ingestion',
         title: `Failed ingestion for ${row.TABLE_NAME}`,
-        description: `File ${row.FILE_NAME || 'unknown'} failed to load. ${Number(row.ERRORS_SEEN || 0)} errors detected.`,
+        description: `File ${row.FILE_NAME || 'unknown'} failed to load. ${Number(row.ERROR_COUNT || 0)} errors detected.`,
         action: 'Fix',
         table: String(row.TABLE_NAME || ''),
       });
@@ -677,7 +678,7 @@ function getTabColumns(tab: string): { key: string; label: string; format?: (v: 
         { key: 'FILE_NAME', label: 'File' },
         { key: 'STATUS', label: 'Status', format: (v) => <StatusBadge status={v} /> },
         { key: 'ROW_COUNT', label: 'Loaded', format: (v) => Number(v || 0).toLocaleString() },
-        { key: 'ERRORS_SEEN', label: 'Errors', format: (v) => {
+        { key: 'ERROR_COUNT', label: 'Errors', format: (v) => {
           const n = Number(v || 0);
           return <span className={n > 0 ? 'text-red-600 dark:text-red-400 font-semibold' : ''}>{n.toLocaleString()}</span>;
         }},
@@ -999,6 +1000,18 @@ export default function DataQualityPage() {
   // tab, never an empty state (which is indistinguishable from "no data").
   const [tabErrors, setTabErrors] = useState<Record<string, string | null>>({});
 
+  // ── System 2 Action-RBAC (module 'data_quality'). Registry actions:
+  // run (Run Check), associate (DMF Associate), create (custom DMF), schedule.
+  // Fail-open while the allow-set loads (no flash of disabled). ──
+  const runPerm = useCanPerform('data_quality', 'run');
+  const associatePerm = useCanPerform('data_quality', 'associate');
+  const createDmfPerm = useCanPerform('data_quality', 'create');
+  const schedulePerm = useCanPerform('data_quality', 'schedule');
+  const canRunCheck = runPerm.allowed || runPerm.loading;
+  const canAssociateDmf = associatePerm.allowed || associatePerm.loading;
+  const canCreateDmf = createDmfPerm.allowed || createDmfPerm.loading;
+  const canScheduleDmf = schedulePerm.allowed || schedulePerm.loading;
+
   // ── DMF lifecycle (no-code) — drives the ActionRail panels ──
   const dmfPanel = useActionPanel<'associate' | 'custom' | 'schedule'>();
   // Available DMF definitions (built-in + custom), loaded lazily when the rail opens.
@@ -1101,7 +1114,11 @@ export default function DataQualityPage() {
     setTrendError(null);
     try {
       const data = await fetchQualityData('trend-analysis', force);
-      const rawTrend = data?.data || data || [];
+      // /trend-analysis returns { rows, dmf_trend, sources } — NOT a bare array
+      // and NOT a `.data` envelope. Prefer the real per-day DMF measurement trend
+      // when present, else fall back to the table-freshness proxy rows (and the
+      // legacy `.data` shape) so the chart renders whenever the endpoint has data.
+      const rawTrend = data?.dmf_trend?.length ? data.dmf_trend : (data?.rows || data?.data || data || []);
       setTrendData(Array.isArray(rawTrend) ? (rawTrend as MetricRow[]) : []);
     } catch (err) {
       // Trend is a supplementary chart, so its failure doesn't block the page —
@@ -1511,6 +1528,8 @@ export default function DataQualityPage() {
           <CacheAgeBadge cacheInfo={cacheInfo} />
           <Button
             onClick={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
+            disabled={!canRunCheck}
+            title={!canRunCheck ? 'You lack the "run" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-green-500/80 hover:bg-green-500 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1519,6 +1538,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('associate')}
+            disabled={!canAssociateDmf}
+            title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1527,6 +1548,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('custom')}
+            disabled={!canCreateDmf}
+            title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1535,6 +1558,8 @@ export default function DataQualityPage() {
           </Button>
           <Button
             onClick={() => openDmfPanel('schedule')}
+            disabled={!canScheduleDmf}
+            title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}
             size="sm"
             className="bg-white/15 hover:bg-white/25 text-white border-0 gap-1.5 text-xs h-8"
           >
@@ -1882,13 +1907,13 @@ export default function DataQualityPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('associate')} disabled={!canAssociateDmf} title={!canAssociateDmf ? 'You lack the "associate" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <Link2 className="h-3.5 w-3.5" /> Associate
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('custom')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('custom')} disabled={!canCreateDmf} title={!canCreateDmf ? 'You lack the "create" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <Plus className="h-3.5 w-3.5" /> Custom DMF
                 </Button>
-                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')}>
+                <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => openDmfPanel('schedule')} disabled={!canScheduleDmf} title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality. Ask an administrator to grant it.' : undefined}>
                   <CalendarClock className="h-3.5 w-3.5" /> Schedule
                 </Button>
               </div>

@@ -4,6 +4,25 @@ import { createContext, useContext, useCallback, useState, ReactNode } from 'rea
 import { useCacheInvalidation, CACHE_KEYS, CacheKey } from '@/hooks/useCacheInvalidation';
 import { atom, useSetAtom, useAtomValue } from 'jotai';
 import Link from 'next/link';
+import { invalidateMyPermissions } from '@/hooks/useCanPerform';
+
+/**
+ * Cache keys that mutate the Action-RBAC allow-set. The backend tags every D360
+ * role / permission mutation (create/update/delete role, bulk-set permissions,
+ * apply-template) with `CacheKey.GRANTS`; the backend now also emits a dedicated
+ * `permissions` key on Action-RBAC matrix writes. `user_permissions` / `roles`
+ * are included defensively. When any of these arrives over the SSE stream we drop
+ * the cached `my-permissions` set so gated content/buttons re-resolve live —
+ * no reload — right after an admin edits the matrix.
+ */
+const RBAC_INVALIDATION_KEYS: ReadonlySet<string> = new Set([
+  CACHE_KEYS.GRANTS,
+  CACHE_KEYS.USER_PERMISSIONS,
+  CACHE_KEYS.ROLES,
+  // Backend emits 'permissions' on D360 action-matrix mutations (in addition to
+  // 'grants'); there is no CACHE_KEYS constant for it, so match the literal.
+  'permissions',
+]);
 
 /**
  * Atom to track which cache keys have been invalidated
@@ -71,6 +90,13 @@ export function CacheInvalidationProvider({
   const setLastInvalidation = useSetAtom(lastInvalidationAtom);
 
   const handleInvalidate = useCallback((keys: string[], reason?: string) => {
+    // Live RBAC re-gate: if an Action-RBAC mutation invalidated the allow-set,
+    // drop the cached my-permissions so every useCanPerform consumer re-resolves
+    // without a reload (admin edits → content/buttons update in place).
+    if (keys.some((k) => RBAC_INVALIDATION_KEYS.has(k))) {
+      invalidateMyPermissions();
+    }
+
     // Update the invalidated keys atom
     setInvalidatedKeys((prev: Set<string>) => {
       const newSet = new Set(prev);

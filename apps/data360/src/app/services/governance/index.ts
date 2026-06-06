@@ -243,6 +243,24 @@ export async function getMyPageAccess(): Promise<{
   );
 }
 
+export interface EffectiveGuiAccess {
+  username: string;
+  roles: string[];
+  /** page_path -> effective access level (max across the user's roles). */
+  access: Record<string, 'READ' | 'WRITE' | 'NONE'>;
+}
+
+/**
+ * Resolve a single user's effective GUI access (max level across their roles).
+ * GET /gouvernance/gui-permissions/effective/{username}
+ * May 404 until deployed; callers should honest-gate to an empty state.
+ */
+export async function getUserEffectiveGuiAccess(username: string): Promise<EffectiveGuiAccess> {
+  return apiCall<EffectiveGuiAccess>(
+    `/gouvernance/gui-permissions/effective/${encodeURIComponent(username)}`
+  );
+}
+
 /**
  * Delete a GUI permission rule by ID
  * DELETE /gouvernance/gui-permissions/{permission_id}

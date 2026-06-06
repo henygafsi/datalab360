@@ -6,7 +6,7 @@ import { Sparkles, Info, Loader2, Save } from 'lucide-react';
 import { FormField, Select, Input } from './_shared';
 import { CodeEditor } from './_code-editor';
 import { AIGenerateDrawer } from './_ai-drawer';
-import apiClient from '@/lib/api-client';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 
 /**
  * PythonScriptConfigForm — handles block type(s): `python_script`.

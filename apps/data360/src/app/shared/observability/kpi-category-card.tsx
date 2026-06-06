@@ -55,7 +55,8 @@ export default function KpiCategoryCard({
   metrics,
   className,
 }: KpiCategoryCardProps) {
-  const colors = statusColors[status];
+  // Guard against unexpected status casing/values from the API.
+  const colors = statusColors[String(status).toLowerCase() as keyof typeof statusColors] ?? statusColors.warning;
 
   return (
     <div
@@ -101,7 +102,7 @@ export default function KpiCategoryCard({
       {/* Metrics */}
       <div className="mt-4 grid grid-cols-2 gap-3">
         {Object.entries(metrics).slice(0, 4).map(([key, value]) => (
-          <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-100/50">
+          <div key={key} className="rounded-lg bg-gray-50 p-2 dark:bg-gray-700/30">
             <Text className="text-xs text-gray-500 dark:text-gray-400">
               {formatMetricLabel(key)}
             </Text>

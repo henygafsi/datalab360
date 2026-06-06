@@ -1175,6 +1175,77 @@ export interface CompileWorkflowResponse {
   cte_aliases: Record<string, string>;
 }
 
+// --- From-Graph (one-shot canvas save) ---
+// POST /workflow/from-graph — creates a workflow + all steps from the
+// ReactFlow node/edge graph in a single round-trip. Replaces the per-step
+// /steps CRUD (purged backend-side).
+export interface FromGraphNode {
+  id: string;
+  type: string;
+  config: Record<string, unknown>;
+}
+
+export interface FromGraphEdge {
+  source: string;
+  target: string;
+  targetHandle?: string;
+}
+
+export interface FromGraphRequest {
+  project_name: string;
+  description?: string | null;
+  nodes: FromGraphNode[];
+  edges: FromGraphEdge[];
+  tags?: string[];
+}
+
+export interface FromGraphResponse {
+  project_id: string;
+  step_id_map: Record<string, string>;
+  steps_count: number;
+  validation?: { valid: boolean; error?: string } | null;
+  // Present only on partial failure — per-node / per-edge messages.
+  errors?: Array<{ node_id?: string; error: string } | string>;
+}
+
+// --- Workflow capabilities (GET /workflow/capabilities) ---
+// Advisory hint from the backend about which lifecycle routes it exposes.
+// Treated as a HINT only — the builder also disables a button when its route
+// 404s at runtime, because capabilities can advertise routes that are purged.
+export interface WorkflowCapabilities {
+  module: 'workflow';
+  ux_mode: string;
+  builder: {
+    supports_drag_drop: boolean;
+    supports_action_templates: boolean;
+    supports_compile: boolean;
+    supports_validate: boolean;
+    supports_clone_data_tests: boolean;
+  };
+  endpoints: Record<string, string>;
+  recommended_flow: string[];
+}
+
+// --- Clone-data tests (GET /workflow/{id}/clone-data-tests) ---
+// "Test on cloned data" — runs the pipeline's source connectors against a
+// CLONED copy of the real business data, no write to production.
+export interface CloneDataTestsResult {
+  workflow_id: string;
+  connector_count: number;
+  connectors_passed: number;
+  connectors_failed: number;
+  ok: boolean;
+  reports: Array<{
+    connector_id: string;
+    connector_type?: string;
+    target_schema: string;
+    tables_tested: number;
+    tables_passed: number;
+    pass_rate: number;
+    ok: boolean;
+  }>;
+}
+
 export interface ValidateWorkflowResponse {
   valid: boolean;
   mode: 'cte' | 'legacy';

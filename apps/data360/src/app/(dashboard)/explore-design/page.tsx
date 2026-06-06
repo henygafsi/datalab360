@@ -2,6 +2,7 @@
 // Data journey: page → getDatabases/getSchemas/getTables/getTableColumns (mapping) + listProjectEvents (projectsApi) + addEvent/listMappings (projects/exploreDesign API) → backend
 // ////dependency//// page → services.mapping, services.explore-design (fetchRelationships), services.api (projectsApi, exploreDesignApi), services.governance (policies)
 import React, { useState, useEffect, useCallback, useMemo, useRef, useDeferredValue } from 'react';
+import PermissionGate from '@/components/ui/PermissionGate';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom, useCacheInvalidationContext } from '@/components/providers/CacheInvalidationProvider';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
@@ -2107,6 +2108,9 @@ export default function ExploreDesignPage() {
   const handleTableClick = useCallback((table: TableItem) => {
     setSelectedTable(table);
     setSelectedColumns(new Set());
+    // Auto-collapse the Source Tables rail on select so the detail + actions
+    // get the full width; the "Show Sources" toggle reopens it.
+    setShowSidebar(false);
   }, []);
 
   // Handle project selection - load events for the selected project
@@ -2910,7 +2914,15 @@ export default function ExploreDesignPage() {
       if (type === 'dynamic_tables') result = await listDynamicTables(selectedDatabase, schema);
       else if (type === 'streams') result = await listStreams(selectedDatabase, schema);
       else result = await listAlerts(selectedDatabase, schema);
-      const items = result?.data || result?.items || (Array.isArray(result) ? result : []);
+      // Backend returns the list under a type-named key ({dynamic_tables|streams|alerts: [...]}).
+      // Keep the legacy .data/.items/array fallbacks so any other shape still resolves.
+      const items =
+        result?.dynamic_tables ||
+        result?.streams ||
+        result?.alerts ||
+        result?.data ||
+        result?.items ||
+        (Array.isArray(result) ? result : []);
       setDataEngModal(prev => ({ ...prev, items, loading: false }));
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || `Failed to list ${type.replace('_', ' ')}`);
@@ -4651,12 +4663,20 @@ export default function ExploreDesignPage() {
         customSize="1050px"
       >
         <ErrorBoundary>
-          <DeploymentValidation
-            onClose={() => setShowDeploymentModal(false)}
-            database={selectedDatabase /*|| 'CP_DATA360'*/}
-            schemas={schemaKeys}
-            projectId={selectedProjectId!}
-          />
+          <PermissionGate
+            module="explore_design"
+            action="deploy"
+            projectId={selectedProjectId}
+            title="Deployment restricted"
+            description="You don't have the &quot;deploy&quot; permission on Explore &amp; Design. Applying changes to Snowflake requires an administrator to grant deploy access."
+          >
+            <DeploymentValidation
+              onClose={() => setShowDeploymentModal(false)}
+              database={selectedDatabase /*|| 'CP_DATA360'*/}
+              schemas={schemaKeys}
+              projectId={selectedProjectId!}
+            />
+          </PermissionGate>
         </ErrorBoundary>
       </Modal>
 
@@ -4993,18 +5013,38 @@ export default function ExploreDesignPage() {
                   <div key={name} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50">
                     <div className="flex items-center gap-3 min-w-0">
                       <span className="font-mono text-sm text-slate-900 dark:text-white truncate">{name}</span>
-                      {item.scheduling_state && (
-                        <Badge className={cn(
-                          'text-[9px]',
-                          item.scheduling_state === 'RUNNING' || item.scheduling_state === 'ACTIVE'
+                      {/* Status: prefer the backend's normalized refresh.health
+                          (the only signal that surfaces FAILING dynamic tables —
+                          a DT can be scheduled ACTIVE yet have a FAILED last
+                          refresh). Falls back to a string-safe scheduling_state /
+                          alert state, guarding against variant (non-string) values. */}
+                      {(() => {
+                        const health: string | undefined = item.refresh?.health;
+                        const rawSched = typeof item.scheduling_state === 'string' ? item.scheduling_state : undefined;
+                        const rawState = typeof item.state === 'string' ? item.state : undefined;
+                        const label = health ?? rawSched ?? rawState;
+                        if (!label) return null;
+                        const up = label.toUpperCase();
+                        const tone =
+                          up === 'RUNNING' || up === 'ACTIVE' || up === 'STARTED'
                             ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                            : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
-                        )}>
-                          {item.scheduling_state}
-                        </Badge>
+                            : up === 'FAILING' || up === 'FAILED'
+                              ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                              : up === 'SUSPENDED'
+                                ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400';
+                        return <Badge className={cn('text-[9px]', tone)}>{label}</Badge>;
+                      })()}
+                      {item.refresh?.health === 'FAILING' && item.refresh?.last_refresh_state_message && (
+                        <span
+                          className="text-[10px] text-red-500 truncate max-w-[220px]"
+                          title={String(item.refresh.last_refresh_state_message)}
+                        >
+                          {String(item.refresh.last_refresh_state_message)}
+                        </span>
                       )}
-                      {item.stale_after && (
-                        <span className="text-[10px] text-slate-400">lag: {item.stale_after}</span>
+                      {(item.refresh?.target_lag || item.stale_after) && (
+                        <span className="text-[10px] text-slate-400">lag: {item.refresh?.target_lag || item.stale_after}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-1 flex-shrink-0">

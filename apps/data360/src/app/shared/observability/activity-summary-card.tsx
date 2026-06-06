@@ -179,7 +179,7 @@ export default function ActivitySummaryCard({ data, isLoading, className }: Acti
             {users.slice(0, 5).map((user, index) => (
               <div
                 key={user.user_name || index}
-                className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-100/50"
+                className="flex items-center justify-between rounded-lg bg-gray-50 p-3 dark:bg-gray-700/30"
               >
                 <div className="flex items-center gap-3">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-600">

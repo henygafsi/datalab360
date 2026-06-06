@@ -1,0 +1,22 @@
+{
+  "name": "Retail Business Pipeline (template)",
+  "description": "Realistic end-user shape: orders source → filter last 24h → aggregate KPIs per store → KPI destination table.",
+  "nodes": [
+    { "id": "src1", "type": "source", "position": { "x": 60, "y": 140 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "ORDERS" } } },
+    { "id": "flt1", "type": "filter", "position": { "x": 420, "y": 140 },
+      "data": { "config": { "filter_condition": "ORDER_TS >= DATEADD('day', -1, CURRENT_TIMESTAMP())" } } },
+    { "id": "agg1", "type": "aggregate", "position": { "x": 780, "y": 140 },
+      "data": { "config": { "group_by": ["STORE_ID"], "aggregations": [
+        { "function": "SUM", "column": "AMOUNT", "alias": "REVENUE" },
+        { "function": "COUNT", "column": "*", "alias": "ORDER_COUNT" }
+      ] } } },
+    { "id": "dst1", "type": "destination", "position": { "x": 1140, "y": 140 },
+      "data": { "config": { "database": "CP_DATA360", "schema": "EVENT_STORE", "table": "STORE_KPIS_DAILY", "write_mode": "overwrite" } } }
+  ],
+  "edges": [
+    { "id": "e1", "source": "src1", "target": "flt1" },
+    { "id": "e2", "source": "flt1", "target": "agg1" },
+    { "id": "e3", "source": "agg1", "target": "dst1" }
+  ]
+}

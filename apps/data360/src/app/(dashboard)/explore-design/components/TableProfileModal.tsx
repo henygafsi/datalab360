@@ -26,6 +26,7 @@ import {
   ChevronRight,
   Layers,
   Copy,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'react-hot-toast';
@@ -57,6 +58,14 @@ interface ColumnProfile {
   data_quality_score: number;
   is_unique: boolean;
   has_nulls: boolean;
+  masking_policy?: string | null;
+}
+
+// Table-level governance overlay returned by the profile endpoint (additive).
+interface MaskingSummary {
+  masked_columns: string[];
+  masked_column_count: number;
+  row_access_policies?: unknown[];
 }
 
 // ── AI Column Classification & Optimization ─────────────────────────────────
@@ -274,6 +283,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
     column_count: number;
     columns: ColumnProfile[];
     overall_quality_score: number;
+    masking?: MaskingSummary | null;
   } | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'quality' | 'nulls'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -315,6 +325,9 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
           data_quality_score: col.quality_score ?? 100,
           is_unique: distinctCount === totalRows && totalRows > 0,
           has_nulls: nullCount > 0,
+          // Additive governance overlay — present on the backend response even
+          // though the shared TableProfile type does not yet declare it.
+          masking_policy: (col as { masking_policy?: string | null }).masking_policy ?? null,
         };
       });
       setProfileData({
@@ -323,6 +336,7 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
         column_count: data.column_count,
         columns: mappedColumns,
         overall_quality_score: data.aggregate_quality_score ?? 100,
+        masking: (data as { masking?: MaskingSummary | null }).masking ?? null,
       });
     } catch (err: any) {
       console.error('Failed to load table profile:', err);
@@ -636,6 +650,23 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                 {profileData.overall_quality_score}%
               </span>
             </div>
+            {(profileData.masking?.masked_column_count ?? 0) > 0 && (
+              <div className="flex items-center gap-2">
+                <EyeOff className="h-4 w-4 text-indigo-400" />
+                <span className="text-slate-500">Masked:</span>
+                <span
+                  className="font-medium px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300"
+                  title={(profileData.masking?.masked_columns ?? []).join(', ')}
+                >
+                  {profileData.masking?.masked_column_count} column{(profileData.masking?.masked_column_count ?? 0) > 1 ? 's' : ''}
+                </span>
+                {(profileData.masking?.row_access_policies?.length ?? 0) > 0 && (
+                  <span className="text-[11px] text-slate-400">
+                    +{profileData.masking?.row_access_policies?.length} row policy
+                  </span>
+                )}
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-2">
               <Button
                 variant="outline"
@@ -778,6 +809,15 @@ const TableProfileModal: React.FC<TableProfileModalProps> = ({
                         <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 text-[10px]">
                           {(col.null_percentage ?? 0).toFixed(1)}% NULL
                         </Badge>
+                      )}
+
+                      {col.masking_policy && (
+                        <span className="inline-flex" title={`Masking policy: ${col.masking_policy}`}>
+                          <Badge className="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300 text-[10px]">
+                            <EyeOff className="h-3 w-3 mr-1" />
+                            MASKED
+                          </Badge>
+                        </span>
                       )}
 
                       <div className="ml-auto flex items-center gap-3">

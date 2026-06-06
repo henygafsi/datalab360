@@ -439,6 +439,14 @@ export interface ObservabilityAlert {
   resource?: string;
   detected_at?: string;
   status?: string;
+  // Cross-module (get_cross_module_alerts) returns alert_type / source_module /
+  // timestamp / suggested_action; threshold (get_threshold_alerts) returns type.
+  // Read defensively as fallbacks for the category/detected columns and details.
+  alert_type?: string;
+  type?: string;
+  source_module?: string;
+  timestamp?: string;
+  suggested_action?: string;
 }
 
 export interface AlertsResponse {
@@ -457,9 +465,20 @@ export interface SloRecord {
   name?: string;
   objective?: string;
   category?: string;
+  // Backend (get_slo_tracking) emits target/actual + a unit ('%' | 'seconds'),
+  // a boolean `breach`, and per-SLO sample/failure counts. The legacy *_percent
+  // fields are kept for back-compat (older payloads / other producers).
+  target?: number | null;
+  actual?: number | null;
+  unit?: string;
+  breach?: boolean;
+  sample_size?: number | null;
+  failures?: number | null;
+  p99_seconds?: number | null;
+  avg_seconds?: number | null;
   target_percent?: number | null;
   actual_percent?: number | null;
-  status?: 'meeting' | 'at_risk' | 'breached' | string;
+  status?: 'meeting' | 'at_risk' | 'breached' | 'OK' | 'BREACH' | string;
   error_budget_remaining_percent?: number | null;
   window_days?: number | null;
 }
@@ -486,4 +505,86 @@ export interface PlatformConfigEntry {
 export interface PlatformConfigResponse {
   config: PlatformConfigEntry[];
   count?: number;
+}
+
+// =============================================================================
+// FINOPS — RESOURCE MONITORS (write surface)
+//   GET/POST /observability/cost/monitors
+//   GET/PUT  /observability/cost/monitors/{name}
+//   POST     /observability/cost/monitors/{name}/assign
+//   DELETE   /observability/cost/monitors/{name}?confirm=true
+// =============================================================================
+
+export type CostMonitorAction = 'NOTIFY' | 'SUSPEND' | 'SUSPEND_IMMEDIATE';
+
+export interface CostMonitorTrigger {
+  /** Credit-usage threshold percent (1–2000). */
+  percent: number;
+  action: CostMonitorAction;
+}
+
+/**
+ * A Snowflake RESOURCE MONITOR row. The backend forwards SHOW RESOURCE MONITORS
+ * output, whose key casing varies (UPPERCASE from the driver, lowercase once
+ * transformed). Consumers normalize defensively, so we keep this indexable.
+ */
+export interface CostMonitor {
+  name?: string;
+  credit_quota?: number | null;
+  used_credits?: number | null;
+  remaining_credits?: number | null;
+  frequency?: string | null;
+  level?: string | null;
+  [key: string]: unknown;
+}
+
+export interface CostMonitorsResponse {
+  monitors: CostMonitor[];
+  count: number;
+}
+
+export interface CreateCostMonitorRequest {
+  name: string;
+  credit_quota: number;
+  frequency?: string;
+  triggers?: CostMonitorTrigger[];
+  notify_users?: string[];
+  warehouses?: string[];
+  if_not_exists?: boolean;
+}
+
+export interface UpdateCostMonitorRequest {
+  credit_quota?: number;
+  frequency?: string;
+  triggers?: CostMonitorTrigger[];
+  notify_users?: string[];
+  warehouses?: string[];
+}
+
+// =============================================================================
+// FINOPS — SPEND BUDGETS
+//   GET/POST   /observability/budgets
+//   PUT/DELETE /observability/budgets/{name}
+// =============================================================================
+
+export interface SpendBudget {
+  name: string;
+  monthly_credit_limit?: number | null;
+  warehouses?: string[];
+  alert_at_pct?: number | null;
+  resource_monitor_backed?: boolean;
+  created_by?: string | null;
+  created_at?: string | null;
+}
+
+export interface SpendBudgetsResponse {
+  budgets: SpendBudget[];
+  count?: number;
+}
+
+export interface CreateSpendBudgetRequest {
+  name: string;
+  monthly_credit_limit: number;
+  warehouses?: string[];
+  alert_at_pct?: number;
 }

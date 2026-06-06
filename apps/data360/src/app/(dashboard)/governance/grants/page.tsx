@@ -35,10 +35,9 @@ import {
   type D360Role,
   type D360RoleTemplate,
 } from '@/app/services/governance/fetch_roles';
-import { useAuth } from '@/hooks/useAuth';
-
-/** Roles allowed to mutate D360 RBAC (create/edit/delete custom roles). */
-const D360_ADMIN_ROLES = ['ACCOUNTADMIN', 'SECURITYADMIN', 'SYSADMIN'];
+import { useCanPerform } from '@/hooks/useCanPerform';
+import PermissionGatedButton from '@/components/ui/PermissionGatedButton';
+import PermissionGate from '@/components/ui/PermissionGate';
 
 type AsyncStatus = 'idle' | 'running' | 'completed' | 'error';
 
@@ -84,7 +83,14 @@ function SourceProductGrantsPanel() {
         <p className="text-sm text-gray-500 dark:text-gray-400">Control which roles can access sources (databases, stages) and data products. Grants propagate to Snowflake objects.</p>
       </div>
 
-      {/* Grant form */}
+      {/* Grant form — pure action surface: content-gated on gouvernance:grant
+          (non-granters get a clear "access restricted" state, not a dead form). */}
+      <PermissionGate
+        module="gouvernance"
+        action="grant"
+        title="Granting access is restricted"
+        description="You don't have the &quot;grant&quot; permission on governance. Ask an administrator to grant it in Admin → Data360 config → Action RBAC."
+      >
       <div className="p-4 rounded-xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/30 dark:bg-emerald-900/10 space-y-3">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Add Grant</h3>
         <div className="grid grid-cols-3 gap-3">
@@ -107,8 +113,16 @@ function SourceProductGrantsPanel() {
             </select>
           </div>
         </div>
-        <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleGrant} disabled={!grantRole || !grantTarget}>Grant Access</Button>
+        <Button
+          size="sm"
+          className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          onClick={handleGrant}
+          disabled={!grantRole || !grantTarget}
+        >
+          Grant Access
+        </Button>
       </div>
+      </PermissionGate>
 
       {loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -187,8 +201,11 @@ function SourceProductGrantsPanel() {
  * Delete is gated behind a strict role check + ConfirmDialog (focus-trapping).
  */
 function D360RolesPanel() {
-  const { role: currentRole } = useAuth();
-  const canManage = D360_ADMIN_ROLES.includes((currentRole || '').toUpperCase());
+  // RBAC gating seam (System 2) — replaces the old hardcoded D360_ADMIN_ROLES
+  // check. Create/edit map to gouvernance:create; destructive delete is gated
+  // separately on gouvernance:delete so a create-only role can't drop roles.
+  const { allowed: canManage } = useCanPerform('gouvernance', 'create');
+  const { allowed: canDelete } = useCanPerform('gouvernance', 'delete');
 
   const [roles, setRoles] = useState<D360Role[]>([]);
   const [templates, setTemplates] = useState<D360RoleTemplate[]>([]);
@@ -307,12 +324,17 @@ function D360RolesPanel() {
           </div>
           <p className="text-sm text-gray-500 dark:text-gray-400">Custom Data360 roles with module/page/tab/action-level permissions. Apply standard templates or build custom roles.</p>
         </div>
-        {canManage && (
-          <Button size="sm" onClick={() => openCreate()} className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white">
-            <HiOutlinePlus className="w-4 h-4 mr-1.5" />
-            New Role
-          </Button>
-        )}
+        <PermissionGatedButton
+          module="gouvernance"
+          action="create"
+          size="sm"
+          onClick={() => openCreate()}
+          deniedReason="Requires the create permission on Governance → Roles (Action-RBAC)."
+          className="shrink-0 bg-orange-600 hover:bg-orange-700 text-white"
+        >
+          <HiOutlinePlus className="w-4 h-4 mr-1.5" />
+          New Role
+        </PermissionGatedButton>
       </div>
 
       {feedback && (
@@ -418,8 +440,8 @@ function D360RolesPanel() {
                               size="sm"
                               variant="outline"
                               className="text-xs h-7 px-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                              disabled={!canManage || isSystem}
-                              title={isSystem ? 'System roles cannot be deleted' : !canManage ? 'Requires an admin role' : 'Delete role'}
+                              disabled={!canDelete || isSystem}
+                              title={isSystem ? 'System roles cannot be deleted' : !canDelete ? 'Requires the "delete" permission on governance' : 'Delete role'}
                               onClick={() => setDeleteTarget(r)}
                             >
                               <HiOutlineTrash className="w-3.5 h-3.5" />

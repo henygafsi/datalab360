@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button, Textarea, Loader, Badge } from 'rizzui';
 import { toast } from 'react-hot-toast';
 import {
@@ -44,11 +44,70 @@ import {
   getSentimentColor,
   getSentimentEmoji,
 } from '@/app/services/cortex/ml-features';
+import { getCortexModels } from '@/app/services/cortex/ai';
 import AiCostBadge from './components/AiCostBadge';
 import { useTrackAiCharge } from './store/ai-store';
 import { useAiCostEstimate } from '@/hooks/useAiCostEstimate';
 
 type TabId = 'ai-assistant' | 'sentiment' | 'translate' | 'summarize';
+
+// ── Dynamic completion-model picker ─────────────────────────────────────────
+// House rule: never surface raw vendor model ids. We map the platform's
+// *recommended* model per semantic role (resolved live from GET /cortex/models)
+// to a friendly label, so the picker tracks the backend catalog (no drift) while
+// the customer only ever sees "Fast / Balanced / Reasoning…". Falls back to the
+// static LLM_MODELS labels if the catalog is unreachable.
+interface ModelOption { value: string; label: string; description: string }
+
+const MODEL_ROLE_LABELS: { role: 'cheap' | 'narrative' | 'reasoning' | 'multilingual' | 'code'; label: string; description: string }[] = [
+  { role: 'cheap', label: 'Fast', description: 'Quick answers, lowest cost' },
+  { role: 'narrative', label: 'Balanced', description: 'Strong general-purpose quality' },
+  { role: 'reasoning', label: 'Reasoning', description: 'Deep reasoning & long context' },
+  { role: 'multilingual', label: 'Multilingual', description: 'Best quality across languages' },
+  { role: 'code', label: 'Coding', description: 'Optimised for code & structured output' },
+];
+
+const STATIC_MODEL_OPTIONS: ModelOption[] = LLM_MODELS.map((m) => ({
+  value: m.value,
+  label: m.label,
+  description: m.description,
+}));
+
+function useCompletionModels(): { options: ModelOption[]; loading: boolean } {
+  const [options, setOptions] = useState<ModelOption[]>(STATIC_MODEL_OPTIONS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    getCortexModels()
+      .then((res) => {
+        if (!alive) return;
+        const rec = res?.data?.recommendations;
+        if (!rec) return;
+        const seen = new Set<string>();
+        const dynamic: ModelOption[] = [];
+        for (const { role, label, description } of MODEL_ROLE_LABELS) {
+          const id = rec[role];
+          if (id && !seen.has(id)) {
+            seen.add(id);
+            dynamic.push({ value: id, label, description });
+          }
+        }
+        if (dynamic.length) setOptions(dynamic);
+      })
+      .catch(() => {
+        /* keep the static fallback — never block the UI on the catalog */
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return { options, loading };
+}
 
 const TABS = [
   { id: 'ai-assistant' as TabId, label: 'AI Assistant', icon: PiRobotDuotone, color: 'from-purple-500 to-indigo-600' },
@@ -117,12 +176,22 @@ export default function MLFeaturesContent() {
 function AIAssistantTab() {
   const [prompt, setPrompt] = useState('');
   const [response, setResponse] = useState('');
-  const [model, setModel] = useState<LLMModel>('mistral-7b');
+  const { options: modelOptions, loading: loadingModels } = useCompletionModels();
+  const [model, setModel] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [guardrails, setGuardrails] = useState(false);
   const trackCharge = useTrackAiCharge();
   const estimate = useAiCostEstimate('cortex_complete', { prompt_chars: prompt.length, model });
+
+  // Default to the first (recommended) model once the catalog resolves; keep the
+  // user's choice if they already picked, and re-anchor if it leaves the catalog.
+  useEffect(() => {
+    if (modelOptions.length === 0) return;
+    if (!model || !modelOptions.some((m) => m.value === model)) {
+      setModel(modelOptions[0].value);
+    }
+  }, [modelOptions, model]);
 
   async function handleSubmit(e?: React.FormEvent) {
     e?.preventDefault();
@@ -131,7 +200,7 @@ function AIAssistantTab() {
     setLoading(true);
     setError(null);
     try {
-      const result = await generateCompletion({ prompt, model, guardrails });
+      const result = await generateCompletion({ prompt, model: model as LLMModel, guardrails });
       setResponse(result.response);
       trackCharge('cortex_complete', estimate.credits, model);
     } catch (err) {
@@ -161,15 +230,16 @@ function AIAssistantTab() {
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Model Selection */}
         <div>
-          <label className="mb-2 block text-sm font-medium text-slate-700 dark:text-slate-300">
+          <label className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
             Model
+            {loadingModels && <Loader className="h-3 w-3 animate-spin text-slate-400" />}
           </label>
           <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
-            {LLM_MODELS.map((m) => (
+            {modelOptions.map((m) => (
               <button
                 key={m.value}
                 type="button"
-                onClick={() => setModel(m.value as LLMModel)}
+                onClick={() => setModel(m.value)}
                 className={`rounded-lg border p-3 text-left transition-all ${
                   model === m.value
                     ? 'border-purple-500 bg-purple-50 dark:border-purple-500 dark:bg-purple-900/20'
@@ -255,7 +325,7 @@ function AIAssistantTab() {
         <div className="rounded-xl border border-purple-200 bg-purple-50/50 p-4 dark:border-purple-800 dark:bg-purple-900/20">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-purple-700 dark:text-purple-300">
-              Response ({LLM_MODELS.find((m) => m.value === model)?.label ?? 'AI'})
+              Response ({modelOptions.find((m) => m.value === model)?.label ?? 'AI'})
             </span>
             <Button size="sm" variant="outline" onClick={copyToClipboard}>
               <PiCopySimple className="mr-1 h-4 w-4" />

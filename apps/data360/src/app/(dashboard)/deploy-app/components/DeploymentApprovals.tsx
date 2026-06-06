@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/lib/api-client';
 import EmptyState from '@/components/ui/EmptyState';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import {
   approveDeployment,
   completeDeployment,
@@ -110,6 +111,13 @@ export default function DeploymentApprovals() {
 
   const rail = useActionPanel<'request'>();
 
+  // System 2 Action-RBAC: requesting a deployment → explore_design:deploy
+  // (aligns with the F1 ContextRightBar convention). Account-level entry point —
+  // the per-project scope is chosen inside the rail, so no projectId here.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const requestPerm = useCanPerform('explore_design', 'deploy');
+  const canRequestDeploy = requestPerm.allowed || requestPerm.loading;
+
   return (
     <section aria-label="Deployment approvals" className="space-y-3">
       <div className="flex items-center justify-between">
@@ -134,7 +142,9 @@ export default function DeploymentApprovals() {
           <button
             type="button"
             onClick={() => rail.open('request')}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:from-cyan-700 hover:to-blue-700"
+            disabled={!canRequestDeploy}
+            title={!canRequestDeploy ? 'You lack the "deploy" permission on deployments. Ask an administrator to grant it.' : undefined}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:from-cyan-700 hover:to-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Rocket className="h-3 w-3" />
             Request deployment
@@ -236,6 +246,21 @@ function DeploymentCard({
   const canApprove = row.status === 'PENDING_APPROVAL';
   const canExecute = row.status === 'RUNNING' || row.status === 'PENDING';
   const pct = progressPct(row);
+
+  // System 2 Action-RBAC (module 'explore_design', project-scoped on row.project_id).
+  // Registry actions: approve, reject, execute, rollback (all exist). Reject is
+  // gated under the approver capability for approve/reject coherence. Fail-open
+  // while the allow-set loads (no flash of disabled). These are the deployment
+  // PERMISSION gates, layered on top of the status conditions above.
+  const approveDeployPerm = useCanPerform('explore_design', 'approve', row.project_id);
+  const executeDeployPerm = useCanPerform('explore_design', 'execute', row.project_id);
+  const rollbackDeployPerm = useCanPerform('explore_design', 'rollback', row.project_id);
+  const canApproveDeploy = approveDeployPerm.allowed || approveDeployPerm.loading;
+  const canExecuteDeploy = executeDeployPerm.allowed || executeDeployPerm.loading;
+  const canRollbackDeploy = rollbackDeployPerm.allowed || rollbackDeployPerm.loading;
+  const approveDeniedReason = 'You lack the "approve" permission on deployments. Ask an administrator to grant it.';
+  const executeDeniedReason = 'You lack the "execute" permission on deployments. Ask an administrator to grant it.';
+  const rollbackDeniedReason = 'You lack the "rollback" permission on deployments. Ask an administrator to grant it.';
 
   const stepErrors = Object.values(row.errors_by_step || {})
     .flat()
@@ -368,7 +393,8 @@ function DeploymentCard({
           {canApprove && (
             <ActionButton
               busy={busy === 'approve'}
-              disabled={busy != null}
+              disabled={busy != null || !canApproveDeploy}
+              title={!canApproveDeploy ? approveDeniedReason : undefined}
               icon={ThumbsUp}
               label="Approve"
               tone="emerald"
@@ -380,7 +406,8 @@ function DeploymentCard({
           {canApprove && (
             <ActionButton
               busy={busy === 'reject'}
-              disabled={busy != null}
+              disabled={busy != null || !canApproveDeploy}
+              title={!canApproveDeploy ? approveDeniedReason : undefined}
               icon={ThumbsDown}
               label="Reject"
               tone="red"
@@ -390,7 +417,8 @@ function DeploymentCard({
           {canExecute && (
             <ActionButton
               busy={busy === 'execute'}
-              disabled={busy != null}
+              disabled={busy != null || !canExecuteDeploy}
+              title={!canExecuteDeploy ? executeDeniedReason : undefined}
               icon={Play}
               label="Execute"
               tone="blue"
@@ -402,7 +430,8 @@ function DeploymentCard({
           {!terminal && (
             <ActionButton
               busy={busy === 'rollback'}
-              disabled={busy != null}
+              disabled={busy != null || !canRollbackDeploy}
+              title={!canRollbackDeploy ? rollbackDeniedReason : undefined}
               icon={RotateCcw}
               label="Rollback"
               tone="amber"
@@ -412,7 +441,8 @@ function DeploymentCard({
           {row.status === 'RUNNING' && (
             <ActionButton
               busy={busy === 'complete'}
-              disabled={busy != null}
+              disabled={busy != null || !canExecuteDeploy}
+              title={!canExecuteDeploy ? executeDeniedReason : undefined}
               icon={CheckCircle2}
               label="Mark complete"
               tone="slate"
@@ -449,6 +479,7 @@ function ActionButton({
   label,
   tone,
   onClick,
+  title,
 }: {
   busy: boolean;
   disabled: boolean;
@@ -456,12 +487,14 @@ function ActionButton({
   label: string;
   tone: keyof typeof TONE;
   onClick: () => void;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={title}
       className={cn(
         'inline-flex items-center gap-1.5 rounded-lg border bg-white px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-900',
         TONE[tone],

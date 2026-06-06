@@ -90,6 +90,9 @@ import type {
   QueryAuditResponse,
   AccessAuditResponse,
   LoginAuditResponse,
+  // Org Summary
+  OrgSummaryResponse,
+  OrgSummaryParams,
 } from './types';
 
 const BASE_URL = '/org-accounts';
@@ -181,6 +184,11 @@ export interface DropAccountResponse {
  * Snowflake `DROP ACCOUNT` is irreversible after the grace period;
  * the server is expected to enforce the grace window. We pass `reason`
  * to populate the org audit log.
+ *
+ * The backend requires explicit confirmation: it accepts either
+ * `confirm_token == <account name>` or `confirm: true`. Sending `{ reason }`
+ * alone returns 400. We send both — `confirm_token` (the canonical contract)
+ * plus `confirm: true` as a belt-and-suspenders fallback.
  */
 export async function dropAccount(
   accountName: string,
@@ -188,7 +196,13 @@ export async function dropAccount(
 ): Promise<DropAccountResponse> {
   const { data } = await apiClient.delete<DropAccountResponse>(
     `${BASE_URL}/accounts/${encodeURIComponent(accountName)}`,
-    { data: reason ? { reason } : undefined },
+    {
+      data: {
+        confirm_token: accountName,
+        confirm: true,
+        ...(reason ? { reason } : {}),
+      },
+    },
   );
   return data;
 }
@@ -511,6 +525,35 @@ export async function getOrganizationCosts(days = 30): Promise<any> {
 export async function getRateSheet(): Promise<RateSheetResponse> {
   // surfaced error (was silently swallowed) — consumers now toast.error on throw
   const { data } = await apiClient.get<RateSheetResponse>(`${BASE_URL}/rate-sheet`);
+  return data;
+}
+
+// =============================================================================
+// ORG SUMMARY
+// =============================================================================
+
+/**
+ * Org activity rolled up role → module/project → account.
+ * Backs the Account-overview "Org Summary" tab. Accepts a rolling window
+ * (`days`) OR an explicit `from`/`to` range, plus optional filters
+ * (role / module / account / username / project_id). Empty params are
+ * stripped so the backend resolves its own defaults.
+ *
+ * NOTE: this route is NEW; deployments that predate it return 404 — callers
+ * must render an honest "not available on this backend yet" state, never fake
+ * data. The error is surfaced (not swallowed) so the caller can branch on it.
+ */
+export async function getOrgSummary(
+  params: OrgSummaryParams = {}
+): Promise<OrgSummaryResponse> {
+  const clean: Record<string, string | number> = {};
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== '') clean[k] = v;
+  }
+  const { data } = await apiClient.get<OrgSummaryResponse>(
+    `${BASE_URL}/org-summary`,
+    { params: clean }
+  );
   return data;
 }
 
@@ -936,18 +979,16 @@ export async function getCreditsTrend(days = 30): Promise<CreditTrendResponse> {
 }
 
 /**
- * Per-account credit history. The backend has no per-account credit endpoint, so
- * this adapts the org-wide /credits/trend into the AccountCreditHistoryResponse shape.
+ * GET /org-accounts/credits/history/{account_name} — per-account daily credit
+ * history. Sourced server-side from ORGANIZATION_USAGE.USAGE_IN_CURRENCY_DAILY
+ * filtered to the account; returns the AccountCreditHistoryResponse shape
+ * (history is CreditTrendPoint[], one row per day).
  */
 export async function getAccountCreditHistory(accountName: string, days = 30): Promise<AccountCreditHistoryResponse> {
-  const { data } = await apiClient.get<CreditTrendResponse>(`${BASE_URL}/credits/trend?days=${days}`);
-  return {
-    account_name: accountName,
-    period_days: data.period_days ?? days,
-    history: data.trend ?? [],
-    count: data.trend?.length ?? 0,
-    execution_time_ms: data.execution_time_ms ?? 0,
-  };
+  const { data } = await apiClient.get<AccountCreditHistoryResponse>(
+    `${BASE_URL}/credits/history/${encodeURIComponent(accountName)}?days=${days}`
+  );
+  return data;
 }
 
 /** GET /org-accounts/health/{account_name} — per-account health detail. */

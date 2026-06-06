@@ -49,6 +49,11 @@ export interface DashboardOverviewResponse {
     managed_accounts_count?: number;
     network_policies_count?: number;
     org_admin_available?: boolean;
+    /** True only when the connection's Snowflake role is ORGADMIN (real org-wide
+     *  data). When false, credits/storage are the caller's OWN account. */
+    is_org_admin?: boolean;
+    /** "org" = ORGANIZATION_USAGE roll-ups; "account" = caller's own account. */
+    scope?: 'org' | 'account';
   };
   accounts?: ClientAccount[];
   generated_at: string;
@@ -267,6 +272,22 @@ export interface Warehouse {
   compute_credits: number;
   cloud_credits: number;
   metering_hours: number;
+  // ── Additive (optional): aggregated /warehouses (get_warehouses) emits
+  // cloud_services_credits rather than cloud_credits. ──
+  cloud_services_credits?: number;
+  // ── Additive (optional): per-account /warehouses/{account}
+  // (get_account_warehouses) returns credits_* (not *_credits) plus live
+  // SHOW WAREHOUSES state. SnowflakeAccountsTab charts dataKey="credits_used".
+  // All optional so the shared aggregated shape is unaffected. ──
+  credits_used?: number;
+  credits_compute?: number;
+  credits_cloud_services?: number;
+  active_days?: number;
+  size?: string | null;
+  state?: string | null;
+  auto_suspend?: number | null;
+  auto_resume?: boolean | string | null;
+  warehouse_type?: string | null;
 }
 
 export interface WarehousesResponse {
@@ -403,6 +424,9 @@ export interface FailedLogin {
   error_code: string;
   error_message: string;
   event_timestamp: string;
+  // ── Additive (optional): get_failed_logins also returns the reported
+  // client type (REPORTED_CLIENT_TYPE). ──
+  client_type?: string | null;
 }
 
 export interface FailedLoginsResponse {
@@ -418,6 +442,14 @@ export interface LoginEvent {
   is_success: boolean;
   error_message: string | null;
   event_timestamp: string;
+  // ── Additive (optional): the per-account /logins/{account} feed
+  // (get_account_logins) returns error_code (not error_message) plus the
+  // reported client type and auth factor; the org-wide /logins feed returns
+  // both error_code and error_message. SnowflakeAccountsTab reads error_code
+  // to flag failed logins. ──
+  error_code?: string | null;
+  client_type?: string | null;
+  auth_factor?: string | null;
 }
 
 export interface AccountLoginHistoryResponse {
@@ -1125,4 +1157,74 @@ export interface LoginAuditResponse {
     UNIQUE_IPS: number;
   }>;
   execution_time_ms: number;
+}
+
+// =============================================================================
+// ORG SUMMARY (/org-accounts/org-summary)
+// Events aggregated role → module/project → account.
+// =============================================================================
+
+/** Per-noun event counters, repeated at every level of the tree. */
+export interface OrgSummaryTotals {
+  requests: number;
+  success: number;
+  failed: number;
+  denied: number;
+  distinct_users: number;
+}
+
+/** Leaf: one account under a (role, module) pair. */
+export interface OrgSummaryAccount extends OrgSummaryTotals {
+  account: string;
+}
+
+/** Middle: a module (optionally a specific project) under a role. */
+export interface OrgSummaryModule {
+  module: string;
+  project_id: string | null;
+  totals: OrgSummaryTotals;
+  accounts: OrgSummaryAccount[];
+}
+
+/** Top: a role and the modules/projects it touched. */
+export interface OrgSummaryRole {
+  role: string;
+  totals: OrgSummaryTotals;
+  modules: OrgSummaryModule[];
+}
+
+export interface OrgSummaryDateRange {
+  mode: 'rolling' | 'explicit';
+  from: string | null;
+  to: string | null;
+  days: number | null;
+}
+
+export interface OrgSummaryFiltersApplied {
+  role: string | null;
+  module: string | null;
+  account: string | null;
+  username: string | null;
+  project_id: string | null;
+}
+
+export interface OrgSummaryResponse {
+  totals: OrgSummaryTotals;
+  date_range: OrgSummaryDateRange;
+  filters_applied: OrgSummaryFiltersApplied;
+  roles: OrgSummaryRole[];
+  meta?: Record<string, unknown>;
+  execution_time_ms: number;
+}
+
+/** Query params accepted by GET /org-accounts/org-summary. */
+export interface OrgSummaryParams {
+  days?: number;
+  from?: string;
+  to?: string;
+  role?: string;
+  module?: string;
+  account?: string;
+  username?: string;
+  project_id?: string;
 }
