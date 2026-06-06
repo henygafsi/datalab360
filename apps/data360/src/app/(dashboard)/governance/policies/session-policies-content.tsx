@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import { Button, Input } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import { toast } from 'react-hot-toast';
 import { HiOutlinePlus, HiCheckCircle } from 'react-icons/hi2';
 import { RefreshCw } from 'lucide-react';
@@ -27,6 +28,13 @@ interface SessionPolicyDetails {
 }
 
 export default function SessionPoliciesContent() {
+  // System 2 Action-RBAC: Create → gouvernance:create, Set-as-default → gouvernance:apply.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+
   const fetchPolicies = useCallback(() => listPoliciesEnriched('SESSION'), []);
   const { data: policies, loading, error, refetch, isStale } = useCacheAwareQuery<EnrichedPolicy[]>(
     fetchPolicies,
@@ -150,6 +158,8 @@ export default function SessionPoliciesContent() {
         </div>
         <Button
           onClick={() => { setCreateError(null); setShowCreatePanel(true); }}
+          disabled={!canCreatePolicy}
+          title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
           className="bg-indigo-600 hover:bg-indigo-700"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -185,6 +195,8 @@ export default function SessionPoliciesContent() {
                   size="sm"
                   variant="outline"
                   onClick={() => handleSetAsDefault(policy)}
+                  disabled={!canApplyPolicy}
+                  title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined}
                   className="gap-1"
                 >
                   <HiCheckCircle className="w-4 h-4" />
@@ -206,7 +218,7 @@ export default function SessionPoliciesContent() {
         footer={
           <>
             <Button variant="outline" onClick={() => setShowCreatePanel(false)}>Cancel</Button>
-            <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700">Create Policy</Button>
+            <Button onClick={handleCreate} disabled={!canCreatePolicy} className="bg-indigo-600 hover:bg-indigo-700">Create Policy</Button>
           </>
         }
       >

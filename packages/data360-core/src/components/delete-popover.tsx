@@ -6,9 +6,31 @@ type DeletePopoverProps = {
   title: string;
   description: string;
   onDelete?: () => void;
+  /** When true the trash control is disabled (e.g. RBAC denial) and the popover never opens. */
+  disabled?: boolean;
+  /** Tooltip shown on the disabled control explaining the denial. */
+  disabledReason?: string;
 };
 
-export default function DeletePopover({ title, description, onDelete }: DeletePopoverProps) {
+export default function DeletePopover({ title, description, onDelete, disabled, disabledReason }: DeletePopoverProps) {
+  // RBAC-denied (or otherwise disabled): render an inert, clearly-disabled trash
+  // control with an explanatory tooltip instead of a working popover (no blank,
+  // no no-op confirm dialog).
+  if (disabled) {
+    return (
+      <ActionIcon
+        size="sm"
+        variant="outline"
+        aria-label="Delete Item"
+        disabled
+        title={disabledReason}
+        className="cursor-not-allowed opacity-50"
+      >
+        <TrashIcon className="size-4" />
+      </ActionIcon>
+    );
+  }
+
   return (
     <Popover placement="left">
       <Popover.Trigger>

@@ -11,6 +11,8 @@ export default function TableRowActionGroup({
   viewUrl = "#",
   deletePopoverTitle = "Delete the appointment",
   deletePopoverDescription = "Are you sure you want to delete this item?",
+  deleteDisabled,
+  deleteDisabledReason,
   className,
 }: {
   onDelete?: () => void;
@@ -18,6 +20,9 @@ export default function TableRowActionGroup({
   viewUrl?: string;
   deletePopoverTitle?: string;
   deletePopoverDescription?: string;
+  /** Disable just the delete control (e.g. RBAC denial) while keeping view/edit. */
+  deleteDisabled?: boolean;
+  deleteDisabledReason?: string;
   className?: string;
 }) {
   return (
@@ -65,6 +70,8 @@ export default function TableRowActionGroup({
         title={deletePopoverTitle}
         description={deletePopoverDescription}
         onDelete={onDelete}
+        disabled={deleteDisabled}
+        disabledReason={deleteDisabledReason}
       />
     </Flex>
   );

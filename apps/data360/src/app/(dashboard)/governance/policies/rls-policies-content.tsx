@@ -5,6 +5,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { rlsPolicySchema, type RLSPolicyFormValues } from '@/validators/rls-policy.schema';
 import { Button, Badge, Input, Select } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import PolicyFormPanel from '@/app/shared/governance/policy-form-panel';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import {
@@ -50,6 +51,13 @@ const ModernCard = ({ children, className = '', ...props }: { children: React.Re
 };
 
 export default function RLSPoliciesContent() {
+  // System 2 Action-RBAC: Create → gouvernance:create, Apply → gouvernance:apply.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const createPerm = useCanPerform('gouvernance', 'create');
+  const applyPerm = useCanPerform('gouvernance', 'apply');
+  const canCreatePolicy = createPerm.allowed || createPerm.loading;
+  const canApplyPolicy = applyPerm.allowed || applyPerm.loading;
+
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [showApplyPanel, setShowApplyPanel] = useState(false);
   const [selectedPolicy, setSelectedPolicy] = useState<EnrichedPolicy | null>(null);
@@ -329,6 +337,8 @@ export default function RLSPoliciesContent() {
       <div className="flex justify-end">
         <Button
           onClick={() => setShowCreatePanel(true)}
+          disabled={!canCreatePolicy}
+          title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
           className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white shadow-lg shadow-purple-500/30"
         >
           <HiOutlinePlus className="w-5 h-5 mr-2" />
@@ -403,7 +413,12 @@ export default function RLSPoliciesContent() {
           <div className="text-center py-12">
             <HiOutlineLockClosed className="w-16 h-16 text-slate-300 dark:text-slate-600 mx-auto mb-4" />
             <p className="text-slate-600 dark:text-slate-400">No RLS policies created yet</p>
-            <Button onClick={() => setShowCreatePanel(true)} className="mt-4">
+            <Button
+              onClick={() => setShowCreatePanel(true)}
+              disabled={!canCreatePolicy}
+              title={!canCreatePolicy ? 'You lack the "create" permission on governance. Ask an administrator to grant it.' : undefined}
+              className="mt-4"
+            >
               Create your first policy
             </Button>
           </div>
@@ -448,7 +463,7 @@ export default function RLSPoliciesContent() {
             <Button variant="outline" type="button" onClick={() => { setShowCreatePanel(false); resetCreateForm(); resetForm(); }}>
               Cancel
             </Button>
-            <Button type="submit" form="rls-create-form" className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white">
+            <Button type="submit" form="rls-create-form" disabled={!canCreatePolicy} className="bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 text-white">
               Create Policy
             </Button>
           </>
@@ -574,9 +589,11 @@ export default function RLSPoliciesContent() {
             <Button
               onClick={handlePreviewApply}
               disabled={
+                !canApplyPolicy ||
                 !applyForm.database || !applyForm.schema || !applyForm.table_name || !applyForm.policy_column ||
                 previewState === 'loading'
               }
+              title={!canApplyPolicy ? 'You lack the "apply" permission on governance. Ask an administrator to grant it.' : undefined}
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
             >
               {previewState === 'loading' ? 'Checking target…' : 'Preview & Apply'}

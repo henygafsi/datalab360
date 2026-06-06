@@ -9,8 +9,9 @@ import { invalidateMyPermissions } from '@/hooks/useCanPerform';
 /**
  * Cache keys that mutate the Action-RBAC allow-set. The backend tags every D360
  * role / permission mutation (create/update/delete role, bulk-set permissions,
- * apply-template) with `CacheKey.GRANTS`; `user_permissions` / `roles` are
- * included defensively. When any of these arrives over the SSE stream we drop
+ * apply-template) with `CacheKey.GRANTS`; the backend now also emits a dedicated
+ * `permissions` key on Action-RBAC matrix writes. `user_permissions` / `roles`
+ * are included defensively. When any of these arrives over the SSE stream we drop
  * the cached `my-permissions` set so gated content/buttons re-resolve live —
  * no reload — right after an admin edits the matrix.
  */
@@ -18,6 +19,9 @@ const RBAC_INVALIDATION_KEYS: ReadonlySet<string> = new Set([
   CACHE_KEYS.GRANTS,
   CACHE_KEYS.USER_PERMISSIONS,
   CACHE_KEYS.ROLES,
+  // Backend emits 'permissions' on D360 action-matrix mutations (in addition to
+  // 'grants'); there is no CACHE_KEYS constant for it, so match the literal.
+  'permissions',
 ]);
 
 /**

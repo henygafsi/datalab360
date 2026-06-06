@@ -4,9 +4,11 @@ import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { HiOutlineShieldCheck, HiOutlinePencil, HiOutlineArrowLeft } from 'react-icons/hi2';
 import { Button, Input, Badge, Text } from 'rizzui';
+import { useCanPerform } from '@/hooks/useCanPerform';
 import PageHeader from '@/components/layout/PageHeader';
 import { getRoleDetails } from '@/app/services/governance/fetch_roles';
-import { getRolesForGrantsMatrix } from '@/app/services/governance/fetch_grants';
+import { getRolesForGrantsMatrix, revokePermission } from '@/app/services/governance/fetch_grants';
+import toast from 'react-hot-toast';
 import { RoleTableDataType } from '@/app/shared/governance/roles/table';
 import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
@@ -20,6 +22,34 @@ export default function ViewRolePage() {
   const [error, setError] = useState<string | null>(null);
   const [roleData, setRoleData] = useState<RoleTableDataType | null>(null);
   const [grants, setGrants] = useState<any[]>([]);
+  const [revoking, setRevoking] = useState<number | null>(null);
+
+  // System 2 Action-RBAC: revoking a grant → gouvernance:revoke.
+  // Fail-open while the allow-set loads (no flash of disabled).
+  const revokePerm = useCanPerform('gouvernance', 'revoke');
+  const canRevoke = revokePerm.allowed || revokePerm.loading;
+
+  const handleRevoke = async (grant: any, index: number) => {
+    const roleName = roleData?.role;
+    const priv = grant.privilege;
+    const objType = grant.granted_on || grant.type;
+    const objName = grant.name;
+    if (!roleName || !priv || !objType || !objName) {
+      toast.error('Cannot revoke: incomplete grant info');
+      return;
+    }
+    if (!window.confirm(`Revoke ${priv} on ${objName} from ${roleName}?`)) return;
+    setRevoking(index);
+    try {
+      await revokePermission([String(priv)], String(objType), String(objName), String(roleName));
+      toast.success(`Revoked ${priv} on ${objName}`);
+      setGrants((g) => g.filter((_, i) => i !== index));
+    } catch (e: any) {
+      toast.error(e?.response?.data?.detail || e?.message || 'Revoke failed');
+    } finally {
+      setRevoking(null);
+    }
+  };
 
   useEffect(() => {
     if (!roleId) {
@@ -196,9 +226,20 @@ export default function ViewRolePage() {
                     <Text className="text-sm font-medium text-gray-900 dark:text-white">
                       {grant.privilege || grant.name || 'Grant'}
                     </Text>
-                    <Badge variant="outline" size="sm">
-                      {grant.granted_on || grant.type || 'Permission'}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline" size="sm">
+                        {grant.granted_on || grant.type || 'Permission'}
+                      </Badge>
+                      <button
+                        type="button"
+                        disabled={revoking === index || !canRevoke}
+                        title={!canRevoke ? 'You lack the "revoke" permission on governance. Ask an administrator to grant it.' : undefined}
+                        onClick={() => handleRevoke(grant, index)}
+                        className="rounded-md border border-red-200 px-2 py-0.5 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-900/40 dark:text-red-400 dark:hover:bg-red-900/20"
+                      >
+                        {revoking === index ? '…' : 'Revoke'}
+                      </button>
+                    </div>
                   </div>
                   {grant.name && grant.name !== grant.privilege && (
                     <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
