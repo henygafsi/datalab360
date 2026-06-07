@@ -1,10 +1,12 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles } from 'lucide-react';
+import { BarChart2, GitBranch, Compass, Layers, Plus, ChartBar, Copy, Sparkles, ExternalLink, Clock } from 'lucide-react';
+import Link from 'next/link';
 import { useTrackEvent } from '@/hooks/useTrackEvent';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
+import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -166,19 +168,83 @@ function FeatureGrid() {
 // Main page
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Project list
+// ---------------------------------------------------------------------------
+
+function ProjectList({
+  projects,
+  isLoading,
+}: {
+  projects: UnifiedProject[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-28 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
+        ))}
+      </div>
+    );
+  }
+  if (projects.length === 0) return null;
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+      {projects.map((p) => (
+        <Link
+          key={p.project_id}
+          href={`/bi-dashboard/${p.project_id}`}
+          className="block p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 hover:border-cyan-400 dark:hover:border-cyan-500 hover:shadow-sm transition-all group"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <BarChart2 className="w-4 h-4 text-cyan-500 shrink-0" />
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.name}</h3>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-gray-400 group-hover:text-cyan-500 shrink-0" />
+          </div>
+          {p.description && (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1.5 line-clamp-2">{p.description}</p>
+          )}
+          <div className="flex items-center gap-2 mt-3 text-xs text-gray-400">
+            <Clock className="w-3 h-3" />
+            {p.updated_at ? new Date(p.updated_at).toLocaleDateString() : 'No date'}
+            {p.tags?.length > 0 && (
+              <span className="ml-auto text-cyan-500">{p.tags.slice(0, 2).join(', ')}</span>
+            )}
+          </div>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
 export default function BIDashboardPage() {
   const { trackFeatureClick } = useTrackEvent();
   const [showCreate, setShowCreate] = useState(false);
+  const [projects, setProjects] = useState<UnifiedProject[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
 
   useEffect(() => {
     trackFeatureClick('page_view', { module: 'bi_dashboard' });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    getUnifiedProjects()
+      .then((res) => {
+        setProjects(res.projects.filter((p) => p.type === 'bi_dashboard'));
+      })
+      .catch(() => {
+        // graceful — show empty state
+      })
+      .finally(() => setProjectsLoading(false));
+  }, []);
+
   const handleCreated = useCallback((projectId: string) => {
     trackFeatureClick('bi_dashboard_created', { projectId });
     setShowCreate(false);
-    // Redirect to the new project
     window.location.href = `/bi-dashboard/${projectId}`;
   }, [trackFeatureClick]);
 
@@ -224,9 +290,12 @@ export default function BIDashboardPage() {
         </div>
 
         {/* Content */}
-        <div className="p-6 max-w-4xl mx-auto">
-          <EmptyState onCreate={() => { setShowCreate(true); }} />
-          <FeatureGrid />
+        <div className="p-6 max-w-5xl mx-auto">
+          {!projectsLoading && projects.length === 0 && (
+            <EmptyState onCreate={() => { setShowCreate(true); }} />
+          )}
+          <ProjectList projects={projects} isLoading={projectsLoading} />
+          {(!projectsLoading || projects.length > 0) && <FeatureGrid />}
         </div>
 
         {/* Create modal */}

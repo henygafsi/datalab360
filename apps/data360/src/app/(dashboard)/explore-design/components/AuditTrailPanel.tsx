@@ -2,73 +2,55 @@
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { cn } from '@/lib/utils';
-import { Button, Badge, Input, Select } from 'rizzui';
+import { Button, Badge, Select } from 'rizzui';
 import {
-  History, Search, ChevronDown, ChevronRight, RefreshCw,
+  History, ChevronDown, ChevronRight, RefreshCw,
   User, Calendar, FileText, Filter,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import { getAuditTrail } from '@/app/services/api/exploreDesignApi';
+import { getExploreEvents } from '@/app/services/api/exploreDesignApi';
 import { getApiErrorMessage } from '@/lib/api-client';
-import type { AuditEntry, AuditTrailParams } from '@/app/services/api/types';
+import type { ProjectEvent } from '@/app/services/api/types';
 
 interface AuditTrailPanelProps {
   projectId: string;
   className?: string;
 }
 
-const ACTION_OPTIONS = [
-  { label: 'All Actions', value: '' },
-  { label: 'CREATE', value: 'CREATE' },
-  { label: 'ALTER', value: 'ALTER' },
-  { label: 'DROP', value: 'DROP' },
-  { label: 'RENAME', value: 'RENAME' },
-  { label: 'ADD_COLUMN', value: 'ADD_COLUMN' },
-  { label: 'DROP_COLUMN', value: 'DROP_COLUMN' },
-];
-
-const ENTITY_TYPE_OPTIONS = [
-  { label: 'All Types', value: '' },
-  { label: 'TABLE', value: 'TABLE' },
-  { label: 'VIEW', value: 'VIEW' },
-  { label: 'COLUMN', value: 'COLUMN' },
-  { label: 'FOREIGN_KEY', value: 'FOREIGN_KEY' },
+const EVENT_TYPE_OPTIONS = [
+  { label: 'All Events', value: '' },
+  { label: 'DDL', value: 'DDL' },
+  { label: 'INGESTION', value: 'INGESTION' },
+  { label: 'DEPLOYMENT', value: 'DEPLOYMENT' },
+  { label: 'QUALITY_GATE', value: 'QUALITY_GATE' },
 ];
 
 const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
   projectId,
   className,
 }) => {
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [total, setTotal] = useState(0);
+  const [events, setEvents] = useState<ProjectEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
 
   // Filter state
-  const [entityType, setEntityType] = useState('');
-  const [entityFqn, setEntityFqn] = useState('');
-  const [action, setAction] = useState('');
-  const [username, setUsername] = useState('');
+  const [eventType, setEventType] = useState('');
 
   const fetchAudit = useCallback(async () => {
     setIsLoading(true);
     try {
-      const params: AuditTrailParams = { limit: 50 };
-      if (entityType) params.entity_type = entityType;
-      if (entityFqn) params.entity_fqn = entityFqn;
-      if (action) params.action = action;
-      if (username) params.username = username;
-
-      const result = await getAuditTrail(projectId, params);
-      setEntries(result.entries);
-      setTotal(result.total);
+      const result = await getExploreEvents(projectId, {
+        event_type: eventType || undefined,
+        limit: 50,
+      });
+      setEvents(result.events);
     } catch (err) {
-      toast.error(getApiErrorMessage(err) || 'Failed to load audit trail');
+      toast.error(getApiErrorMessage(err) || 'Failed to load project events');
     } finally {
       setIsLoading(false);
     }
-  }, [projectId, entityType, entityFqn, action, username]);
+  }, [projectId, eventType]);
 
   useEffect(() => {
     fetchAudit();
@@ -84,10 +66,10 @@ const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
       <div className="px-4 py-3 flex items-center justify-between bg-slate-50 dark:bg-slate-800/50">
         <span className="font-medium text-sm flex items-center gap-2">
           <History className="h-4 w-4 text-purple-500" />
-          Audit Trail
-          {total > 0 && (
+          Project Events
+          {events.length > 0 && (
             <Badge size="sm" className="bg-purple-100 text-purple-600 dark:bg-purple-900/30">
-              {total} entries
+              {events.length} events
             </Badge>
           )}
         </span>
@@ -116,97 +98,64 @@ const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
 
       {/* Filters */}
       {showFilters && (
-        <div className="px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30 border-b dark:border-slate-700 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Entity Type</label>
+        <div className="px-4 py-3 bg-slate-50/50 dark:bg-slate-800/30 border-b dark:border-slate-700 flex gap-3">
+          <div className="w-48">
+            <label className="text-xs text-slate-500 mb-1 block">Event Type</label>
             <Select
               size="sm"
-              options={ENTITY_TYPE_OPTIONS}
-              value={entityType}
-              onChange={(opt: any) => setEntityType(opt?.value ?? '')}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Action</label>
-            <Select
-              size="sm"
-              options={ACTION_OPTIONS}
-              value={action}
-              onChange={(opt: any) => setAction(opt?.value ?? '')}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Entity FQN</label>
-            <Input
-              size="sm"
-              placeholder="e.g. RAW.PUBLIC.ORDERS"
-              value={entityFqn}
-              onChange={(e) => setEntityFqn(e.target.value)}
-              prefix={<Search className="h-3.5 w-3.5" />}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-slate-500 mb-1 block">Username</label>
-            <Input
-              size="sm"
-              placeholder="Filter by user"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              prefix={<User className="h-3.5 w-3.5" />}
+              options={EVENT_TYPE_OPTIONS}
+              value={eventType}
+              onChange={(opt: any) => setEventType(opt?.value ?? '')}
             />
           </div>
         </div>
       )}
 
-      {/* Entries */}
+      {/* Events */}
       <div className="divide-y dark:divide-slate-700 max-h-[500px] overflow-auto">
-        {isLoading && entries.length === 0 ? (
+        {isLoading && events.length === 0 ? (
           <div className="flex items-center justify-center py-8 text-sm text-slate-500">
             <RefreshCw className="h-4 w-4 animate-spin mr-2" />
-            Loading audit trail...
+            Loading events...
           </div>
-        ) : entries.length === 0 ? (
+        ) : events.length === 0 ? (
           <div className="text-center py-8 text-slate-500">
             <FileText className="h-6 w-6 mx-auto mb-2 text-slate-300" />
-            <p className="text-sm">No audit entries found</p>
-            <p className="text-xs mt-1 text-slate-400">Actions will be recorded as you make changes</p>
+            <p className="text-sm">No events found</p>
+            <p className="text-xs mt-1 text-slate-400">Events are recorded as you perform actions</p>
           </div>
         ) : (
-          entries.map((entry) => {
-            const isOpen = expandedEntry === entry.audit_id;
+          events.map((ev) => {
+            const isOpen = expandedEntry === ev.event_id;
+            const statusColor =
+              ev.status === 'SUCCESS' ? 'bg-green-100 text-green-600 dark:bg-green-900/30'
+              : ev.status === 'FAILED' ? 'bg-red-100 text-red-600 dark:bg-red-900/30'
+              : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30';
             return (
-              <div key={entry.audit_id}>
+              <div key={ev.event_id}>
                 <button
                   className="w-full px-4 py-2.5 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors text-left"
-                  onClick={() => toggleEntry(entry.audit_id)}
+                  onClick={() => toggleEntry(ev.event_id)}
                 >
                   <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <Badge
-                      size="sm"
-                      className={cn(
-                        'text-xs shrink-0',
-                        entry.action === 'DROP'
-                          ? 'bg-red-100 text-red-600 dark:bg-red-900/30'
-                          : entry.action === 'CREATE'
-                          ? 'bg-green-100 text-green-600 dark:bg-green-900/30'
-                          : 'bg-blue-100 text-blue-600 dark:bg-blue-900/30',
-                      )}
-                    >
-                      {entry.action}
+                    <Badge size="sm" className={cn('text-xs shrink-0', statusColor)}>
+                      {ev.event_type}
                     </Badge>
                     <span className="text-sm truncate">
-                      <span className="text-slate-500">{entry.entity_type}:</span>{' '}
-                      <span className="font-mono text-xs">{entry.entity_fqn}</span>
+                      {ev.event_subtype && (
+                        <span className="text-slate-500">{ev.event_subtype}: </span>
+                      )}
+                      <span className="font-mono text-xs">{ev.entity_id ?? ev.entity_type ?? '—'}</span>
                     </span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0 ml-3">
                     <span className="text-xs text-slate-400 flex items-center gap-1">
                       <User className="h-3 w-3" />
-                      {entry.username}
+                      {ev.username}
                     </span>
                     <span className="text-xs text-slate-400 flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
-                      {new Date(entry.timestamp).toLocaleString()}
+                      {new Date(ev.timestamp).toLocaleString()}
                     </span>
                     {isOpen ? (
                       <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
@@ -215,20 +164,15 @@ const AuditTrailPanel: React.FC<AuditTrailPanelProps> = ({
                     )}
                   </div>
                 </button>
-                {isOpen && (
-                  <div className="px-4 pb-3 pl-10 grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">Old Value</p>
-                      <pre className="text-xs text-slate-600 dark:text-slate-400 bg-red-50 dark:bg-red-900/10 rounded p-2 overflow-auto max-h-[200px]">
-                        {entry.old_value ? JSON.stringify(entry.old_value, null, 2) : '—'}
-                      </pre>
-                    </div>
-                    <div>
-                      <p className="text-xs font-medium text-slate-500 mb-1">New Value</p>
-                      <pre className="text-xs text-slate-600 dark:text-slate-400 bg-green-50 dark:bg-green-900/10 rounded p-2 overflow-auto max-h-[200px]">
-                        {entry.new_value ? JSON.stringify(entry.new_value, null, 2) : '—'}
-                      </pre>
-                    </div>
+                {isOpen && ev.details && (
+                  <div className="px-4 pb-3 pl-10">
+                    <p className="text-xs font-medium text-slate-500 mb-1">Details</p>
+                    <pre className="text-xs text-slate-600 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/50 rounded p-2 overflow-auto max-h-[200px]">
+                      {JSON.stringify(ev.details, null, 2)}
+                    </pre>
+                    {ev.error_message && (
+                      <p className="text-xs text-red-500 mt-1">{ev.error_message}</p>
+                    )}
                   </div>
                 )}
               </div>

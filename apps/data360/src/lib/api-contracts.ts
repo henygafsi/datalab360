@@ -238,6 +238,29 @@ export const API = {
     events: () => '/org-accounts/events',
   },
 
+  /** BI Dashboard — backend: /bi-dashboard/* (modules/bi_dashboard/router.py). */
+  biDashboard: {
+    list:       ()                      => '/bi-dashboard',
+    create:     ()                      => '/bi-dashboard',
+    get:        (id: string)            => `/bi-dashboard/${enc(id)}`,
+    update:     (id: string)            => `/bi-dashboard/${enc(id)}`,
+    delete:     (id: string)            => `/bi-dashboard/${enc(id)}`,
+    pages:      (id: string)            => `/bi-dashboard/${enc(id)}/pages`,
+    page:       (id: string, p: string) => `/bi-dashboard/${enc(id)}/pages/${enc(p)}`,
+    widgets:    (id: string)            => `/bi-dashboard/${enc(id)}/widgets`,
+    widget:     (id: string, w: string) => `/bi-dashboard/${enc(id)}/widgets/${enc(w)}`,
+    filters:    (id: string)            => `/bi-dashboard/${enc(id)}/filters`,
+    filter:     (id: string, f: string) => `/bi-dashboard/${enc(id)}/filters/${enc(f)}`,
+    render:     (id: string)            => `/bi-dashboard/${enc(id)}/render`,
+    snapshot:   (id: string)            => `/bi-dashboard/${enc(id)}/snapshot`,
+    drillThrough:(id: string)           => `/bi-dashboard/${enc(id)}/drill-through`,
+    export:     (id: string)            => `/bi-dashboard/${enc(id)}/export`,
+    nlToChart:  ()                      => '/bi-dashboard/nl-to-chart',
+    autoCreate: ()                      => '/bi-dashboard/auto-create',
+    templates:  ()                      => '/bi-dashboard/templates',
+    retailKpis: ()                      => '/bi-dashboard/retail-kpis',
+  },
+
   /** Data quality — backend: /data-quality/* (modules/data_quality). */
   dataQuality: {
     base: () => '/data-quality',

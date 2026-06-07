@@ -169,7 +169,7 @@ export async function getCostMetrics(database: string, days?: number): Promise<M
   return data?.data || data || [];
 }
 
-export async function getSecurityPosture(database: string): Promise<MetricRow[]> {
+export async function getDQSecurityPosture(database: string): Promise<MetricRow[]> {
   const { data } = await apiClient.get(`${PREFIX}/security-posture`, {
     params: { database },
   });

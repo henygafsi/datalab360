@@ -56,7 +56,7 @@ import {
   getQualitySummary, getCompletenessMetrics, getUniquenessMetrics,
   getFreshnessMetrics, getIngestionMetrics, getSchemaQuality,
   getClassificationCoverage, getCostMetrics as dqCostMetrics,
-  getSecurityPosture as dqSecurityPosture, getDmfDashboardResults,
+  getDQSecurityPosture as dqSecurityPosture, getDmfDashboardResults,
   getTrendAnalysis, runBuiltinDmfCheck, getDmfResults, suggestDmfs,
 } from '@/app/services/data-quality';
 
