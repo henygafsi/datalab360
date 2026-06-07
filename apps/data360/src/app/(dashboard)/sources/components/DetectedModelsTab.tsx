@@ -126,7 +126,7 @@ export default function DetectedModelsTab({ projectId, sourceTables }: DetectedM
         <div className="flex items-center justify-center gap-3 mb-6">
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
             <Table2 className="h-3.5 w-3.5 text-emerald-500" />
-            {sourceTables?.length ?? 0} source tables
+            {sourceTables?.length ?? '—'} source tables
           </div>
           <span className="text-gray-300">|</span>
           <div className="flex items-center gap-1.5 text-xs text-gray-500">

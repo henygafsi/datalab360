@@ -148,7 +148,7 @@ export default function TrustCenterCard() {
             </div>
             <div className="bg-white dark:bg-slate-800 border border-red-200 dark:border-red-700/50 rounded-xl p-5 text-center">
               <div className="text-3xl font-bold text-red-600 mb-1">
-                {summary.critical_count ?? 0}
+                {summary.critical_count ?? '—'}
               </div>
               <p className="text-sm text-slate-500">Critical/High</p>
             </div>

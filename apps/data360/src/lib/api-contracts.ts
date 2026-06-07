@@ -52,6 +52,20 @@ export const API = {
 
   /** Connectors — backend: /connect/* (modules/connectors/router.py). */
   connect: {
+    /** GET /connect/connectors — list all registered connectors. */
+    listConnectors: () => '/connect/connectors',
+    /** GET /connect/connectors/health — health status of all connectors. */
+    connectorsHealth: () => '/connect/connectors/health',
+    /** GET /connect/source-catalog — full source catalog (connector view). */
+    sourceCatalog: () => '/connect/source-catalog',
+    /** POST /connect/connectors — create a new connector. */
+    createConnector: () => '/connect/connectors',
+    /** GET /connect/connectors/{id} — get connector by id. */
+    getConnector: (id: string) => `/connect/connectors/${enc(id)}`,
+    /** POST /connect/connectors/{id}/test — test a connector connection. */
+    testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
+    /** POST /connect/connectors/{id}/sync — trigger a manual sync for a connector. */
+    syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
     createAwsStage: () => '/connect/aws/stage',
@@ -157,6 +171,26 @@ export const API = {
     executeIngestion: (projectId: string) =>
       `/explore-design/${enc(projectId)}/ingestion/execute`,
     ingestionRuns: (projectId: string) => `/explore-design/${enc(projectId)}/ingestion/runs`,
+    /** GET /explore-design/{project_id}/deployment-readiness — change_diff + lineage + cost */
+    deploymentReadiness: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/deployment-readiness`,
+    /** POST /explore-design/{project_id}/impact-analysis — downstream dependency impact */
+    impactAnalysis: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/impact-analysis`,
+    /** POST /explore-design/{project_id}/impact-analysis/enhanced — richer impact incl. lineage */
+    impactAnalysisEnhanced: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/impact-analysis/enhanced`,
+    /** POST /explore-design/{project_id}/conflict-check — detect event conflicts before deploy */
+    conflictCheck: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/conflict-check`,
+    /** POST /explore-design/{project_id}/post-verify — schema comparison after deploy */
+    postVerify: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/post-verify`,
+    /** GET /explore-design/{project_id}/ingestion/operations — list versioned ingestion ops */
+    ingestionOperations: (projectId: string) =>
+      `/explore-design/${enc(projectId)}/ingestion/operations`,
+    /** GET /explore-design/schema-clone/list — list schema clones (project_id as query param) */
+    schemaCloneList: () => `/explore-design/schema-clone/list`,
   },
 
   /**
@@ -192,6 +226,20 @@ export const API = {
     contributors: (id: string) => `/workflow/${enc(id)}/contributors`,
     contributor: (id: string, contributorId: string) =>
       `/workflow/${enc(id)}/contributors/${enc(contributorId)}`,
+    /** GET /workflow/blocks — all registered ETL block definitions. */
+    blocks: () => '/workflow/blocks',
+    /** GET /workflow/blocks/categories — block category list for the left palette. */
+    blocksCategories: () => '/workflow/blocks/categories',
+    /** GET /workflow/catalog/blocks — catalog-grounded block list with schema metadata. */
+    catalogBlocks: () => '/workflow/catalog/blocks',
+    /** GET /workflow/action-templates — reusable step templates. */
+    actionTemplates: () => '/workflow/action-templates',
+    /** POST /workflow/action-templates — create a new action template. */
+    createActionTemplate: () => '/workflow/action-templates',
+    /** POST /workflow/runs/{runId}/cancel — cancel an in-progress global run. */
+    cancelRun: (runId: string) => `/workflow/runs/${enc(runId)}/cancel`,
+    /** GET /workflow/runs/{runId}/logs — fetch log lines for a global run. */
+    runLogs: (runId: string) => `/workflow/runs/${enc(runId)}/logs`,
   },
 
   /** Gouvernance — backend: /gouvernance/* (modules/gouvernance + gui_permissions). */
@@ -214,28 +262,168 @@ export const API = {
     unassignRole: () => '/gouvernance/unassign-role',
     /** GET|PUT /gouvernance/users/{username}/roles (backend: gouvernance.py:1520,1567). */
     userRoles: (username: string) => `/gouvernance/users/${enc(username)}/roles`,
+    /** GET /gouvernance/users/{username} — single user detail (fetch_users.ts:getUserDetails). */
+    userDetail: (username: string) => `/gouvernance/users/${enc(username)}`,
     grants: () => '/gouvernance/grants',
     /** GET /gouvernance/grants-for-role/{role_name} (backend: gouvernance.py:2321 — role_name is required). */
     grantsForRole: (roleName: string) => `/gouvernance/grants-for-role/${enc(roleName)}`,
     updateGrants: () => '/gouvernance/update-grants',
     securityMatrix: () => '/gouvernance/security-matrix',
     policies: () => '/gouvernance/policies',
+    /** GET /gouvernance/policies/health — policy health check across all policy types. */
+    policiesHealth: () => '/gouvernance/policies/health',
+    /** GET /gouvernance/policies/tags/list — list all governance tags (policies.ts:getTags). */
+    policyTagsList: () => '/gouvernance/policies/tags/list',
+    /** POST /gouvernance/policies/classification/classify — run semantic classification on a table (dmf.ts:classifyTable). */
+    classificationClassify: () => '/gouvernance/policies/classification/classify',
+    /** POST /gouvernance/policies/row-access — create a row access policy (policies.ts:createRLSPolicy). */
+    policyRowAccess: () => '/gouvernance/policies/row-access',
+    /** GET /gouvernance/d360-roles — list all Data360 granular roles (fetch_roles.ts:getD360Roles). */
+    d360Roles: () => '/gouvernance/d360-roles',
+    /** GET /gouvernance/d360-roles/my-permissions — caller's effective action set (useCanPerform hook). */
+    d360MyPermissions: () => '/gouvernance/d360-roles/my-permissions',
   },
 
   /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
   cortex: {
+    /** POST /cortex/query — Cortex Analyst NL→SQL */
     query: () => '/cortex/query',
+    /** POST /cortex/complete — LLM completion (generation, summarize, etc.) */
+    complete: () => '/cortex/complete',
+    /** GET /cortex/kpis — KPI header stats for intelligent page */
+    kpis: () => '/cortex/kpis',
+    /** GET /cortex/models — list available AI/LLM models */
+    models: () => '/cortex/models',
+    /** GET /cortex/agents — list Cortex Agents (autonomous AI agents) */
+    agents: (db?: string) => `/cortex/agents${db ? `?database=${enc(db)}` : ''}`,
+    /** GET /cortex/semantic-models/list — list semantic model files */
+    semanticModels: () => '/cortex/semantic-models/list',
+    /** GET /cortex/semantic-views — list semantic views for NL analytics */
+    semanticViews: (db?: string) => `/cortex/semantic-views${db ? `?database=${enc(db)}` : ''}`,
+    /** GET /cortex/vectors/columns — list vector-embedded columns */
+    vectorColumns: (db?: string) => `/cortex/vectors/columns${db ? `?database=${enc(db)}` : ''}`,
+    /** GET /cortex/ml/classification/models — list classification models */
+    classificationModels: () => '/cortex/ml/classification/models',
+    /** POST /cortex/finetune — start a fine-tune job */
+    finetune: () => '/cortex/finetune',
+    /** POST /cortex/vectors/embed — embed a column with vector model */
+    embedColumn: () => '/cortex/vectors/embed',
   },
 
   /** Observability — backend: /observability/* (mounted with prefix in main.py). */
   observability: {
     base: () => '/observability',
+    /** GET /observability/kpis — intelligent health-score KPIs (main dashboard). */
+    kpis: () => '/observability/kpis',
+    /** GET /observability/intelligent-kpis — alias used by some consumers. */
+    intelligentKpis: () => '/observability/intelligent-kpis',
+    /** GET /observability/alerts[?days=N] — cost spikes, failed tasks, security findings. */
+    alerts: (days?: number) => `/observability/alerts${qs({ days })}`,
+    /** POST /observability/alerts/acknowledge — acknowledge an alert by id. body: { id } */
+    acknowledgeAlert: () => '/observability/alerts/acknowledge',
+    /** GET /observability/lineage — data lineage from ACCESS_HISTORY. */
+    lineage: (params?: { database?: string; schema?: string; table?: string; days?: number }) =>
+      `/observability/lineage${qs(params)}`,
+    /** GET /observability/performance/metrics[?days=N] */
+    performanceMetrics: (days?: number) => `/observability/performance/metrics${qs({ days })}`,
+    /** GET /observability/performance/slow-queries[?days=N&threshold_seconds=N] */
+    slowQueries: (params?: { days?: number; threshold_seconds?: number }) =>
+      `/observability/performance/slow-queries${qs(params)}`,
+    /** GET /observability/cost/daily-credits[?days=N] — daily credit usage trend. */
+    dailyCredits: (days?: number) => `/observability/cost/daily-credits${qs({ days })}`,
+    /** GET /observability/probes/platform — probe all Data360 metadata tables for freshness. */
+    probesPlatform: () => '/observability/probes/platform',
+  },
+
+  /**
+   * Command Center — backend: /command-center/* (modules/command_center/router.py).
+   * Backs Account-overview tabs (Overview, FinOps, Security, Platform Activity, etc.).
+   */
+  commandCenter: {
+    /** GET /command-center/overview-kpis[?range=<30d>] — cached single-payload KPIs. */
+    overviewKpis:         (range?: string) => `/command-center/overview-kpis${range ? `?range=${enc(range)}` : ''}`,
+    /** POST /command-center/overview-kpis/refresh — trigger cache refresh. */
+    overviewKpisRefresh:  ()               => '/command-center/overview-kpis/refresh',
+    /** POST /command-center/overview-kpis/install — provision cache table/proc (admin only). */
+    overviewKpisInstall:  ()               => '/command-center/overview-kpis/install',
+    /** GET /command-center/summary[?days=<n>] — executive summary across all modules. */
+    summary:              (days?: number)  => `/command-center/summary${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/cost-breakdown[?days=<n>] — FinOps credit breakdown by warehouse/service. */
+    costBreakdown:        (days?: number)  => `/command-center/cost-breakdown${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/infrastructure[?days=<n>] — Snowflake infra snapshot. */
+    infrastructure:       (days?: number)  => `/command-center/infrastructure${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/security-audit[?days=<n>] — login, grant, MFA audit. */
+    securityAudit:        (days?: number)  => `/command-center/security-audit${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/module-health[?days=<n>] — per-module health status. */
+    moduleHealth:         (days?: number)  => `/command-center/module-health${days != null ? `?days=${days}` : ''}`,
+    /** POST /command-center/warm-user-cache — warms user-specific KPI cache on login. */
+    warmUserCache:        ()               => '/command-center/warm-user-cache',
+    /** GET /command-center/tabs/{tab}[?days=<n>] — consolidated per-tab endpoint. */
+    tab:                  (tab: string, days?: number) =>
+      `/command-center/tabs/${enc(tab)}${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/time-context — parse time range preset into start/end/prev. */
+    timeContext:          ()               => '/command-center/time-context',
+    /** GET /command-center/filter-options[?days=<n>] — smart filter dropdowns with activity counts. */
+    filterOptions:        (days?: number)  => `/command-center/filter-options${days != null ? `?days=${days}` : ''}`,
+    /** GET /command-center/activity-feed — unified cross-module activity stream. */
+    activityFeed:         ()               => '/command-center/activity-feed',
+    /** GET /command-center/cross-module — cross-module intelligence joins. */
+    crossModule:          ()               => '/command-center/cross-module',
+    /** GET /command-center/warehouse-performance — utilization & query metrics. */
+    warehousePerformance: ()               => '/command-center/warehouse-performance',
+    /** GET /command-center/query-intelligence — top/slow queries, errors. */
+    queryIntelligence:    ()               => '/command-center/query-intelligence',
+    /** GET /command-center/pipelines — pipeline & ingestion health. */
+    pipelines:            ()               => '/command-center/pipelines',
   },
 
   /** Org accounts — backend: /org-accounts/* (modules/org_accounts/router.py). */
   orgAccounts: {
-    dashboardOverview: () => '/org-accounts/dashboard/overview',
-    events: () => '/org-accounts/events',
+    /** GET /org-accounts/dashboard/overview — fast (~1s) accounts list + overview stats. */
+    dashboardOverview:    ()                            => '/org-accounts/dashboard/overview',
+    /** GET /org-accounts/dashboard/usage — combined credits + storage totals. */
+    dashboardUsage:       ()                            => '/org-accounts/dashboard/usage',
+    /** GET /org-accounts/dashboard/trends[?days=<n>] — chart trend data. */
+    dashboardTrends:      (days?: number)               => `/org-accounts/dashboard/trends${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/accounts — list all accounts in the Snowflake org. */
+    accounts:             ()                            => '/org-accounts/accounts',
+    /** GET /org-accounts/accounts/{name} — detail for a specific account. */
+    accountDetail:        (name: string)                => `/org-accounts/accounts/${enc(name)}`,
+    /** DELETE /org-accounts/accounts/{name} — drop account (orgadmin only, irreversible). */
+    dropAccount:          (name: string)                => `/org-accounts/accounts/${enc(name)}`,
+    /** GET /org-accounts/account-health-score — health score for the current account. */
+    accountHealthScore:   ()                            => '/org-accounts/account-health-score',
+    /** GET /org-accounts/health/{name} — per-account health detail. */
+    accountHealth:        (name: string)                => `/org-accounts/health/${enc(name)}`,
+    /** GET /org-accounts/credits[?days=<n>] — credit usage with service breakdown. */
+    credits:              (days?: number)               => `/org-accounts/credits${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/credits/trend[?days=<n>] — daily org credit trend. */
+    creditsTrend:         (days?: number)               => `/org-accounts/credits/trend${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/credits/top[?days=<n>&limit=<n>] — top credit consumers. */
+    creditsTop:           (days?: number, limit?: number) =>
+      `/org-accounts/credits/top${qs({ days, limit })}`,
+    /** GET /org-accounts/credit-forecast[?days_back=<n>] — linear regression forecast. */
+    creditForecast:       (daysBack?: number)           => `/org-accounts/credit-forecast${daysBack != null ? `?days_back=${daysBack}` : ''}`,
+    /** GET /org-accounts/credits/history/{name}[?days=<n>] — per-account daily credit history. */
+    creditHistory:        (name: string, days?: number) =>
+      `/org-accounts/credits/history/${enc(name)}${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/warehouses[?days=<n>] — warehouse usage across all accounts. */
+    warehouses:           (days?: number)               => `/org-accounts/warehouses${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/warehouses/{name}[?days=<n>] — warehouse usage for a specific account. */
+    accountWarehouses:    (name: string, days?: number) =>
+      `/org-accounts/warehouses/${enc(name)}${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/organization/warehouse-credits[?days=<n>] — per-warehouse credits from ORGANIZATION_USAGE. */
+    orgWarehouseCredits:  (days?: number)               => `/org-accounts/organization/warehouse-credits${days != null ? `?days=${days}` : ''}`,
+    /** GET /org-accounts/org-summary — activity rolled up role→module/project→account. */
+    orgSummary:           ()                            => '/org-accounts/org-summary',
+    /** GET /org-accounts/events[?days=<n>] — platform events audit trail. */
+    events:               (days?: number)               => `/org-accounts/events${days != null ? `?days=${days}` : ''}`,
+  },
+
+  /** Admin — backend: /admin/* (platform-level admin endpoints, admin-role only). */
+  admin: {
+    /** GET /admin/activity-stats — platform-wide activity stats. */
+    activityStats: () => '/admin/activity-stats',
   },
 
   /** BI Dashboard — backend: /bi-dashboard/* (modules/bi_dashboard/router.py). */
@@ -261,13 +449,109 @@ export const API = {
     retailKpis: ()                      => '/bi-dashboard/retail-kpis',
   },
 
+  /** Data Products — backend: /data-products/* (modules/data_products/router.py). */
+  dataProducts: {
+    /** GET /data-products — list all data products for the account */
+    list: () => '/data-products',
+    /** GET /data-products/{id} — fetch a single data product by ID */
+    get: (id: string) => `/data-products/${enc(id)}`,
+    /** POST /data-products — create a new data product */
+    create: () => '/data-products',
+    /** PUT /data-products/{id} — update a data product (name, description, SLA, etc.) */
+    update: (id: string) => `/data-products/${enc(id)}`,
+    /** DELETE /data-products/{id} — delete a data product */
+    delete: (id: string) => `/data-products/${enc(id)}`,
+    /** GET /data-products/{id}/lineage — upstream + downstream table lineage for a product */
+    lineage: (id: string) => `/data-products/${enc(id)}/lineage`,
+    /** GET /data-products/{id}/consumers — list consumer accounts / subscribers */
+    consumers: (id: string) => `/data-products/${enc(id)}/consumers`,
+    /** POST /data-products/{id}/publish — publish product as a live Snowflake Secure Data Share */
+    publish: (id: string) => `/data-products/${enc(id)}/publish`,
+    /** POST /data-products/{id}/subscribe — grant a consumer account access to a published share */
+    subscribe: (id: string) => `/data-products/${enc(id)}/subscribe`,
+  },
+
   /** Data quality — backend: /data-quality/* (modules/data_quality). */
   dataQuality: {
     base: () => '/data-quality',
+    /** GET /data-quality/quality-summary — global health score + KPIs */
+    qualitySummary: () => '/data-quality/quality-summary',
+    /** GET /data-quality/completeness-metrics — NULL_COUNT DMF results per column */
+    completenessMetrics: () => '/data-quality/completeness-metrics',
+    /** GET /data-quality/uniqueness-metrics — DUPLICATE_COUNT DMF results */
+    uniquenessMetrics: () => '/data-quality/uniqueness-metrics',
+    /** GET /data-quality/freshness-metrics — table staleness via INFORMATION_SCHEMA */
+    freshnessMetrics: () => '/data-quality/freshness-metrics',
+    /** GET /data-quality/ingestion-metrics — COPY_HISTORY load status */
+    ingestionMetrics: () => '/data-quality/ingestion-metrics',
+    /** GET /data-quality/schema-quality — PK / doc coverage per table */
+    schemaQuality: () => '/data-quality/schema-quality',
+    /** GET /data-quality/classification-coverage — tag coverage from ACCOUNT_USAGE */
+    classificationCoverage: () => '/data-quality/classification-coverage',
+    /** GET /data-quality/cost-metrics — active/time-travel/failsafe bytes */
+    costMetrics: () => '/data-quality/cost-metrics',
+    /** GET /data-quality/security-posture — masking / RLS / grants per table */
+    securityPosture: () => '/data-quality/security-posture',
+    /** GET /data-quality/dmf-results — DATA_METRIC_FUNCTION_REFERENCES view */
+    dmfResults: () => '/data-quality/dmf-results',
+    /** GET /data-quality/trend-analysis — daily avg DMF metric history */
+    trendAnalysis: () => '/data-quality/trend-analysis',
+    /** GET /data-quality/anomalies — SNOWFLAKE.ML.ANOMALY_DETECTION results */
+    anomalies: () => '/data-quality/anomalies',
+    /** GET /data-quality/snapshot — fan-out endpoint: all 9 dimensions in one shot */
+    snapshot: () => '/data-quality/snapshot',
+    /** POST /data-quality/run-check — threshold check on a single table */
+    runCheck: () => '/data-quality/run-check',
+    /** POST /data-quality/dmf/thresholds — persist a DMF threshold rule */
+    dmfThresholds: () => '/data-quality/dmf/thresholds',
+    /** POST /data-quality/anomaly-detection — trigger ML anomaly detection */
+    anomalyDetection: () => '/data-quality/anomaly-detection',
   },
 
   /** Catalog — backend: /catalog/* (modules/catalog/router.py). */
   catalog: {
+    /** GET /catalog/overview — account-level catalog summary + recent events. */
+    overview: () => '/catalog/overview',
+    /** GET /catalog/sources — list of connected source databases/types. */
+    sources: () => '/catalog/sources',
+    /** GET /catalog/objects/{id}/360 */
+    object360: (id: string) => `/catalog/objects/${enc(id)}/360`,
+    /** GET /catalog/objects/{id}/scores */
+    objectScores: (id: string) => `/catalog/objects/${enc(id)}/scores`,
+    /** POST /catalog/objects/{id}/scores/recompute */
+    recomputeScores: (id: string) => `/catalog/objects/${enc(id)}/scores/recompute`,
+    /** GET /catalog/objects/{fqn}/history — {fqn} contains dots/slashes, not URL-encoded. */
+    objectHistory: (fqn: string) => `/catalog/objects/${fqn}/history`,
+    /** GET /catalog/products */
+    products: () => '/catalog/products',
+    /** GET /catalog/products/{id}/overview */
+    productOverview: (id: string) => `/catalog/products/${enc(id)}/overview`,
+    /** GET /catalog/products/{id}/lineage */
+    productLineage: (id: string) => `/catalog/products/${enc(id)}/lineage`,
+    /** GET /catalog/products/{id}/assets */
+    productAssets: (id: string) => `/catalog/products/${enc(id)}/assets`,
+    /** GET /catalog/products/{id}/kpis */
+    productKpis: (id: string) => `/catalog/products/${enc(id)}/kpis`,
+    /** POST /catalog/products/{id}/recommend-model */
+    recommendProductModel: (id: string) => `/catalog/products/${enc(id)}/recommend-model`,
+    /** POST /catalog/products/{id}/generate-kpis */
+    generateProductKpis: (id: string) => `/catalog/products/${enc(id)}/generate-kpis`,
+    /** POST /catalog/products/{id}/publish */
+    publishProduct: (id: string) => `/catalog/products/${enc(id)}/publish`,
+    /** GET /catalog/kpis */
+    kpis: () => '/catalog/kpis',
+    /** GET /catalog/kpis/{id} */
+    kpi: (id: string) => `/catalog/kpis/${enc(id)}`,
+    /** POST /catalog/kpis/{id}/validate */
+    validateKpi: (id: string) => `/catalog/kpis/${enc(id)}/validate`,
+    /** GET /catalog/recommendations[?params] */
+    recommendations: () => '/catalog/recommendations',
+    /** POST /catalog/recommendations/{id}/apply */
+    applyRecommendation: (id: string) => `/catalog/recommendations/${enc(id)}/apply`,
+    /** POST /catalog/refresh — start a catalog refresh run (body: { scope_type, scope_value }). */
+    refreshStart: () => '/catalog/refresh',
+    /** GET /catalog/refresh/{run_id} — poll a running refresh. */
+    refreshStatus: (runId: string) => `/catalog/refresh/${enc(runId)}`,
     events: () => '/catalog/events',
     /** GET /catalog/tables/{db}/{schema}/{table}/context */
     tableContext: (db: string, s: string, t: string) =>
@@ -290,19 +574,66 @@ export const API = {
     /** GET /catalog/views/{db}/{schema}/{view}/ddl */
     viewDdl: (db: string, s: string, v: string) =>
       `/catalog/views/${enc(db)}/${enc(s)}/${enc(v)}/ddl`,
-    /** GET /catalog/refresh?scope=<scope>[&db=<db>] */
+    /** GET /catalog/refresh?scope=<scope>[&db=<db>] — legacy query-param form kept for compat. */
     refresh: (scope: string, db?: string) =>
       `/catalog/refresh?scope=${scope}${db ? `&db=${enc(db)}` : ''}`,
     /** POST /catalog/tags/flow */
     applyFlowTags: () => '/catalog/tags/flow',
     /** POST /catalog/tables/notify-consumers */
     notifyConsumers: () => '/catalog/tables/notify-consumers',
+    /** GET /catalog/scores — global catalog trust/quality averages ({ averages: { trust_avg } }) */
+    scores: () => '/catalog/scores',
     /** GET /sources/detected-models[?project_id=<id>] — backend-gap: not yet deployed */
     detectedModels: (projectId?: string) =>
       `/sources/detected-models${projectId ? `?project_id=${enc(projectId)}` : ''}`,
   },
 
-  /** Account-overview Snowflake explorer — backend: /api/snowflake/explorer/*. */
+  /**
+   * Data catalog object explorer — backend: /api/snowflake/explorer/*.
+   * Typed per-route entries; prefer these over the generic accountOverview.explorer().
+   */
+  snowflakeExplorer: {
+    /** GET /api/snowflake/explorer/summary — account-level KPI strip. */
+    summary: () => '/api/snowflake/explorer/summary',
+    /** GET /api/snowflake/explorer/databases[?page_size] */
+    databases: () => '/api/snowflake/explorer/databases',
+    /** GET /api/snowflake/explorer/schemas[?database&page_size] */
+    schemas: () => '/api/snowflake/explorer/schemas',
+    /** GET /api/snowflake/explorer/objects[?database&schema&page_size&…] */
+    objects: () => '/api/snowflake/explorer/objects',
+    /** GET /api/snowflake/explorer/facets[?database&schema] */
+    facets: () => '/api/snowflake/explorer/facets',
+    /** GET /api/snowflake/explorer/objects/{id} — identity + metadata. */
+    object: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}`,
+    /** GET /api/snowflake/explorer/objects/{id}/lineage */
+    objectLineage: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/lineage`,
+    /** GET /api/snowflake/explorer/objects/{id}/actions */
+    objectActions: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/actions`,
+    /** GET /api/snowflake/explorer/objects/{id}/columns */
+    objectColumns: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/columns`,
+    /** GET /api/snowflake/explorer/objects/{id}/governance */
+    objectGovernance: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/governance`,
+    /** GET /api/snowflake/explorer/objects/{id}/usage[?period&group_by] */
+    objectUsage: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/usage`,
+    /** GET /api/snowflake/explorer/objects/{id}/audit */
+    objectAudit: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/audit`,
+    /** GET /api/snowflake/explorer/objects/{id}/ddl */
+    objectDdl: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/ddl`,
+    /** GET /api/snowflake/explorer/objects/{id}/health */
+    objectHealth: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/health`,
+    /** GET /api/snowflake/explorer/objects/{id}/quality */
+    objectQuality: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/quality`,
+    /** GET /api/snowflake/explorer/objects/{id}/timeline[?limit] */
+    objectTimeline: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/timeline`,
+    /** GET /api/snowflake/explorer/objects/{id}/open-in-snowflake */
+    objectOpenInSnowflake: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/open-in-snowflake`,
+    /** GET /api/snowflake/explorer/objects/{id}/impact */
+    objectImpact: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/impact`,
+    /** GET /api/snowflake/explorer/objects/{id}/deep-dive */
+    objectDeepDive: (id: string) => `/api/snowflake/explorer/objects/${enc(id)}/deep-dive`,
+  },
+
+  /** Account-overview Snowflake explorer — generic fallback (prefer snowflakeExplorer.*). */
   accountOverview: {
     explorer: (path: string) => `/api/snowflake/explorer/${path.replace(/^\//, '')}`,
   },

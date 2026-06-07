@@ -1505,7 +1505,7 @@ export default function DataQualityPage() {
   const kpis = [
     { label: 'Health Score', value: summary ? `${summary.health_score}%` : '—', icon: BarChart3, color: healthColor },
     { label: 'Tables', value: summary?.total_tables ?? '—', icon: Database, color: 'from-blue-400 to-indigo-500' },
-    { label: 'Violations', value: summary ? `${summary.freshness_violations} (${summary.freshness_violation_pct ?? 0}%)` : '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
+    { label: 'Violations', value: summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
     { label: 'DMF Pass', value: summary ? `${summary.dmf_pass_rate}%` : '—', icon: Activity, color: 'from-rose-400 to-pink-500' },
     { label: 'Checks (30d)', value: summary?.checks_run_30d ?? '—', icon: CheckCircle2, color: 'from-cyan-400 to-teal-500' },
     { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500' },

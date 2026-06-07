@@ -481,7 +481,7 @@ function SourcePreviewList({
               {p?.status === 'running' && <Loader2 className="ml-auto h-3 w-3 animate-spin text-blue-500" />}
               {p?.status === 'ok' && (
                 <span className="ml-auto text-[10px] font-medium text-emerald-600">
-                  {p.data?.rows.length ?? 0} rows · {p.data?.columns.length ?? 0} cols
+                  {p.data?.rows.length ?? '—'} rows · {p.data?.columns.length ?? '—'} cols
                 </span>
               )}
               {p?.status === 'err' && (

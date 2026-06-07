@@ -153,10 +153,10 @@ export default function QueryAnalyticsContent() {
       <div className="flex items-center justify-between bg-gradient-to-r from-cyan-50 to-blue-50 dark:from-cyan-950/30 dark:to-blue-950/30 rounded-xl border border-cyan-200/60 dark:border-cyan-800/40 p-5">
         <div>
           <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-            Cortex Query Analysis
+            AI Query Analysis
           </h3>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Analyze recent Snowflake query history using AI to detect redundant queries, error patterns, and optimization opportunities.
+            Analyze recent query history using AI to detect redundant queries, error patterns, and optimization opportunities.
           </p>
           {summary?.LAST_ANALYSIS_AT && (
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
@@ -214,27 +214,27 @@ export default function QueryAnalyticsContent() {
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.TOTAL_ANALYZED ?? 0}</p>
+            <p className="text-2xl font-bold text-gray-900 dark:text-white">{summary.TOTAL_ANALYZED ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Total Analyzed</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.REDUNDANT_COUNT ?? 0}</p>
+            <p className="text-2xl font-bold text-amber-600 dark:text-amber-400">{summary.REDUNDANT_COUNT ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Redundant</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{summary.ERROR_COUNT ?? 0}</p>
+            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{summary.ERROR_COUNT ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Error Patterns</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{summary.OPTIMIZATION_COUNT ?? 0}</p>
+            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{summary.OPTIMIZATION_COUNT ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Optimizations</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{summary.SLOW_QUERY_COUNT ?? 0}</p>
+            <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">{summary.SLOW_QUERY_COUNT ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Slow Queries</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{summary.CRITICAL_COUNT ?? 0}</p>
+            <p className="text-2xl font-bold text-red-700 dark:text-red-300">{summary.CRITICAL_COUNT ?? '—'}</p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Critical</p>
           </div>
           <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-center">

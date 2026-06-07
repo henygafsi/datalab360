@@ -5,6 +5,9 @@ description: >
   consulte docs publiques (Snowflake/FastAPI/React), produit du code React+TypeScript
   prêt à coller : layout 14:6 panel-always-visible, FilterChips, RightPanel 5 sections,
   InsightActionButton par action, CTAs par rôle métier. Zero popup.
+  CHAQUE RUN produit des Global KPIs (endpoints_testés, gaps, henry_tasks P1/P2/P3,
+  smartrightbar_axes, backend_bonnes_pratiques_gaps) ÉCRITS EN PREMIER dans page-<module>.md,
+  suivis de l'état par étape (✅/⚠/❌ + KPIs étape), puis les détails.
   Usage: /agent-alice <module>   ex: /agent-alice intelligent
   test les endpoints via user HAHA / compte HAHA sur api.datalab360.io les endpoints pour etre sur de l'affichage si le contenu est normal / manquants ? enrichit et corrige le front et lance Henry agent avec tous les details demandé.
 triggers:
@@ -453,14 +456,83 @@ Format :
 - [ ] Historique GOVERNANCE_EVENTS dans panel → `GET /api/data360/events?module=gouvernance&entity_id={u}`
 ```
 
-### Étape 7 — Enrichir le .md du module
+### Étape 2b — Bonnes pratiques backend (checklist obligatoire par endpoint)
 
-Alice ajoute une section `## Alice Audit — <date>` dans `.claude/skills/page-<module>.md` :
+Pour chaque endpoint identifié en gap (404/⚠), Alice vérifie que la future implémentation Henry
+respectera les conventions CLAUDE.md avant de créer la task.
 
-1. Matrice UX par rôle (table)
-2. Redesign panel pour chaque section (bloc code)
-3. Henry tasks P1/P2/P3 (checklist)
-4. Composants à créer (avec code snippet prêt)
+| Convention | Vérification | Si absent → |
+|-----------|-------------|-------------|
+| `api-contracts.ts` a l'entrée | grep `API.<MODULE>` dans api-contracts.ts | Henry task P1 frontend |
+| `apiClient` utilisé (pas raw fetch/axios) | grep import dans le service ou hook | Henry task P1 frontend |
+| `cached_sf_get()` sur tous les GETs | router.py utilise le helper DRY | Henry task P2 backend |
+| `get_svc_snowflake_session` (jamais user session) | `Depends(get_svc_snowflake_session)` présent | Henry task P1 backend |
+| `@invalidates_cache` sur mutations | POST/PUT/DELETE décoré | Henry task P2 backend |
+| `require_authenticated` + RBAC gate | `Depends(require_role(...))` présent | Henry task P1 backend |
+| Shape OpenAPI-compatible | response dict avec clés stables | Henry task P2 backend |
+| `CACHE_KEYS.*` SSE sur le frontend | `useCacheInvalidation` branché | Henry task P2 frontend |
+
+Alice inclut cette checklist dans chaque Henry task générée.
+
+### Étape 7 — Enrichir le .md du module + Run KPIs
+
+Alice ajoute une section `## Alice Run — <module> — <YYYY-MM-DD>` dans `.claude/skills/page-<module>.md`.
+La section commence TOUJOURS par les Global KPIs, puis l'état par étape, puis les détails.
+
+```md
+## Alice Run — <module> — <YYYY-MM-DD>
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés | N |
+| endpoints_ok (2xx) | N |
+| endpoints_404 | N |
+| endpoints_500 | N |
+| endpoints_rbac (401/403) | N |
+| endpoints_non_vérifiés (offline) | N |
+| segments_ux_audités | N |
+| panel_sections_vérifiées | N/8 |
+| smartrightbar_axes_ok | N/8 |
+| rbac_règles_vérifiées | N |
+| insight_action_buttons_manquants | N |
+| cortex_tips_manquants | N |
+| henry_tasks_p1 | N |
+| henry_tasks_p2 | N |
+| henry_tasks_p3 | N |
+| backend_bonnes_pratiques_gaps | N |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API up check | ✅ / ⚠ / ❌ | dev=UP/OFFLINE, api=UP/DOWN |
+| 2. Token obtenu | ✅ / ⚠ / ❌ | token=présent / absent |
+| 2b. Bonnes pratiques backend | ✅ / ⚠ / ❌ | conventions_respectées=N, gaps=N |
+| 3. Docs publiques consultées | ✅ / ⚠ / ❌ | sources=SF/FastAPI/React |
+| 4. Matrice rôle×action | ✅ / ⚠ / ❌ | rôles=6, actions=N, manquantes=N |
+| 4b. SmartRightBar axes | ✅ / ⚠ / ❌ | axes_ok=N/8, axes_manquants=N |
+| 4c. Audit tab data + actions | ✅ / ⚠ / ❌ | tabs=N, gaps_p1=N, gaps_p2=N |
+| 5. Redesign panel | ✅ / ⚠ / ❌ | sections_redesignées=N |
+| 6. Henry tasks P1/P2/P3 | ✅ / ⚠ / ❌ | P1=N, P2=N, P3=N |
+| 7. Écriture page-<module>.md | ✅ / ⚠ / ❌ | sections_ajoutées=N |
+
+### Matrice UX par rôle (table)
+<!-- généré à l'étape 4 -->
+
+### Redesign panel (par section)
+<!-- généré à l'étape 5 -->
+
+### Henry Tasks — <module>
+<!-- généré à l'étape 6 -->
+
+### Composants à créer
+<!-- snippets prêts à coller -->
+```
+
+**Règle** : Les Global KPIs sont calculés APRÈS toutes les étapes et écrits EN PREMIER.
+Si une étape est `❌`, Alice documente la raison et continue avec les suivantes.
 
 ---
 
@@ -534,7 +606,10 @@ Alice flag P1 si une action exécute sans aucun preview/sample display.
 ## Checklist finale Alice
 
 Avant de livrer :
+- [ ] Global KPIs calculés et écrits EN PREMIER dans page-<module>.md
+- [ ] État par étape documenté (✅/⚠/❌ + KPIs étape)
 - [ ] Tous les endpoints testés (HTTP code documenté)
+- [ ] Bonnes pratiques backend vérifiées par endpoint (Étape 2b)
 - [ ] Chaque tab → filter chip OU section panel (rien ne disparaît, tout se repositionne)
 - [ ] Zero nouvelle modale proposée (tout inline dans panel)
 - [ ] Chaque action → rôle + `useCanPerform(module, action)` documenté
@@ -547,6 +622,7 @@ Avant de livrer :
 - [ ] **R3**: cost + risk + govDelta + lineageImpact sur tous les CTAs
 - [ ] **R4**: Preview + validation step avant toute mutation irréversible
 - [ ] **R5**: Sample data (100 rows) affiché après chaque action de transformation/ingestion
+- [ ] Aucun `?? 0` ou nombre fictif — `null` → afficher "—"
 
 ## Référence fichiers projet
 

@@ -1,4 +1,5 @@
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -294,11 +295,8 @@ export interface RefreshResponse {
 // API calls — /catalog/*
 // ---------------------------------------------------------------------------
 
-const CATALOG = '/catalog';
-const EXPLORER = '/api/snowflake/explorer';
-
 export async function getCatalogOverview(): Promise<CatalogOverviewResponse> {
-  const { data } = await apiClient.get<CatalogOverviewResponse>(`${CATALOG}/overview`);
+  const { data } = await apiClient.get<CatalogOverviewResponse>(API.catalog.overview());
   return data;
 }
 
@@ -315,7 +313,7 @@ export interface CatalogSourcesResponse {
 }
 
 export async function getCatalogSources(): Promise<CatalogSourcesResponse> {
-  const { data } = await apiClient.get<CatalogSourcesResponse>(`${CATALOG}/sources`);
+  const { data } = await apiClient.get<CatalogSourcesResponse>(API.catalog.sources());
   return data;
 }
 
@@ -324,23 +322,19 @@ export async function getObject360(
   opts?: { include_profile?: boolean; sample_size?: number; include_dependencies?: boolean },
 ): Promise<Object360Response> {
   const { data } = await apiClient.get<Object360Response>(
-    `${CATALOG}/objects/${encodeURIComponent(objectId)}/360`,
+    API.catalog.object360(objectId),
     { params: opts },
   );
   return data;
 }
 
 export async function getObjectScores(objectId: string): Promise<any> {
-  const { data } = await apiClient.get(
-    `${CATALOG}/objects/${encodeURIComponent(objectId)}/scores`,
-  );
+  const { data } = await apiClient.get(API.catalog.objectScores(objectId));
   return data;
 }
 
 export async function recomputeObjectScores(objectId: string): Promise<any> {
-  const { data } = await apiClient.post(
-    `${CATALOG}/objects/${encodeURIComponent(objectId)}/scores/recompute`,
-  );
+  const { data } = await apiClient.post(API.catalog.recomputeScores(objectId));
   return data;
 }
 
@@ -368,14 +362,14 @@ export async function getObjectHistory(
   // The backend uses {object_fqn:path} — FQN contains dots/slashes that must
   // pass through literally (no encodeURIComponent which would escape dots).
   const { data } = await apiClient.get<ObjectHistoryResponse>(
-    `${CATALOG}/objects/${objectFqn}/history`,
+    API.catalog.objectHistory(objectFqn),
     { params: opts },
   );
   return data;
 }
 
 export async function getCatalogScores(): Promise<CatalogScoresResponse> {
-  const { data } = await apiClient.get<CatalogScoresResponse>(`${CATALOG}/scores`);
+  const { data } = await apiClient.get<CatalogScoresResponse>(API.catalog.scores());
   return data;
 }
 
@@ -387,7 +381,7 @@ export async function getCatalogRecommendations(
     limit?: number;
   },
 ): Promise<{ items: Recommendation[]; count: number; filters: Record<string, any> }> {
-  const { data } = await apiClient.get(`${CATALOG}/recommendations`, { params });
+  const { data } = await apiClient.get(API.catalog.recommendations(), { params });
   return data;
 }
 
@@ -396,7 +390,7 @@ export async function applyRecommendation(
   body?: { note?: string },
 ): Promise<ApplyRecoResponse> {
   const { data } = await apiClient.post<ApplyRecoResponse>(
-    `${CATALOG}/recommendations/${recoId}/apply`,
+    API.catalog.applyRecommendation(recoId),
     body,
   );
   return data;
@@ -435,47 +429,47 @@ export async function getCatalogEvents(
     offset?: number;
   },
 ): Promise<CatalogEventsResponse> {
-  const { data } = await apiClient.get<CatalogEventsResponse>(`${CATALOG}/events`, { params });
+  const { data } = await apiClient.get<CatalogEventsResponse>(API.catalog.events(), { params });
   return data;
 }
 
 export async function getCatalogProducts(): Promise<{ products: CatalogProduct[]; count: number }> {
-  const { data } = await apiClient.get(`${CATALOG}/products`);
+  const { data } = await apiClient.get(API.catalog.products());
   return data;
 }
 
 export async function getCatalogProductOverview(productId: string): Promise<any> {
-  const { data } = await apiClient.get(`${CATALOG}/products/${productId}/overview`);
+  const { data } = await apiClient.get(API.catalog.productOverview(productId));
   return data;
 }
 
 export async function getCatalogProductLineage(productId: string): Promise<any> {
-  const { data } = await apiClient.get(`${CATALOG}/products/${productId}/lineage`);
+  const { data } = await apiClient.get(API.catalog.productLineage(productId));
   return data;
 }
 
 export async function getCatalogProductAssets(productId: string): Promise<any> {
-  const { data } = await apiClient.get(`${CATALOG}/products/${productId}/assets`);
+  const { data } = await apiClient.get(API.catalog.productAssets(productId));
   return data;
 }
 
 export async function getCatalogProductKpis(productId: string): Promise<any> {
-  const { data } = await apiClient.get(`${CATALOG}/products/${productId}/kpis`);
+  const { data } = await apiClient.get(API.catalog.productKpis(productId));
   return data;
 }
 
 export async function recommendProductModel(productId: string): Promise<any> {
-  const { data } = await apiClient.post(`${CATALOG}/products/${productId}/recommend-model`);
+  const { data } = await apiClient.post(API.catalog.recommendProductModel(productId));
   return data;
 }
 
 export async function generateProductKpis(productId: string): Promise<any> {
-  const { data } = await apiClient.post(`${CATALOG}/products/${productId}/generate-kpis`);
+  const { data } = await apiClient.post(API.catalog.generateProductKpis(productId));
   return data;
 }
 
 export async function publishProduct(productId: string): Promise<any> {
-  const { data } = await apiClient.post(`${CATALOG}/products/${productId}/publish`);
+  const { data } = await apiClient.post(API.catalog.publishProduct(productId));
   return data;
 }
 
@@ -494,7 +488,7 @@ export interface CatalogKpi {
 }
 
 export async function getCatalogKpis(): Promise<{ items: CatalogKpi[]; count: number }> {
-  const { data } = await apiClient.get(`${CATALOG}/kpis`);
+  const { data } = await apiClient.get(API.catalog.kpis());
   return data;
 }
 
@@ -509,29 +503,29 @@ export async function createCatalogKpi(body: {
   freshness_sla_hours?: number;
   owner?: string;
 }): Promise<CatalogKpi> {
-  const { data } = await apiClient.post<CatalogKpi>(`${CATALOG}/kpis`, body);
+  const { data } = await apiClient.post<CatalogKpi>(API.catalog.kpis(), body);
   return data;
 }
 
 export async function getCatalogKpi(kpiId: string): Promise<CatalogKpi> {
-  const { data } = await apiClient.get<CatalogKpi>(`${CATALOG}/kpis/${kpiId}`);
+  const { data } = await apiClient.get<CatalogKpi>(API.catalog.kpi(kpiId));
   return data;
 }
 
 export async function validateCatalogKpi(kpiId: string): Promise<{ kpi_id: string; status: string }> {
-  const { data } = await apiClient.post(`${CATALOG}/kpis/${kpiId}/validate`);
+  const { data } = await apiClient.post(API.catalog.validateKpi(kpiId));
   return data;
 }
 
 export async function refreshCatalog(
   body: { scope_type: string; scope_value: string },
 ): Promise<RefreshResponse> {
-  const { data } = await apiClient.post<RefreshResponse>(`${CATALOG}/refresh`, body);
+  const { data } = await apiClient.post<RefreshResponse>(API.catalog.refreshStart(), body);
   return data;
 }
 
 export async function getRefreshStatus(runId: string): Promise<RefreshResponse> {
-  const { data } = await apiClient.get<RefreshResponse>(`${CATALOG}/refresh/${runId}`);
+  const { data } = await apiClient.get<RefreshResponse>(API.catalog.refreshStatus(runId));
   return data;
 }
 
@@ -544,7 +538,7 @@ export async function getObjectDeepDive(
   opts?: { include_profile?: boolean; sample_size?: number; include_dependencies?: boolean },
 ): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/deep-dive`,
+    API.snowflakeExplorer.objectDeepDive(objectId),
     { params: opts },
   );
   return data;
@@ -552,7 +546,7 @@ export async function getObjectDeepDive(
 
 export async function getObjectActions(objectId: string): Promise<ActionsResponse> {
   const { data } = await apiClient.get<ActionsResponse>(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/actions`,
+    API.snowflakeExplorer.objectActions(objectId),
   );
   return data;
 }
@@ -580,7 +574,7 @@ export interface ExplorerEnvelope<T = any> {
 
 export async function getObjectColumns(objectId: string): Promise<ExplorerEnvelope> {
   const { data } = await apiClient.get<ExplorerEnvelope>(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/columns`,
+    API.snowflakeExplorer.objectColumns(objectId),
   );
   return data;
 }
@@ -590,7 +584,7 @@ export async function getObjectLineage(
   opts?: { direction?: 'upstream' | 'downstream' | 'both'; depth?: number },
 ): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/lineage`,
+    API.snowflakeExplorer.objectLineage(objectId),
     { params: opts },
   );
   return data;
@@ -598,14 +592,14 @@ export async function getObjectLineage(
 
 export async function getObjectImpact(objectId: string): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/impact`,
+    API.snowflakeExplorer.objectImpact(objectId),
   );
   return data;
 }
 
 export async function getObjectGovernanceTab(objectId: string): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/governance`,
+    API.snowflakeExplorer.objectGovernance(objectId),
   );
   return data;
 }
@@ -618,7 +612,7 @@ export async function getObjectUsage(
   },
 ): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/usage`,
+    API.snowflakeExplorer.objectUsage(objectId),
     { params: opts },
   );
   return data;
@@ -626,28 +620,28 @@ export async function getObjectUsage(
 
 export async function getObjectAudit(objectId: string): Promise<ExplorerEnvelope> {
   const { data } = await apiClient.get<ExplorerEnvelope>(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/audit`,
+    API.snowflakeExplorer.objectAudit(objectId),
   );
   return data;
 }
 
 export async function getObjectDdl(objectId: string): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/ddl`,
+    API.snowflakeExplorer.objectDdl(objectId),
   );
   return data;
 }
 
 export async function getObjectHealth(objectId: string): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/health`,
+    API.snowflakeExplorer.objectHealth(objectId),
   );
   return data;
 }
 
 export async function getObjectQuality(objectId: string): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/quality`,
+    API.snowflakeExplorer.objectQuality(objectId),
   );
   return data;
 }
@@ -657,7 +651,7 @@ export async function getObjectTimeline(
   opts?: { limit?: number },
 ): Promise<any> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/timeline`,
+    API.snowflakeExplorer.objectTimeline(objectId),
     { params: opts },
   );
   return data;
@@ -668,7 +662,7 @@ export async function getObjectOpenInSnowflake(
   accountUrl?: string,
 ): Promise<{ url?: string; [key: string]: any }> {
   const { data } = await apiClient.get(
-    `${EXPLORER}/objects/${encodeURIComponent(objectId)}/open-in-snowflake`,
+    API.snowflakeExplorer.objectOpenInSnowflake(objectId),
     { params: accountUrl ? { account_url: accountUrl } : undefined },
   );
   return data;

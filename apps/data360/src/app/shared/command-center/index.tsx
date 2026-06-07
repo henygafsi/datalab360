@@ -3074,11 +3074,11 @@ const OverviewTab = memo(function OverviewTab({
         const deployments30d =
           kpis?.deployments_30d ??
           ((summary as unknown as { platform?: { deployments_30d?: number } })
-            ?.platform?.deployments_30d ?? 0);
+            ?.platform?.deployments_30d ?? null);
         // Real 24h workflow-run count from the cached KPI payload. (The old
         // summary.platform.workflow_runs_30d read was phantom — not in any
         // response type — so the value was always the 24h figure anyway.)
-        const workflowRuns24h = kpis?.workflow_runs_24h ?? 0;
+        const workflowRuns24h = kpis?.workflow_runs_24h ?? null;
 
         const toDonutData = (rec: Record<string, number> | null) => {
           if (!rec) return [];
@@ -3234,7 +3234,7 @@ const OverviewTab = memo(function OverviewTab({
                     Deployments (30d)
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {deployments30d ?? 0}
+                    {deployments30d ?? '—'}
                   </p>
                 </div>
                 <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
@@ -3242,7 +3242,7 @@ const OverviewTab = memo(function OverviewTab({
                     Workflow Runs (24h)
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {workflowRuns24h ?? 0}
+                    {workflowRuns24h ?? '—'}
                   </p>
                 </div>
               </div>

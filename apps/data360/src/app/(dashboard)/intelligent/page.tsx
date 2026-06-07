@@ -329,7 +329,7 @@ export default function IntelligentPage() {
       {hasCortexUsage && cortexUsage && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 text-sm">
           <span className="font-medium text-gray-700 dark:text-gray-300">
-            Cortex usage{cortexUsage.period_days ? ` · last ${cortexUsage.period_days}d` : ''}
+            AI engine usage{cortexUsage.period_days ? ` · last ${cortexUsage.period_days}d` : ''}
           </span>
           {cortexUsage.total_credits != null && (
             <span className="text-gray-500 dark:text-gray-400">

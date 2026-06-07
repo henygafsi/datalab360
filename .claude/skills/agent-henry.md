@@ -7,6 +7,10 @@ description: >
   opportunité AI (Cortex), et stratégie de cache session unique.
   Reçoit les Henry Tasks d'Alice, implémente routes FastAPI, requêtes Snowflake,
   api-contracts.ts, services rightbar.ts, composants React panel, et stratégie cache.
+  DRY: cached_sf_get() déclaré une fois — tous les GETs le réutilisent.
+  CHAQUE RUN produit des Global KPIs (routes_ajoutées, tests_passés, build_ok, gaps_restants)
+  ÉCRITS EN PREMIER dans la section Henry Run du fichier page-<module>.md,
+  suivis de l'état par étape (✅/⚠/❌ + KPIs étape), puis les détails.
   Usage: /agent-henry <module> [P1|P2|P3]
   Exemples:
     /agent-henry catalog P1
@@ -150,20 +154,100 @@ CACHE_KEYS = {
 
 ## Pattern GET sécurisé avec cache
 
+### Déclaration unique — la brique de base
+
+Tous les GETs partagent la même séquence de 5 lignes. Déclarer le helper **une fois** dans
+`backend/app/core/route_helpers.py` ; chaque endpoint l'appelle via `cached_sf_get()`.
+
+```python
+# backend/app/core/route_helpers.py
+from functools import lru_cache
+from typing import Callable, Any, Optional
+from app.dependencies.cache import get_cache
+from app.dependencies.snowflake import get_svc_snowflake_session
+from app.dependencies.auth import require_authenticated
+
+async def cached_sf_get(
+    cache_key: str,
+    ttl: int,
+    query_fn: Callable,          # fn(cursor) → Any
+    cache=None,
+    svc_session=None,
+) -> Any:
+    """Single-point cached GET via service-account Snowflake session.
+
+    Usage:
+        result = await cached_sf_get("mod:cat:overview", 300,
+                                     lambda cur: CatalogService(cur).get_overview(),
+                                     cache=cache, svc_session=svc_session)
+    """
+    if hit := await cache.get(cache_key):
+        return hit
+    with svc_session.cursor() as cur:
+        result = query_fn(cur)
+    await cache.set(cache_key, result, ttl=ttl)
+    return result
+```
+
+### Réutilisation — toutes les routes en 3 lignes
+
 ```python
 # backend/app/modules/catalog/router.py
+from app.core.route_helpers import cached_sf_get
 
 @router.get("/catalog/overview")
 async def get_catalog_overview(
-    cache: CacheClient = Depends(get_cache),
-    svc_session = Depends(get_svc_snowflake_session),  # compte service unique
-    _user = Depends(require_authenticated),             # auth JWT user
+    cache=Depends(get_cache),
+    svc_session=Depends(get_svc_snowflake_session),
+    _user=Depends(require_authenticated),
 ):
-    cache_id = "mod:cat:overview"
-    if hit := await cache.get(cache_id):
-        return hit
-    result = CatalogService(svc_session).get_overview()
-    await cache.set(cache_id, result, ttl=300)
+    return await cached_sf_get("mod:cat:overview", 300,
+                                lambda cur: CatalogService(cur).get_overview(),
+                                cache=cache, svc_session=svc_session)
+
+@router.get("/catalog/sources")
+async def get_catalog_sources(
+    cache=Depends(get_cache),
+    svc_session=Depends(get_svc_snowflake_session),
+    _user=Depends(require_authenticated),
+):
+    return await cached_sf_get("mod:cat:sources", 180,
+                                lambda cur: CatalogService(cur).get_sources(),
+                                cache=cache, svc_session=svc_session)
+
+# ↑ même patron pour les 800+ GETs. Le boilerplate est dans cached_sf_get, pas dans chaque route.
+```
+
+### Paramètres variables dans le cache_id
+
+```python
+# Clé avec paramètre — jamais d'interpolation f-string raw dans le code appelant
+@router.get("/gouvernance/users/{username}/roles")
+async def get_user_roles(username: str, cache=Depends(get_cache), ...):
+    return await cached_sf_get(
+        f"usr:{username.upper()}:roles", 120,
+        lambda cur: GouvernanceService(cur).get_user_roles(username),
+        cache=cache, svc_session=svc_session,
+    )
+
+@router.get("/api/snowflake/explorer/objects/{object_id}/lineage")
+async def get_object_lineage(object_id: str, cache=Depends(get_cache), ...):
+    return await cached_sf_get(
+        f"obj:{object_id}:lineage", 180,
+        lambda cur: SnowflakeExplorer(cur).get_lineage(object_id),
+        cache=cache, svc_session=svc_session,
+    )
+```
+
+### Mutations — invalidation obligatoire
+
+```python
+from app.core.invalidation import invalidate_keys
+
+@router.post("/gouvernance/add-user")
+@invalidates_cache(["acct:users", "usr:*:roles"])   # décorateur existant
+async def add_user(body: AddUserRequest, ...):
+    result = GouvernanceService(cursor).add_user(body)
     return result
 ```
 
@@ -1324,30 +1408,316 @@ feat(henry/workflow): run-analyze + cost-summary with Cortex advice [SF:QH+MH+CX
 
 ---
 
-# Réponse finale Henry après exécution
+# Run Output — Format obligatoire Henry
+
+Chaque exécution Henry produit une section `## Henry Run` dans le fichier page-<module>.md
+(ou dans agent-henry.md si multi-module). La section commence TOUJOURS par les Global KPIs,
+puis l'état par étape, puis les détails.
 
 ```md
-## Done
+## Henry Run — <module> — <YYYY-MM-DD>
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| routes_vérifiées (app.main import) | N |
+| routes_nouvelles_ajoutées | N |
+| routes_modifiées | N |
+| api_contracts_entrées_ajoutées | N |
+| cache_keys_ajoutées | N |
+| cached_sf_get_réutilisations | N |
+| tests_passés | N |
+| tests_échoués | N |
+| lint_erreurs | N |
+| build_ok | true / false |
+| backend_gaps_restants | N |
+| snowflake_sources_utilisées | QH / MH / TBL / POL / ... |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Lecture routes existantes | ✅ / ⚠ / ❌ | trouvées=N, manquantes=N |
+| 2. Implémentation endpoints | ✅ / ⚠ / ❌ | ajoutées=N, modifiées=N |
+| 3. cached_sf_get appliqué | ✅ / ⚠ / ❌ | GETs standardisés=N |
+| 4. api-contracts.ts | ✅ / ⚠ / ❌ | entrées_ajoutées=N |
+| 5. Cache keys + invalidation | ✅ / ⚠ / ❌ | keys=N, mutations_décorées=N |
+| 6. Tests backend | ✅ / ⚠ / ❌ | passés=N, échoués=N |
+| 7. Lint | ✅ / ⚠ / ❌ | erreurs=N |
+| 8. Vérification routes enregistrées | ✅ / ⚠ / ❌ | attendues=N, trouvées=N |
+
+### Files changed
 - ...
 
-## Files changed
+### Endpoints added / corrected
 - ...
 
-## Endpoints added / corrected
+### Risk / governance / AI logic
 - ...
 
-## Risk / governance / AI logic
+### Cache keys invalidated
 - ...
 
-## Cache keys invalidated
+### Frontend handoff (api-contracts.ts entries)
 - ...
 
-## Tests
-- ...
-
-## Frontend handoff (api-contracts.ts entries)
-- ...
-
-## Remaining backend gaps
+### Remaining backend gaps
 - ...
 ```
+
+**Règle** : Si une étape est en état `❌ / ⚠`, Henry DOIT lister la raison avant de passer à la suivante.
+Les KPIs globaux sont calculés APRÈS toutes les étapes et écrits EN PREMIER dans la section.
+
+---
+
+# Event Store Enrichment — Deployment Readiness
+
+## Contexte
+
+Chaque déploiement doit afficher : **changements diff vs version précédente**, **impact lignée**,
+**estimation coût**, et **payload d'approbation par changement**.
+Ces données sont composées depuis 3 services existants — aucun doublon.
+
+## Composants existants réutilisés
+
+| Service | Fichier | Retourne |
+|---------|---------|---------|
+| `get_project(cursor, project_id)` | `projects/services.py` | `current_version_id` (draft HEAD) |
+| `list_deployments(cursor, project_id, status="SUCCESS", limit=1)` | `projects/services.py` | version du dernier déploiement réussi |
+| `compare_versions(cursor, from_vid, to_vid)` | `lifecycle_services.py` | `{diff: {tables_added[], tables_removed[], tables_modified[], policies_added[], policies_removed[]}}` |
+| `impact_analysis_global(cursor, changes[])` | `lifecycle_services.py` | `{impact_summary, affected_objects[], breaking_changes[]}` |
+| `WAREHOUSE_METERING_HISTORY` (7j avg) | SQL | `avg_credits_per_hour` (baseline réel) |
+
+## Nouveau endpoint backend — draft local uniquement
+
+```python
+# backend/app/modules/projects/explore_design/lifecycle_router.py
+# DRAFT — ne pas pusher sans go backend
+
+from app.modules.projects.services import get_project, list_deployments
+from app.modules.projects.explore_design.lifecycle_services import (
+    compare_versions, impact_analysis_global,
+)
+
+@router.get("/{project_id}/deployment-readiness")
+async def get_deployment_readiness(
+    project_id: str,
+    cache=Depends(get_cache),
+    svc_session=Depends(get_svc_snowflake_session),
+    _user=Depends(require_authenticated),
+):
+    """
+    Consolidated pre-approval view:
+    - change_diff vs last deployed version
+    - lineage impact per affected table
+    - cost estimate from WAREHOUSE_METERING_HISTORY
+    - approval payload template with per-change detail
+    """
+    cache_id = f"proj:{project_id}:readiness"
+    if hit := await cache.get(cache_id):
+        return hit
+
+    with svc_session.cursor() as cur:
+        # 1. HEAD version (draft)
+        project = get_project(cur, project_id)
+        current_vid = project.get("current_version_id") if project else None
+
+        # 2. Last deployed version
+        hist = list_deployments(cur, project_id=project_id, status="SUCCESS", limit=1)
+        deployments = hist.get("deployments", [])
+        last_vid = deployments[0]["version_id"] if deployments else None
+
+        # 3. Diff
+        diff = {}
+        changes_for_impact = []
+        if current_vid and last_vid and current_vid != last_vid:
+            diff = compare_versions(cur, last_vid, current_vid)
+            # Normalize diff keys → impact_analysis_global input format
+            for t in diff.get("diff", {}).get("tables_removed", []):
+                changes_for_impact.append({"database": project.get("database"), "schema": project.get("schema"), "table": t, "type": "TABLE_REMOVED"})
+            for item in diff.get("diff", {}).get("tables_modified", []):
+                for col in item.get("columns_removed", []):
+                    changes_for_impact.append({"database": project.get("database"), "schema": project.get("schema"), "table": item["table_name"], "column": col, "type": "COLUMN_REMOVED"})
+                for col in item.get("columns_type_changed", {}).keys():
+                    changes_for_impact.append({"database": project.get("database"), "schema": project.get("schema"), "table": item["table_name"], "column": col, "type": "COLUMN_TYPE_CHANGE"})
+
+        # 4. Lineage impact
+        impact = impact_analysis_global(cur, changes_for_impact) if changes_for_impact else {
+            "impact_summary": {"high_risk": 0, "medium_risk": 0, "low_risk": 0, "total_affected_objects": 0},
+            "affected_objects": [], "breaking_changes": [],
+        }
+
+        # 5. Cost estimate — DDL is free; ingest uses WAREHOUSE_METERING_HISTORY 7d avg
+        cost_estimate = {"credits_estimate": None, "method": "DDL_FREE",
+                         "warning": "DDL operations consume no compute credits",
+                         "breakdown": ["Schema changes are serverless — 0 credits"]}
+        has_ingest = any(e.get("type") in ("INGESTION_CREATED", "INGESTION_EXECUTED")
+                         for e in diff.get("diff", {}).get("tables_added", []))
+        if has_ingest:
+            try:
+                cur.execute(
+                    "SELECT AVG(CREDITS_USED) FROM SNOWFLAKE.ACCOUNT_USAGE.WAREHOUSE_METERING_HISTORY "
+                    "WHERE START_TIME >= DATEADD(day,-7,CURRENT_TIMESTAMP())"
+                )
+                row = cur.fetchone()
+                avg = float(row[0]) if row and row[0] is not None else None
+                cost_estimate = {
+                    "credits_estimate": round(avg * 0.1, 4) if avg else None,
+                    "method": "METERING_HISTORY",
+                    "breakdown": [f"7d avg warehouse credits/hr={round(avg,4) if avg else '—'}",
+                                  "Estimated 0.1hr for ingestion batch"],
+                    "warning": None,
+                }
+            except Exception:
+                cost_estimate = {"credits_estimate": None, "method": "UNAVAILABLE",
+                                 "warning": "METERING_HISTORY not accessible", "breakdown": []}
+
+    result = {
+        "project_id": project_id,
+        "current_version_id": current_vid,
+        "last_deployed_version_id": last_vid,
+        "change_diff": diff,
+        "lineage_impact": impact,
+        "cost_estimate": cost_estimate,
+        "approval_payload_template": {
+            "project_id": project_id,
+            "from_version_id": last_vid,
+            "to_version_id": current_vid,
+            "changes": changes_for_impact,
+            "impact_summary": impact.get("impact_summary"),
+            "cost_estimate": cost_estimate,
+            "requested_by": None,  # rempli par le frontend
+            "notes": None,
+        },
+    }
+    await cache.set(cache_id, result, ttl=60)   # court TTL — données de draft
+    return result
+```
+
+## api-contracts.ts — entrée à ajouter
+
+```typescript
+// src/lib/api-contracts.ts
+export const API = {
+  // ... existing entries ...
+  EXPLORE_DESIGN: {
+    // ... existing ...
+    DEPLOYMENT_READINESS: (projectId: string) =>
+      `/explore-design/${projectId}/deployment-readiness` as const,
+  },
+};
+```
+
+## Frontend — DesignEvent enrichi
+
+```typescript
+// apps/data360/src/app/(dashboard)/explore-design/stores/event-store.ts
+
+// Nouveaux types — ajouter APRÈS EventStatus existant
+export type LineageImpact = {
+  impact_summary: { high_risk: number; medium_risk: number; low_risk: number; total_affected_objects: number };
+  affected_objects: Array<{ type: string; name: string; risk_level: 'HIGH' | 'MEDIUM' | 'LOW'; reason: string }>;
+  breaking_changes: Array<{ type: string; name: string; risk_level: string }>;
+};
+
+export type CostEstimate = {
+  credits_estimate: number | null;  // null → afficher "—" (jamais inventer un 0 fictif)
+  method: 'DDL_FREE' | 'METERING_HISTORY' | 'PATTERN_MATCH' | 'UNAVAILABLE';
+  breakdown: string[];
+  warning?: string | null;
+};
+
+// DesignEvent — enrichissement (ajouter dans l'interface existante)
+// APRÈS le champ synced?: boolean
+//   lineageImpact?: LineageImpact;
+//   costEstimate?: CostEstimate;
+//   approvalStatus?: 'pending' | 'approved' | 'rejected';
+//   approvedBy?: string;
+//   rejectedReason?: string;
+```
+
+## Hook useDeploymentReadiness
+
+```typescript
+// apps/data360/src/app/(dashboard)/explore-design/hooks/useDeploymentReadiness.ts
+import { useQuery } from '@tanstack/react-query';
+import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+
+export function useDeploymentReadiness(projectId: string | null) {
+  return useQuery({
+    queryKey: ['deployment-readiness', projectId],
+    queryFn: async () => {
+      if (!projectId) return null;
+      const { data } = await apiClient.get(API.EXPLORE_DESIGN.DEPLOYMENT_READINESS(projectId));
+      return data;
+    },
+    enabled: Boolean(projectId),
+    staleTime: 60_000,
+    retry: (count, err: any) => {
+      // 404 = endpoint pas encore déployé → disable silently (InsightActionButton pattern)
+      if (err?.response?.status === 404 || err?.response?.status === 501) return false;
+      return count < 2;
+    },
+  });
+}
+```
+
+## Règle d'affichage — jamais de faux 0
+
+```
+credits_estimate: null   →  afficher "—"
+credits_estimate: 0.0    →  afficher "0 credits (DDL free)" avec tooltip
+credits_estimate: 0.0012 →  afficher "~0.001 credits"
+```
+
+Ne jamais afficher `?? 0` ou un nombre fictif. Si `method === 'UNAVAILABLE'` → afficher
+"Cost data unavailable" avec le `warning` texte.
+
+## Approval payload — per-change detail (bundle approval existant)
+
+Le table `DEPLOYMENT_APPROVALS` gère déjà l'approve/reject au niveau bundle.
+Les per-change details voyagent dans le champ `notes` ou un VARIANT `changes_detail` :
+
+```python
+# Enrichir le payload d'approbation existant dans lifecycle_router.py
+# POST /{project_id}/approvals/submit
+body = {
+    "project_id": project_id,
+    "from_version_id": last_vid,
+    "to_version_id": current_vid,
+    "changes": changes_for_impact,          # per-change detail
+    "impact_summary": impact["impact_summary"],
+    "cost_estimate": cost_estimate,
+    "requested_by": username,
+    "notes": approval_notes,
+}
+# → INSERT INTO FQDN.deployment_approvals() avec DETAILS:changes_detail
+```
+
+## Sub-agents Henry — outils internes
+
+Quand Henry travaille sur le backend, il DOIT :
+
+1. **Vérifier l'existant avant d'écrire** :
+   ```bash
+   # Confirmer qu'une route existe
+   python3 -c "from app.main import app; paths=[r.path for r in app.routes if hasattr(r,'path')]; print([p for p in paths if 'readiness' in p])"
+   
+   # Vérifier service existant
+   grep -n "def compare_versions\|def impact_analysis_global" app/modules/projects/explore_design/lifecycle_services.py
+   ```
+
+2. **Lire la forme exacte avant d'appeler** — ne jamais deviner les arguments de position d'une fonction ;
+   lire les 20 premières lignes de chaque fonction utilisée.
+
+3. **Tester localement avant de documenter comme fait** :
+   ```bash
+   cd /Users/datalab360/Documents/data360_pro/backend
+   python -m pytest tests/ -q --tb=short
+   ruff check app
+   python3 -c "from app.main import app; paths=[r.path for r in app.routes if hasattr(r,'path')]; assert any('deployment-readiness' in p for p in paths), 'MISSING'"
+   ```
+
+4. **Ne pas pousher le backend** — frontend uniquement sur `feat/backlog-v1`.

@@ -259,6 +259,8 @@ const STATUS_DOT: Record<EventStatus, string> = {
   validated: '#10B981',
   failed:    '#EF4444',
   applied:   '#3B82F6',
+  approved:  '#6366F1',
+  rejected:  '#DC2626',
 };
 
 // ── Custom Node ────────────────────────────────────────────────────────────

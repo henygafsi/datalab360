@@ -3661,7 +3661,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                           {r.connector_type || r.connector_id}
                         </span>
                         <span className="text-slate-500 dark:text-slate-400 ml-auto">
-                          {r.tables_passed}/{r.tables_tested} tables · {Math.round((r.pass_rate ?? 0) * 100)}%
+                          {r.tables_passed}/{r.tables_tested} tables · {r.pass_rate != null ? `${Math.round(r.pass_rate * 100)}%` : '—'}
                         </span>
                       </div>
                     ))}
