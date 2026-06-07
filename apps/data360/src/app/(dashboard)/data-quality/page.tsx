@@ -35,7 +35,9 @@ import {
 } from '@/app/services/data-quality';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 
 // ── Types ──
@@ -1874,12 +1876,79 @@ export default function DataQualityPage() {
         : 'from-red-400 to-rose-500'
     : 'from-green-400 to-emerald-500';
 
-  const kpis = [
-    { label: 'Health Score', value: summary ? `${summary.health_score}%` : '—', icon: BarChart3, color: healthColor },
-    { label: 'Tables', value: summary?.total_tables ?? '—', icon: Database, color: 'from-blue-400 to-indigo-500' },
-    { label: 'Violations', value: summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
-    { label: 'DMF Pass', value: summary ? `${summary.dmf_pass_rate}%` : '—', icon: Activity, color: 'from-rose-400 to-pink-500' },
-    { label: 'Checks (30d)', value: summary?.checks_run_30d ?? '—', icon: CheckCircle2, color: 'from-cyan-400 to-teal-500' },
+  // Violations badge color & CTA state — a non-zero count is a "bad" state, so
+  // surface a "Review breaches" CTA jumping straight to the freshness tab.
+  const violationCount = summary?.freshness_violations ?? 0;
+
+  const kpis: {
+    label: string;
+    value: string | number;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    help?: MetricHelpProps;
+    cta?: { label: string; onClick: () => void };
+  }[] = [
+    {
+      label: 'Health Score',
+      value: summary ? `${summary.health_score}%` : '—',
+      icon: BarChart3,
+      color: healthColor,
+      help: {
+        title: 'Quality Score',
+        definition: 'Weighted pass-rate across all data metric checks — the headline indicator of overall data health.',
+        source: 'data metric functions',
+        goodRange: '> 80%',
+      },
+    },
+    {
+      label: 'Tables',
+      value: summary?.total_tables ?? '—',
+      icon: Database,
+      color: 'from-blue-400 to-indigo-500',
+      help: {
+        title: 'Monitored Tables',
+        definition: 'Number of tables currently under quality monitoring across all dimensions.',
+        source: 'data warehouse metadata',
+      },
+    },
+    {
+      label: 'Violations',
+      value: summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—',
+      icon: AlertTriangle,
+      color: 'from-amber-400 to-orange-500',
+      help: {
+        title: 'Violations',
+        definition: 'Checks breaching their freshness threshold — tables whose time since last successful load exceeds the configured SLA.',
+        source: 'freshness checks',
+        goodRange: '0 violations',
+      },
+      ...(violationCount > 0
+        ? { cta: { label: 'Review breaches', onClick: () => setActiveTab('freshness') } }
+        : {}),
+    },
+    {
+      label: 'DMF Pass',
+      value: summary ? `${summary.dmf_pass_rate}%` : '—',
+      icon: Activity,
+      color: 'from-rose-400 to-pink-500',
+      help: {
+        title: 'Completeness & Check Pass Rate',
+        definition: 'Share of data metric checks that pass their thresholds, including completeness (% non-null across monitored columns).',
+        source: 'data metric functions',
+        goodRange: '> 95%',
+      },
+    },
+    {
+      label: 'Checks (30d)',
+      value: summary?.checks_run_30d ?? '—',
+      icon: CheckCircle2,
+      color: 'from-cyan-400 to-teal-500',
+      help: {
+        title: 'Freshness',
+        definition: 'Quality checks executed in the last 30 days; freshness measures time since each table’s last successful load versus its SLA.',
+        source: 'metering history',
+      },
+    },
     { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500' },
     { label: 'DQ Credits', value: summary?.dq_credits_30d ?? '—', icon: DollarSign, color: 'from-lime-400 to-green-500' },
   ];
@@ -2016,6 +2085,39 @@ export default function DataQualityPage() {
         </div>
       )}
 
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM call): when breaches exist, propose scheduling a recurring
+          quality check. The action route is a backend gap — InsightActionButton
+          self-disables on 404/501 until it ships. */}
+      {!loading && dmfBreaches.length > 0 && (
+        <AIActionFlow
+          title="Recommended next steps"
+          context={{
+            module: 'data_quality',
+            entityType: 'dmf_breaches',
+            entityId: 'dashboard',
+            data: { breachCount: dmfBreaches.length },
+          }}
+          suggestions={
+            [
+              {
+                id: 'dq-schedule-check',
+                title: 'Schedule a recurring quality check',
+                rationale: `${dmfBreaches.length} threshold ${dmfBreaches.length === 1 ? 'breach is' : 'breaches are'} active. A scheduled DMF check catches regressions early instead of waiting for a manual run.`,
+                action: {
+                  label: 'Schedule check',
+                  endpoint: API.dataQuality.dmfSchedule(),
+                  method: 'POST',
+                  payload: { cadence: 'daily', source: 'ai_action_flow' },
+                  cost: '~1 credit/run',
+                  risk: 'low — creates a scheduled task, no data change',
+                },
+              },
+            ] satisfies Suggestion[]
+          }
+        />
+      )}
+
       {/* ── Compact KPI Bar ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl" aria-live="polite" aria-atomic="true">
         {loading ? (
@@ -2032,8 +2134,19 @@ export default function DataQualityPage() {
                     <Icon className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
+                      {kpi.help && <MetricHelp {...kpi.help} />}
+                    </div>
                     <p className="text-base font-bold text-gray-900 dark:text-white leading-tight">{kpi.value}</p>
+                    {kpi.cta && (
+                      <button
+                        onClick={kpi.cta.onClick}
+                        className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                      >
+                        {kpi.cta.label} →
+                      </button>
+                    )}
                   </div>
                 </div>
               );

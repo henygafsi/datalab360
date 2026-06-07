@@ -13,6 +13,7 @@ import {
 } from 'react-icons/pi';
 import { getTrustCenterFindings, getTrustCenterSummary, isRouteNotDeployed } from '@/app/services/observability';
 import { getApiErrorMessage } from '@/lib/api-client';
+import MetricHelp from '@/components/ui/MetricHelp';
 
 export default function TrustCenterCard() {
   const [findings, setFindings] = useState<any[]>([]);
@@ -108,7 +109,7 @@ export default function TrustCenterCard() {
             <PiShieldStarDuotone className="w-5 h-5 text-indigo-600" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Snowflake Trust Center</h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Trust Center</h3>
             <p className="text-sm text-slate-500">Security posture findings and recommendations</p>
           </div>
         </div>
@@ -151,13 +152,29 @@ export default function TrustCenterCard() {
                 {summary.critical_count ?? '—'}
               </div>
               <p className="text-sm text-slate-500">Critical/High</p>
+              {Number(summary.critical_count ?? 0) > 0 && (
+                <button
+                  onClick={() => setActiveView('findings')}
+                  className="mt-2 inline-flex items-center gap-0.5 text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                >
+                  Review findings →
+                </button>
+              )}
             </div>
             <div className="bg-white dark:bg-slate-800 border border-green-200 dark:border-green-700/50 rounded-xl p-5 text-center">
               <div className="flex items-center justify-center gap-2 mb-1">
                 <PiCheckCircle className="w-7 h-7 text-green-500" />
                 <span className="text-3xl font-bold text-green-600">{summary.compliance_score ?? '-'}%</span>
               </div>
-              <p className="text-sm text-slate-500">Compliance Score</p>
+              <div className="flex items-center justify-center gap-1">
+                <p className="text-sm text-slate-500">Compliance Score</p>
+                <MetricHelp
+                  title="Compliance Score"
+                  definition="Percentage of security and compliance checks currently passing across the connected environment."
+                  source="security posture findings"
+                  goodRange="≥ 90%"
+                />
+              </div>
             </div>
           </div>
 
@@ -189,7 +206,7 @@ export default function TrustCenterCard() {
             <div className="text-center py-12">
               <PiCheckCircle className="w-12 h-12 text-green-400 mx-auto mb-3" />
               <p className="text-lg font-medium text-slate-900 dark:text-white">No findings</p>
-              <p className="text-sm text-slate-500 mt-1">Your Snowflake account has no security findings</p>
+              <p className="text-sm text-slate-500 mt-1">Your account has no security findings</p>
             </div>
           ) : (
             findings.map((finding: any, i: number) => {

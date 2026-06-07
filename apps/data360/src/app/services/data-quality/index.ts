@@ -6,8 +6,7 @@
  */
 
 import apiClient from '@/lib/api-client';
-
-const PREFIX = '/data-quality';
+import { API } from '@/lib/api-contracts';
 
 // =============================================================================
 // TYPES
@@ -54,7 +53,7 @@ export interface DmfSuggestResponse {
  * POST /data-quality/projects/{project_id}/dmf-check
  */
 export async function runBuiltinDmfCheck(projectId: string, request: RunBuiltinDmfCheckRequest) {
-  const { data } = await apiClient.post(`${PREFIX}/projects/${encodeURIComponent(projectId)}/dmf-check`, {
+  const { data } = await apiClient.post(API.dataQuality.projectDmfCheck(projectId), {
     table: request.table,
     columns: request.columns,
     dmf_name: request.dmf_name,
@@ -74,7 +73,7 @@ export async function getDmfResults(
   if (params?.table_name) queryParams.table_name = params.table_name;
   if (params?.database) queryParams.database = params.database;
   if (params?.schema) queryParams.schema = params.schema;
-  const { data } = await apiClient.get(`${PREFIX}/projects/${encodeURIComponent(projectId)}/dmf-results`, {
+  const { data } = await apiClient.get(API.dataQuality.projectDmfResults(projectId), {
     params: queryParams,
   });
   return data;
@@ -92,7 +91,7 @@ export async function suggestDmfs(
   if (params?.table_name) queryParams.table_name = params.table_name;
   if (params?.database) queryParams.database = params.database;
   if (params?.schema) queryParams.schema = params.schema;
-  const { data } = await apiClient.get(`${PREFIX}/projects/${encodeURIComponent(projectId)}/dmf-suggest`, {
+  const { data } = await apiClient.get(API.dataQuality.projectDmfSuggest(projectId), {
     params: queryParams,
   });
   return data;
@@ -114,70 +113,70 @@ export interface MetricRow {
 }
 
 export async function getQualitySummary(database: string, days?: number): Promise<QualitySummary> {
-  const { data } = await apiClient.get(`${PREFIX}/quality-summary`, {
+  const { data } = await apiClient.get(API.dataQuality.qualitySummary(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data;
 }
 
 export async function getCompletenessMetrics(database: string, days?: number): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/completeness-metrics`, {
+  const { data } = await apiClient.get(API.dataQuality.completenessMetrics(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data || [];
 }
 
 export async function getUniquenessMetrics(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/uniqueness-metrics`, {
+  const { data } = await apiClient.get(API.dataQuality.uniquenessMetrics(), {
     params: { database },
   });
   return data?.rows || data?.data || data || [];
 }
 
 export async function getFreshnessMetrics(database: string, days?: number): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/freshness-metrics`, {
+  const { data } = await apiClient.get(API.dataQuality.freshnessMetrics(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data || [];
 }
 
 export async function getIngestionMetrics(database: string, days?: number): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/ingestion-metrics`, {
+  const { data } = await apiClient.get(API.dataQuality.ingestionMetrics(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data || [];
 }
 
 export async function getSchemaQuality(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/schema-quality`, {
+  const { data } = await apiClient.get(API.dataQuality.schemaQuality(), {
     params: { database },
   });
   return data?.data || data || [];
 }
 
 export async function getClassificationCoverage(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/classification-coverage`, {
+  const { data } = await apiClient.get(API.dataQuality.classificationCoverage(), {
     params: { database },
   });
   return data?.data || data || [];
 }
 
 export async function getCostMetrics(database: string, days?: number): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/cost-metrics`, {
+  const { data } = await apiClient.get(API.dataQuality.costMetrics(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data || [];
 }
 
 export async function getDQSecurityPosture(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/security-posture`, {
+  const { data } = await apiClient.get(API.dataQuality.securityPosture(), {
     params: { database },
   });
   return data?.data || data || [];
 }
 
 export async function getDmfDashboardResults(database: string): Promise<MetricRow[]> {
-  const { data } = await apiClient.get(`${PREFIX}/dmf-results`, {
+  const { data } = await apiClient.get(API.dataQuality.dmfResults(), {
     params: { database },
   });
   return data?.data || data || [];
@@ -194,7 +193,7 @@ export interface TrendDataPoint {
 }
 
 export async function getTrendAnalysis(database: string, days?: number): Promise<TrendDataPoint[]> {
-  const { data } = await apiClient.get(`${PREFIX}/trend-analysis`, {
+  const { data } = await apiClient.get(API.dataQuality.trendAnalysis(), {
     params: { database, days: days || 30 },
   });
   return data?.data || data || [];
@@ -231,7 +230,7 @@ export interface DmfThresholdResponse {
 export async function setDmfThreshold(
   payload: DmfThresholdPayload,
 ): Promise<DmfThresholdResponse> {
-  const { data } = await apiClient.post(`${PREFIX}/dmf/thresholds`, payload);
+  const { data } = await apiClient.post(API.dataQuality.dmfThresholds(), payload);
   return data?.data || data;
 }
 
@@ -294,7 +293,7 @@ export interface QualityCheckRunResult {
  * POST /data-quality/run-check
  */
 export async function runQualityCheckOnTable(config: QualityCheckConfig): Promise<QualityCheckRunResult> {
-  const { data } = await apiClient.post(`${PREFIX}/run-check`, config);
+  const { data } = await apiClient.post(API.dataQuality.runCheck(), config);
   return data?.data || data;
 }
 
@@ -307,7 +306,7 @@ export async function runQualityCheckOnTable(config: QualityCheckConfig): Promis
  * Now forwards the value as `table` so the backend Pydantic model validates.
  */
 export async function runQualityCheck(database: string): Promise<RunCheckResponse> {
-  const { data } = await apiClient.post(`${PREFIX}/run-check`, { table: database });
+  const { data } = await apiClient.post(API.dataQuality.runCheck(), { table: database });
   return data?.data || data;
 }
 
@@ -321,8 +320,6 @@ export async function runQualityCheck(database: string): Promise<RunCheckRespons
 // it for that reason.) Routes may 404 until the policies router is deployed —
 // callers must degrade to an inline error, never fake success.
 // =============================================================================
-
-const GOV_PREFIX = '/gouvernance/policies';
 
 export interface DmfDefinition {
   name: string;
@@ -345,7 +342,7 @@ export interface DmfReference {
 
 /** List available DMFs (built-in + custom). GET /gouvernance/policies/dmf/list */
 export async function listDmfs(database = 'CP_DATA360', schema = 'GOUVERNANCE'): Promise<DmfDefinition[]> {
-  const { data } = await apiClient.get(`${GOV_PREFIX}/dmf/list`, { params: { database, schema } });
+  const { data } = await apiClient.get(API.gouvernance.policyDmfList(), { params: { database, schema } });
   return data?.dmfs || data?.data || data || [];
 }
 
@@ -361,7 +358,7 @@ export async function createCustomDmf(params: {
   schema?: string;
   comment?: string;
 }): Promise<unknown> {
-  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf`, null, {
+  const { data } = await apiClient.post(API.gouvernance.policyDmfCreate(), null, {
     params: {
       name: params.name,
       table_args: params.table_args,
@@ -385,7 +382,7 @@ export async function associateDmf(params: {
   database?: string;
   schema?: string;
 }): Promise<unknown> {
-  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/associate`, null, {
+  const { data } = await apiClient.post(API.gouvernance.policyDmfAssociate(), null, {
     params: {
       table_fqn: params.table_fqn,
       dmf_name: params.dmf_name,
@@ -405,7 +402,7 @@ export async function disassociateDmf(params: {
   database?: string;
   schema?: string;
 }): Promise<unknown> {
-  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/disassociate`, null, {
+  const { data } = await apiClient.post(API.gouvernance.policyDmfDisassociate(), null, {
     params: {
       table_fqn: params.table_fqn,
       dmf_name: params.dmf_name,
@@ -424,7 +421,7 @@ export async function disassociateDmf(params: {
  * "TRIGGER_ON_CHANGES".
  */
 export async function setDmfSchedule(table_fqn: string, schedule: string): Promise<unknown> {
-  const { data } = await apiClient.post(`${GOV_PREFIX}/dmf/schedule`, null, {
+  const { data } = await apiClient.post(API.gouvernance.policyDmfSchedule(), null, {
     params: { table_fqn, schedule },
   });
   return data;
@@ -432,7 +429,7 @@ export async function setDmfSchedule(table_fqn: string, schedule: string): Promi
 
 /** Get DMF associations for a table. GET /gouvernance/policies/dmf/references */
 export async function getDmfReferences(table_name: string): Promise<DmfReference[]> {
-  const { data } = await apiClient.get(`${GOV_PREFIX}/dmf/references`, {
+  const { data } = await apiClient.get(API.gouvernance.policyDmfReferences(), {
     params: { table_name },
   });
   return data?.references || data?.data || data || [];

@@ -4,6 +4,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import type {
   IntelligentKpis,
   GdprReport,
@@ -111,7 +112,7 @@ async function apiCallWithTransform<T>(endpoint: string, method: 'GET' | 'POST' 
  * GET /observability/kpis
  */
 export async function getIntelligentKpis(): Promise<IntelligentKpis> {
-  return apiCallWithTransform<IntelligentKpis>('/observability/kpis');
+  return apiCallWithTransform<IntelligentKpis>(API.observability.kpis());
 }
 // =============================================================================
 // COMPLIANCE ENDPOINTS - GDPR & SOC 2
@@ -122,7 +123,7 @@ export async function getIntelligentKpis(): Promise<IntelligentKpis> {
  * GET /observability/compliance/gdpr
  */
 export async function getGdprComplianceReport(): Promise<GdprReport> {
-  return apiCallWithTransform<GdprReport>('/observability/compliance/gdpr');
+  return apiCallWithTransform<GdprReport>(API.observability.complianceGdpr());
 }
 
 /**
@@ -130,7 +131,7 @@ export async function getGdprComplianceReport(): Promise<GdprReport> {
  * GET /observability/compliance/soc2
  */
 export async function getSoc2ComplianceReport(): Promise<Soc2Report> {
-  return apiCallWithTransform<Soc2Report>('/observability/compliance/soc2');
+  return apiCallWithTransform<Soc2Report>(API.observability.complianceSoc2());
 }
 
 // =============================================================================
@@ -147,14 +148,7 @@ export async function getDataLineage(params?: {
   table?: string;
   days?: number;
 }): Promise<LineageResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.database) searchParams.append('database', params.database);
-  if (params?.schema) searchParams.append('schema', params.schema);
-  if (params?.table) searchParams.append('table', params.table);
-  if (params?.days) searchParams.append('days', params.days.toString());
-
-  const queryString = searchParams.toString();
-  return apiCall<LineageResponse>(queryString ? `/observability/lineage?${queryString}` : '/observability/lineage');
+  return apiCall<LineageResponse>(API.observability.lineage(params));
 }
 
 /**
@@ -162,7 +156,7 @@ export async function getDataLineage(params?: {
  * GET /observability/lineage/access-patterns
  */
 export async function getAccessPatterns(days: number = 30): Promise<AccessPatternsResponse> {
-  return apiCall<AccessPatternsResponse>(`/observability/lineage/access-patterns?days=${days}`);
+  return apiCall<AccessPatternsResponse>(API.observability.lineageAccessPatterns(days));
 }
 
 /**
@@ -173,11 +167,7 @@ export async function getCrossModuleLineage(params?: {
   days?: number;
   database?: string;
 }): Promise<ObservabilityRecord> {
-  const searchParams = new URLSearchParams();
-  if (params?.days) searchParams.append('days', params.days.toString());
-  if (params?.database) searchParams.append('database', params.database);
-  const qs = searchParams.toString();
-  return apiCall<ObservabilityRecord>(qs ? `/observability/lineage/cross-module?${qs}` : '/observability/lineage/cross-module');
+  return apiCall<ObservabilityRecord>(API.observability.lineageCrossModule(params));
 }
 
 // =============================================================================
@@ -189,7 +179,7 @@ export async function getCrossModuleLineage(params?: {
  * GET /observability/activity/summary
  */
 export async function getActivitySummary(days: number = 7): Promise<UserActivitySummary> {
-  return apiCallWithTransform<UserActivitySummary>(`/observability/activity/summary?days=${days}`);
+  return apiCallWithTransform<UserActivitySummary>(API.observability.activitySummary(days));
 }
 // =============================================================================
 // SECURITY ENDPOINTS
@@ -200,7 +190,7 @@ export async function getActivitySummary(days: number = 7): Promise<UserActivity
  * GET /observability/security/posture
  */
 export async function getSecurityPosture(): Promise<SecurityPosture> {
-  return apiCallWithTransform<SecurityPosture>('/observability/security/posture');
+  return apiCallWithTransform<SecurityPosture>(API.observability.securityPosture());
 }
 // =============================================================================
 // COST & WAREHOUSE ENDPOINTS
@@ -211,7 +201,7 @@ export async function getSecurityPosture(): Promise<SecurityPosture> {
  * GET /observability/cost/warehouse-usage
  */
 export async function getWarehouseUsage(days: number = 30): Promise<WarehouseUsageSummary> {
-  return apiCallWithTransform<WarehouseUsageSummary>(`/observability/cost/warehouse-usage?days=${days}`);
+  return apiCallWithTransform<WarehouseUsageSummary>(API.observability.warehouseUsage(days));
 }
 
 /**
@@ -219,7 +209,7 @@ export async function getWarehouseUsage(days: number = 30): Promise<WarehouseUsa
  * GET /observability/cost/daily-credits
  */
 export async function getDailyCredits(days: number = 30): Promise<DailyCreditsResponse> {
-  return apiCallWithTransform<DailyCreditsResponse>(`/observability/cost/daily-credits?days=${days}`);
+  return apiCallWithTransform<DailyCreditsResponse>(API.observability.dailyCredits(days));
 }
 
 /**
@@ -227,7 +217,7 @@ export async function getDailyCredits(days: number = 30): Promise<DailyCreditsRe
  * GET /observability/cost/storage
  */
 export async function getStorageMetrics(): Promise<StorageMetrics> {
-  return apiCallWithTransform<StorageMetrics>('/observability/cost/storage');
+  return apiCallWithTransform<StorageMetrics>(API.observability.storage());
 }
 
 // =============================================================================
@@ -239,7 +229,7 @@ export async function getStorageMetrics(): Promise<StorageMetrics> {
  * GET /observability/performance/metrics
  */
 export async function getPerformanceMetrics(days: number = 7): Promise<PerformanceMetrics> {
-  return apiCallWithTransform<PerformanceMetrics>(`/observability/performance/metrics?days=${days}`);
+  return apiCallWithTransform<PerformanceMetrics>(API.observability.performanceMetrics(days));
 }
 
 /**
@@ -250,12 +240,7 @@ export async function getSlowQueries(params?: {
   days?: number;
   threshold_seconds?: number;
 }): Promise<SlowQueriesResponse> {
-  const searchParams = new URLSearchParams();
-  if (params?.days) searchParams.append('days', params.days.toString());
-  if (params?.threshold_seconds) searchParams.append('threshold_seconds', params.threshold_seconds.toString());
-
-  const queryString = searchParams.toString();
-  return apiCallWithTransform<SlowQueriesResponse>(queryString ? `/observability/performance/slow-queries?${queryString}` : '/observability/performance/slow-queries');
+  return apiCallWithTransform<SlowQueriesResponse>(API.observability.slowQueries(params));
 }
 
 // =============================================================================
@@ -267,7 +252,7 @@ export async function getSlowQueries(params?: {
  * GET /observability/health
  */
 export async function getHealthStatus(): Promise<HealthStatus> {
-  return apiCall<HealthStatus>('/observability/health');
+  return apiCall<HealthStatus>(API.observability.health());
 }
 
 // =============================================================================
@@ -284,13 +269,7 @@ export async function getObjectDependencies(params?: {
   direction?: 'upstream' | 'downstream';
   days?: number;
 }): Promise<ObservabilityRecord> {
-  const searchParams = new URLSearchParams();
-  if (params?.object_name) searchParams.append('object_name', params.object_name);
-  if (params?.object_domain) searchParams.append('object_domain', params.object_domain);
-  if (params?.direction) searchParams.append('direction', params.direction);
-  if (params?.days) searchParams.append('days', params.days.toString());
-  const qs = searchParams.toString();
-  return apiCall<ObservabilityRecord>(qs ? `/observability/dependencies?${qs}` : '/observability/dependencies');
+  return apiCall<ObservabilityRecord>(API.observability.dependencies(params));
 }
 
 /**
@@ -301,11 +280,7 @@ export async function getDependencyGraph(params?: {
   database?: string;
   schema?: string;
 }): Promise<ObservabilityRecord> {
-  const searchParams = new URLSearchParams();
-  if (params?.database) searchParams.append('database', params.database);
-  if (params?.schema) searchParams.append('schema', params.schema);
-  const qs = searchParams.toString();
-  return apiCall<ObservabilityRecord>(qs ? `/observability/dependencies/graph?${qs}` : '/observability/dependencies/graph');
+  return apiCall<ObservabilityRecord>(API.observability.dependenciesGraph(params));
 }
 
 // =============================================================================
@@ -317,7 +292,7 @@ export async function getDependencyGraph(params?: {
  * GET /observability/trust-center/findings
  */
 export async function getTrustCenterFindings(): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>('/observability/trust-center/findings');
+  return apiCall<ObservabilityRecord>(API.observability.trustCenterFindings());
 }
 
 /**
@@ -325,7 +300,7 @@ export async function getTrustCenterFindings(): Promise<ObservabilityRecord> {
  * GET /observability/trust-center/summary
  */
 export async function getTrustCenterSummary(): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>('/observability/trust-center/summary');
+  return apiCall<ObservabilityRecord>(API.observability.trustCenterSummary());
 }
 
 // =============================================================================
@@ -340,11 +315,7 @@ export async function getLineageWithTasks(params?: {
   database?: string;
   days?: number;
 }): Promise<ObservabilityRecord> {
-  const searchParams = new URLSearchParams();
-  if (params?.database) searchParams.append('database', params.database);
-  if (params?.days) searchParams.append('days', params.days.toString());
-  const qs = searchParams.toString();
-  return apiCall<ObservabilityRecord>(qs ? `/observability/lineage/with-tasks?${qs}` : '/observability/lineage/with-tasks');
+  return apiCall<ObservabilityRecord>(API.observability.lineageWithTasks(params));
 }
 
 /**
@@ -352,7 +323,7 @@ export async function getLineageWithTasks(params?: {
  * GET /observability/tasks/importable
  */
 export async function getImportableTasks(state: string = 'suspended'): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>(`/observability/tasks/importable?state=${state}`);
+  return apiCall<ObservabilityRecord>(API.observability.tasksImportable(state));
 }
 
 // =============================================================================
@@ -364,7 +335,7 @@ export async function getImportableTasks(state: string = 'suspended'): Promise<O
  * GET /observability/probes/table
  */
 export async function probeTableFreshness(table: string): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>(`/observability/probes/table?table=${encodeURIComponent(table)}`);
+  return apiCall<ObservabilityRecord>(API.observability.probesTable(table));
 }
 
 /**
@@ -372,7 +343,7 @@ export async function probeTableFreshness(table: string): Promise<ObservabilityR
  * GET /observability/probes/schema
  */
 export async function probeSchemaFreshness(database: string, schema: string): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>(`/observability/probes/schema?database=${encodeURIComponent(database)}&schema=${encodeURIComponent(schema)}`);
+  return apiCall<ObservabilityRecord>(API.observability.probesSchema(database, schema));
 }
 
 /**
@@ -380,7 +351,7 @@ export async function probeSchemaFreshness(database: string, schema: string): Pr
  * GET /observability/probes/changes
  */
 export async function probeChanges(table: string, since: string): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>(`/observability/probes/changes?table=${encodeURIComponent(table)}&since=${encodeURIComponent(since)}`);
+  return apiCall<ObservabilityRecord>(API.observability.probesChanges(table, since));
 }
 
 /**
@@ -388,7 +359,7 @@ export async function probeChanges(table: string, since: string): Promise<Observ
  * GET /observability/probes/platform
  */
 export async function probePlatformFreshness(): Promise<ObservabilityRecord> {
-  return apiCall<ObservabilityRecord>('/observability/probes/platform');
+  return apiCall<ObservabilityRecord>(API.observability.probesPlatform());
 }
 
 // =============================================================================
@@ -400,7 +371,7 @@ export async function probePlatformFreshness(): Promise<ObservabilityRecord> {
  * GET /observability/alerts
  */
 export async function getObservabilityAlerts(days: number = 7): Promise<AlertsResponse> {
-  return apiCallWithTransform<AlertsResponse>(`/observability/alerts?days=${days}`);
+  return apiCallWithTransform<AlertsResponse>(API.observability.alerts(days));
 }
 
 /**
@@ -408,7 +379,7 @@ export async function getObservabilityAlerts(days: number = 7): Promise<AlertsRe
  * GET /observability/alerts/cross-module
  */
 export async function getCrossModuleAlerts(days: number = 7): Promise<AlertsResponse> {
-  return apiCallWithTransform<AlertsResponse>(`/observability/alerts/cross-module?days=${days}`);
+  return apiCallWithTransform<AlertsResponse>(API.observability.alertsCrossModule(days));
 }
 
 // =============================================================================
@@ -420,7 +391,7 @@ export async function getCrossModuleAlerts(days: number = 7): Promise<AlertsResp
  * GET /observability/slo-tracking
  */
 export async function getSloTracking(days: number = 30): Promise<SloTrackingResponse> {
-  return apiCallWithTransform<SloTrackingResponse>(`/observability/slo-tracking?days=${days}`);
+  return apiCallWithTransform<SloTrackingResponse>(API.observability.sloTracking(days));
 }
 
 // =============================================================================
@@ -432,7 +403,7 @@ export async function getSloTracking(days: number = 30): Promise<SloTrackingResp
  * GET /observability/dashboard
  */
 export async function getObservabilityDashboard(): Promise<ObservabilityRecord> {
-  return apiCallWithTransform<ObservabilityRecord>('/observability/dashboard');
+  return apiCallWithTransform<ObservabilityRecord>(API.observability.dashboard());
 }
 
 // =============================================================================
@@ -493,7 +464,7 @@ export async function resetPlatformConfig(): Promise<PlatformConfigResponse> {
  * GET /observability/cost/monitors
  */
 export async function getCostMonitors(): Promise<CostMonitorsResponse> {
-  return apiCall<CostMonitorsResponse>('/observability/cost/monitors');
+  return apiCall<CostMonitorsResponse>(API.observability.costMonitors());
 }
 
 /**
@@ -501,7 +472,7 @@ export async function getCostMonitors(): Promise<CostMonitorsResponse> {
  * GET /observability/cost/monitors/{name}
  */
 export async function getCostMonitor(name: string): Promise<{ monitor: CostMonitor }> {
-  return apiCall<{ monitor: CostMonitor }>(`/observability/cost/monitors/${encodeURIComponent(name)}`);
+  return apiCall<{ monitor: CostMonitor }>(API.observability.costMonitor(name));
 }
 
 /**
@@ -509,7 +480,7 @@ export async function getCostMonitor(name: string): Promise<{ monitor: CostMonit
  * POST /observability/cost/monitors
  */
 export async function createCostMonitor(body: CreateCostMonitorRequest): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.post<Record<string, unknown>>('/observability/cost/monitors', body);
+  const { data } = await apiClient.post<Record<string, unknown>>(API.observability.costMonitors(), body);
   return data;
 }
 
@@ -523,7 +494,7 @@ export async function updateCostMonitor(
   body: UpdateCostMonitorRequest,
 ): Promise<Record<string, unknown>> {
   const { data } = await apiClient.put<Record<string, unknown>>(
-    `/observability/cost/monitors/${encodeURIComponent(name)}`,
+    API.observability.costMonitor(name),
     body,
   );
   return data;
@@ -538,7 +509,7 @@ export async function assignCostMonitorWarehouse(
   warehouse: string,
 ): Promise<Record<string, unknown>> {
   const { data } = await apiClient.post<Record<string, unknown>>(
-    `/observability/cost/monitors/${encodeURIComponent(name)}/assign`,
+    API.observability.costMonitorAssign(name),
     { warehouse },
   );
   return data;
@@ -550,7 +521,7 @@ export async function assignCostMonitorWarehouse(
  */
 export async function deleteCostMonitor(name: string): Promise<Record<string, unknown>> {
   const { data } = await apiClient.delete<Record<string, unknown>>(
-    `/observability/cost/monitors/${encodeURIComponent(name)}`,
+    API.observability.costMonitor(name),
     { params: { confirm: true } },
   );
   return data;
@@ -565,7 +536,7 @@ export async function deleteCostMonitor(name: string): Promise<Record<string, un
  * GET /observability/budgets
  */
 export async function listSpendBudgets(): Promise<SpendBudgetsResponse> {
-  return apiCall<SpendBudgetsResponse>('/observability/budgets');
+  return apiCall<SpendBudgetsResponse>(API.observability.budgets());
 }
 
 /**
@@ -573,7 +544,7 @@ export async function listSpendBudgets(): Promise<SpendBudgetsResponse> {
  * POST /observability/budgets
  */
 export async function createSpendBudget(body: CreateSpendBudgetRequest): Promise<Record<string, unknown>> {
-  const { data } = await apiClient.post<Record<string, unknown>>('/observability/budgets', body);
+  const { data } = await apiClient.post<Record<string, unknown>>(API.observability.budgets(), body);
   return data;
 }
 
@@ -586,7 +557,7 @@ export async function updateSpendBudget(
   body: CreateSpendBudgetRequest,
 ): Promise<Record<string, unknown>> {
   const { data } = await apiClient.put<Record<string, unknown>>(
-    `/observability/budgets/${encodeURIComponent(name)}`,
+    API.observability.budget(name),
     body,
   );
   return data;
@@ -598,7 +569,7 @@ export async function updateSpendBudget(
  */
 export async function deleteSpendBudget(name: string): Promise<Record<string, unknown>> {
   const { data } = await apiClient.delete<Record<string, unknown>>(
-    `/observability/budgets/${encodeURIComponent(name)}`,
+    API.observability.budget(name),
     { params: { confirm: true } },
   );
   return data;

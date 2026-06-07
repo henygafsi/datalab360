@@ -83,6 +83,7 @@ import {
 
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import LoginHistoryTable from '@/components/audit/LoginHistoryTable';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 
 import {
   getSummary,
@@ -361,6 +362,7 @@ const KpiCard = memo(function KpiCard({
   suffix,
   previousValue,
   invertTrend,
+  help,
 }: {
   label: string;
   value: string | number;
@@ -370,6 +372,7 @@ const KpiCard = memo(function KpiCard({
   suffix?: string;
   previousValue?: number;
   invertTrend?: boolean;
+  help?: MetricHelpProps;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -475,7 +478,10 @@ const KpiCard = memo(function KpiCard({
           : value}
         {suffix}
       </p>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+        {label}
+        {help && <MetricHelp {...help} />}
+      </p>
       {expanded && (
         <div className="mt-3 space-y-1.5 border-t border-gray-100 pt-3 dark:border-gray-800">
           {healthBadge && (
@@ -2833,6 +2839,11 @@ const OverviewTab = memo(function OverviewTab({
           icon={DollarSign}
           color="amber"
           trend={Number(summary?.cost?.credit_trend_pct) || undefined}
+          help={{
+            title: 'Credits',
+            definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label="Open Alerts"
@@ -4413,6 +4424,11 @@ const CostTab = memo(function CostTab({
           icon={DollarSign}
           color="amber"
           trend={data?.credit_trend_pct}
+          help={{
+            title: 'Credits',
+            definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label={`∆ vs prev ${periodDays}d`}
@@ -4425,6 +4441,11 @@ const CostTab = memo(function CostTab({
           value={storageTb.toFixed(3)}
           icon={Database}
           color="blue"
+          help={{
+            title: 'Storage',
+            definition: 'Total data volume held across active tables, time-travel and fail-safe retention.',
+            source: 'data warehouse storage metrics',
+          }}
         />
         <KpiCard
           label="Daily Avg"
@@ -4459,6 +4480,11 @@ const CostTab = memo(function CostTab({
           value={activeWarehouses.toLocaleString()}
           icon={Server}
           color="blue"
+          help={{
+            title: 'Active Warehouses',
+            definition: 'Number of compute clusters that consumed credits during the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label="Estimated Savings"
@@ -4467,6 +4493,25 @@ const CostTab = memo(function CostTab({
           color="green"
         />
       </div>
+
+      {/* Cost-spike CTA — when spend rose materially vs the prior period, link to
+          the observability cost dashboard to drill into the drivers. */}
+      {(data?.credit_trend_pct ?? 0) > 20 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+            <TrendingUp className="h-4 w-4 flex-shrink-0" />
+            <span>
+              Credit consumption is up {data?.credit_trend_pct}% vs the previous {periodDays}d.
+            </span>
+          </div>
+          <a
+            href="/observability"
+            className="inline-flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
+          >
+            Review cost drivers →
+          </a>
+        </div>
+      )}
 
       {/* Daily Credit Trend */}
       <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>

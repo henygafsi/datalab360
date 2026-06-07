@@ -326,6 +326,18 @@ export const API = {
     d360Roles: () => '/gouvernance/d360-roles',
     /** GET /gouvernance/d360-roles/my-permissions — caller's effective action set (useCanPerform hook). */
     d360MyPermissions: () => '/gouvernance/d360-roles/my-permissions',
+    /** GET /gouvernance/policies/dmf/list[?database=…&schema=…] — list available DMFs. */
+    policyDmfList: () => '/gouvernance/policies/dmf/list',
+    /** POST /gouvernance/policies/dmf — create a custom DMF (query params). */
+    policyDmfCreate: () => '/gouvernance/policies/dmf',
+    /** POST /gouvernance/policies/dmf/associate — associate a DMF with table columns. */
+    policyDmfAssociate: () => '/gouvernance/policies/dmf/associate',
+    /** POST /gouvernance/policies/dmf/disassociate — remove a DMF from table columns. */
+    policyDmfDisassociate: () => '/gouvernance/policies/dmf/disassociate',
+    /** POST /gouvernance/policies/dmf/schedule — set DMF evaluation schedule on a table. */
+    policyDmfSchedule: () => '/gouvernance/policies/dmf/schedule',
+    /** GET /gouvernance/policies/dmf/references — DMF associations for a table. */
+    policyDmfReferences: () => '/gouvernance/policies/dmf/references',
   },
 
   /** Cortex (AI) — backend: /cortex/* (modules/cortex). */
@@ -432,6 +444,68 @@ export const API = {
     dailyCredits: (days?: number) => `/observability/cost/daily-credits${qs({ days })}`,
     /** GET /observability/probes/platform — probe all Data360 metadata tables for freshness. */
     probesPlatform: () => '/observability/probes/platform',
+    /** GET /observability/compliance/gdpr — GDPR compliance assessment report. */
+    complianceGdpr: () => '/observability/compliance/gdpr',
+    /** GET /observability/compliance/soc2 — SOC 2 Type II compliance assessment. */
+    complianceSoc2: () => '/observability/compliance/soc2',
+    /** GET /observability/lineage/access-patterns[?days=N] — table access patterns. */
+    lineageAccessPatterns: (days?: number) => `/observability/lineage/access-patterns${qs({ days })}`,
+    /** GET /observability/lineage/cross-module[?days=N&database=…] — objects→roles→policies. */
+    lineageCrossModule: (params?: { days?: number; database?: string }) =>
+      `/observability/lineage/cross-module${qs(params)}`,
+    /** GET /observability/lineage/with-tasks[?database=…&days=N] — lineage with tasks merged in. */
+    lineageWithTasks: (params?: { database?: string; days?: number }) =>
+      `/observability/lineage/with-tasks${qs(params)}`,
+    /** GET /observability/activity/summary[?days=N] — user activity from QUERY_HISTORY. */
+    activitySummary: (days?: number) => `/observability/activity/summary${qs({ days })}`,
+    /** GET /observability/security/posture — security assessment metrics. */
+    securityPosture: () => '/observability/security/posture',
+    /** GET /observability/cost/warehouse-usage[?days=N] — WAREHOUSE_METERING_HISTORY credits. */
+    warehouseUsage: (days?: number) => `/observability/cost/warehouse-usage${qs({ days })}`,
+    /** GET /observability/cost/storage — storage usage metrics. */
+    storage: () => '/observability/cost/storage',
+    /** GET /observability/health — simple health check. */
+    health: () => '/observability/health',
+    /** GET /observability/dependencies[?object_name=…&object_domain=…&direction=…&days=N] */
+    dependencies: (params?: {
+      object_name?: string;
+      object_domain?: string;
+      direction?: 'upstream' | 'downstream';
+      days?: number;
+    }) => `/observability/dependencies${qs(params)}`,
+    /** GET /observability/dependencies/graph[?database=…&schema=…] */
+    dependenciesGraph: (params?: { database?: string; schema?: string }) =>
+      `/observability/dependencies/graph${qs(params)}`,
+    /** GET /observability/trust-center/findings — Trust Center security findings. */
+    trustCenterFindings: () => '/observability/trust-center/findings',
+    /** GET /observability/trust-center/summary — Trust Center summary overview. */
+    trustCenterSummary: () => '/observability/trust-center/summary',
+    /** GET /observability/tasks/importable[?state=…] — importable tasks for workflow import. */
+    tasksImportable: (state?: string) => `/observability/tasks/importable${qs({ state })}`,
+    /** GET /observability/probes/table?table=… — probe table freshness via row timestamps. */
+    probesTable: (table: string) => `/observability/probes/table${qs({ table })}`,
+    /** GET /observability/probes/schema?database=…&schema=… — probe all tables in a schema. */
+    probesSchema: (database: string, schema: string) =>
+      `/observability/probes/schema${qs({ database, schema })}`,
+    /** GET /observability/probes/changes?table=…&since=… — rows changed since a timestamp. */
+    probesChanges: (table: string, since: string) =>
+      `/observability/probes/changes${qs({ table, since })}`,
+    /** GET /observability/alerts/cross-module[?days=N] — cross-module correlated alerts. */
+    alertsCrossModule: (days?: number) => `/observability/alerts/cross-module${qs({ days })}`,
+    /** GET /observability/slo-tracking[?days=N] — SLO targets vs actuals, error budgets. */
+    sloTracking: (days?: number) => `/observability/slo-tracking${qs({ days })}`,
+    /** GET /observability/dashboard — consolidated dashboard payload. */
+    dashboard: () => '/observability/dashboard',
+    /** GET /observability/cost/monitors — list resource monitors with quota/used/remaining. */
+    costMonitors: () => '/observability/cost/monitors',
+    /** GET|PUT|DELETE /observability/cost/monitors/{name} — single resource monitor. */
+    costMonitor: (name: string) => `/observability/cost/monitors/${enc(name)}`,
+    /** POST /observability/cost/monitors/{name}/assign — attach a warehouse to a monitor. */
+    costMonitorAssign: (name: string) => `/observability/cost/monitors/${enc(name)}/assign`,
+    /** GET|POST /observability/budgets — list/create spend budgets. */
+    budgets: () => '/observability/budgets',
+    /** PUT|DELETE /observability/budgets/{name} — update/delete a spend budget. */
+    budget: (name: string) => `/observability/budgets/${enc(name)}`,
   },
 
   /**
@@ -606,6 +680,8 @@ export const API = {
     snapshot: () => '/data-quality/snapshot',
     /** POST /data-quality/run-check — threshold check on a single table */
     runCheck: () => '/data-quality/run-check',
+    /** POST /data-quality/dmf/schedule — schedule a recurring DMF quality check (verified vs backend route dump). */
+    dmfSchedule: () => '/data-quality/dmf/schedule',
     /** POST /data-quality/dmf/thresholds — persist a DMF threshold rule */
     dmfThresholds: () => '/data-quality/dmf/thresholds',
     /** POST /data-quality/anomaly-detection — trigger ML anomaly detection */
@@ -620,6 +696,12 @@ export const API = {
     trustCenterEnable: () => '/data-quality/trust-center/enable',
     /** GET /data-quality/trust-center/report */
     trustCenterReport: () => '/data-quality/trust-center/report',
+    /** POST /data-quality/projects/{project_id}/dmf-check — run a built-in DMF check on a table. */
+    projectDmfCheck: (projectId: string) => `/data-quality/projects/${enc(projectId)}/dmf-check`,
+    /** GET /data-quality/projects/{project_id}/dmf-results — DMF evaluation results for a project. */
+    projectDmfResults: (projectId: string) => `/data-quality/projects/${enc(projectId)}/dmf-results`,
+    /** GET /data-quality/projects/{project_id}/dmf-suggest — DMF suggestions for a project's tables. */
+    projectDmfSuggest: (projectId: string) => `/data-quality/projects/${enc(projectId)}/dmf-suggest`,
   },
 
   /** Catalog — backend: /catalog/* (modules/catalog/router.py). */
