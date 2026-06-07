@@ -3,6 +3,12 @@ name: ux-audit-index
 description: Master index: Data360 UX intelligence audit system. Entry point for Alice+Henry agent system.
 ---
 
+## 📍 Current status → see [STATUS-done-todo.md](STATUS-done-todo.md)
+
+Single master file for what is **done** and what is **to do** (kept in sync each wave —
+do not scatter status across files). Backend = 5 local commits awaiting a push-go;
+frontend pushed to `feat/backlog-v1`.
+
 ## Agent System
 
 Alice discovers gaps; Henry fixes them. Alice always runs first and produces a structured gap report. Henry consumes that report to apply targeted fixes — never rewrites.
