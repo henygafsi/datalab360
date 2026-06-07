@@ -767,7 +767,7 @@ export const API = {
     /** GET /catalog/profile/{db}/{schema}/{table} */
     tableProfile: (db: string, s: string, t: string) =>
       `/catalog/profile/${enc(db)}/${enc(s)}/${enc(t)}`,
-    /** GET /catalog/views/{db}/{schema}/{view}/ddl */
+    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
     viewDdl: (db: string, s: string, v: string) =>
       `/catalog/views/${enc(db)}/${enc(s)}/${enc(v)}/ddl`,
     /** GET /catalog/refresh?scope=<scope>[&db=<db>] — legacy query-param form kept for compat. */
@@ -779,7 +779,7 @@ export const API = {
     notifyConsumers: () => '/catalog/tables/notify-consumers',
     /** GET /catalog/scores — global catalog trust/quality averages ({ averages: { trust_avg } }) */
     scores: () => '/catalog/scores',
-    /** GET /sources/detected-models[?project_id=<id>] — backend-gap: not yet deployed */
+    /** @deprecated No backend route (404 local+live, 2026-06-07) and no consumer — remove or implement before use. */
     detectedModels: (projectId?: string) =>
       `/sources/detected-models${projectId ? `?project_id=${enc(projectId)}` : ''}`,
   },
@@ -1109,6 +1109,7 @@ export const API_CONTRACTS = {
       getUrl: () => `${API_CONFIG.BASE_URL}/workflow`,
     },
   },
+  /** @deprecated Both /bi/sales/* routes 404 local+live (2026-06-07) and have no consumer — legacy block, superseded by /bi-dashboard/*. */
   biRetail: {
     salesOverview: {
       method: 'GET' as const,
