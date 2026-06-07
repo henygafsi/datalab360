@@ -2819,53 +2819,16 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
       </div>
 
       {/* ── Header — grouped clusters with subtle separators ──
-          Cluster 1 (Create):   New / AI / Import
           Cluster 2 (Project):  selector | name | status badges
-          Cluster 3 (Actions):  Save / Validate / SQL / Run / Approve | utilities
-          Each cluster sits in a pill-shaped surface with consistent height
-          and gap rhythm so the eye groups them automatically. */}
+          Cluster 4 (Utility):  JSON import/export | duplicate | delete
+          The Create cluster (New / AI / Import) and the lifecycle Actions
+          cluster (Save / Run / Suspend / Schedule) were relocated into the
+          WorkflowSmartPanel "Actions" cluster (right-bar). Validate / SQL /
+          Approve / Rollback already live in the panel's Submit / Deploy
+          sections. The canvas keeps ONLY its viewport controls
+          (zoom / fit via ReactFlow <Controls/>, palette toggle). */}
       <div className="border-b border-slate-200 bg-white px-4 py-2 dark:border-slate-700 dark:bg-slate-800">
         <div className="flex items-center gap-3">
-
-          {/* ── Cluster 1: Create ── */}
-          <div className="flex h-9 items-center gap-1.5 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
-            <motion.button
-              whileHover={canWfCreate ? { scale: 1.06 } : undefined}
-              whileTap={canWfCreate ? { scale: 0.92 } : undefined}
-              onClick={handleNewPipeline}
-              disabled={!canWfCreate}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/50 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={canWfCreate ? 'Create new workflow' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
-            </motion.button>
-            <motion.button
-              whileHover={canWfCreate ? { y: -1 } : undefined}
-              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
-              onClick={() => setShowAiGenerate(true)}
-              disabled={!canWfCreate}
-              className="group relative flex h-7 items-center gap-1 overflow-hidden rounded-lg bg-gradient-to-r from-purple-600 to-fuchsia-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-purple-500/40 transition-shadow hover:shadow-md hover:shadow-purple-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={canWfCreate ? 'Generate workflow with AI' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
-            >
-              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/30 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-              <Sparkles className="h-3 w-3" />
-              AI
-            </motion.button>
-            <motion.button
-              whileHover={canWfCreate ? { y: -1 } : undefined}
-              whileTap={canWfCreate ? { scale: 0.96 } : undefined}
-              onClick={() => setShowImportTasks(true)}
-              disabled={!canWfCreate}
-              className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={canWfCreate ? 'Import data warehouse task graphs as workflow projects' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
-            >
-              <Download className="h-3 w-3" />
-              <span className="hidden md:inline">Import</span>
-            </motion.button>
-          </div>
-
-          {/* Divider */}
-          <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
 
           {/* ── Cluster 2: Project context ── */}
           <div className="flex items-center gap-2">
@@ -3061,130 +3024,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           {/* Spacer */}
           <div className="flex-1" />
 
-          {/* ── Cluster 3: Actions ──
-              Primary lifecycle buttons grouped in their own pill surface,
-              utility icons sit slightly apart so they read as secondary. */}
-          <div className="flex h-9 shrink-0 items-center gap-1 rounded-xl bg-slate-50 p-1 dark:bg-slate-900/60">
-            <motion.button
-              whileHover={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 1.04 } : undefined}
-              whileTap={!(isSaving || isReadOnly || isPendingApproval) ? { scale: 0.96 } : undefined}
-              onClick={handleSavePipeline}
-              disabled={isSaving || isReadOnly || isPendingApproval || (activeWorkflowId ? !canWfEdit : !canWfCreate)}
-              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-blue-500/40 transition-shadow hover:shadow-md hover:shadow-blue-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={activeWorkflowId && !canWfEdit ? EDIT_DENIED_HINT : !activeWorkflowId && !canWfCreate ? 'You lack the "create" permission on workflow. Ask an administrator to grant it.' : isPendingApproval ? 'Pending approval — cannot modify' : 'Save workflow (Ctrl+S)'}
-            >
-              {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
-              Save{phaseSuffix('save')}
-            </motion.button>
-
-            {/* Validate / SQL dry-run / Clone-test relocated into the
-                WorkflowSmartPanel "Submit for validation" section (ShieldCheck
-                icon in the right-bar). No dispersed lifecycle buttons here. */}
-
-            {/* ── Run — execute the workflow (writes results) ──
-                Honest disabled state when the execute route 404s. */}
-            <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved)) ? { scale: 0.96 } : undefined}
-              onClick={() => handleExecute(false)}
-              disabled={isExecuting || !activeWorkflowId || isReadOnly || isActionUnavailable('execute') || (isPendingApproval && !isApproved) || !canWfExecute}
-              className="group relative flex h-7 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-lg bg-gradient-to-br from-green-500 to-emerald-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-green-500/40 transition-shadow hover:shadow-md hover:shadow-green-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('execute') ? UNAVAILABLE_HINT : isPendingApproval ? 'Pending approval — waiting for admin' : 'Run the workflow now (Ctrl+Enter)'}
-            >
-              <span className="pointer-events-none absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/25 to-transparent transition-transform duration-700 group-hover:translate-x-full" />
-              {isExecuting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-              Run{phaseSuffix('execute')}
-            </motion.button>
-
-            {/* ── Suspend / Resume — mutually exclusive single slot ──
-                Suspend is visible only when a schedule exists AND is started.
-                Resume is visible only when a schedule exists AND is suspended.
-                When no schedule exists we render Suspend disabled with a
-                tooltip explaining why — keeps the slot stable for muscle
-                memory and gives admins a hint that they need to schedule. */}
-            {scheduleState.hasSchedule && scheduleState.isStarted ? (
-              <motion.button
-                whileHover={!(isReadOnly || isSuspendingTask) ? { scale: 1.04 } : undefined}
-                whileTap={!(isReadOnly || isSuspendingTask) ? { scale: 0.96 } : undefined}
-                onClick={handleSuspendTask}
-                disabled={isReadOnly || isSuspendingTask}
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-orange-500 to-amber-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-orange-500/40 transition-shadow hover:shadow-md hover:shadow-orange-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-                title={isReadOnly ? 'View-only access' : 'Pause the scheduled task'}
-                aria-label="Suspend scheduled task"
-              >
-                {isSuspendingTask ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pause className="h-3 w-3" />}
-                Suspend
-              </motion.button>
-            ) : scheduleState.hasSchedule && scheduleState.isSuspended ? (
-              <motion.button
-                whileHover={!(isReadOnly || isSuspendingTask) ? { scale: 1.04 } : undefined}
-                whileTap={!(isReadOnly || isSuspendingTask) ? { scale: 0.96 } : undefined}
-                onClick={handleResumeTask}
-                disabled={isReadOnly || isSuspendingTask}
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-emerald-500/40 transition-shadow hover:shadow-md hover:shadow-emerald-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-                title={isReadOnly ? 'View-only access' : 'Resume the suspended scheduled task'}
-                aria-label="Resume scheduled task"
-              >
-                {isSuspendingTask ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
-                Resume
-              </motion.button>
-            ) : (
-              <motion.button
-                disabled
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-slate-200 px-2.5 text-[11px] font-semibold text-slate-500 dark:bg-slate-700 dark:text-slate-400"
-                title={!activeWorkflowId ? 'Save the workflow first' : 'No schedule yet — create one with the Schedule button'}
-                aria-label="Suspend (no schedule)"
-              >
-                <Pause className="h-3 w-3" />
-                Suspend
-              </motion.button>
-            )}
-
-            {/* ── Schedule — reveals the inline `schedules` tab in the right
-                panel (ScheduleManager). Non-blocking: the canvas stays visible.
-                Two visual states driven by useScheduleState:
-                  • no schedule → "Schedule" with calendar icon
-                  • has schedule → pill showing the cron summary */}
-            {scheduleState.hasSchedule ? (
-              <motion.button
-                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
-                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
-                onClick={openSchedulePanel}
-                disabled={isReadOnly || !activeWorkflowId}
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-2.5 text-[11px] font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:opacity-50 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30"
-                title={isReadOnly ? 'View-only access' : `Edit schedule — ${scheduleState.cronSummary || 'open editor'}`}
-                aria-label="Edit schedule"
-              >
-                <Calendar className="h-3 w-3" />
-                <span>Scheduled</span>
-                {scheduleState.cronSummary && (
-                  <span className="text-[10px] font-normal text-blue-600/80 dark:text-blue-400/80">
-                    · {scheduleState.cronSummary}
-                  </span>
-                )}
-                <span className="text-[10px] font-normal opacity-70">· edit</span>
-              </motion.button>
-            ) : (
-              <motion.button
-                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
-                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
-                onClick={openSchedulePanel}
-                disabled={isReadOnly || !activeWorkflowId}
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-indigo-500 to-blue-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-indigo-500/40 transition-shadow hover:shadow-md hover:shadow-indigo-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-                title={!activeWorkflowId ? 'Save the workflow first' : isReadOnly ? 'View-only access' : 'Create a schedule for this workflow'}
-                aria-label="Schedule workflow"
-              >
-                <Calendar className="h-3 w-3" />
-                Schedule
-              </motion.button>
-            )}
-
-            {/* Approve/Deploy (submit-for-approval) relocated into the
-                SmartPanel "Submit for validation" section; Rollback +
-                deployment history relocated into the SmartPanel "Deployments &
-                versions" section (History icon). No dispersed deploy/history
-                buttons here. */}
-          </div>
+          {/* Lifecycle actions (Save / Run / Suspend / Resume / Schedule) and
+              the Create cluster (New / AI / Import) were relocated into the
+              WorkflowSmartPanel "Actions" cluster (right-bar). Validate / SQL /
+              Approve / Rollback live in the panel's Submit / Deploy sections.
+              No dispersed lifecycle buttons remain on the canvas toolbar. */}
 
           {/* Divider */}
           <div className="h-6 w-px bg-slate-200 dark:bg-slate-700" />
@@ -3451,6 +3295,35 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               handleLoadPipeline({ id: activeWorkflowId, name: activeWorkflowName });
             }
           }}
+          // --- Lifecycle / creation actions relocated from the toolbar ---
+          onNew={handleNewPipeline}
+          onAiCreate={() => setShowAiGenerate(true)}
+          onImport={() => setShowImportTasks(true)}
+          onSave={handleSavePipeline}
+          onRun={() => handleExecute(false)}
+          onToggleSuspend={() => {
+            if (scheduleState.isStarted) handleSuspendTask();
+            else handleResumeTask();
+          }}
+          onSchedule={openSchedulePanel}
+          canCreate={canWfCreate}
+          canEdit={canWfEdit}
+          canExecute={canWfExecute}
+          isSaving={isSaving}
+          isExecuting={isExecuting}
+          isSuspendingTask={isSuspendingTask}
+          isPendingApproval={isPendingApproval}
+          isApproved={isApproved}
+          executeUnavailable={isActionUnavailable('execute')}
+          suspendMode={
+            scheduleState.hasSchedule && scheduleState.isStarted
+              ? 'suspend'
+              : scheduleState.hasSchedule && scheduleState.isSuspended
+                ? 'resume'
+                : 'none'
+          }
+          hasSchedule={scheduleState.hasSchedule}
+          scheduleCronSummary={scheduleState.cronSummary}
           blockSlot={
             selectedNode ? (
               <ETLConfigSidebar

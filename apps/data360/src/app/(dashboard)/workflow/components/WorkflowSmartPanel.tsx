@@ -58,6 +58,12 @@ import {
   PlusCircle,
   MinusCircle,
   PencilLine,
+  Plus,
+  Download,
+  Save,
+  Play,
+  Pause,
+  Loader2,
   type LucideIcon,
 } from 'lucide-react';
 import type { Node } from 'reactflow';
@@ -133,6 +139,57 @@ export interface WorkflowSmartPanelProps {
   onOpenRollback: () => void;
   /** Reload the canvas after a deployment is re-executed/rolled back. */
   onReload?: () => void;
+
+  // --- Lifecycle / creation actions (relocated from the canvas toolbar) ---
+  // These render in the always-visible "Actions" cluster above the section
+  // body so the canvas keeps ONLY its viewport controls (zoom/fit/palette).
+  // Handlers are lifted from the builder verbatim (no duplicated logic); the
+  // derived gating state is passed alongside so disabled/tooltip parity with
+  // the old toolbar is preserved.
+  /** Create a new (blank) workflow. */
+  onNew: () => void;
+  /** Open the AI-generate flow (existing dialog in the builder). */
+  onAiCreate: () => void;
+  /** Open the warehouse-task import flow (existing dialog in the builder). */
+  onImport: () => void;
+  /** Save the current workflow. */
+  onSave: () => void;
+  /** Run the workflow now (writes results). */
+  onRun: () => void;
+  /** Suspend OR resume the scheduled task (builder picks the branch). */
+  onToggleSuspend: () => void;
+  /** Open the Schedule section / editor. */
+  onSchedule: () => void;
+
+  /** Gating: user may create workflows. */
+  canCreate: boolean;
+  /** Gating: user may edit the loaded workflow. */
+  canEdit: boolean;
+  /** Gating: user may execute the workflow. */
+  canExecute: boolean;
+  /** Save in progress. */
+  isSaving: boolean;
+  /** Run in progress. */
+  isExecuting: boolean;
+  /** Suspend/resume request in progress. */
+  isSuspendingTask: boolean;
+  /** Approval is pending (blocks Save + Run-unless-approved). */
+  isPendingApproval: boolean;
+  /** Approval has been granted (lets Run through while pending). */
+  isApproved: boolean;
+  /** The execute route is unavailable on this backend (404/501). */
+  executeUnavailable: boolean;
+  /**
+   * Suspend/Resume slot mode:
+   *   'suspend' → schedule started, show Suspend
+   *   'resume'  → schedule suspended, show Resume
+   *   'none'    → no schedule, show disabled Suspend with a hint
+   */
+  suspendMode: 'suspend' | 'resume' | 'none';
+  /** Has a schedule (drives the Schedule button label/cron summary). */
+  hasSchedule: boolean;
+  /** Cron summary for the Schedule button when a schedule exists. */
+  scheduleCronSummary?: string;
 
   /**
    * Always-on header region (RunApprovalStatusHero + fix-rail reopen + the
@@ -764,6 +821,224 @@ function AiSection({
 }
 
 // ---------------------------------------------------------------------------
+// ACTIONS cluster — lifecycle/creation actions relocated from the toolbar
+// ---------------------------------------------------------------------------
+
+/** Compact icon+label action button used in the Actions cluster. */
+function ActionBtn({
+  icon: Icon,
+  label,
+  onClick,
+  disabled,
+  busy,
+  title,
+  tone = 'neutral',
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  busy?: boolean;
+  title?: string;
+  tone?: 'neutral' | 'primary' | 'success' | 'create' | 'ai' | 'warn' | 'schedule';
+}) {
+  const tones: Record<string, string> = {
+    neutral:
+      'border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700',
+    primary:
+      'bg-blue-600 text-white hover:bg-blue-700 shadow-sm',
+    success:
+      'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+    create:
+      'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
+    ai:
+      'bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white hover:opacity-90 shadow-sm',
+    warn:
+      'bg-amber-500 text-white hover:bg-amber-600 shadow-sm',
+    schedule:
+      'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-900/40 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/30',
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title ?? label}
+      aria-label={label}
+      className={cn(
+        'flex h-8 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+        tones[tone],
+      )}
+    >
+      {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Icon className="h-3.5 w-3.5" />}
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function ActionsCluster(props: WorkflowSmartPanelProps) {
+  const {
+    activeWorkflowId,
+    isReadOnly,
+    onNew,
+    onAiCreate,
+    onImport,
+    onSave,
+    onRun,
+    onToggleSuspend,
+    onSchedule,
+    canCreate,
+    canEdit,
+    canExecute,
+    isSaving,
+    isExecuting,
+    isSuspendingTask,
+    isPendingApproval,
+    isApproved,
+    executeUnavailable,
+    suspendMode,
+    hasSchedule,
+    scheduleCronSummary,
+  } = props;
+
+  const saveDisabled =
+    isSaving || isReadOnly || isPendingApproval || (activeWorkflowId ? !canEdit : !canCreate);
+  const runDisabled =
+    isExecuting ||
+    !activeWorkflowId ||
+    isReadOnly ||
+    executeUnavailable ||
+    (isPendingApproval && !isApproved) ||
+    !canExecute;
+
+  return (
+    <div className="border-b border-gray-200 bg-gray-50/60 px-3 py-2.5 dark:border-gray-700 dark:bg-gray-800/40">
+      {/* Create cluster */}
+      <div className="mb-2">
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          Create
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          <ActionBtn
+            icon={Plus}
+            label="New"
+            tone="create"
+            onClick={onNew}
+            disabled={!canCreate}
+            title={canCreate ? 'Create a new workflow' : 'You lack the "create" permission on workflow.'}
+          />
+          <ActionBtn
+            icon={Sparkles}
+            label="AI"
+            tone="ai"
+            onClick={onAiCreate}
+            disabled={!canCreate}
+            title={canCreate ? 'Generate a workflow with AI' : 'You lack the "create" permission on workflow.'}
+          />
+          <ActionBtn
+            icon={Download}
+            label="Import"
+            tone="neutral"
+            onClick={onImport}
+            disabled={!canCreate}
+            title={canCreate ? 'Import warehouse task graphs as workflows' : 'You lack the "create" permission on workflow.'}
+          />
+        </div>
+      </div>
+
+      {/* Lifecycle cluster */}
+      <div>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+          Lifecycle
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          <ActionBtn
+            icon={Save}
+            label="Save"
+            tone="primary"
+            onClick={onSave}
+            disabled={saveDisabled}
+            busy={isSaving}
+            title={
+              activeWorkflowId && !canEdit
+                ? 'You lack the "edit" permission on workflow.'
+                : !activeWorkflowId && !canCreate
+                  ? 'You lack the "create" permission on workflow.'
+                  : isPendingApproval
+                    ? 'Pending approval — cannot modify'
+                    : 'Save workflow (Ctrl+S)'
+            }
+          />
+          <ActionBtn
+            icon={Play}
+            label="Run"
+            tone="success"
+            onClick={onRun}
+            disabled={runDisabled}
+            busy={isExecuting}
+            title={
+              !canExecute
+                ? 'You lack the "execute" permission on workflow.'
+                : executeUnavailable
+                  ? 'Run isn’t available on this backend'
+                  : isPendingApproval
+                    ? 'Pending approval — waiting for admin'
+                    : 'Run the workflow now (Ctrl+Enter)'
+            }
+          />
+          {suspendMode === 'suspend' ? (
+            <ActionBtn
+              icon={Pause}
+              label="Suspend"
+              tone="warn"
+              onClick={onToggleSuspend}
+              disabled={isReadOnly || isSuspendingTask}
+              busy={isSuspendingTask}
+              title={isReadOnly ? 'View-only access' : 'Pause the scheduled task'}
+            />
+          ) : suspendMode === 'resume' ? (
+            <ActionBtn
+              icon={Play}
+              label="Resume"
+              tone="success"
+              onClick={onToggleSuspend}
+              disabled={isReadOnly || isSuspendingTask}
+              busy={isSuspendingTask}
+              title={isReadOnly ? 'View-only access' : 'Resume the suspended scheduled task'}
+            />
+          ) : (
+            <ActionBtn
+              icon={Pause}
+              label="Suspend"
+              tone="neutral"
+              onClick={() => {}}
+              disabled
+              title={!activeWorkflowId ? 'Save the workflow first' : 'No schedule yet — create one with Schedule'}
+            />
+          )}
+          <ActionBtn
+            icon={Calendar}
+            label={hasSchedule ? (scheduleCronSummary ? `Scheduled · ${scheduleCronSummary}` : 'Scheduled') : 'Schedule'}
+            tone={hasSchedule ? 'schedule' : 'primary'}
+            onClick={onSchedule}
+            disabled={isReadOnly || !activeWorkflowId}
+            title={
+              !activeWorkflowId
+                ? 'Save the workflow first'
+                : isReadOnly
+                  ? 'View-only access'
+                  : hasSchedule
+                    ? `Edit schedule — ${scheduleCronSummary || 'open editor'}`
+                    : 'Create a schedule for this workflow'
+            }
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Icon rail definition
 // ---------------------------------------------------------------------------
 
@@ -833,6 +1108,10 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
             {activeWorkflowName || 'New workflow'}
           </h2>
         </div>
+
+        {/* Actions cluster — always visible (works in the empty/new state too),
+            so the canvas keeps ONLY its viewport controls. */}
+        <ActionsCluster {...props} />
 
         {/* Status hero (deploy/run snapshot from the builder) */}
         {statusHero}
