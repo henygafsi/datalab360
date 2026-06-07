@@ -16,6 +16,8 @@ import {
   isRouteNotDeployed,
 } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import type { ObservabilityAlert } from '@/app/services/observability/types';
 
 function severityClasses(severity?: string): string {
@@ -130,6 +132,52 @@ export default function AlertsPage() {
       </div>
 
       <FreshnessDisclaimer className="mb-4" />
+
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM). Only renders when alerts are present. The top alert's
+          id drives a real acknowledge mutation; the second suggestion hands off to
+          the workflow builder (business-flow automation) with a triage template. */}
+      {!loading && !error && !notDeployed && alerts.length > 0 && (() => {
+        const top = alerts.find((a) => a.id);
+        const suggestions: Suggestion[] = [];
+        if (top?.id) {
+          suggestions.push({
+            id: 'obs-ack-top',
+            title: 'Acknowledge top alert',
+            rationale: `"${top.title ?? top.message ?? 'Top alert'}"${top.severity ? ` (${top.severity})` : ''} is the highest-priority open alert. Acknowledging it records ownership and stops repeat notifications.`,
+            action: {
+              label: 'Acknowledge',
+              endpoint: API.observability.acknowledgeAlert(top.id),
+              method: 'POST',
+              payload: { acknowledged_by: 'current_user', source: 'ai_action_flow' },
+              cost: '~0',
+              risk: 'low',
+            },
+          });
+        }
+        suggestions.push({
+          id: 'obs-automate-triage',
+          title: 'Automate alert triage',
+          rationale: `${alerts.length} alert${alerts.length === 1 ? '' : 's'} active. Instead of triaging by hand each time, build a workflow that routes and acts on alerts automatically.`,
+          navigate: {
+            label: 'Create triage workflow →',
+            href: '/workflow?template=alert-triage',
+          },
+        });
+        return (
+          <AIActionFlow
+            className="mb-4"
+            title="Recommended next steps"
+            context={{
+              module: 'observability',
+              entityType: 'alerts',
+              entityId: scope,
+              data: { alertCount: alerts.length, scope },
+            }}
+            suggestions={suggestions}
+          />
+        );
+      })()}
 
       {loading ? (
         <TableSkeleton rows={6} columns={4} />

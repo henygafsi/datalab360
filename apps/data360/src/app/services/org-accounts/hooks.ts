@@ -699,6 +699,7 @@ export async function getReaderAccounts(): Promise<ReaderAccountsResponse> {
  * Create reader account for data sharing.
  */
 export async function createReaderAccount(request: CreateReaderAccountRequest): Promise<CreateReaderAccountResponse> {
+  // TODO(henry-P1): method gap — FE sends POST /org-accounts/reader-accounts, backend only has GET (verified 2026-06-07)
   const { data } = await apiClient.post<CreateReaderAccountResponse>(`${BASE_URL}/reader-accounts`, request);
   return data;
 }

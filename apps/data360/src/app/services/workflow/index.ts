@@ -774,7 +774,7 @@ export async function createComputePool(params: {
   return res.data;
 }
 
-// TODO: no PATCH endpoint exists in backend for compute pools
+// TODO(henry-P1): method gap — FE sends PATCH /workflow/compute-pools/{}, backend only has GET (verified 2026-06-07)
 export async function alterComputePool(name: string, params: {
   min_nodes?: number;
   max_nodes?: number;

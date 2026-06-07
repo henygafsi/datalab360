@@ -119,6 +119,8 @@ import {
   rejectDeployment,
 } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+import AIActionFlow, { type Suggestion as AISuggestion } from '@/app/shared/insights/AIActionFlow';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -4511,6 +4513,46 @@ const CostTab = memo(function CostTab({
             Review cost drivers →
           </a>
         </div>
+      )}
+
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM). Only renders on a material spend increase. One real
+          mutation (refresh the KPI cache) plus a business-flow-automation hand-off
+          to the workflow builder pre-loaded with a cost-report template. */}
+      {(data?.credit_trend_pct ?? 0) > 20 && (
+        <AIActionFlow
+          title="Recommended next steps"
+          context={{
+            module: 'command_center',
+            entityType: 'finops',
+            entityId: `${periodDays}d`,
+            data: { creditTrendPct: data?.credit_trend_pct, periodDays },
+          }}
+          suggestions={[
+            {
+              id: 'cc-cost-report-workflow',
+              title: 'Schedule cost report workflow',
+              rationale: `Spend is up ${data?.credit_trend_pct}% vs the previous ${periodDays}d. A scheduled cost-report workflow keeps stakeholders informed without manual pulls.`,
+              navigate: {
+                label: 'Create cost report →',
+                href: '/workflow?template=cost-report',
+              },
+            },
+            {
+              id: 'cc-refresh-kpis',
+              title: 'Refresh KPI cache',
+              rationale: 'The KPIs above are served from a cache. Refresh it to confirm the spike against the latest metering data before acting on it.',
+              action: {
+                label: 'Refresh KPIs',
+                endpoint: API.commandCenter.overviewKpisRefresh(),
+                method: 'POST',
+                payload: { source: 'ai_action_flow' },
+                cost: '~0.01 credits',
+                risk: 'none',
+              },
+            },
+          ] satisfies AISuggestion[]}
+        />
       )}
 
       {/* Daily Credit Trend */}

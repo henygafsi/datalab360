@@ -3,11 +3,14 @@
 import { Text } from 'rizzui';
 import cn from '@core/utils/class-names';
 import { PiTrendUpBold, PiTrendDownBold, PiMinusBold } from 'react-icons/pi';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 
 export interface KPICardProps {
   title: string;
   value: string | number;
   subtitle?: string;
+  /** Optional inline "(?)" affordance explaining what the metric measures. */
+  help?: MetricHelpProps;
   change?: {
     value: number;
     trend: 'up' | 'down' | 'stable';
@@ -56,6 +59,7 @@ export default function KPICard({
   title,
   value,
   subtitle,
+  help,
   change,
   icon,
   color = 'blue',
@@ -127,9 +131,12 @@ export default function KPICard({
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <Text className="mb-2 text-sm text-gray-500 font-medium">
-            {title}
-          </Text>
+          <div className="mb-2 flex items-center gap-1">
+            <Text className="text-sm text-gray-500 font-medium">
+              {title}
+            </Text>
+            {help && <MetricHelp {...help} />}
+          </div>
           <Text className="font-lexend text-2xl font-bold text-gray-900 dark:text-gray-700 mb-1">
             {typeof value === 'number' ? value.toLocaleString() : value}
           </Text>

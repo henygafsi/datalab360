@@ -1,6 +1,7 @@
 'use client';
 
-import React, { Suspense, useState, useCallback } from 'react';
+import React, { Suspense, useState, useEffect, useCallback } from 'react';
+import { useAtomValue } from 'jotai';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Badge, Button } from 'rizzui';
@@ -11,11 +12,13 @@ import { cn } from '@/lib/utils';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import SourceTree from './components/SourceTree';
 import SourcesOverview from './components/SourcesOverview';
-import TableDetailPanel from './components/TableDetailPanel';
+import ObjectSmartPanel from './components/ObjectSmartPanel';
 import DetectedModelsTab from './components/DetectedModelsTab';
 import ProjectSelector from '@/app/(dashboard)/explore-design/components/ProjectSelector';
 import { refreshCatalog } from '@/app/services/catalog';
 import { getApiErrorMessage } from '@/lib/api-client';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 type TabId = 'sources' | 'models';
 
@@ -41,6 +44,24 @@ function SourcesPage() {
   const [sourceTables, setSourceTables] = useState<Array<{ database: string; schema: string; table: string }>>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshStatus, setRefreshStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  // Bumped on a catalog SSE invalidation to remount the listing (SourceTree +
+  // SourcesOverview own their own fetches), so a backend scan/refresh/enrich
+  // reflects live without a manual Refresh click.
+  const [catalogKey, setCatalogKey] = useState(0);
+
+  // SSE cache invalidation: refresh the catalog listing on backend catalog events.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const shouldRefresh = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.CATALOG ||
+        k === CACHE_KEYS.CATALOG_OBJECTS ||
+        k === CACHE_KEYS.CATALOG_OVERVIEW
+    );
+    if (shouldRefresh) setCatalogKey((k) => k + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   const handleSelectTable = useCallback((database: string, schema: string, table: string) => {
     setSelectedTable({ database, schema, table });
@@ -157,6 +178,7 @@ function SourcesPage() {
       <div className="flex flex-1 overflow-hidden">
         {tab === 'sources' && (
           <SourceTree
+            key={catalogKey}
             onSelectTable={handleSelectTable}
             selectedTable={selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : undefined}
             collapsed={treeCollapsed}
@@ -166,7 +188,7 @@ function SourcesPage() {
 
         <div className="flex-1 overflow-y-auto p-6">
           {tab === 'sources' ? (
-            <SourcesOverview onSelectTable={handleSelectTable} />
+            <SourcesOverview key={catalogKey} onSelectTable={handleSelectTable} />
           ) : (
             <DetectedModelsTab
               projectId={projectId}
@@ -175,15 +197,11 @@ function SourcesPage() {
           )}
         </div>
 
-        {tab === 'sources' && selectedTable && (
-          <div className="w-[420px] shrink-0">
-            <TableDetailPanel
-              database={selectedTable.database}
-              schema={selectedTable.schema}
-              table={selectedTable.table}
-              onClose={() => setSelectedTable(null)}
-            />
-          </div>
+        {tab === 'sources' && (
+          <ObjectSmartPanel
+            selected={selectedTable}
+            onClose={() => setSelectedTable(null)}
+          />
         )}
       </div>
     </div>

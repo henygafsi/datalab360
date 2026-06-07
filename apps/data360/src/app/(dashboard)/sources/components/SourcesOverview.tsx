@@ -9,6 +9,7 @@ import {
 import { cn } from '@/lib/utils';
 import { getDatabases, getSchemas, getTables } from '@/app/services/mapping';
 import { getApiErrorMessage } from '@/lib/api-client';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 
 interface SourceTable {
   database: string;
@@ -140,15 +141,25 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
 
       {/* Stats Row */}
       <div className="grid grid-cols-3 gap-3">
-        {[
-          { label: 'Databases', value: stats.databases, icon: <Database className="h-4 w-4 text-blue-500" />, color: 'blue' },
-          { label: 'Schemas', value: stats.schemas, icon: <Layers className="h-4 w-4 text-purple-500" />, color: 'purple' },
-          { label: 'Tables', value: stats.tables, icon: <Table2 className="h-4 w-4 text-emerald-500" />, color: 'emerald' },
-        ].map((s) => (
+        {([
+          {
+            label: 'Databases', value: stats.databases, icon: <Database className="h-4 w-4 text-blue-500" />, color: 'blue',
+            help: { title: 'Databases', definition: 'Distinct source databases discovered in the connected data warehouse catalog.', source: 'catalog scan' },
+          },
+          {
+            label: 'Schemas', value: stats.schemas, icon: <Layers className="h-4 w-4 text-purple-500" />, color: 'purple',
+            help: { title: 'Schemas', definition: 'Unique database-qualified schemas found across all discovered databases.', source: 'catalog scan' },
+          },
+          {
+            label: 'Tables', value: stats.tables, icon: <Table2 className="h-4 w-4 text-emerald-500" />, color: 'emerald',
+            help: { title: 'Tables discovered', definition: 'Total source tables enumerated across every database and schema in the catalog.', source: 'catalog scan' },
+          },
+        ] as { label: string; value: number; icon: React.ReactNode; color: string; help: MetricHelpProps }[]).map((s) => (
           <div key={s.label} className={cn('p-4 rounded-xl border bg-white dark:bg-gray-800', `border-${s.color}-100 dark:border-${s.color}-900/30`)}>
             <div className="flex items-center gap-2">
               {s.icon}
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
+              <MetricHelp {...s.help} />
             </div>
             <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
               {loading ? '—' : s.value}

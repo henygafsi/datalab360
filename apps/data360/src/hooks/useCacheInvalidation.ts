@@ -122,6 +122,15 @@ export const CACHE_KEYS = {
   // ── Catalog / SmartRightBar ────────────────────────────────────────────
   // Fired by backend after tag apply, classification, masking or ownership changes.
   CATALOG: 'catalog',
+  // Granular catalog keys emitted by the backend catalog router (catalog scan /
+  // refresh / enrich / clustering). String values match `CacheKey` in
+  // backend cache_event_bus.py exactly.
+  CATALOG_OBJECTS: 'catalog_objects',
+  CATALOG_OVERVIEW: 'catalog_overview',
+  CATALOG_KPIS: 'catalog_kpis',
+  CATALOG_SCORES: 'catalog_scores',
+  CATALOG_PRODUCTS: 'catalog_products',
+  CATALOG_RECOMMENDATIONS: 'catalog_recommendations',
   TAGS: 'tags',
   TABLE_GOVERNANCE: 'table_governance',
   TABLE_LINEAGE: 'table_lineage',

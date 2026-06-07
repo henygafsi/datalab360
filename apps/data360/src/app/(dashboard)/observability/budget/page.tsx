@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Input, Loader, Modal, Select } from 'rizzui';
+import { Badge, Button, Input, Loader, Select } from 'rizzui';
 import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
 import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
@@ -10,6 +10,7 @@ import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import CostOverviewCard from '@/app/shared/observability/cost-overview-card';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import ActionRail from '@/app/shared/action-rail/ActionRail';
 import {
   getWarehouseUsage,
   getStorageMetrics,
@@ -94,49 +95,14 @@ function CreateMonitorModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} size="md">
-      <div className="space-y-4 p-6">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
-            <PiGaugeDuotone className="h-5 w-5 text-green-600 dark:text-green-400" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold dark:text-white">Create Resource Monitor</h3>
-            <p className="text-sm text-slate-500">Enforce a credit budget on one or more warehouses</p>
-          </div>
-        </div>
-
-        <Input
-          label="Monitor name"
-          placeholder="my_monitor"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-
-        <Input
-          label="Credit quota"
-          type="number"
-          min={1}
-          placeholder="100"
-          value={quota}
-          onChange={(e) => setQuota(e.target.value)}
-        />
-
-        <Select
-          label="Frequency"
-          options={FREQUENCY_OPTIONS}
-          value={frequency}
-          onChange={(opt) => setFrequency((opt as { value: string }).value)}
-        />
-
-        <Select
-          label="Action at 100%"
-          options={ACTION_OPTIONS}
-          value={action}
-          onChange={(opt) => setAction((opt as { value: string }).value)}
-        />
-
-        <div className="flex justify-end gap-3 pt-2">
+    <ActionRail
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Create Resource Monitor"
+      description="Enforce a credit budget on one or more warehouses"
+      accentClassName="bg-green-500"
+      footer={
+        <>
           <Button variant="outline" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>
@@ -147,9 +113,39 @@ function CreateMonitorModal({
           >
             Create
           </Button>
-        </div>
-      </div>
-    </Modal>
+        </>
+      }
+    >
+      <Input
+        label="Monitor name"
+        placeholder="my_monitor"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+
+      <Input
+        label="Credit quota"
+        type="number"
+        min={1}
+        placeholder="100"
+        value={quota}
+        onChange={(e) => setQuota(e.target.value)}
+      />
+
+      <Select
+        label="Frequency"
+        options={FREQUENCY_OPTIONS}
+        value={frequency}
+        onChange={(opt) => setFrequency((opt as { value: string }).value)}
+      />
+
+      <Select
+        label="Action at 100%"
+        options={ACTION_OPTIONS}
+        value={action}
+        onChange={(opt) => setAction((opt as { value: string }).value)}
+      />
+    </ActionRail>
   );
 }
 

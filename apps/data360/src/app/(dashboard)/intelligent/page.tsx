@@ -299,6 +299,7 @@ export default function IntelligentPage() {
           title="Models Active"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.models_active ?? null, 'number')}
           subtitle="Semantic models deployed"
+          help={{ title: 'Models Active', definition: 'Number of semantic models currently deployed and available for natural-language analytics.', source: 'AI engine catalog' }}
           icon={<PiDatabase className="w-6 h-6" />}
           color="purple"
           loading={kpisLoading}
@@ -307,6 +308,7 @@ export default function IntelligentPage() {
           title="Queries Today"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.queries_today ?? null, 'number')}
           subtitle="Natural language queries"
+          help={{ title: 'Queries Today', definition: 'Count of natural-language questions answered by the AI engine since the start of the day.', source: 'AI engine query log' }}
           icon={<PiChatCircleDots className="w-6 h-6" />}
           color="blue"
           loading={kpisLoading}
@@ -315,6 +317,7 @@ export default function IntelligentPage() {
           title="Avg Response"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.avg_response_sec ?? null, 'seconds')}
           subtitle="Query response time"
+          help={{ title: 'Avg Response', definition: 'Average time the AI engine takes to return an answer for a natural-language query.', source: 'AI engine query log', goodRange: '< 5s' }}
           icon={<PiLightning className="w-6 h-6" />}
           color="amber"
           loading={kpisLoading}
@@ -323,6 +326,7 @@ export default function IntelligentPage() {
           title="Accuracy Rate"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.accuracy_rate ?? null, 'percent')}
           subtitle="Query accuracy"
+          help={{ title: 'Accuracy Rate', definition: 'Share of AI-engine answers validated as correct against expected results.', source: 'AI engine evaluation', goodRange: '> 90%' }}
           icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
           loading={kpisLoading}

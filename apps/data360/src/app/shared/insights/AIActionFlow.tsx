@@ -18,7 +18,8 @@
  * Render is an INLINE panel section (no modal). See the Popup→Inline audit.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Lightbulb, Sparkles, X } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, Lightbulb, Sparkles, X } from 'lucide-react';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
 import { cn } from '@/lib/utils';
@@ -48,6 +49,19 @@ export interface SuggestionAction {
   };
 }
 
+/**
+ * A navigation CTA — no backend mutation. Used for business-flow-automation
+ * hand-offs (e.g. "Create triage workflow →" opens the workflow builder with a
+ * template pre-selected). The click is still capitalized as an event so the
+ * detect→notify→act loop stays measurable, but nothing is executed server-side.
+ */
+export interface SuggestionNavigate {
+  /** Link label. */
+  label: string;
+  /** Internal route (Next.js Link href). */
+  href: string;
+}
+
 export interface Suggestion {
   /** Stable id (used to track dismissals). Falls back to title. */
   id?: string;
@@ -55,8 +69,10 @@ export interface Suggestion {
   title: string;
   /** Why — the discussion / reasoning shown to the user. */
   rationale: string;
-  /** The executable action (omit for advisory-only cards). */
+  /** The executable action (omit for advisory-only / navigation cards). */
   action?: SuggestionAction;
+  /** A navigation hand-off instead of (or alongside) a mutation. */
+  navigate?: SuggestionNavigate;
 }
 
 export interface AIActionFlowContext {
@@ -187,6 +203,21 @@ export default function AIActionFlow({
     [context.module, context.entityType, context.entityId, trackFeatureClick],
   );
 
+  const handleNavigate = useCallback(
+    (s: Suggestion) => {
+      // Navigation is not an execution — capitalize it as its own event so the
+      // hand-off to (e.g.) the workflow builder is still measurable.
+      trackFeatureClick('ai_action_navigated', {
+        module: context.module,
+        entityType: context.entityType,
+        entityId: context.entityId,
+        suggestion: s.title,
+        href: s.navigate?.href,
+      });
+    },
+    [context.module, context.entityType, context.entityId, trackFeatureClick],
+  );
+
   const handleDismiss = useCallback(
     (s: Suggestion) => {
       setDismissed((prev) => {
@@ -249,23 +280,35 @@ export default function AIActionFlow({
                   <p className="text-xs font-medium text-gray-800 dark:text-gray-100">{s.title}</p>
                   <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{s.rationale}</p>
 
-                  {s.action && (
+                  {(s.action || s.navigate) && (
                     <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <InsightActionButton
-                        label={s.action.label}
-                        successToast={`${s.title} — done`}
-                        pingBell
-                        confirm={s.action.confirm}
-                        onAction={() =>
-                          apiClient.request({
-                            method: s.action?.method ?? 'POST',
-                            url: s.action?.endpoint ?? '',
-                            data: s.action?.payload,
-                          })
-                        }
-                        onDone={() => handleExecuted(s)}
-                      />
-                      {(s.action.cost || s.action.risk) && (
+                      {s.action && (
+                        <InsightActionButton
+                          label={s.action.label}
+                          successToast={`${s.title} — done`}
+                          pingBell
+                          confirm={s.action.confirm}
+                          onAction={() =>
+                            apiClient.request({
+                              method: s.action?.method ?? 'POST',
+                              url: s.action?.endpoint ?? '',
+                              data: s.action?.payload,
+                            })
+                          }
+                          onDone={() => handleExecuted(s)}
+                        />
+                      )}
+                      {s.navigate && (
+                        <Link
+                          href={s.navigate.href}
+                          onClick={() => handleNavigate(s)}
+                          className="inline-flex items-center gap-1 rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-50 dark:border-indigo-700 dark:bg-gray-900 dark:text-indigo-300 dark:hover:bg-indigo-900/30"
+                        >
+                          {s.navigate.label}
+                          <ArrowRight className="h-3 w-3" aria-hidden />
+                        </Link>
+                      )}
+                      {s.action && (s.action.cost || s.action.risk) && (
                         <span className="inline-flex flex-wrap items-center gap-1.5">
                           {s.action.cost && (
                             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">

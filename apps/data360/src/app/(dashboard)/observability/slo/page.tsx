@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Input, Loader, Modal, Select } from 'rizzui';
+import { Badge, Button, Input, Loader, Select } from 'rizzui';
 import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
 import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
@@ -9,6 +9,7 @@ import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import ActionRail from '@/app/shared/action-rail/ActionRail';
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import type { SloRecord } from '@/app/services/observability/types';
@@ -80,53 +81,14 @@ function AddSloModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} size="md">
-      <div className="space-y-4 p-6">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-indigo-100 p-2 dark:bg-indigo-900/30">
-            <PiGaugeDuotone className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold dark:text-white">Add SLO</h3>
-            <p className="text-sm text-slate-500">Define a service-level objective for this account</p>
-          </div>
-        </div>
-
-        <Input
-          label="Name"
-          placeholder="query_availability"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-
-        <Select
-          label="Target metric"
-          options={TARGET_METRIC_OPTIONS}
-          value={targetMetric}
-          onChange={(opt) => setTargetMetric((opt as { value: string }).value)}
-        />
-
-        <Input
-          label="Target value (%)"
-          type="number"
-          min={0}
-          max={100}
-          step={0.1}
-          placeholder="99.9"
-          value={targetValue}
-          onChange={(e) => setTargetValue(e.target.value)}
-        />
-
-        <Input
-          label="Window (days)"
-          type="number"
-          min={1}
-          placeholder="30"
-          value={windowDays}
-          onChange={(e) => setWindowDays(e.target.value)}
-        />
-
-        <div className="flex justify-end gap-3 pt-2">
+    <ActionRail
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Add SLO"
+      description="Define a service-level objective for this account"
+      accentClassName="bg-indigo-500"
+      footer={
+        <>
           <Button variant="outline" onClick={handleClose} disabled={submitting}>
             Cancel
           </Button>
@@ -137,9 +99,43 @@ function AddSloModal({
           >
             Add SLO
           </Button>
-        </div>
-      </div>
-    </Modal>
+        </>
+      }
+    >
+      <Input
+        label="Name"
+        placeholder="query_availability"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+
+      <Select
+        label="Target metric"
+        options={TARGET_METRIC_OPTIONS}
+        value={targetMetric}
+        onChange={(opt) => setTargetMetric((opt as { value: string }).value)}
+      />
+
+      <Input
+        label="Target value (%)"
+        type="number"
+        min={0}
+        max={100}
+        step={0.1}
+        placeholder="99.9"
+        value={targetValue}
+        onChange={(e) => setTargetValue(e.target.value)}
+      />
+
+      <Input
+        label="Window (days)"
+        type="number"
+        min={1}
+        placeholder="30"
+        value={windowDays}
+        onChange={(e) => setWindowDays(e.target.value)}
+      />
+    </ActionRail>
   );
 }
 

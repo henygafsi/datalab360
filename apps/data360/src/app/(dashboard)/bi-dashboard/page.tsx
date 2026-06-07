@@ -7,6 +7,7 @@ import { useTrackEvent } from '@/hooks/useTrackEvent';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
+import ActionRail from '@/app/shared/action-rail/ActionRail';
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -70,37 +71,13 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-md p-6 space-y-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">New BI Dashboard</h2>
-        <div className="space-y-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Dashboard name <span className="text-red-500">*</span>
-            </label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Sales Analytics Q1"
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Description
-            </label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Optional description"
-              rows={2}
-              className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none"
-            />
-          </div>
-          {error && <p className="text-sm text-red-600">{error}</p>}
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
+    <ActionRail
+      isOpen
+      onClose={onClose}
+      title="New BI Dashboard"
+      accentClassName="bg-cyan-500"
+      footer={
+        <>
           <button
             onClick={onClose}
             className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 transition-colors"
@@ -114,9 +91,35 @@ function CreateModal({ onClose, onCreated }: CreateModalProps) {
           >
             {loading ? 'Creating…' : 'Create'}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Dashboard name <span className="text-red-500">*</span>
+        </label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Sales Analytics Q1"
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          autoFocus
+        />
       </div>
-    </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          Description
+        </label>
+        <textarea
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Optional description"
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none"
+        />
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </ActionRail>
   );
 }
 

@@ -64,6 +64,7 @@ export async function getProject(projectId: string) {
 }
 
 export async function createProject(body: CreateProjectRequest) {
+  // TODO(henry-P1): method gap — FE sends POST /projects, backend only has GET /projects (verified 2026-06-07)
   const { data } = await apiClient.post<CreateProjectResponse>(PREFIX, body);
   return data;
 }
