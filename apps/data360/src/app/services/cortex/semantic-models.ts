@@ -1,5 +1,5 @@
 import apiClient from '@/lib/api-client';
-import axios from 'axios';
+import { API } from '@/lib/api-contracts';
 
 // ============================================
 // TYPES & INTERFACES
@@ -63,7 +63,7 @@ export interface StandardResponse<T = any> {
  */
 export async function listSemanticModels(): Promise<SemanticModel[]> {
   try {
-    const response = await apiClient.get('/cortex/semantic-models/list');
+    const response = await apiClient.get(API.cortex.semanticModels());
 
     const responseData = response.data;
 
@@ -102,11 +102,8 @@ export async function listSemanticModels(): Promise<SemanticModel[]> {
     return [];
   } catch (error: any) {
     console.error('Error fetching semantic models:', error);
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to list semantic models: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to list semantic models: ${message}`);
   }
 }
 
@@ -117,9 +114,7 @@ export async function listSemanticModels(): Promise<SemanticModel[]> {
  */
 export async function getSemanticModelContent(modelName: string): Promise<SemanticModelContent> {
   try {
-    const response = await apiClient.get(
-      `/cortex/semantic-models/${encodeURIComponent(modelName)}`
-    );
+    const response = await apiClient.get(API.cortex.semanticModel(modelName));
 
     const responseData = response.data;
 
@@ -179,11 +174,8 @@ export async function getSemanticModelContent(modelName: string): Promise<Semant
     };
   } catch (error: any) {
     console.error(`Error fetching semantic model ${modelName}:`, error);
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to get semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to get semantic model: ${message}`);
   }
 }
 
@@ -205,17 +197,14 @@ export async function createSemanticModel(request: CreateSemanticModelRequest): 
     };
 
     const response = await apiClient.post<StandardResponse>(
-      '/cortex/semantic-models',
+      API.cortex.semanticModelsCreate(),
       payload
     );
     return response.data;
   } catch (error: any) {
     console.error('Error creating semantic model:', error);
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to create semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to create semantic model: ${message}`);
   }
 }
 
@@ -227,17 +216,14 @@ export async function generateSemanticModel(
 ): Promise<SemanticModelGenerateResponse> {
   try {
     const response = await apiClient.post<StandardResponse<SemanticModelGenerateResponse>>(
-      '/cortex/semantic-models/generate',
+      API.cortex.semanticModelsGenerate(),
       request
     );
     const data = response.data?.data || response.data;
     return data as SemanticModelGenerateResponse;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to generate semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to generate semantic model: ${message}`);
   }
 }
 
@@ -250,17 +236,14 @@ export async function generateAndSaveSemanticModel(
 ): Promise<SemanticModelGenerateResponse> {
   try {
     const response = await apiClient.post<StandardResponse<SemanticModelGenerateResponse>>(
-      '/cortex/semantic-models/generate-and-save',
+      API.cortex.semanticModelsGenerateAndSave(),
       request
     );
     const data = response.data?.data || response.data;
     return data as SemanticModelGenerateResponse;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to generate and save semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to generate and save semantic model: ${message}`);
   }
 }
 
@@ -271,17 +254,12 @@ export async function generateAndSaveSemanticModel(
  */
 export async function deleteSemanticModel(modelName: string): Promise<any> {
   try {
-    const response = await apiClient.delete<StandardResponse>(
-      `/cortex/semantic-models/${encodeURIComponent(modelName)}`
-    );
+    const response = await apiClient.delete<StandardResponse>(API.cortex.semanticModel(modelName));
     return response.data;
   } catch (error: any) {
     console.error(`Error deleting semantic model ${modelName}:`, error);
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to delete semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to delete semantic model: ${message}`);
   }
 }
 
@@ -291,16 +269,13 @@ export async function deleteSemanticModel(modelName: string): Promise<any> {
 export async function updateSemanticModel(modelName: string, yamlContent: string): Promise<any> {
   try {
     const response = await apiClient.put<StandardResponse>(
-      `/cortex/semantic-models/${encodeURIComponent(modelName)}`,
+      API.cortex.semanticModel(modelName),
       { name: modelName, yaml_content: yamlContent }
     );
     return response.data;
   } catch (error: any) {
-    if (axios.isAxiosError(error)) {
-      const message = error.response?.data?.detail || error.response?.data?.message || error.message;
-      throw new Error(`Failed to update semantic model: ${message}`);
-    }
-    throw error;
+    const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || String(error);
+    throw new Error(`Failed to update semantic model: ${message}`);
   }
 }
 

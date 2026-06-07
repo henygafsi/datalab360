@@ -60,11 +60,14 @@ export const API = {
     sourceCatalog: () => '/connect/source-catalog',
     /** POST /connect/connectors — create a new connector. */
     createConnector: () => '/connect/connectors',
-    /** GET /connect/connectors/{id} — get connector by id. */
+    // TODO(henry-P1): the 3 per-connector routes below are NOT in the backend (verified
+    // 2026-06-07 against 896-route dump — only GET /connect/connectors + /health exist).
+    // UI consumers must use the 404-self-disable pattern until backend ships them.
+    /** GET /connect/connectors/{id} — get connector by id. (backend gap) */
     getConnector: (id: string) => `/connect/connectors/${enc(id)}`,
-    /** POST /connect/connectors/{id}/test — test a connector connection. */
+    /** POST /connect/connectors/{id}/test — test a connector connection. (backend gap) */
     testConnector: (id: string) => `/connect/connectors/${enc(id)}/test`,
-    /** POST /connect/connectors/{id}/sync — trigger a manual sync for a connector. */
+    /** POST /connect/connectors/{id}/sync — trigger a manual sync. (backend gap) */
     syncConnector: (id: string) => `/connect/connectors/${enc(id)}/sync`,
     createInternalStage: () => '/connect/stages/internal',
     listStages: () => '/connect/stages',
@@ -226,20 +229,61 @@ export const API = {
     contributors: (id: string) => `/workflow/${enc(id)}/contributors`,
     contributor: (id: string, contributorId: string) =>
       `/workflow/${enc(id)}/contributors/${enc(contributorId)}`,
-    /** GET /workflow/blocks — all registered ETL block definitions. */
+    /** GET /workflow/preview-table — preview rows for a table (params: database, schema, table, limit). */
+    previewTable: () => '/workflow/preview-table',
+    /** GET /workflow/{id}/block-events — SSE block-level events for a running workflow. */
+    blockEvents: (id: string) => `/workflow/${enc(id)}/block-events`,
+    /** POST /workflow/from-graph — create a workflow from a DAG/graph payload. */
+    fromGraph: () => '/workflow/from-graph',
+    /** GET /workflow/{id}/clone-data-tests — run connector data-quality checks for a workflow. */
+    cloneDataTests: (id: string) => `/workflow/${enc(id)}/clone-data-tests`,
+    /** GET /workflow/{id}/schedules — per-workflow schedule list (distinct from global schedules()). */
+    perWorkflowSchedules: (id: string) => `/workflow/${enc(id)}/schedules`,
+    /** GET /workflow/{id}/deployments — list deployments for a specific workflow. */
+    deployments: (id: string) => `/workflow/${enc(id)}/deployments`,
+    /** POST /workflow/{id}/deployments/{depId}/approve */
+    approveDeployment: (id: string, depId: string) => `/workflow/${enc(id)}/deployments/${enc(depId)}/approve`,
+    /** POST /workflow/{id}/deployments/{depId}/reject */
+    rejectDeployment: (id: string, depId: string) => `/workflow/${enc(id)}/deployments/${enc(depId)}/reject`,
+    /** POST /workflow/{id}/deployments/{depId}/execute */
+    executeDeployment: (id: string, depId: string) => `/workflow/${enc(id)}/deployments/${enc(depId)}/execute`,
+    /** GET /workflow/tasks/discover — discover data warehouse tasks that can be imported. */
+    tasksDiscover: () => '/workflow/tasks/discover',
+    /** POST /workflow/tasks/import — import discovered tasks as workflow projects. */
+    tasksImport: () => '/workflow/tasks/import',
+    /** GET /workflow/{id}/cost-summary — credit cost breakdown for a workflow. */
+    costSummary: (id: string) => `/workflow/${enc(id)}/cost-summary`,
+    /** GET /workflow/{id}/dag — full DAG representation for a workflow. */
+    dag: (id: string) => `/workflow/${enc(id)}/dag`,
+    /** POST /workflow/{id}/validate-block — validate a single block config. */
+    validateBlock: (id: string) => `/workflow/${enc(id)}/validate-block`,
+    /** POST /workflow/{id}/dry-run — simulate execution without side-effects. */
+    dryRun: (id: string) => `/workflow/${enc(id)}/dry-run`,
+    /** GET /workflow/{id}/estimate-vs-reference — compare cost estimate to baseline. */
+    estimateVsReference: (id: string) => `/workflow/${enc(id)}/estimate-vs-reference`,
+    /**
+     * @deprecated No frontend consumer — palette uses action-templates instead.
+     * TODO: wire to palette or remove after confirming admin api-health prober does not reflect this.
+     */
     blocks: () => '/workflow/blocks',
-    /** GET /workflow/blocks/categories — block category list for the left palette. */
+    /**
+     * @deprecated No frontend consumer found. TODO: remove after confirming no import surfaces it.
+     */
     blocksCategories: () => '/workflow/blocks/categories',
-    /** GET /workflow/catalog/blocks — catalog-grounded block list with schema metadata. */
+    /**
+     * @deprecated Declared but never called. TODO: wire to server-driven palette or remove.
+     * GET /workflow/catalog/blocks — catalog-grounded block list with schema metadata.
+     */
     catalogBlocks: () => '/workflow/catalog/blocks',
     /** GET /workflow/action-templates — reusable step templates. */
     actionTemplates: () => '/workflow/action-templates',
     /** POST /workflow/action-templates — create a new action template. */
     createActionTemplate: () => '/workflow/action-templates',
-    /** POST /workflow/runs/{runId}/cancel — cancel an in-progress global run. */
-    cancelRun: (runId: string) => `/workflow/runs/${enc(runId)}/cancel`,
-    /** GET /workflow/runs/{runId}/logs — fetch log lines for a global run. */
-    runLogs: (runId: string) => `/workflow/runs/${enc(runId)}/logs`,
+    /** POST /workflow/{workflowId}/cancel — cancel an in-progress workflow run (verified vs backend). */
+    cancelRun: (workflowId: string) => `/workflow/${enc(workflowId)}/cancel`,
+    /** GET /workflow/{workflowId}/tasks/{taskId}/logs — fetch task log lines (verified vs backend). */
+    runLogs: (workflowId: string, taskId: string) =>
+      `/workflow/${enc(workflowId)}/tasks/${enc(taskId)}/logs`,
   },
 
   /** Gouvernance — backend: /gouvernance/* (modules/gouvernance + gui_permissions). */
@@ -294,20 +338,75 @@ export const API = {
     kpis: () => '/cortex/kpis',
     /** GET /cortex/models — list available AI/LLM models */
     models: () => '/cortex/models',
-    /** GET /cortex/agents — list Cortex Agents (autonomous AI agents) */
+    /** GET /cortex/agents[?database=<db>] — list Cortex Agents */
     agents: (db?: string) => `/cortex/agents${db ? `?database=${enc(db)}` : ''}`,
     /** GET /cortex/semantic-models/list — list semantic model files */
     semanticModels: () => '/cortex/semantic-models/list',
-    /** GET /cortex/semantic-views — list semantic views for NL analytics */
+    /** GET /cortex/semantic-models/{name} — fetch content of one semantic model */
+    semanticModel: (name: string) => `/cortex/semantic-models/${enc(name)}`,
+    /** POST /cortex/semantic-models — create/upload a semantic model */
+    semanticModelsCreate: () => '/cortex/semantic-models',
+    /** POST /cortex/semantic-models/generate — auto-generate YAML from DDL */
+    semanticModelsGenerate: () => '/cortex/semantic-models/generate',
+    /** POST /cortex/semantic-models/generate-and-save — generate + save to stage in one step */
+    semanticModelsGenerateAndSave: () => '/cortex/semantic-models/generate-and-save',
+    /** GET /cortex/semantic-views[?database=<db>] — list semantic views for NL analytics */
     semanticViews: (db?: string) => `/cortex/semantic-views${db ? `?database=${enc(db)}` : ''}`,
-    /** GET /cortex/vectors/columns — list vector-embedded columns */
+    /** GET /cortex/vectors/columns[?database=<db>] — list vector-embedded columns */
     vectorColumns: (db?: string) => `/cortex/vectors/columns${db ? `?database=${enc(db)}` : ''}`,
+    /** POST /cortex/embeddings — embed a column with vector model (verified vs backend). */
+    embedColumn: () => '/cortex/embeddings',
+    // TODO(henry-P1): no backend route for /cortex/analyst/query — Analyst API not exposed.
+    // UI consumers must rely on the 404-self-disable pattern until the route ships.
+    analystQuery: () => '/cortex/analyst/query',
     /** GET /cortex/ml/classification/models — list classification models */
     classificationModels: () => '/cortex/ml/classification/models',
-    /** POST /cortex/finetune — start a fine-tune job */
-    finetune: () => '/cortex/finetune',
-    /** POST /cortex/vectors/embed — embed a column with vector model */
-    embedColumn: () => '/cortex/vectors/embed',
+    /** GET /cortex/ml/classification/{name} — get a classification model */
+    classificationModel: (name: string) => `/cortex/ml/classification/${enc(name)}`,
+    /** GET /cortex/ml/classification/{name}/metrics — model accuracy metrics */
+    classificationMetrics: (name: string) => `/cortex/ml/classification/${enc(name)}/metrics`,
+    /** POST /cortex/ml/classification/train — train a classification model */
+    classificationTrain: () => '/cortex/ml/classification/train',
+    /** POST /cortex/ml/classification/predict — run classification inference */
+    classificationPredict: () => '/cortex/ml/classification/predict',
+    /** POST /cortex/ml/finetune — create a fine-tune job */
+    mlFinetune: () => '/cortex/ml/finetune',
+    /** GET /cortex/ml/finetune/jobs — list fine-tune jobs */
+    mlFinetuneJobs: () => '/cortex/ml/finetune/jobs',
+    /** GET /cortex/ml/finetune/jobs/{id} — get a fine-tune job */
+    mlFinetuneJob: (id: string) => `/cortex/ml/finetune/jobs/${enc(id)}`,
+    /** POST /cortex/ml/finetune/jobs/{id}/cancel — cancel a fine-tune job */
+    mlFinetuneJobCancel: (id: string) => `/cortex/ml/finetune/jobs/${enc(id)}/cancel`,
+    /** GET /cortex/ml/document-ai/models — list document-AI models */
+    documentAiModels: () => '/cortex/ml/document-ai/models',
+    /** POST /cortex/ml/document-ai/predict — run document-AI prediction */
+    documentAiPredict: () => '/cortex/ml/document-ai/predict',
+    /** GET /cortex/ml/top-insights — list top-insights instances */
+    topInsights: () => '/cortex/ml/top-insights',
+    /** POST /cortex/ml/top-insights/{name}/analyze — run top-insights analysis */
+    topInsightsAnalyze: (name: string) => `/cortex/ml/top-insights/${enc(name)}/analyze`,
+    /** GET /cortex/snowpark/compute-pools — list Snowpark compute pools */
+    snowparkComputePools: () => '/cortex/snowpark/compute-pools',
+    /** GET /cortex/snowpark/services — list Snowpark container services */
+    snowparkServices: () => '/cortex/snowpark/services',
+    /** GET /cortex/snowpark/streamlit — list Streamlit apps (verified vs backend). */
+    snowparkStreamlit: () => '/cortex/snowpark/streamlit',
+    /** GET /cortex/snowpark/image-repos — list image repositories */
+    snowparkImageRepos: () => '/cortex/snowpark/image-repos',
+    /** POST /cortex/query-analytics/analyze — trigger AI query analysis (verified vs backend). */
+    queryAnalyticsRun: () => '/cortex/query-analytics/analyze',
+    /** GET /cortex/query-analytics/results — fetch analysis results */
+    queryAnalyticsResults: () => '/cortex/query-analytics/results',
+    /** GET /cortex/query-analytics/summary — fetch analysis summary */
+    queryAnalyticsSummary: () => '/cortex/query-analytics/summary',
+    /** GET /cortex/duckdb/datasets — list local analytics datasets */
+    duckdbDatasets: () => '/cortex/duckdb/datasets',
+    /** POST /cortex/duckdb/query — run a local DuckDB query */
+    duckdbQuery: () => '/cortex/duckdb/query',
+    /** POST /cortex/duckdb/query-stage — query a Snowflake stage locally */
+    stageQuery: () => '/cortex/duckdb/query-stage',
+    /** POST /cortex/ml/finetune — fine-tune entry point (alias of mlFinetune; /cortex/finetune does not exist). */
+    finetune: () => '/cortex/ml/finetune',
   },
 
   /** Observability — backend: /observability/* (mounted with prefix in main.py). */
@@ -319,8 +418,8 @@ export const API = {
     intelligentKpis: () => '/observability/intelligent-kpis',
     /** GET /observability/alerts[?days=N] — cost spikes, failed tasks, security findings. */
     alerts: (days?: number) => `/observability/alerts${qs({ days })}`,
-    /** POST /observability/alerts/acknowledge — acknowledge an alert by id. body: { id } */
-    acknowledgeAlert: () => '/observability/alerts/acknowledge',
+    /** POST /observability/alerts/{alertId}/ack — acknowledge an alert (verified vs backend). */
+    acknowledgeAlert: (alertId: string) => `/observability/alerts/${enc(alertId)}/ack`,
     /** GET /observability/lineage — data lineage from ACCESS_HISTORY. */
     lineage: (params?: { database?: string; schema?: string; table?: string; days?: number }) =>
       `/observability/lineage${qs(params)}`,
@@ -462,8 +561,10 @@ export const API = {
     /** DELETE /data-products/{id} — delete a data product */
     delete: (id: string) => `/data-products/${enc(id)}`,
     /** GET /data-products/{id}/lineage — upstream + downstream table lineage for a product */
+    // TODO(henry-P1): /lineage and /consumers are NOT in the backend (verified 2026-06-07 —
+    // real routes: GET /data-products, GET /{id}, POST /{id}/{publish,refresh,subscribe}).
     lineage: (id: string) => `/data-products/${enc(id)}/lineage`,
-    /** GET /data-products/{id}/consumers — list consumer accounts / subscribers */
+    /** GET /data-products/{id}/consumers — list subscribers. (backend gap) */
     consumers: (id: string) => `/data-products/${enc(id)}/consumers`,
     /** POST /data-products/{id}/publish — publish product as a live Snowflake Secure Data Share */
     publish: (id: string) => `/data-products/${enc(id)}/publish`,
@@ -496,9 +597,12 @@ export const API = {
     dmfResults: () => '/data-quality/dmf-results',
     /** GET /data-quality/trend-analysis — daily avg DMF metric history */
     trendAnalysis: () => '/data-quality/trend-analysis',
-    /** GET /data-quality/anomalies — SNOWFLAKE.ML.ANOMALY_DETECTION results */
+    // TODO(henry-P1): /anomalies, /snapshot, /anomaly-detection and /trust-center/* are NOT
+    // in the backend (verified 2026-06-07 vs 896-route dump). Closest real trust routes live
+    // under /observability/trust-center/{findings,summary}. 404-self-disable until shipped.
+    /** GET /data-quality/anomalies — ML anomaly results. (backend gap) */
     anomalies: () => '/data-quality/anomalies',
-    /** GET /data-quality/snapshot — fan-out endpoint: all 9 dimensions in one shot */
+    /** GET /data-quality/snapshot — fan-out endpoint: all 9 dimensions. (backend gap) */
     snapshot: () => '/data-quality/snapshot',
     /** POST /data-quality/run-check — threshold check on a single table */
     runCheck: () => '/data-quality/run-check',

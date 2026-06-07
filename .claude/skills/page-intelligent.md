@@ -321,3 +321,74 @@ e2e/results/screenshots/intelligent-vector-search.png
 - `query-analytics-content.tsx:200`: backend field `cortex_issues` rendered as data value — acceptable (field name, not copy)
 - Tabs 09/10/11 still inline in page.tsx (no dedicated components) — P1 backlog item unchanged
 - `useCacheInvalidation` not directly subscribed in page.tsx for semantic models; `useCacheAwareQuery` with `cacheKeys` covers cache-invalidation reactivity via SSE indirectly
+
+---
+
+## Alice Run — intelligent — 2026-06-07
+
+### Global KPIs
+
+| Metric | Value |
+|--------|-------|
+| Endpoints verified OK | 2 (`/cortex/kpis` via getCortexKpis, `/cortex/query` via queryCortex) |
+| Endpoints unverified (hardcoded strings, not in api-contracts) | 18 |
+| Endpoints 404 | 0 (not testable without live backend) |
+| Endpoints 500 | 0 |
+| Endpoints with RBAC gate | 2 (semantic-models create/edit/delete/generate; snowpark via PermissionGatedButton) |
+| SmartRightBar axes wired | 0 of 8 |
+| InsightActionButton instances | 0 |
+| UX segments audited | 11 tabs |
+| Henry Tasks P1 | 8 |
+| Henry Tasks P2 | 6 |
+| Henry Tasks P3 | 4 |
+| Backend best-practices gaps (hardcoded paths) | 18 |
+
+### Step States
+
+| Step | State | Notes |
+|------|-------|-------|
+| Read page.tsx + all tab components (13 files) | complete | 11 tabs audited; tabs 09/10/11 still inline in page.tsx |
+| Endpoint verification vs api-contracts | complete | 2/20 in api-contracts; 18 hardcoded |
+| RBAC gate audit | partial | semantic-models + snowpark gated; 9 other tabs ungated |
+| UX states (loading/empty/error/dark) | partial | All tabs have loading states; 4 tabs missing empty states |
+| SmartRightBar wiring | not started | 0/8 axes |
+| api-contracts migration | critical gap | 18 endpoints need migration |
+| useCacheInvalidation | partial | `useCacheAwareQuery` covers semantic-models indirectly; other tabs not subscribed |
+| Brand violations | minor | `ml-features-content.tsx` code comment "Cortex Guard Toggle" (code comment only — not customer visible) |
+| Inline tabs in page.tsx | failing | Tabs 09/10/11 not extracted to dedicated components |
+
+### Henry Tasks Produced
+
+**P1 (Critical)**
+1. Add 18 missing `API.cortex.*()` entries to `api-contracts.ts` for agents, semantic-views, vector-columns, ml-features, snowpark, query-analytics, pipelines, notebooks, compute-pools, git tabs
+2. Extract tabs 09 (Compute Pools), 10 (Git), 11 (Notebooks) from page.tsx into dedicated components
+3. Migrate inline fetches in page.tsx for agents (`/cortex/agents`), semantic-views, vector-columns to use `API.cortex.*`
+4. Add `useCanPerform('intelligent', 'edit')` gates to agent create/delete, pipeline trigger, ml-model deploy buttons
+5. Wire `useCacheInvalidation` subscriptions for agents, pipelines, ml-features tabs
+6. Add `InsightActionButton` for model-deploy and pipeline-trigger actions
+7. Add `useTrackEvent` across all 11 tabs (tab switch events currently absent)
+8. Remove or suppress `ml-features-content.tsx` "Cortex Guard Toggle" comment (future risk if surfaced)
+
+**P2 (Important)**
+1. Add `SmartRightBar` integration — `useIntelligentSmartBar` hook with 8 axes
+2. Add empty states for 4 tabs missing them (compute-pools, git, notebooks, query-analytics)
+3. Consolidate semantic-models fetch logic into dedicated service file
+4. Add E2e Playwright spec for intelligent tab navigation + semantic-model CRUD
+5. Dark mode audit for chart-heavy tabs (ml-features, query-analytics)
+6. Add `InsightActionButton` for recommendation-accept in AI insights tab
+
+**P3 (Nice-to-have)**
+1. Lint rule banning inline `/cortex/` string literals
+2. Add `panel_sections_verified` tracking
+3. Unit tests for `getCortexKpis` and `queryCortex` service methods
+4. Consider server component for initial KPI fetch (reduce client waterfall)
+
+### Backend Conventions Compliance
+
+| Convention | Status |
+|-----------|--------|
+| `apiClient` (no raw fetch/axios) | compliant (all verified calls use apiClient) |
+| `API.*` entries in api-contracts.ts | critical gap (2/20) |
+| `@session_cache` on GETs | unknown (only 2 endpoints verified) |
+| Cache invalidation on POSTs | unknown |
+| RBAC (`require_module` + `useCanPerform`) | partial (2/11 tabs gated) |

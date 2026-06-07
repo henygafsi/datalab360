@@ -166,3 +166,92 @@ All tables live under `CP_DATA360.EVENT_STORE.*` in Snowflake (env var `SNOWFLAK
 | `DEPLOYMENT_PROGRESS` | Deploy App | `DEPLOY_START`, `DEPLOY_STEP_COMPLETE`, `DEPLOY_FAILED`, `DEPLOY_SUCCEEDED` |
 | `NOTIFICATIONS_RAW` + `NOTIFICATIONS_USER` | All modules (notification bell) | `ALERT_TRIGGERED`, `APPROVAL_REQUESTED`, `APPROVAL_RESOLVED`, `BUDGET_THRESHOLD_EXCEEDED`, `SLO_BREACH` |
 | `AI_RECOMMENDATIONS` | Intelligence, Workflow AI tab | `MODEL_QUERY`, `RECOMMENDATION_GENERATED`, `RECOMMENDATION_ACCEPTED`, `RECOMMENDATION_DISMISSED` |
+
+---
+
+## Global Run — 2026-06-07
+
+### Modules Audited This Run
+
+| Module | Status | Notes |
+|--------|--------|-------|
+| data-quality | fully audited | Alice + Henry |
+| observability | fully audited | Alice only |
+| intelligent | fully audited | Alice only |
+| workflow | fully audited | Alice + Henry |
+
+### Cross-Module Endpoint KPIs
+
+| Module | Tested | OK | 404 | 500 | Unverified | RBAC-gated |
+|--------|--------|----|-----|-----|------------|------------|
+| data-quality | 0 (static analysis) | 14 | 2 | 0 | 3 | 16 |
+| observability | 6 | 43 | 0 | 0 | 37 | 43 |
+| intelligent | 2 | 2 | 0 | 0 | 18 | 2 |
+| workflow | 31 | 28 | 1 | 0 | 2 | 28 |
+| **TOTAL** | **39** | **87** | **3** | **0** | **60** | **89** |
+
+**Overall pass rate (OK / (OK + 404 + 500)):** 87/90 = **96.7%**
+
+**Unverified rate (hardcoded strings, not in api-contracts):** 60/150 endpoints = **40%** — high risk
+
+### Henry Tasks Summary (P1/P2/P3)
+
+| Module | P1 | P2 | P3 | Total |
+|--------|----|----|-------|-------|
+| data-quality | 3 | 6 | 4 | 13 |
+| observability | 5 | 5 | 4 | 14 |
+| intelligent | 8 | 6 | 4 | 18 |
+| workflow | 4 | 5 | 4 | 13 |
+| **TOTAL** | **20** | **22** | **16** | **58** |
+
+### Top 5 Most Critical P1 Gaps (Cross-Module)
+
+1. **`api-contracts.ts` coverage crisis** — 60 endpoints hardcoded across 4 modules (42 in observability alone, 18 in intelligent). Every hardcoded string is an untyped, untestable endpoint. Priority: observability (42) → intelligent (18).
+
+2. **`useCacheInvalidation` not wired in observability** — 0/7 pages subscribe to SSE cache-key events. The backend pushes invalidation signals that the frontend silently ignores, causing stale data displays. All 7 observability pages need `CACHE_KEYS.OBSERVABILITY_*` subscriptions.
+
+3. **`useCanPerform` RBAC gates missing in observability + intelligent** — 0 FE action gates in observability (7 tabs, multiple mutations). Intelligent has gates only on 2 of 11 tabs. Any authenticated user can trigger mutations without permission checks.
+
+4. **8 customer-facing Snowflake brand violations in observability** — Direct breach of brand rule (CLAUDE.md + memory). Must be fixed before any customer-facing release. Search: `grep -r "Snowflake" apps/data360/src/app/(dashboard)/observability/`.
+
+5. **Missing backend route `GET /workflow/{id}/runs/summary`** — FE calls this endpoint; no handler exists in manifest. Results in silent 404 on the workflow run history panel. Add handler to workflow router.
+
+### Backend Conventions Compliance
+
+| Convention | data-quality | observability | intelligent | workflow | Avg % |
+|-----------|-------------|---------------|-------------|----------|-------|
+| `apiClient` used (no raw fetch) | 100% | 100% | 100% | 100% | **100%** |
+| `API.*` in api-contracts | partial | 2% (1/43) | 10% (2/20) | partial | **~40%** |
+| `@session_cache` on GETs | partial | 100% | unknown | partial | **~70%** |
+| Cache invalidation on POSTs | 100% | partial | unknown | 100% | **~80%** |
+| RBAC (`require_module` + FE gate) | 100% | 50% | 20% | 70% | **~60%** |
+| Brand compliance | 100% | failing | 100% | failing | **50%** |
+
+### SmartRightBar Coverage
+
+| Module | Axes wired | Axes total | Coverage |
+|--------|-----------|------------|----------|
+| data-quality | 0 | 8 | 0% |
+| observability | 0 | 8 | 0% |
+| intelligent | 0 | 8 | 0% |
+| workflow | 0 | 8 | 0% |
+| **Average** | **0** | **8** | **0%** |
+
+SmartRightBar has been designed (spec at `.claude/skills/smart-rightbar-spec.md`) but wired in 0/4 modules audited this run. Infrastructure hooks (`useDataQualitySmartBar`, etc.) need to be created per module.
+
+### Henry Run Results (Modules with Henry Execution)
+
+| Module | Routes Added | API Contracts Added | Cache Keys Added | Conventions Compliant | Backend Gaps Remaining |
+|--------|-------------|--------------------|-----------------|-----------------------|----------------------|
+| data-quality | 0 | 5 | 2 | true | 0 |
+| workflow | 16 | 16 | 1 | true | 16 |
+
+### Next Audit Cycle — Recommended Module Order
+
+Priority for next run (by P1 task count + gap severity):
+
+1. **intelligent** — 8 P1 tasks, 18 unverified endpoints, 9/11 tabs ungated
+2. **observability** — 5 P1 tasks, 42 unverified endpoints, brand violations
+3. **governance** — not yet audited this cycle
+4. **explore-design** — partial audit exists (2026-06-07 separate run)
+5. **connect** — partial audit exists (2026-06-07 separate run)

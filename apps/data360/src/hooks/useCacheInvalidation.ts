@@ -30,6 +30,7 @@ export const CACHE_KEYS = {
 
   // ── Workflow ──────────────────────────────────────────────────────────
   WORKFLOWS: 'workflows',
+  RUNS: 'runs',
   TASKS: 'tasks',
   APPROVALS: 'approvals',
 
@@ -50,6 +51,10 @@ export const CACHE_KEYS = {
   ML_MODELS: 'ml_models',
   FINE_TUNE_JOBS: 'fine_tune_jobs',
   CHAT: 'chat',
+  VECTORS: 'vectors',
+  AGENTS: 'agents',
+  SNOWPARK_SERVICES: 'snowpark_services',
+  QUERY_ANALYTICS: 'query_analytics',
 
   // ── Data Quality ──────────────────────────────────────────────────────
   DATA_QUALITY: 'data_quality',

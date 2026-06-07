@@ -69,6 +69,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import { listProjects, listContributors } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { useAtomValue } from 'jotai';
 import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
@@ -170,7 +171,7 @@ function friendlyError(raw: string): { headline: string; hint?: string; isPlatfo
   if (/SQL compilation error|invalid identifier|syntax error/i.test(text)) {
     const col = text.match(/invalid identifier ['"]?([A-Z_]+)['"]?/i)?.[1];
     return {
-      headline: 'Snowflake refused the compiled SQL',
+      headline: 'The data warehouse refused the compiled SQL',
       hint: col
         ? `Column "${col}" doesn’t exist in the referenced table. Open the SQL tab to see the failing statement.`
         : 'The generated SQL references a table or column that doesn’t exist. Open the SQL tab to see the failing statement.',
@@ -180,7 +181,7 @@ function friendlyError(raw: string): { headline: string; hint?: string; isPlatfo
   // Cortex / warehouse timeout.
   if (/QUERY_CANCELLED|604|warehouse.*suspend|timeout/i.test(text)) {
     return {
-      headline: 'Snowflake cancelled the query',
+      headline: 'The data warehouse cancelled the query',
       hint: 'Warehouse limit hit or query took too long. Try a smaller sample, or wait for the warehouse to resume.',
       isPlatform: false,
     };
@@ -1860,7 +1861,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setShowRightPanel(true);
 
     try {
-      const { data } = await apiClient.get('/workflow/preview-table', {
+      const { data } = await apiClient.get(API.workflow.previewTable(), {
         params: { database, schema, table, limit: 100 },
       });
       setPreviewData(data);
@@ -2824,7 +2825,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               onClick={() => setShowImportTasks(true)}
               disabled={!canWfCreate}
               className="flex h-7 items-center gap-1 rounded-lg bg-gradient-to-r from-cyan-600 to-blue-600 px-2 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none disabled:cursor-not-allowed dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={canWfCreate ? 'Import Snowflake task graphs as workflow projects' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
+              title={canWfCreate ? 'Import data warehouse task graphs as workflow projects' : 'You lack the "create" permission on workflow. Ask an administrator to grant it.'}
             >
               <Download className="h-3 w-3" />
               <span className="hidden md:inline">Import</span>
@@ -3945,7 +3946,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 <div className="space-y-3">
                   <p className="text-xs text-slate-500 dark:text-slate-400">
                     {hasRun
-                      ? 'AI root-cause analysis & fix suggestions for the last run (Cortex).'
+                      ? 'AI root-cause analysis & fix suggestions for the last run.'
                       : 'Corrections, warnings, and optimizations for your workflow.'}
                   </p>
 
@@ -3998,7 +3999,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                         )}
                         {aiSuggestionsLoading
                           ? 'Analyzing…'
-                          : hasRun ? 'Analyze this run with AI' : 'AI Suggestions (Cortex)'}
+                          : hasRun ? 'Analyze this run with AI' : 'Analyze with AI'}
                       </button>
                       {aiSuggestions != null && (
                         <div className="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/10 p-3">

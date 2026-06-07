@@ -124,3 +124,68 @@ e2e/results/screenshots/data-quality.png
 - **`CACHE_KEYS.QUALITY_METRICS` and `CACHE_KEYS.DMF_RESULTS`**: referenced in page.tsx SSE handler — verify these constants exist in `useCacheInvalidation.ts` (not audited in this run).
 - **services/data-quality/index.ts** also constructs paths inline (`const PREFIX = '/data-quality'`) — should reference `API.dataQuality.*()` in a follow-up.
 - **`?? 0` in column formatters** (`Number(v || 0)`): intentional — 0 is a semantically valid value in DQ columns (0 nulls = perfect completeness, 0 duplicates = unique). AuditTable fallback already uses `'—'` for truly missing values via `String(row[col.key] ?? '—')`. No change needed.
+
+---
+
+## Alice Run — data-quality — 2026-06-07
+
+### Global KPIs
+
+| KPI | Value |
+|-----|-------|
+| Endpoints source-verified OK | 14 |
+| Endpoints missing (404 — no backend route) | 2 (`/data-quality/snapshot`, `/data-quality/anomaly-detection`) |
+| Endpoints live but unwired from frontend | 3 (`/dmf/breaches`, `/dmf/catalog`, `/dmf/thresholds`) |
+| Endpoints live-tested | 0 (static source analysis only) |
+| RBAC-gated endpoints | 16 (router-level `require_module('data_quality')` + action-level `useCanPerform`) |
+| Panel sections verified | 9 (KPI bar, charts, recommendations, 9 tab dimensions, ActionRails) |
+| SmartRightBar axes implemented | 0 / 8 |
+| UX segments audited | 9 |
+| Henry Tasks P1 | 3 |
+| Henry Tasks P2 | 6 |
+| Henry Tasks P3 | 4 |
+| Backend best-practices gaps | 2 (`cached_sf_get` missing on `/data-quality/snapshot`; `API.*` not used in page.tsx inline fetches) |
+
+### Step States
+
+| Step | State | Notes |
+|------|-------|-------|
+| Read page.tsx + tab components | complete | 9 tab dimensions + KPI bar + ActionRails verified |
+| Endpoint verification vs backend manifest | complete | 14 OK, 2 missing (snapshot + anomaly-detection) |
+| RBAC gate audit | complete | router-level `require_module('data_quality')` confirmed; action-level `useCanPerform` on all mutations |
+| UX states (loading/empty/error/dark) | complete | All 9 segments have skeleton loaders; empty states present; error boundary at page level |
+| SmartRightBar wiring | not started | 0/8 axes — no `useDataQualitySmartBar` hook exists |
+| api-contracts coverage | partial | Henry Run added 5 entries; page.tsx still uses inline strings |
+| useCacheInvalidation | compliant | `CACHE_KEYS.DATA_QUALITY` + `CACHE_KEYS.QUALITY_METRICS` + `CACHE_KEYS.DMF_RESULTS` subscribed |
+| Brand violations | none | No Snowflake/Kimi/Cortex in customer copy |
+
+### Henry Tasks Produced
+
+**P1 (Critical — blocks reliability or compliance)**
+1. Add backend route `POST /data-quality/snapshot` — endpoint called from FE but no handler in manifest
+2. Add backend route `POST /data-quality/anomaly-detection` — same gap
+3. Refactor `page.tsx` to use `API.dataQuality.*()` instead of inline string interpolation
+
+**P2 (Important — UX polish or contract hygiene)**
+1. Wire `/dmf/breaches`, `/dmf/catalog`, `/dmf/thresholds` into FE tab components
+2. Add `SmartRightBar` integration for data-quality module (useDataQualitySmartBar hook)
+3. Apply `cached_sf_get` to `/data-quality/snapshot` backend handler
+4. Migrate `services/data-quality/index.ts` inline PREFIX to `API.dataQuality.*()` calls
+5. Verify `CACHE_KEYS.QUALITY_METRICS` and `CACHE_KEYS.DMF_RESULTS` constants exist in `useCacheInvalidation.ts`
+6. Add `InsightActionButton` for top anomaly CTA (currently plain button)
+
+**P3 (Nice-to-have)**
+1. Add `useTrackEvent` calls for tab switches in data-quality tabs
+2. E2e Playwright spec for DQ tab navigation
+3. Unit test for `fetchQualityData()` path construction
+4. Lint rule to ban inline `/data-quality/` string literals
+
+### Backend Conventions Compliance
+
+| Convention | Status |
+|-----------|--------|
+| `apiClient` (no raw fetch/axios) | compliant |
+| `API.*` entries in api-contracts.ts | partial (5 added by Henry; page still uses inline strings) |
+| `@session_cache` on GETs | partial (snapshot GET missing) |
+| Cache invalidation on POSTs | compliant |
+| RBAC (`require_module` + `useCanPerform`) | compliant |

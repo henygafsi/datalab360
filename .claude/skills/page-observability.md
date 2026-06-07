@@ -181,3 +181,78 @@ e2e/results/screenshots/observability-slo.png
 - **`useCacheInvalidation` not wired**: The shared observability dashboard and card components use plain `useCallback`/`useEffect` fetch loops with no SSE cache-key subscription. Should subscribe to relevant `CACHE_KEYS` and call `invalidateQueries` when backend pushes updates.
 - **`intelligentKpis` and `acknowledgeAlert`**: Added to api-contracts as required by spec, but have no FE service consumer. `acknowledgeAlert` is also unverified against backend manifest.
 - **Arithmetic-bound `?? 0` in display**: `security-posture-card.tsx`, `performance-metrics-card.tsx`, `cost-overview-card.tsx`, `health-overview-tab.tsx` all show "0" / "0%" when fields are null. These feed arithmetic so a safe fix requires display-layer `field != null ? value : '—'` guards — deferred as P2 polish.
+
+---
+
+## Alice Run — observability — 2026-06-07
+
+### Global KPIs
+
+| KPI | Value |
+|-----|-------|
+| Backend routes in observability module | 43 |
+| apiClient used correctly (no raw fetch/axios) | 43/43 — fully compliant |
+| api-contracts.ts typed entries for observability | 1 (only `base`) — 42 endpoints hardcoded |
+| Backend GETs with @session_cache | 40/40 — compliant |
+| Backend POSTs missing cache invalidation | 3 (POST /budgets, POST /slo, POST /alerts/{id}/ack) |
+| Frontend useCacheInvalidation subscriptions | 0/7 pages |
+| SmartRightBar axes wired | 0/8 axes |
+| InsightActionButton annotated mutations | 0 |
+| Customer-facing Snowflake brand violations | 8 occurrences |
+| useTrackEvent calls in module | 0 |
+| Frontend useCanPerform gates | 0 |
+| Henry Tasks P1 | 5 |
+| Henry Tasks P2 | 5 |
+| Henry Tasks P3 | 4 |
+| Backend best-practices gaps | 3 (POST /budgets, POST /slo, POST /alerts/{id}/ack missing invalidation) |
+| UX segments audited | 7 |
+| Panel sections verified | 0 |
+
+### Step States
+
+| Step | State | Notes |
+|------|-------|-------|
+| Read all 7 observability page/tab components | complete | health-overview, cost, performance, security, SLOs, alerts, budgets tabs |
+| Backend manifest verification | complete | 43 routes confirmed; 40/40 GETs have @session_cache |
+| api-contracts coverage | critical gap | Only 1 entry (`base`); 42 endpoints hardcoded in services/observability/index.ts |
+| Cache invalidation on POSTs | partial | 3 POSTs missing `invalidate_cache_key` calls |
+| useCacheInvalidation FE wiring | not started | 0/7 pages subscribe to SSE cache keys |
+| RBAC gates (useCanPerform) | not started | 0 `useCanPerform` calls in module |
+| Brand violations | failing | 8 customer-facing "Snowflake" strings across cards |
+| SmartRightBar | not started | 0/8 axes |
+| InsightActionButton | not started | 0 mutations wrapped |
+| useTrackEvent | not started | 0 calls |
+| UX states (loading/empty/error/dark) | partial | 4/7 pages have loading skeletons; 3 fall back to spinner only |
+
+### Henry Tasks Produced
+
+**P1 (Critical — blocks reliability or compliance)**
+1. Add 42 missing `API.observability.*()` entries to `api-contracts.ts` — all hardcoded strings must move there
+2. Remove 8 customer-facing "Snowflake" brand strings — replace with "data warehouse" / "analytics engine"
+3. Add `invalidate_cache_key` to `POST /budgets`, `POST /slo`, `POST /alerts/{id}/ack` backend handlers
+4. Wire `useCacheInvalidation` + `CACHE_KEYS.OBSERVABILITY_*` subscriptions in all 7 page components
+5. Add `useCanPerform('observability', 'edit')` gates to all mutating buttons (acknowledge, budget set, SLO edit)
+
+**P2 (Important)**
+1. Add `SmartRightBar` integration — `useObservabilitySmartBar` hook with 8 axes
+2. Wrap `acknowledgeAlert` and `setBudget` mutations with `InsightActionButton`
+3. Add `useTrackEvent` calls for tab switches across all 7 observability tabs
+4. Add loading skeleton + empty state to remaining 3 tabs (performance, security, budgets)
+5. Add E2e Playwright spec for observability tab navigation
+
+**P3 (Nice-to-have)**
+1. Consolidate duplicate fetch logic across observability cards into shared `useObservabilityData` hook
+2. Add `panel_sections_verified` tracking (currently 0 — no section-level audit done)
+3. Dark mode color audit for cost/budget charts
+4. Lint rule to ban inline `/observability/` strings
+
+### Backend Conventions Compliance
+
+| Convention | Status |
+|-----------|--------|
+| `apiClient` (no raw fetch/axios) | compliant (43/43) |
+| `API.*` entries in api-contracts.ts | critical gap (1/43) |
+| `@session_cache` on GETs | compliant (40/40) |
+| Cache invalidation on POSTs | partial (3 missing) |
+| RBAC (`require_module` + `useCanPerform`) | partial (router OK; FE gates missing) |
+| Brand compliance | failing (8 violations) |

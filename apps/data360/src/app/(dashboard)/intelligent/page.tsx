@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Loader } from 'rizzui';
 import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import {
   PiBrain,
   PiDatabase,
@@ -177,6 +179,8 @@ function formatKpiValue(value: number | null | undefined, format: 'number' | 'pe
 
 export default function IntelligentPage() {
   const searchParams = useSearchParams();
+  // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
+  const { trackTabSwitch } = useTrackEvent();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
     if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
@@ -206,34 +210,34 @@ export default function IntelligentPage() {
 
   // ── Cortex Agents via useCacheAwareQuery ──
   const fetchAgents = useCallback(async () => {
-    const res = await apiClient.get<{ agents?: CortexAgent[] }>('/cortex/agents?database=CP_DATA360');
+    const res = await apiClient.get<{ agents?: CortexAgent[] }>(API.cortex.agents('CP_DATA360'));
     return res.data?.agents ?? [];
   }, []);
   const { data: agents, loading: agentsLoading, error: agentsErrorObj, refetch: loadAgents } = useCacheAwareQuery<CortexAgent[]>(
     fetchAgents,
-    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'cortex-agents', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.AGENTS], enabled: activeTab === 'cortex-agents', initialData: [] }
   );
   const agentsError = agentsErrorObj?.message ?? null;
 
   // ── Semantic Views via useCacheAwareQuery ──
   const fetchSemanticViews = useCallback(async () => {
-    const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>('/cortex/semantic-views?database=CP_DATA360');
+    const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>(API.cortex.semanticViews('CP_DATA360'));
     return res.data?.semantic_views ?? [];
   }, []);
   const { data: semanticViews, loading: semanticViewsLoading, error: semanticViewsErrorObj, refetch: loadSemanticViews } = useCacheAwareQuery<CortexSemanticView[]>(
     fetchSemanticViews,
-    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], enabled: activeTab === 'semantic-views', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS, CACHE_KEYS.CORTEX], enabled: activeTab === 'semantic-views', initialData: [] }
   );
   const semanticViewsError = semanticViewsErrorObj?.message ?? null;
 
   // ── Vector Columns via useCacheAwareQuery ──
   const fetchVectorColumns = useCallback(async () => {
-    const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>('/cortex/vectors/columns?database=CP_DATA360');
+    const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>(API.cortex.vectorColumns('CP_DATA360'));
     return res.data?.vector_columns ?? [];
   }, []);
   const { data: vectorColumns, loading: vectorColumnsLoading, error: vectorColumnsErrorObj, refetch: loadVectorColumns } = useCacheAwareQuery<CortexVectorColumn[]>(
     fetchVectorColumns,
-    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'vector-search', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.VECTORS], enabled: activeTab === 'vector-search', initialData: [] }
   );
   const vectorColumnsError = vectorColumnsErrorObj?.message ?? null;
   // Distinct (schema.table) pairs holding a vector column — derived from the
@@ -371,7 +375,7 @@ export default function IntelligentPage() {
                 key={tab.id}
                 role="tab"
                 aria-selected={isActive}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); trackTabSwitch(tab.id); }}
                 className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
                   isActive
                     ? 'border-purple bg-purple-lighter/50 text-purple'

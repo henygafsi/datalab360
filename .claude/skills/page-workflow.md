@@ -862,3 +862,72 @@ e2e/results/screenshots/workflow.png
 - `useCacheInvalidation` hooked for CACHE_KEYS.WORKFLOWS in ETLPipelineBuilder but NOT in the dev-tools sub-tabs (git, compute pools, notebooks) — P3 gap
 - Chat-to-workflow (`POST /cortex/query` → blueprint hydration) not yet implemented — P1 per Henry tasks
 - Tab Approvals still not wired to `API.workflow.*` deployment endpoints — P2 per Henry tasks
+
+---
+
+## Alice Run — workflow — 2026-06-07
+
+### Global KPIs
+
+| KPI | Value |
+|-----|-------|
+| endpoints_ok | 28 |
+| endpoints_404 | 1 (GET /workflow/{id}/runs/summary — no backend handler) |
+| endpoints_500 | 0 |
+| endpoints_unverified | 2 (hardcoded /workflow/preview-table; deprecated deployment routes) |
+| endpoints_tested | 31 |
+| endpoints_rbac | 28 (router-level `_require_module` + per-handler `get_current_user`) |
+| backend_best_practices_gaps | 4 (missing session_cache on block-events GET + draft GET; workflowApi.ts uses inline PREFIX not API.*; 2 brand strings in customer copy) |
+| henry_tasks_p1 | 4 |
+| henry_tasks_p2 | 5 |
+| henry_tasks_p3 | 4 |
+| panel_sections_verified | 5 (Canvas, Toolbar, Right Panel tabs, Fix Rail, Import Modal) |
+| smartrightbar_axes_ok | 0 (SmartRightBar absent) |
+| ux_segments_audited | 5 |
+
+### Step States
+
+| Step | State | Notes |
+|------|-------|-------|
+| Read page.tsx + ETLPipelineBuilder + sub-components | complete | Canvas, Toolbar, RightPanel, FixRail, ImportModal verified |
+| Endpoint verification vs backend manifest | complete | 28 OK, 1 missing (runs/summary), 2 unverified |
+| RBAC gate audit | complete | router-level confirmed; FE `useCanPerform` only on deploy button |
+| UX states (loading/empty/error/dark) | partial | Canvas + FixRail have loading states; ImportModal missing error boundary |
+| SmartRightBar wiring | not started | 0/8 axes |
+| api-contracts coverage | partial | Henry Run added 16 entries; service index.ts still has inline PREFIX |
+| useCacheInvalidation | partial | Hooked for CACHE_KEYS.WORKFLOWS in ETLPipelineBuilder; dev-tools sub-tabs not subscribed |
+| Brand violations | failing | 2 customer-facing brand strings (copy audit needed) |
+| Chat-to-workflow (POST /cortex/query → blueprint) | not started | P1 Henry task |
+| Approvals tab wiring | not started | P2 — not wired to API.workflow.* deployment endpoints |
+
+### Henry Tasks Produced
+
+**P1 (Critical)**
+1. Add backend route `GET /workflow/{id}/runs/summary` — called from FE, no handler in manifest
+2. Implement chat-to-workflow: `POST /cortex/query` → blueprint hydration → Canvas auto-populate
+3. Apply `@session_cache` to `GET /workflow/{id}/block-events` and `GET /workflow/{id}/draft`
+4. Migrate `workflowApi.ts` inline PREFIX to use `API.workflow.*()` entries (16 entries added by Henry, not yet consumed)
+
+**P2 (Important)**
+1. Wire Approvals tab to `API.workflow.*` deployment endpoints (`deployWorkflow`, `getDeploymentStatus`)
+2. Add `SmartRightBar` integration — `useWorkflowSmartBar` hook with 8 axes
+3. Add `useCanPerform` gates to block-delete, workflow-publish, and run-cancel buttons
+4. Wire `useCacheInvalidation` for CACHE_KEYS in git, compute-pools, notebooks dev-tools sub-tabs
+5. Add error boundary to ImportModal
+
+**P3 (Nice-to-have)**
+1. Deprecate and remove legacy deployment routes (unverified — mark as `@deprecated` in api-contracts)
+2. Add `useTrackEvent` for workflow saves, block additions, and run triggers
+3. E2e Playwright spec for full workflow create → run → cancel flow
+4. Lint rule to ban inline `/workflow/` string literals in workflowApi.ts
+
+### Backend Conventions Compliance
+
+| Convention | Status |
+|-----------|--------|
+| `apiClient` (no raw fetch/axios) | compliant |
+| `API.*` entries in api-contracts.ts | partial (16 added; service still uses inline PREFIX) |
+| `@session_cache` on GETs | partial (block-events + draft missing) |
+| Cache invalidation on POSTs | compliant |
+| RBAC (`require_module` + `useCanPerform`) | partial (router OK; FE gates sparse) |
+| Brand compliance | failing (2 violations) |
