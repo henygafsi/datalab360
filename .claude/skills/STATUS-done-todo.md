@@ -1,4 +1,4 @@
-# Data360 — État consolidé DONE / TODO (2026-06-08)
+# Data360 — État consolidé DONE / TODO (2026-06-08, maj 2)
 
 > Fichier maître unique : ce qui est **fait** et ce qui **reste**, dans le même endroit.
 > Vérité établie par double-source (dump `from app.main import app` = 848 paths + curl live
@@ -11,8 +11,10 @@
 | Endpoints backend (path-level) | ✅ 100% — tout contrat consommé pointe vers une route réelle |
 | Endpoints (method-level) | ✅ 352/392 mutations OK ; 4 mismatch annotés P1 ; 36 literals hors-contrat à suivre |
 | Frontend `feat/backlog-v1` | ✅ POUSSÉ (HEAD `64567e2`) |
-| Backend `feat/backlog-v1` (GitLab) | ⏸ 5 commits LOCAUX — attendent un « push backend » explicite |
-| Workflow page (SmartRightBar) | ✅ FAIT |
+| Backend `feat/backlog-v1` (GitLab) | ⏸ 7 commits LOCAUX — attendent un « push backend » explicite |
+| Workflow page (SmartRightBar) | ✅ FAIT + zéro-bouton (7 actions → menu icône) |
+| Capability audit (au-delà du path) | ✅ FAIT — 2 deltas réels (cost-sim, gov) + B1 clone livré ; Snowpark non requis |
+| ⚠ Visible par l'utilisateur ? | ❌ NON — `feat/backlog-v1` pas mergée dans `dev` ni déployée |
 | Zéro-popup | ✅ consultatif + 4 form-modals convertis ; confirms destructifs gardés (voulu) |
 
 ---
@@ -27,13 +29,16 @@
 | `42cacc78` | 21 imports morts supprimés (12 fichiers) | app monte propre |
 | `ed31f308` | `GET /command-center/tabs/{tab}` — enveloppe consolidée 9 tabs (compose les services existants) | registered, 848 paths |
 | `8e13b8c3` | `POST /workflow/{id}/dry-run` accepte `{mode: clone\|temp_tables}` | registered |
+| `b1 (local)` | **B1** : `mode=clone` dispatche le vrai clone zero-copy (`run_workflow_clone_data_tests`) ; `temp_tables` flag honnête « pending B2 » | syntax+route OK |
 
 Garanties : `from app.main import app` OK, `py_compile` clean, OpenAPI build OK, dégradation
 par champ (try/except → null, jamais 500). **Non testé runtime** (pas de creds Snowflake en session).
 
 ### Frontend — poussé sur `feat/backlog-v1`
 - **Contrats** : ~116 entrées `API.*` ajoutées sur 11 modules, 7 faux paths corrigés, 4 entrées mortes `@deprecated`, toutes vérifiées vs dump backend
-- **Workflow SmartRightBar** (`WorkflowSmartPanel.tsx`) : right-bar unique toujours visible, **menu icône vertical (zéro tab)** — Changes pré-soumission · Submit avec sélecteur **clone(prod)/temp-tables(pipeline)** · Deployments+versioning · Block details · AI assist · 4 sections legacy ; boutons dispersés relocalisés ; action capitalisée en événement `workflow_validation_submitted`
+- **Workflow SmartRightBar** (`WorkflowSmartPanel.tsx`) : right-bar unique toujours visible, **menu icône vertical (zéro tab)** — Changes pré-soumission · Submit avec sélecteur **clone(prod)/temp-tables(pipeline)** · Deployments+versioning · Block details · AI assist · 4 sections legacy ; action capitalisée en événement `workflow_validation_submitted`
+- **Workflow zéro-bouton** : 7 actions toolbar (New/AI/Import/Save/Run/Suspend-Resume/Schedule) relocalisées dans le cluster Actions du panel ; canvas ne garde que zoom/fit/palette
+- **Capability delegation 2026-06-08** (`henry-delegation-2026-06-08.md`) : audit au-delà du path — anomaly ML + modeling/semantic/Analyst déjà livrés ; 2 deltas réels (A cost-sim 30j, D gov depth) + B1 clone livré ; Snowpark non requis (3 opportunités optionnelles différées)
 - **SmartRightBar catalog** (`ObjectSmartPanel.tsx`) sur sources : S1/S3/S4/S5/S6 sur les routes H1, dégradation 404→"not deployed yet", null→"—"
 - **AIActionFlow** : flux standardisé discussion→action→événement (`ai_action_executed`/`ai_suggestion_dismissed`) sur data-quality + étendu
 - **MetricHelp** : helper corporate (def+source+plage saine) sur ~13 métriques (data-quality, observability, command-center, intelligent, data-products, sources)
@@ -58,7 +63,11 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 - [ ] **PR frontend** : https://github.com/henygafsi/datalab360/compare/dev...feat/backlog-v1 (`gh` CLI absent localement → création web)
 
 ### 🟠 P1 — backend (à implémenter, hors session actuelle)
-- [ ] `POST /workflow/{id}/dry-run` : honorer réellement `mode` au déploiement (clone zero-copy vs temp tables matérialisées) — aujourd'hui le mode est enregistré mais compile+validate est identique
+- [x] ~~B1 : `mode=clone` dispatche le vrai clone zero-copy~~ ✅ FAIT (commit local)
+- [ ] **B2** : `mode=temp_tables` → matérialiser réellement des temp tables (copier le scaffolding B1 → `run_workflow_temp_table_tests`)
+- [ ] **A** : `GET /org-accounts/cost-simulation/{type}/{id}?days=30` — prévision coût 30j par objet (réutilise credit-forecast + bandes wizard ; différenciateur roadmap Phase 3)
+- [ ] **D1/D2** : `POST /gouvernance/policies/row-access/simulate` + `/masking/preview` (preview de changement sûr, SQL pur)
+- [ ] **D3** : `GET /gouvernance/roles/{role}/least-privilege` (GRANTS_TO_ROLES ∖ ACCESS_HISTORY, advisory)
 - [ ] 4 method-mismatch (FE écrit, backend GET-only) : `POST /projects`, `POST /org-accounts/reader-accounts`, `PATCH /workflow/compute-pools/{}`, `POST /gouvernance/rls-policies`
 - [ ] Routes ML non testées runtime : `POST /data-quality/anomaly-detection`, `POST /cortex/analyst/query` (vérifier shape réponse Cortex Analyst sur warehouse live)
 - [ ] H1 catalog : confirmer colonnes ACCOUNT_USAGE sur rôle réellement granté (dégrade en null sinon)
