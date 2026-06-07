@@ -13,7 +13,7 @@ Two-repo scan + safe-subset deletion. Active work zones were scanned but never e
 | dead_services (sampled) | 1 confirmed (`get_dormant_users`) |
 | dead_components (frontend) | 36 (35 in active `app/shared` + `components/ui`; report-only) |
 | contract_incoherences | 27 contract paths with no live backend route (26 lack TODO) |
-| deleted_count | 21 unused imports across 19 backend files (1 reverted false-positive) |
+| deleted_count | 21 unused-import removals across 19 backend files (1 reverted false-positive). NOTE: net `git diff` vs HEAD = 6 files — several edits reverted pre-existing working-tree additions back to the already-clean HEAD state, so the KPI counts removals performed, not net-new diff. |
 | deferred_count | everything in active zones (see DEFERRED) |
 
 Build gate: no frontend files touched → `pnpm iso:build` skipped (per scope). Backend verified via `python3 -m pyflakes` + `ast.parse` on every touched file + full `from app.main import app` smoke test (919 routes mount OK).
