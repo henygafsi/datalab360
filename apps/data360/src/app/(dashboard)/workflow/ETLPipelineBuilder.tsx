@@ -61,6 +61,7 @@ import {
 } from '@/components/project-onboarding/workflow-templates';
 import RunApprovalStatusHero from './components/RunApprovalStatusHero';
 import RollbackVersionDialog from './components/RollbackVersionDialog';
+import WorkflowSmartPanel, { type CanvasNodeSnapshot } from './components/WorkflowSmartPanel';
 import { validateGraph } from './components/etl-catalog-grounding';
 import CustomConnectionLine from './components/CustomConnectionLine';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -217,6 +218,24 @@ function is404(err: unknown): boolean {
 // instead of leaving a button that silently 404s on every click.
 type LifecyclePhase = 'idle' | 'running' | 'completed' | 'empty' | 'error' | 'unavailable';
 type LifecycleAction = 'save' | 'validate' | 'compile' | 'cloneTest' | 'deploy' | 'execute';
+
+/**
+ * Project the React Flow nodes into the lightweight block snapshots the
+ * WorkflowSmartPanel "Changes" diff consumes (id / label / type / configKey).
+ * configKey serialises the block config so config edits register as "modified".
+ */
+function toBlockSnapshots(nodes: Node[]): CanvasNodeSnapshot[] {
+  return nodes.map((n) => {
+    const cfg = (n.data?.config || {}) as Record<string, unknown>;
+    const label =
+      (n.data as { name?: string; label?: string } | undefined)?.name ||
+      (n.data as { name?: string; label?: string } | undefined)?.label ||
+      n.type || n.id;
+    let configKey = '';
+    try { configKey = JSON.stringify(cfg); } catch { configKey = String(cfg); }
+    return { id: n.id, label: String(label), type: String(n.type || 'block'), configKey };
+  });
+}
 interface LifecycleEntry {
   phase: LifecyclePhase;
   startedAt?: number;   // epoch ms while running, for the elapsed-time ticker
@@ -574,7 +593,14 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
   const [showPalette, setShowPalette] = useState(true);
   const [showSidebar, setShowSidebar] = useState(false);
-  const [activeTab, setActiveTab] = useState<'runs' | 'schedules' | 'sql' | 'ai' | 'results'>('runs');
+  // Single intelligent right-bar: `activeTab` doubles as the WorkflowSmartPanel
+  // active SECTION (icon-rail flip menu). It carries both the legacy panel
+  // bodies (results/runs/sql/schedules/ai) AND the new sections
+  // (changes/submit/deploy/block). 'schedules' is bridged to the panel's
+  // 'schedule' id at the prop boundary.
+  const [activeTab, setActiveTab] = useState<
+    'runs' | 'schedules' | 'sql' | 'ai' | 'results' | 'changes' | 'submit' | 'deploy' | 'block'
+  >('changes');
   const [showMembers, setShowMembers] = useState(false);
   // Right panel closed by default — gives the canvas full width on landing.
   // User opens it via the "Panel" toggle button in the top-right when they
@@ -609,6 +635,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     payload: { nodes: Node[]; edges: Edge[]; pipelineName: string; savedAt: number };
   }>(null);
   const lastLoadedUpdatedAtRef = useRef<number>(0);
+  // Baseline block snapshot captured at load/new — the WorkflowSmartPanel
+  // "Changes" section diffs the live canvas against this to pre-display the
+  // pending block-level changes before submission.
+  const [baselineBlocks, setBaselineBlocks] = useState<CanvasNodeSnapshot[]>([]);
 
   // Header action surfaces — schedule (inline right-panel tab) + rollback dialog.
   // Rollback stays a dialog (destructive, diff-confirm gate). The schedule
@@ -1198,6 +1228,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     setSelectedNode(node);
     setShowSidebar(true);
+    // Route the SmartPanel to the Block section so its config editor shows.
+    setActiveTab('block');
     // User is following the AI hint — dismiss the banner.
     setAiNextStepHint(false);
   }, []);
@@ -1213,8 +1245,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     //   - has a last run → Results
     //   - otherwise → Runs (where errors surface)
     setActiveTab((current) => {
-      // Don't override if user is actively on AI / Runs (sticky-friendly).
-      if (current === 'ai' || current === 'runs') return current;
+      // Don't override the sticky / new SmartPanel sections when the user
+      // deselects a node — only auto-route away from the block-detail view.
+      if (current !== 'block') return current;
       if (nodes.length === 0) return 'ai';
       if (lastExecution) return 'results';
       return 'runs';
@@ -1600,6 +1633,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     setSaveStatus('idle');
     setWorkflowTags([]);
     lastLoadedUpdatedAtRef.current = 0;
+    setBaselineBlocks([]); // empty canvas → every block reads as "added"
   }, [setNodes, setEdges]);
 
   const handleLoadPipeline = useCallback(
@@ -1623,6 +1657,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         const { nodes: newNodes, edges: newEdges } = stepsToReactFlow(stepsResponse.steps || []);
         setNodes(newNodes);
         setEdges(newEdges);
+        // Capture the loaded graph as the diff baseline for the SmartPanel
+        // "Changes" section (live canvas is compared against this).
+        setBaselineBlocks(toBlockSnapshots(newNodes));
         setActiveWorkflowId(wf.id);
         setActiveWorkflowName(wf.name);
         setPipelineName(wf.name);
@@ -1773,8 +1810,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
         }
       }
 
-      // Mark clean
+      // Mark clean — the saved graph becomes the new diff baseline so the
+      // SmartPanel "Changes" section resets to zero pending changes. Computed
+      // inline from `nodes` (currentBlocks memo is declared below this handler).
       setIsDirty(false);
+      setBaselineBlocks(toBlockSnapshots(nodes));
       dirtyNodeIdsRef.current.clear();
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus('idle'), 2000);
@@ -2009,6 +2049,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
   }, [nodes]);
 
   const [cloneTestResult, setCloneTestResult] = useState<CloneDataTestsResult | null>(null);
+
+  // Stable snapshot of the canvas blocks for the SmartPanel "Changes" diff.
+  // configKey serialises the block config so config edits register as "modified".
+  const currentBlocks = useMemo<CanvasNodeSnapshot[]>(() => toBlockSnapshots(nodes), [nodes]);
 
   const handleCloneDataTests = useCallback(async () => {
     if (!activeWorkflowId) {
@@ -2507,6 +2551,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           _onOpenConfig: () => {
             setSelectedNode(node);
             setShowSidebar(true);
+            setActiveTab('block');
           },
         },
       };
@@ -2769,21 +2814,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
             </button>
           )}
         </nav>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => setShowRightPanel(!showRightPanel)}
-            className={cn(
-              'px-2.5 py-1.5 text-xs font-medium rounded-md border flex items-center gap-1.5 transition-colors',
-              showRightPanel
-                ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
-                : 'border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300'
-            )}
-            title={showRightPanel ? 'Hide side panel' : 'Show side panel'}
-          >
-            {showRightPanel ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronLeft className="h-3.5 w-3.5" />}
-            Panel
-          </button>
-        </div>
+        {/* The right-bar (WorkflowSmartPanel) is always visible — no toggle.
+            Sections are switched via the panel's icon rail. */}
       </div>
 
       {/* ── Header — grouped clusters with subtle separators ──
@@ -3004,7 +3036,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                           const nodeId = err.step_id || err.node_id;
                           if (nodeId) {
                             const node = nodes.find(n => n.id === nodeId);
-                            if (node) { setSelectedNode(node); setShowSidebar(true); }
+                            if (node) { setSelectedNode(node); setShowSidebar(true); setActiveTab('block'); }
                           }
                           setShowErrorPanel(false);
                         }}
@@ -3045,66 +3077,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               Save{phaseSuffix('save')}
             </motion.button>
 
-            {/* ── Validate (compile-time lint of the DAG, server-side) ──
-                Honest disabled state when the route 404s on this backend. */}
-            <motion.button
-              whileHover={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 1.04 } : undefined}
-              whileTap={!(!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running') ? { scale: 0.96 } : undefined}
-              onClick={handleValidate}
-              disabled={!activeWorkflowId || isActionUnavailable('validate') || lifecycle.validate?.phase === 'running'}
-              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-amber-400 to-amber-500 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/40 transition-shadow hover:shadow-md hover:shadow-amber-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={isActionUnavailable('validate') ? UNAVAILABLE_HINT : 'Check for errors in the workflow DAG before execution'}
-            >
-              {lifecycle.validate?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
-              Validate{phaseSuffix('validate')}
-            </motion.button>
-
-            {/* ── SQL — dry-run (compile, generate SQL, no write) ──
-                Honest disabled state when the compile route 404s. */}
-            <motion.button
-              whileHover={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 1.04 } : undefined}
-              whileTap={!(isExecuting || !activeWorkflowId || isActionUnavailable('compile')) ? { scale: 0.96 } : undefined}
-              onClick={() => handleExecute(true)}
-              disabled={isExecuting || !activeWorkflowId || isActionUnavailable('compile') || !canWfExecute}
-              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={!canWfExecute ? EXECUTE_DENIED_HINT : isActionUnavailable('compile') ? UNAVAILABLE_HINT : 'Preview the compiled SQL without executing it (dry run)'}
-            >
-              {lifecycle.compile?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Eye className="h-3 w-3" />}
-              SQL{phaseSuffix('compile')}
-            </motion.button>
-
-            {/* ── Test on cloned data — the standard's "test real-life via
-                clone" step, between dry-run and deploy. Disabled honestly when
-                the route 404s, or when no connector-backed source exists. */}
-            {(() => {
-              const noConnector = cloneTestConnectorIds.length === 0;
-              const cloneDisabled =
-                !activeWorkflowId ||
-                isActionUnavailable('cloneTest') ||
-                noConnector ||
-                lifecycle.cloneTest?.phase === 'running';
-              const cloneTitle = isActionUnavailable('cloneTest')
-                ? UNAVAILABLE_HINT
-                : !activeWorkflowId
-                  ? 'Save the workflow first'
-                  : noConnector
-                    ? 'Add a connector-backed source to test on cloned data'
-                    : 'Run the pipeline against a cloned copy of the real source data (no production write)';
-              return (
-                <motion.button
-                  whileHover={!cloneDisabled ? { scale: 1.04 } : undefined}
-                  whileTap={!cloneDisabled ? { scale: 0.96 } : undefined}
-                  onClick={handleCloneDataTests}
-                  disabled={cloneDisabled}
-                  className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-cyan-500 to-teal-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-cyan-500/40 transition-shadow hover:shadow-md hover:shadow-cyan-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-                  title={cloneTitle}
-                  aria-label="Test on cloned data"
-                >
-                  {lifecycle.cloneTest?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <Bug className="h-3 w-3" />}
-                  Clone test{phaseSuffix('cloneTest')}
-                </motion.button>
-              );
-            })()}
+            {/* Validate / SQL dry-run / Clone-test relocated into the
+                WorkflowSmartPanel "Submit for validation" section (ShieldCheck
+                icon in the right-bar). No dispersed lifecycle buttons here. */}
 
             {/* ── Run — execute the workflow (writes results) ──
                 Honest disabled state when the execute route 404s. */}
@@ -3204,36 +3179,11 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
               </motion.button>
             )}
 
-            {/* ── Approve / Deploy — request a production deployment ──
-                Honest disabled state when the deployment routes 404. */}
-            <motion.button
-              whileHover={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 1.04 } : undefined}
-              whileTap={!(!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running') ? { scale: 0.96 } : undefined}
-              onClick={handleSubmitForApproval}
-              disabled={!activeWorkflowId || isReadOnly || isPendingApproval || isActionUnavailable('deploy') || lifecycle.deploy?.phase === 'running' || !canWfDeploy}
-              className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-violet-500/40 transition-shadow hover:shadow-md hover:shadow-violet-500/60 disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-              title={!canWfDeploy ? DEPLOY_DENIED_HINT : isActionUnavailable('deploy') ? UNAVAILABLE_HINT : isPendingApproval ? 'Already submitted for approval' : 'Request approval for production deployment'}
-            >
-              {lifecycle.deploy?.phase === 'running' ? <Loader2 className="h-3 w-3 animate-spin" /> : <AlertCircle className="h-3 w-3" />}
-              Approve{phaseSuffix('deploy')}
-            </motion.button>
-
-            {/* ── Rollback — opens RollbackVersionDialog with diff preview ──
-                Hidden when no versions exist, disabled in view-only. */}
-            {hasVersions && (
-              <motion.button
-                whileHover={!isReadOnly && !!activeWorkflowId ? { scale: 1.04 } : undefined}
-                whileTap={!isReadOnly && !!activeWorkflowId ? { scale: 0.96 } : undefined}
-                onClick={() => setShowRollbackDialog(true)}
-                disabled={isReadOnly || !activeWorkflowId}
-                className="flex h-7 items-center gap-1.5 whitespace-nowrap rounded-lg bg-gradient-to-br from-slate-500 to-slate-700 px-2.5 text-[11px] font-semibold text-white shadow-sm shadow-slate-500/30 transition-shadow hover:shadow-md disabled:from-slate-300 disabled:to-slate-400 disabled:shadow-none dark:disabled:from-slate-700 dark:disabled:to-slate-600"
-                title={isReadOnly ? 'View-only access' : 'Roll back to a previous version (diff preview shown before commit)'}
-                aria-label="Roll back to a previous version"
-              >
-                <History className="h-3 w-3" />
-                Rollback
-              </motion.button>
-            )}
+            {/* Approve/Deploy (submit-for-approval) relocated into the
+                SmartPanel "Submit for validation" section; Rollback +
+                deployment history relocated into the SmartPanel "Deployments &
+                versions" section (History icon). No dispersed deploy/history
+                buttons here. */}
           </div>
 
           {/* Divider */}
@@ -3472,49 +3422,53 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           )}
         </div>
 
-        {/* Right panel — conditional, PUSHES canvas */}
-        {showRightPanel && (
-        <div className="w-[420px] flex-shrink-0 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col">
-          {/* Tabs — single compact row */}
-          <div className="flex border-b border-slate-200 dark:border-slate-700 overflow-x-auto">
-            {[
-              { id: 'results', label: 'Results', icon: Eye, disabledWhenEmpty: true },
-              { id: 'runs', label: 'Runs', icon: History, disabledWhenEmpty: true },
-              { id: 'sql', label: 'SQL', icon: Code, disabledWhenEmpty: true },
-              { id: 'schedules', label: 'Schedule', icon: Calendar, disabledWhenPending: true, disabledWhenEmpty: true },
-              { id: 'ai', label: 'AI', icon: Sparkles },
-            ].map((tab) => {
-              const isEmpty = nodes.length === 0;
-              const disabledByEmpty = (tab as any).disabledWhenEmpty && isEmpty;
-              const disabledByPending = (tab as any).disabledWhenPending && isPendingApproval;
-              const isTabDisabled = disabledByEmpty || disabledByPending;
-              const disabledTitle = disabledByEmpty
-                ? `Add at least one block to view ${tab.label}`
-                : disabledByPending
-                ? 'Pending approval — scheduling disabled'
-                : undefined;
-              return (
-              <button
-                key={tab.id}
-                onClick={() => !isTabDisabled && setActiveTab(tab.id as any)}
-                disabled={isTabDisabled}
-                aria-disabled={isTabDisabled || undefined}
-                title={disabledTitle}
-                className={cn(
-                  'flex-1 px-2 py-2.5 text-[11px] font-medium flex items-center justify-center gap-1 transition-colors whitespace-nowrap min-w-0',
-                  isTabDisabled && 'opacity-40 cursor-not-allowed',
-                  activeTab === tab.id && !isTabDisabled
-                    ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50/50 dark:bg-blue-900/10'
-                    : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/30'
-                )}
-              >
-                <tab.icon className="h-3.5 w-3.5 flex-shrink-0" />
-                {tab.label}
-              </button>
-            );
-            })}
-          </div>
-
+        {/* ── WorkflowSmartPanel — the single intelligent right-bar ──
+            ALWAYS visible (no tabs, no popups). An icon rail flips the body
+            between Changes / Submit-for-validation / Deployments / Block /
+            AI sections, plus the preserved legacy bodies (Results / Runs /
+            SQL / Schedule). Lifecycle actions relocated here from the toolbar.
+            `activeTab` doubles as the active section ('schedules' bridges to
+            the panel's 'schedule' id). */}
+        <WorkflowSmartPanel
+          activeWorkflowId={activeWorkflowId}
+          activeWorkflowName={activeWorkflowName || pipelineName}
+          activeSection={activeTab === 'schedules' ? 'schedule' : (activeTab as any)}
+          onSectionChange={(s) => setActiveTab(s === 'schedule' ? 'schedules' : (s as any))}
+          currentBlocks={currentBlocks}
+          baselineBlocks={baselineBlocks}
+          isDirty={isDirty}
+          selectedNode={selectedNode}
+          isReadOnly={isReadOnly}
+          canDeploy={canWfDeploy}
+          hasConnectorSource={cloneTestConnectorIds.length > 0}
+          onValidate={async () => { await handleValidate(); }}
+          onDryRun={async () => { await handleExecute(true); }}
+          onCloneValidate={async () => { await handleCloneDataTests(); }}
+          onSubmitDeploy={async () => { await handleSubmitForApproval(); }}
+          onOpenRollback={() => setShowRollbackDialog(true)}
+          onReload={() => {
+            if (activeWorkflowId) {
+              handleLoadPipeline({ id: activeWorkflowId, name: activeWorkflowName });
+            }
+          }}
+          blockSlot={
+            selectedNode ? (
+              <ETLConfigSidebar
+                node={selectedNode}
+                onClose={() => { setSelectedNode(null); setShowSidebar(false); }}
+                onSave={handleNodeSave}
+                onDelete={handleNodeDelete}
+                availableColumns={getAvailableColumns()}
+                accessToken={accessToken}
+                leftInputColumns={joinInputColumns.left}
+                rightInputColumns={joinInputColumns.right}
+                embedded
+                className="-mx-4 -mt-4"
+              />
+            ) : undefined
+          }
+          statusHero={
+          <>
           {/* ── Status hero: surfaces last run + approval + deployment at a
               glance so the user doesn't need to click into each tab to know
               where their workflow stands. Only shown once a workflow is
@@ -3633,9 +3587,10 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           <div aria-live="polite" className="sr-only">
             {isExecuting ? 'Pipeline is executing...' : ''}
           </div>
-
-          {/* Tab content */}
-          <div className="flex-1 overflow-auto p-4">
+          </>
+          }
+          legacyBodies={
+          <>
             {activeTab === 'results' && (
               <div className="space-y-3 -mx-4 -mt-4">
                 {/* Clone-data test report — "test real-life via clone" results.
@@ -3749,6 +3704,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                                           if (target) {
                                             setSelectedNode(target);
                                             setShowSidebar(true);
+                                            setActiveTab('block');
                                           } else {
                                             toast.error('Could not locate this block on the canvas');
                                           }
@@ -4021,11 +3977,9 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                 </div>
               );
             })()}
-
-
-          </div>
-        </div>
-        )}
+          </>
+          }
+        />
 
         {/* Docked failed-run fix rail — per-step diagnosis, one-click fixes,
             and live Cortex AI analysis. Opens automatically on a failed run. */}
@@ -4037,7 +3991,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           extractError={extractErrorString}
           onOpenBlock={(nodeId) => {
             const target = nodes.find((n) => n.id === nodeId);
-            if (target) { setSelectedNode(target); setShowSidebar(true); }
+            if (target) { setSelectedNode(target); setShowSidebar(true); setActiveTab('block'); }
             else toast.error('Could not locate this block on the canvas');
           }}
           onApplyPatch={applyNodeConfigPatch}
@@ -4047,22 +4001,8 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           suggestions={fixSuggestions}
         />
 
-        {/* Config sidebar */}
-        {showSidebar && selectedNode && (
-          <ETLConfigSidebar
-            node={selectedNode}
-            onClose={() => {
-              setSelectedNode(null);
-              setShowSidebar(false);
-            }}
-            onSave={handleNodeSave}
-            onDelete={handleNodeDelete}
-            availableColumns={getAvailableColumns()}
-            accessToken={accessToken}
-            leftInputColumns={joinInputColumns.left}
-            rightInputColumns={joinInputColumns.right}
-          />
-        )}
+        {/* Block config moved into the WorkflowSmartPanel "Block" section
+            (Box icon). Selecting a node on the canvas routes the panel there. */}
       </div>
 
       {/* Loading overlay */}
