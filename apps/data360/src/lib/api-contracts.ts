@@ -506,6 +506,16 @@ export const API = {
     dmfThresholds: () => '/data-quality/dmf/thresholds',
     /** POST /data-quality/anomaly-detection — trigger ML anomaly detection */
     anomalyDetection: () => '/data-quality/anomaly-detection',
+    /** GET /data-quality/dmf/breaches — server-side threshold-aware breach list */
+    dmfBreaches: () => '/data-quality/dmf/breaches',
+    /** GET /data-quality/dmf/catalog — full inventory (tables × metrics × breaches) */
+    dmfCatalog: () => '/data-quality/dmf/catalog',
+    /** GET /data-quality/trust-center/recommendations */
+    trustCenterRecommendations: () => '/data-quality/trust-center/recommendations',
+    /** POST /data-quality/trust-center/enable — opt a table into trust scoring */
+    trustCenterEnable: () => '/data-quality/trust-center/enable',
+    /** GET /data-quality/trust-center/report */
+    trustCenterReport: () => '/data-quality/trust-center/report',
   },
 
   /** Catalog — backend: /catalog/* (modules/catalog/router.py). */

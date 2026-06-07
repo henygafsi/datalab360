@@ -110,6 +110,10 @@ export const CACHE_KEYS = {
   // ── AI ────────────────────────────────────────────────────────────────
   AI_SUGGESTIONS: 'ai_suggestions',
 
+  // ── Trust Center / Anomaly Detection ──────────────────────────────────
+  TRUST_CENTER: 'trust_center',
+  ANOMALY_DETECTION: 'anomaly_detection',
+
   // ── Catalog / SmartRightBar ────────────────────────────────────────────
   // Fired by backend after tag apply, classification, masking or ownership changes.
   CATALOG: 'catalog',
