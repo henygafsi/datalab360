@@ -190,38 +190,170 @@ Si le dev server est offline (session background), marquer tous les statuts endp
 voit dans le code; le test live sera fait lors d'une session interactive.
 
 ```bash
-# Vérifier si dev server est actif
-DEV_UP=$(curl -s --max-time 2 http://localhost:3000/api/auth/session | python3 -c "import json,sys; d=json.load(sys.stdin); print('OK' if d.get('user') else 'NO_SESSION')" 2>/dev/null || echo "OFFLINE")
+# 1. Vérifier si dev + api sont actifs
+DEV_UP=$(curl -s --max-time 3 http://localhost:3000/api/auth/session \
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print('OK' if d.get('user') else 'NO_SESSION')" \
+  2>/dev/null || echo "OFFLINE")
 echo "Dev server: $DEV_UP"
 
-# Si OK — récupérer le token
-TOKEN=$(curl -s http://localhost:3000/api/auth/session | \
-  python3 -c "import json,sys; s=json.load(sys.stdin); print(s.get('user',{}).get('access_token',''))" 2>/dev/null)
+# 2. Récupérer le token (user HAHA, compte HAHA)
+TOKEN=$(curl -s http://localhost:3000/api/auth/session \
+  | python3 -c "import json,sys; s=json.load(sys.stdin); print(s.get('user',{}).get('access_token',''))" \
+  2>/dev/null)
 
-# Tester chaque endpoint du module
-for EP in /gouvernance/users /gouvernance/roles /gouvernance/grants \
-          /workflow/capabilities /cortex/kpis /observability; do
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-    -H "Authorization: Bearer $TOKEN" \
-    http://api.datalab360.io$EP)
-  echo "$STATUS  $EP"
+BASE="http://api.datalab360.io"
+
+# 3. Test rapide par module — endpoints prioritaires P1
+# IMPORTANT: tous ces endpoints EXISTENT dans le backend (896 routes vérifiées).
+# Un 404 = gap d'enregistrement router, pas un endpoint à créer from scratch.
+
+echo "=== CATALOG / SOURCES ==="
+for EP in \
+  "/api/snowflake/explorer/objects?limit=5" \
+  "/api/snowflake/explorer/tree" \
+  "/api/snowflake/explorer/summary" \
+  "/catalog/overview" \
+  "/catalog/sources" \
+  "/catalog/scores" \
+  "/common/databases"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== EXPLORE-DESIGN ==="
+for EP in \
+  "/projects" \
+  "/explore-design/dynamic-tables" \
+  "/explore-design/streams" \
+  "/explore-design/tasks" \
+  "/explore-design/alerts" \
+  "/explore-design/glossary"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== GOVERNANCE ==="
+for EP in \
+  "/gouvernance/users" \
+  "/gouvernance/roles" \
+  "/gouvernance/d360-roles" \
+  "/gouvernance/policies/health" \
+  "/gouvernance/policies/tags/list" \
+  "/gouvernance/security-matrix" \
+  "/gouvernance/access-review/summary" \
+  "/api/platform/permission-matrix"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== DATA QUALITY ==="
+for EP in \
+  "/data-quality/quality-summary" \
+  "/data-quality/dmf/breaches" \
+  "/data-quality/dmf/catalog" \
+  "/data-quality/completeness-metrics" \
+  "/data-quality/trend-analysis" \
+  "/data-quality/run-history"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== OBSERVABILITY ==="
+for EP in \
+  "/observability/kpis" \
+  "/observability/intelligent-kpis" \
+  "/observability/alerts" \
+  "/observability/lineage" \
+  "/observability/performance/metrics" \
+  "/observability/performance/slow-queries" \
+  "/observability/cost/daily-credits" \
+  "/observability/probes/platform"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== INTELLIGENT / CORTEX ==="
+for EP in \
+  "/cortex/kpis" \
+  "/cortex/models" \
+  "/cortex/agents" \
+  "/cortex/semantic-models/list" \
+  "/cortex/semantic-views" \
+  "/cortex/ml/classification/models" \
+  "/cortex/snowpark/services" \
+  "/cortex/vectors/columns"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== WORKFLOW ==="
+for EP in \
+  "/workflow/capabilities" \
+  "/workflow/blocks" \
+  "/workflow/blocks/categories" \
+  "/workflow/catalog/blocks" \
+  "/workflow/schedules" \
+  "/workflow/action-templates"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== ACCOUNT OVERVIEW ==="
+for EP in \
+  "/command-center/overview-kpis" \
+  "/command-center/summary" \
+  "/command-center/cost-breakdown" \
+  "/command-center/infrastructure" \
+  "/command-center/security-audit" \
+  "/org-accounts/dashboard/overview" \
+  "/org-accounts/account-health-score" \
+  "/org-accounts/credits"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== DATA PRODUCTS ==="
+for EP in \
+  "/data-products" \
+  "/catalog/products"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
+done
+
+echo "=== CONNECT ==="
+for EP in \
+  "/connect/connectors" \
+  "/connect/connectors/health" \
+  "/connect/stages" \
+  "/connect/source-catalog"; do
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "$BASE$EP")
+  echo "$HTTP  $EP"
 done
 ```
 
 Résultat attendu par code :
-- `200` → actif, données disponibles ✅
-- `401/403` → RBAC gap 🔒
-- `404` → NON implémenté → **Henry task P1** (frontend)
-- `422` → params manquants → vérifier contrat
-- `500` → bug backend → **Henry task P2** (backend = repo séparé)
-- `⚠ NON VÉRIFIÉ` → session offline — marquer et passer
+- `200` → actif, données disponibles ✅ — afficher les données dans le panel
+- `401/403` → RBAC gap 🔒 → vérifier `require_role()` dans le router backend
+- `404` → endpoint non enregistré → **Henry task P1 backend** (vérifier router.py)
+- `422` → params manquants → vérifier le contrat de l'endpoint
+- `500` → bug backend → **Henry task P2 backend** (logguer + fixer)
+- `OFFLINE` → dev server hors ligne → marquer `⚠ NON VÉRIFIÉ`, NE PAS inventer de statut
 
-**Scope Henry dans CE repo (frontend uniquement)** :
-- `src/lib/api-contracts.ts` → ajouter entrées manquantes
-- `src/app/services/<module>/rightbar.ts` → créer/étendre
-- `src/components/ui/SmartRightBar*` → créer composants
-- `src/app/(dashboard)/<module>/page.tsx` → câbler SmartRightBar
-- ❌ `backend/app/modules/*/router.py` → NON dans ce repo (backend séparé)
+**NB**: Le backend local est à `/Users/datalab360/Documents/data360_pro/backend`.
+Les 896 routes sont vérifiées. Un 404 = router.py ne register pas la route,
+ou l'endpoint attend un param (ex: `/explore-design/{project_id}` sans project_id → 404 normal).
+
+**Scope Henry — les DEUX repos** :
+- Frontend (`datalab360Front/`) :
+  - `src/lib/api-contracts.ts` → ajouter entrées manquantes
+  - `src/app/services/<module>/rightbar.ts` → créer/étendre
+  - `src/app/(dashboard)/<module>/page.tsx` → câbler SmartRightBar
+- Backend (`backend/`) :
+  - `app/modules/<module>/router.py` → enregistrer routes manquantes
+  - `app/modules/<module>/service.py` → implémenter logique
+  - `app/modules/<module>/schemas.py` → Pydantic models
+
+Voir `agent-henry.md` pour la liste exhaustive des 896 endpoints par module et scope.
 
 ### Étape 3 — Consulter les docs publiques (OBLIGATOIRE)
 
@@ -244,10 +376,10 @@ Pour chaque section/segment, produire la matrice complète incluant les 8 axes :
 | Créer user | Governor | Bouton | POST /gouvernance/add-user | 200 | S2:Actions | gouvernance/create | ~0 | LOW | +5% | Aucun |
 | Voir rôles user | Governor | Clic row | GET /gouvernance/users/{u}/roles | 200 | S1:Context | gouvernance/view | ~0 | NONE | — | Aucun |
 | Fine-tune model | AI Eng | Bouton | POST /cortex/finetune | 404❌⚠ | S2 (disabled) | cortex/finetune | ~50+ | HIGH | — | Nouveau modèle |
-| Classifier PII | Governor | Bouton | POST /governance/classify/auto | ⚠NV | S3:Gouvernance | gouvernance/classify | ~2 | MED | +15% | Tags ajoutés |
-| Créer RLS policy | Governor | Bouton | POST /governance/policies/rls | ⚠NV | S3:Gouvernance | gouvernance/rls | ~0 | HIGH | +20% | Filtre toutes requêtes |
-| Voir lignée | Modeler | Auto | GET /catalog/tables/{}/lineage | ⚠NV | S4:Lignée | — | ~0 | NONE | — | Lecture seule |
-| Ingérer maintenant | DataEng | Bouton | POST /explore-design/{}/execute-ingestion | ⚠NV | S2:Actions | explore_design/ingest | ~2 | MED | — | Écrit DWH |
+| Classifier PII | Governor | Bouton | POST /gouvernance/policies/classification/classify | ⚠NV | S3:Gouvernance | gouvernance/classify | ~2 | MED | +15% | Tags ajoutés |
+| Créer RLS policy | Governor | Bouton | POST /gouvernance/policies/row-access | ⚠NV | S3:Gouvernance | gouvernance/rls | ~0 | HIGH | +20% | Filtre toutes requêtes |
+| Voir lignée | Modeler | Auto | GET /api/snowflake/explorer/objects/{id}/lineage | ⚠NV | S4:Lignée | — | ~0 | NONE | — | Lecture seule |
+| Ingérer maintenant | DataEng | Bouton | POST /explore-design/{project_id}/ingestion/execute | ⚠NV | S2:Actions | explore_design/ingest | ~2 | MED | — | Écrit DWH |
 
 Legend: ⚠NV = Non Vérifié (dev server offline)
 
