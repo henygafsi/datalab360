@@ -33,10 +33,6 @@ export const CACHE_KEYS = {
   TASKS: 'tasks',
   APPROVALS: 'approvals',
 
-  // ── BI Dashboard ──────────────────────────────────────────────────────
-  BI_DASHBOARDS: 'bi_dashboards',
-  BI_WIDGETS: 'bi_widgets',
-
   // ── Gouvernance ───────────────────────────────────────────────────────
   USERS: 'users',
   ROLES: 'roles',
@@ -113,6 +109,16 @@ export const CACHE_KEYS = {
 
   // ── AI ────────────────────────────────────────────────────────────────
   AI_SUGGESTIONS: 'ai_suggestions',
+
+  // ── Catalog / SmartRightBar ────────────────────────────────────────────
+  // Fired by backend after tag apply, classification, masking or ownership changes.
+  CATALOG: 'catalog',
+  TAGS: 'tags',
+  TABLE_GOVERNANCE: 'table_governance',
+  TABLE_LINEAGE: 'table_lineage',
+  TABLE_INGESTION: 'table_ingestion',
+  TABLE_OWNERSHIP: 'table_ownership',
+  GOVERNANCE_RATE: 'governance_rate',
 
   // ── Legacy (kept for backward compat, no backend equivalent) ──────────
   CHARTS: 'charts',

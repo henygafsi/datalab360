@@ -465,10 +465,9 @@ export default function DeployAppWizard({
     const kind = snap.kind || 'streamlit';
     const sub = HANDOFF_SUB_BY_KIND[kind];
 
-    const baseByKind: Record<AppKind, string> = {
+    const baseByKind: Partial<Record<AppKind, string>> = {
       streamlit: '/intelligent',
       container: '/intelligent',
-      chart: '/bi-dashboard',
       connector: '/data-source-connection',
     };
 

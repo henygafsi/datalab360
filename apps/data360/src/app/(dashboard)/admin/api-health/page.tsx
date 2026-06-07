@@ -261,7 +261,7 @@ import { submitS3Form } from '@/app/services/data-source-connection/s3Servicer';
 import * as projectsApi from '@/app/services/api/projectsApi';
 import * as workflowApi from '@/app/services/api/workflowApi';
 import * as exploreDesignApi from '@/app/services/api/exploreDesignApi';
-import * as biDashboardApi from '@/app/services/api/biDashboardApi';
+
 
 // ── Org Accounts ──
 import {
@@ -894,21 +894,6 @@ const TEST_MODULES: ModuleDef[] = [
       { name: 'aiGetSavings', fn: () => exploreDesignApi.aiGetSavings(FAKE_ID) },
     ],
   },
-  {
-    module: 'API: BI Dashboard',
-    tests: [
-      { name: 'createDashboard', fn: () => biDashboardApi.createDashboard({ name: FAKE_ID } as any) },
-      { name: 'getDashboard', fn: () => biDashboardApi.getDashboard(FAKE_ID) },
-      { name: 'deleteDashboard', fn: () => biDashboardApi.deleteDashboard(FAKE_ID) },
-      { name: 'listPages', fn: () => biDashboardApi.listPages(FAKE_ID) },
-      { name: 'listWidgets', fn: () => biDashboardApi.listWidgets(FAKE_ID) },
-      { name: 'listFilters', fn: () => biDashboardApi.listFilters(FAKE_ID) },
-      { name: 'nlToChart', fn: () => biDashboardApi.nlToChart('show sales') },
-      { name: 'getRetailKpis', fn: () => biDashboardApi.getRetailKpis() },
-      { name: 'saveSnapshot', fn: () => biDashboardApi.saveSnapshot(FAKE_ID) },
-    ],
-  },
-
   // ─── ORG ACCOUNTS ───
   {
     module: 'Org Accounts',

@@ -16,8 +16,10 @@ import {
   PiArrowsClockwise,
   PiChartLineUp,
   PiTable,
+  PiChartBar,
 } from 'react-icons/pi';
 import apiClient from '@/lib/api-client';
+import { setDmfThreshold, type DmfThresholdPayload } from '@/app/services/data-quality';
 
 const PREFIX = '/gouvernance/policies';
 
@@ -161,6 +163,26 @@ export default function DMFContent() {
   const [schedTarget, setSchedTarget] = useState({ database: '', schema: '', table: '' });
   const [schedForm, setSchedForm] = useState({ table_fqn: '', schedule: '' });
   const [scheduleError, setScheduleError] = useState<string | null>(null);
+
+  // Threshold modal — FIX DQ-04: was a dead toast, now calls POST /data-quality/dmf/thresholds
+  const [showThreshold, setShowThreshold] = useState(false);
+  const [thForm, setThForm] = useState<{
+    table_name: string;
+    column_name: string;
+    metric: string;
+    min_value: string;
+    max_value: string;
+    threshold_type: 'absolute' | 'percentage' | 'range';
+  }>({
+    table_name: '',
+    column_name: '',
+    metric: 'completeness',
+    min_value: '',
+    max_value: '',
+    threshold_type: 'percentage',
+  });
+  const [thSubmitting, setThSubmitting] = useState(false);
+  const [thError, setThError] = useState<string | null>(null);
 
   // References
   const [refs, setRefs] = useState<any[]>([]);
@@ -410,6 +432,46 @@ export default function DMFContent() {
     }
   };
 
+  // FIX DQ-04: replaced dead-toast stub with a real call to POST /data-quality/dmf/thresholds
+  const handleSetThreshold = async () => {
+    if (!thForm.table_name.trim() || !thForm.column_name.trim() || !thForm.metric) {
+      setThError('Table name, column name, and metric are required.');
+      return;
+    }
+    if (thForm.threshold_type === 'range' && !thForm.min_value && !thForm.max_value) {
+      setThError('Provide at least min or max value for range threshold.');
+      return;
+    }
+    setThError(null);
+    setThSubmitting(true);
+    try {
+      const payload: DmfThresholdPayload = {
+        table_name: thForm.table_name.trim(),
+        column_name: thForm.column_name.trim(),
+        metric: thForm.metric,
+        threshold_type: thForm.threshold_type,
+        ...(thForm.min_value !== '' ? { min_value: parseFloat(thForm.min_value) } : {}),
+        ...(thForm.max_value !== '' ? { max_value: parseFloat(thForm.max_value) } : {}),
+      };
+      await setDmfThreshold(payload);
+      toast.success(`Threshold saved for ${thForm.table_name}.${thForm.column_name}`);
+      setShowThreshold(false);
+      setThForm({
+        table_name: '',
+        column_name: '',
+        metric: 'completeness',
+        min_value: '',
+        max_value: '',
+        threshold_type: 'percentage',
+      });
+    } catch (err: any) {
+      setThError(errorMessage(err, 'Failed to save threshold'));
+      toast.error(errorMessage(err, 'Failed to save threshold'));
+    } finally {
+      setThSubmitting(false);
+    }
+  };
+
   // Group refs by table
   const refsByTable: Record<string, any[]> = {};
   refs.forEach((r: any) => {
@@ -434,6 +496,9 @@ export default function DMFContent() {
           </Button>
           <Button variant="outline" onClick={() => { setScheduleError(null); setShowSchedule(true); }} className="gap-2">
             <PiCalendar className="w-4 h-4" /> Schedule
+          </Button>
+          <Button variant="outline" onClick={() => { setThError(null); setShowThreshold(true); }} className="gap-2">
+            <PiChartBar className="w-4 h-4" /> Set Threshold
           </Button>
           <Button onClick={() => { setCreateError(null); setShowCreate(true); }} className="gap-2 bg-teal-600 text-white hover:bg-teal-700">
             <PiPlus className="w-4 h-4" /> Create DMF
@@ -829,6 +894,93 @@ export default function DMFContent() {
               {scheduleError}
             </p>
           )}
+      </PolicyFormPanel>
+
+      {/* Threshold Panel — FIX DQ-04: real POST /data-quality/dmf/thresholds call */}
+      <PolicyFormPanel
+        isOpen={showThreshold}
+        onClose={() => {
+          setShowThreshold(false);
+          setThError(null);
+          setThForm({ table_name: '', column_name: '', metric: 'completeness', min_value: '', max_value: '', threshold_type: 'percentage' });
+        }}
+        title="Set DMF Threshold"
+        description="Define acceptable bounds for a data quality metric on a specific column."
+        accentClassName="bg-teal-500"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setShowThreshold(false)} disabled={thSubmitting}>Cancel</Button>
+            <Button
+              onClick={() => handleSetThreshold()}
+              disabled={thSubmitting || !thForm.table_name.trim() || !thForm.column_name.trim()}
+              className="bg-teal-600 text-white hover:bg-teal-700 gap-1.5"
+            >
+              {thSubmitting ? <Loader variant="spinner" size="sm" /> : null}
+              {thSubmitting ? 'Saving…' : 'Save Threshold'}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="Table name (DB.SCHEMA.TABLE)"
+          placeholder="CP_DATA360.PUBLIC.ORDERS"
+          value={thForm.table_name}
+          onChange={(e) => setThForm({ ...thForm, table_name: e.target.value })}
+        />
+        <Input
+          label="Column name"
+          placeholder="EMAIL"
+          value={thForm.column_name}
+          onChange={(e) => setThForm({ ...thForm, column_name: e.target.value })}
+        />
+        <Select
+          label="Metric"
+          value={thForm.metric}
+          onChange={(val: any) => {
+            const v = typeof val === 'object' ? val?.value || 'completeness' : String(val);
+            setThForm({ ...thForm, metric: v });
+          }}
+          options={[
+            { label: 'Completeness', value: 'completeness' },
+            { label: 'Uniqueness', value: 'uniqueness' },
+            { label: 'Freshness', value: 'freshness' },
+            { label: 'Schema match', value: 'schema' },
+          ]}
+        />
+        <Select
+          label="Threshold type"
+          value={thForm.threshold_type}
+          onChange={(val: any) => {
+            const v = typeof val === 'object' ? val?.value || 'percentage' : String(val);
+            setThForm({ ...thForm, threshold_type: v as DmfThresholdPayload['threshold_type'] });
+          }}
+          options={[
+            { label: 'Percentage', value: 'percentage' },
+            { label: 'Absolute', value: 'absolute' },
+            { label: 'Range', value: 'range' },
+          ]}
+        />
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            label="Min value"
+            type="number"
+            placeholder="0"
+            value={thForm.min_value}
+            onChange={(e) => setThForm({ ...thForm, min_value: e.target.value })}
+          />
+          <Input
+            label="Max value"
+            type="number"
+            placeholder="100"
+            value={thForm.max_value}
+            onChange={(e) => setThForm({ ...thForm, max_value: e.target.value })}
+          />
+        </div>
+        {thError && (
+          <p role="alert" className="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-300">
+            {thError}
+          </p>
+        )}
       </PolicyFormPanel>
 
       {/* Detail Panel */}

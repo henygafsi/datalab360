@@ -1,8 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Loader } from 'rizzui';
-import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise } from 'react-icons/pi';
+import { Badge, Button, Input, Loader, Modal, Select } from 'rizzui';
+import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
+import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
@@ -13,6 +14,7 @@ import {
   getWarehouseUsage,
   getStorageMetrics,
   getDailyCredits,
+  createCostMonitor,
   isRouteNotDeployed,
 } from '@/app/services/observability';
 import type {
@@ -24,6 +26,132 @@ import type {
 // page inside the observability scope is a read, not an out-of-scope edit.
 import { getResourceMonitors } from '@/app/services/org-accounts/hooks';
 import { getApiErrorMessage } from '@/lib/api-client';
+
+// ---------------------------------------------------------------------------
+// Create Resource Monitor dialog
+// ---------------------------------------------------------------------------
+const FREQUENCY_OPTIONS = [
+  { label: 'Daily', value: 'DAILY' },
+  { label: 'Weekly', value: 'WEEKLY' },
+  { label: 'Monthly', value: 'MONTHLY' },
+];
+const ACTION_OPTIONS = [
+  { label: 'Suspend immediate', value: 'SUSPEND_IMMEDIATE' },
+  { label: 'Suspend', value: 'SUSPEND' },
+];
+
+function CreateMonitorModal({
+  isOpen,
+  onClose,
+  onCreated,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [quota, setQuota] = useState('');
+  const [frequency, setFrequency] = useState<string>('MONTHLY');
+  const [action, setAction] = useState<string>('SUSPEND_IMMEDIATE');
+  const [submitting, setSubmitting] = useState(false);
+
+  const reset = () => {
+    setName('');
+    setQuota('');
+    setFrequency('MONTHLY');
+    setAction('SUSPEND_IMMEDIATE');
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { toast.error('Name is required'); return; }
+    const creditQuota = Number(quota);
+    if (!quota || Number.isNaN(creditQuota) || creditQuota <= 0) {
+      toast.error('Credit quota must be a positive number');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await createCostMonitor({
+        name: name.trim(),
+        credit_quota: creditQuota,
+        frequency,
+        triggers: [{ percent: 100, action: action as 'SUSPEND_IMMEDIATE' | 'SUSPEND' }],
+        notify_users: [],
+      });
+      toast.success(`Monitor "${name.trim()}" created`);
+      reset();
+      onCreated();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} size="md">
+      <div className="space-y-4 p-6">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
+            <PiGaugeDuotone className="h-5 w-5 text-green-600 dark:text-green-400" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold dark:text-white">Create Resource Monitor</h3>
+            <p className="text-sm text-slate-500">Enforce a credit budget on one or more warehouses</p>
+          </div>
+        </div>
+
+        <Input
+          label="Monitor name"
+          placeholder="my_monitor"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+
+        <Input
+          label="Credit quota"
+          type="number"
+          min={1}
+          placeholder="100"
+          value={quota}
+          onChange={(e) => setQuota(e.target.value)}
+        />
+
+        <Select
+          label="Frequency"
+          options={FREQUENCY_OPTIONS}
+          value={frequency}
+          onChange={(opt) => setFrequency((opt as { value: string }).value)}
+        />
+
+        <Select
+          label="Action at 100%"
+          options={ACTION_OPTIONS}
+          value={action}
+          onChange={(opt) => setAction((opt as { value: string }).value)}
+        />
+
+        <div className="flex justify-end gap-3 pt-2">
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            isLoading={submitting}
+            onClick={handleSubmit}
+            className="bg-green-600 text-white hover:bg-green-700"
+          >
+            Create
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 interface ResourceMonitorRow {
   name?: string;
@@ -74,6 +202,7 @@ export default function BudgetPage() {
   const [error, setError] = useState<string | null>(null);
   const [monitorsError, setMonitorsError] = useState<string | null>(null);
   const [monitorsNotDeployed, setMonitorsNotDeployed] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
 
   const loadCost = useCallback(async () => {
     setLoading(true);
@@ -170,6 +299,14 @@ export default function BudgetPage() {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white">Resource Monitors</h2>
+          <Button
+            size="sm"
+            className="gap-1 bg-green-600 text-white hover:bg-green-700"
+            onClick={() => setCreateOpen(true)}
+          >
+            <PiPlusBold className="h-3.5 w-3.5" />
+            Create Monitor
+          </Button>
         </div>
         <FreshnessDisclaimer
           className="mb-3"
@@ -193,6 +330,16 @@ export default function BudgetPage() {
             icon={PiGaugeDuotone}
             title="No resource monitors configured"
             description="Create resource monitors in Snowflake to enforce credit budgets and get usage alerts."
+            action={
+              <Button
+                size="sm"
+                className="mt-3 gap-1 bg-green-600 text-white hover:bg-green-700"
+                onClick={() => setCreateOpen(true)}
+              >
+                <PiPlusBold className="h-3.5 w-3.5" />
+                Create Monitor
+              </Button>
+            }
           />
         ) : (
           <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
@@ -244,6 +391,15 @@ export default function BudgetPage() {
           </div>
         )}
       </div>
+
+      <CreateMonitorModal
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={() => {
+          setCreateOpen(false);
+          loadMonitors();
+        }}
+      />
     </div>
   );
 }

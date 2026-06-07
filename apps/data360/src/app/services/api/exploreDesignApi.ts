@@ -564,8 +564,8 @@ export async function requestDeployment(
   body: CreateExploreDeploymentRequest,
 ) {
   const { data } = await apiClient.post<ExploreDeployment>(
-    `${PREFIX}/${projectId}/deployments`,
-    body,
+    `/projects/${projectId}/deployments`,
+    { ...body, module: 'explore_design' },
   );
   return data;
 }

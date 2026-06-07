@@ -1494,7 +1494,6 @@ export interface ListTemplatesResponse {
   count: number;
 }
 
-
 export interface BIDashboardChartConfig {
   database: string;
   schema: string;
@@ -1687,27 +1686,6 @@ export interface SnapshotResponse {
 }
 
 // --- Templates (backend-served gallery) ---
-
-export interface DashboardTemplateWidget {
-  type: string;
-  title: string;
-  chart_type?: string;
-}
-
-export interface DashboardTemplateAPI {
-  id: string;
-  name: string;
-  description: string;
-  thumbnail?: string;
-  widgets: DashboardTemplateWidget[];
-}
-
-export interface ListTemplatesResponse {
-  templates: DashboardTemplateAPI[];
-  count: number;
-}
-
-// --- Auto-create dashboard ---
 
 export interface AutoCreateDashboardRequest {
   /** 'table' = build from a single table, 'schema' = build domain-themed

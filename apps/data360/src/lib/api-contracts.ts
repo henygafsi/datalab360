@@ -23,7 +23,7 @@ import { API_CONFIG } from '@/config/database.config';
  */
 const enc = encodeURIComponent;
 
-type ProjectTypeFilter = 'explore_design' | 'workflow' | 'bi_dashboard' | 'WORKFLOW';
+type ProjectTypeFilter = 'explore_design' | 'workflow' | 'WORKFLOW';
 
 function qs(params?: Record<string, string | number | boolean | undefined | null>): string {
   if (!params) return '';
@@ -246,6 +246,37 @@ export const API = {
   /** Catalog — backend: /catalog/* (modules/catalog/router.py). */
   catalog: {
     events: () => '/catalog/events',
+    /** GET /catalog/tables/{db}/{schema}/{table}/context */
+    tableContext: (db: string, s: string, t: string) =>
+      `/catalog/tables/${enc(db)}/${enc(s)}/${enc(t)}/context`,
+    /** GET /catalog/tables/{db}/{schema}/{table}/governance */
+    tableGovernance: (db: string, s: string, t: string) =>
+      `/catalog/tables/${enc(db)}/${enc(s)}/${enc(t)}/governance`,
+    /** GET /catalog/tables/{db}/{schema}/{table}/lineage */
+    tableLineage: (db: string, s: string, t: string) =>
+      `/catalog/tables/${enc(db)}/${enc(s)}/${enc(t)}/lineage`,
+    /** GET /catalog/tables/{db}/{schema}/{table}/ingestion */
+    tableIngestion: (db: string, s: string, t: string) =>
+      `/catalog/tables/${enc(db)}/${enc(s)}/${enc(t)}/ingestion`,
+    /** GET /catalog/tables/{db}/{schema}/{table}/ownership */
+    tableOwnership: (db: string, s: string, t: string) =>
+      `/catalog/tables/${enc(db)}/${enc(s)}/${enc(t)}/ownership`,
+    /** GET /catalog/profile/{db}/{schema}/{table} */
+    tableProfile: (db: string, s: string, t: string) =>
+      `/catalog/profile/${enc(db)}/${enc(s)}/${enc(t)}`,
+    /** GET /catalog/views/{db}/{schema}/{view}/ddl */
+    viewDdl: (db: string, s: string, v: string) =>
+      `/catalog/views/${enc(db)}/${enc(s)}/${enc(v)}/ddl`,
+    /** GET /catalog/refresh?scope=<scope>[&db=<db>] */
+    refresh: (scope: string, db?: string) =>
+      `/catalog/refresh?scope=${scope}${db ? `&db=${enc(db)}` : ''}`,
+    /** POST /catalog/tags/flow */
+    applyFlowTags: () => '/catalog/tags/flow',
+    /** POST /catalog/tables/notify-consumers */
+    notifyConsumers: () => '/catalog/tables/notify-consumers',
+    /** GET /sources/detected-models[?project_id=<id>] — backend-gap: not yet deployed */
+    detectedModels: (projectId?: string) =>
+      `/sources/detected-models${projectId ? `?project_id=${enc(projectId)}` : ''}`,
   },
 
   /** Account-overview Snowflake explorer — backend: /api/snowflake/explorer/*. */

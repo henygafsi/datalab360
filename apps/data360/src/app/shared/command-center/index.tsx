@@ -1439,11 +1439,11 @@ function CommandCenterDashboardInner() {
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true,
     projects: false,
-    'security-adv': false,
+    security: false,
     'governance-grants': false,
     'data-ops': false,
     performance: false,
-    cost: false,
+    finops: false,
     compute: false,
     'platform-activity': false,
   });
@@ -1593,7 +1593,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchSecurityAdv = useCallback(async () => {
-    setTabLoading((p) => ({ ...p, 'security-adv': true }));
+    setTabLoading((p) => ({ ...p, security: true }));
     try {
       const data = await getSecurityOverview(filters.days, filters);
       if (isApiError(data)) {
@@ -1602,10 +1602,6 @@ function CommandCenterDashboardInner() {
       }
       setSecurityData(data);
       setLastUpdated(new Date());
-      // Cache key must match the tab id read by the switch effect
-      // (`tabDataCache.current[activeTab]`). The Security tab id is 'security'
-      // (see tabs[]), so writing under 'security-adv' meant the 2-min cache
-      // never hit and every visit refetched (and remounted the audit tables).
       tabDataCache.current['security'] = {
         data: true,
         timestamp: Date.now(),
@@ -1614,7 +1610,7 @@ function CommandCenterDashboardInner() {
     } catch (err) {
       toast.error('Failed to load security data');
     } finally {
-      setTabLoading((p) => ({ ...p, 'security-adv': false }));
+      setTabLoading((p) => ({ ...p, security: false }));
     }
   }, [filters]);
 
@@ -1682,7 +1678,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchCost = useCallback(async () => {
-    setTabLoading((p) => ({ ...p, cost: true }));
+    setTabLoading((p) => ({ ...p, finops: true }));
     try {
       const [cost, cortex] = await Promise.all([
         getCostBreakdown(filters.days, {
@@ -1713,13 +1709,11 @@ function CommandCenterDashboardInner() {
         cortex_total: cortexCredits,
       } as CostBreakdownResponse);
       setLastUpdated(new Date());
-      // Cache key must match the tab id ('finops', see tabs[]) read by the
-      // switch effect; writing under 'cost' meant the 2-min cache never hit.
       tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
-      setTabLoading((p) => ({ ...p, cost: false }));
+      setTabLoading((p) => ({ ...p, finops: false }));
     }
   }, [filters]);
 
@@ -2146,7 +2140,7 @@ function CommandCenterDashboardInner() {
               </Suspense>
             )}
             {activeTab === 'finops' && (
-              <CostTab data={costData} loading={tabLoading.cost} days={filters.days} />
+              <CostTab data={costData} loading={tabLoading.finops} days={filters.days} />
             )}
             {activeTab === 'modules' && (
               <Suspense fallback={<LoadingSection />}>
@@ -2176,7 +2170,7 @@ function CommandCenterDashboardInner() {
             {activeTab === 'security' && (
               <SecurityAdvTab
                 data={securityData}
-                loading={tabLoading['security-adv']}
+                loading={tabLoading['security']}
               />
             )}
             {activeTab === 'snowflake-accounts' && (
@@ -3494,8 +3488,7 @@ const ProjectsTab = memo(function ProjectsTab({
             }),
           };
         });
-        // Force refetch after short delay to get server-confirmed data
-        setTimeout(() => onRefresh?.(), 500);
+        onRefresh?.();
       } catch (err: any) {
         toast.error(
           err?.response?.data?.detail || 'Failed to approve deployment'

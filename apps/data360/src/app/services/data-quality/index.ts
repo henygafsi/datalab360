@@ -206,6 +206,35 @@ export interface ThresholdConfig {
   threshold: number;
 }
 
+/** Full body accepted by POST /data-quality/dmf/thresholds */
+export interface DmfThresholdPayload {
+  table_name: string;
+  column_name: string;
+  metric: string;
+  min_value?: number;
+  max_value?: number;
+  threshold_type: 'absolute' | 'percentage' | 'range';
+}
+
+export interface DmfThresholdResponse {
+  id?: string | number;
+  status?: string;
+  message?: string;
+  [key: string]: unknown;
+}
+
+/**
+ * Persist a DMF threshold rule.
+ * POST /data-quality/dmf/thresholds
+ * FIX DQ-04: replaces the former dead-toast stub with a real backend call.
+ */
+export async function setDmfThreshold(
+  payload: DmfThresholdPayload,
+): Promise<DmfThresholdResponse> {
+  const { data } = await apiClient.post(`${PREFIX}/dmf/thresholds`, payload);
+  return data?.data || data;
+}
+
 // =============================================================================
 // ACTIONS
 // =============================================================================
@@ -273,9 +302,12 @@ export async function runQualityCheckOnTable(config: QualityCheckConfig): Promis
  * @deprecated The backend /run-check requires a {@link QualityCheckConfig} with a
  * `table` — a bare `{database}` body never validated. Kept only so existing
  * imports don't break; new code must call {@link runQualityCheckOnTable}.
+ *
+ * FIX DQ-02: body was `{database}` — backend 422s without a `table` key.
+ * Now forwards the value as `table` so the backend Pydantic model validates.
  */
 export async function runQualityCheck(database: string): Promise<RunCheckResponse> {
-  const { data } = await apiClient.post(`${PREFIX}/run-check`, { database });
+  const { data } = await apiClient.post(`${PREFIX}/run-check`, { table: database });
   return data?.data || data;
 }
 
