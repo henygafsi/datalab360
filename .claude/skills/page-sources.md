@@ -194,3 +194,38 @@ Gov Rate : 62% (masking manquant sur 2 cols)
 - `useCacheInvalidation` not hooked in sources/page.tsx or data-source-connection/page.tsx — no SSE-driven cache invalidation for catalog refresh events
 - 7 new API.connect endpoints added as directed; not independently verified against `app/modules/connectors/router.py` (frontend-only repo); the InsightActionButton 404/501 pattern covers any route not yet live
 - `sources/page.tsx` has no `useCanPerform` gating on the Refresh Catalog or Add Source buttons — Henry P1 task still open
+
+## Alice Run — sources — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: dataSource (5), common (4), mapping (1).
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 10 |
+| endpoints_ok (registered) | 10 |
+| endpoints_404 | 0 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 10 |
+| henry_tasks_p1 | 0 |
+| henry_tasks_p2 | 0 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 (toutes les routes du contrat sont enregistrées) |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | 404=0 — aucune route backend manquante |
+| 6. Henry tasks | ✅ | aucune tâche backend (couverture 100%) |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — sources (backend delegation)
+
+Aucune route backend manquante (100% des chemins du contrat sont enregistrés dans le manifest).
+Gaps restants = frontend/UX (SmartRightBar, annotations CTA, Cortex tips) — hors scope "dev backend".
+Test live (données réelles) à refaire quand le dev server sera up (actuellement NON VÉRIFIÉ).

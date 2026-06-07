@@ -214,3 +214,38 @@ Historique :
 - Service layer still uses hardcoded `PREFIX = '/data-products'` string instead of `API.dataProducts.*` — functional but bypasses the contract registry; migration is a follow-up refactor (P2)
 - `GET /catalog/products` endpoint from the task brief: not present in backend (no route found in catalog service); `listDataProducts()` uses `/data-products` directly — backend-gap, not an FE bug
 - P1 task open: Subscribe button has no persistent "already subscribed" state — no local or server-side dedup beyond optimistic count update
+
+## Alice Run — data-products — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: dataProducts (9).
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 9 |
+| endpoints_ok (registered) | 9 |
+| endpoints_404 | 0 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 9 |
+| henry_tasks_p1 | 0 |
+| henry_tasks_p2 | 0 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 (toutes les routes du contrat sont enregistrées) |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | 404=0 — aucune route backend manquante |
+| 6. Henry tasks | ✅ | aucune tâche backend (couverture 100%) |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — data-products (backend delegation)
+
+Aucune route backend manquante (100% des chemins du contrat sont enregistrés dans le manifest).
+Gaps restants = frontend/UX (SmartRightBar, annotations CTA, Cortex tips) — hors scope "dev backend".
+Test live (données réelles) à refaire quand le dev server sera up (actuellement NON VÉRIFIÉ).

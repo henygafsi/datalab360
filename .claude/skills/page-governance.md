@@ -344,3 +344,56 @@ e2e/results/screenshots/governance-security-matrix.png
 - **cache invalidation gaps**: `CACHE_KEYS.ROLES` and `CACHE_KEYS.USERS` are used in `roles/table.tsx` and `users/table.tsx` respectively. However, `fetch_roles.ts` D360-role sub-functions (`getD360Roles`, `getMyPermissions`) and `security_matrix.ts` functions have no `useCacheInvalidation` subscription. A `CACHE_KEYS.D360_ROLES` key should be added when those pages are wired to SSE.
 - **InsightActionButton annotations**: `cost`, `risk`, `govDelta`, `lineageImpact` props absent from governance action buttons. All `InsightActionButton` usages in shared governance are stubs (per the spec they should carry these annotations). Blocked until governance rightbar.ts service is implemented (Henry P1 task).
 - **policies.ts uses `API_CONFIG.ENDPOINTS.GOVERNANCE`**: `policies.ts` builds its base URL from `API_CONFIG.ENDPOINTS.GOVERNANCE` (a legacy constant) instead of `API.gouvernance.policies()`. Should be migrated for consistency.
+
+## Alice Run — governance — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev server OFFLINE → endpoint existence resolved against the authoritative backend route manifest (`from app.main import app`, 823 method+path entries), NOT fabricated HTTP statuses. Registered routes = "display NON VÉRIFIÉ (offline)"; absent routes = 404 → Henry P1 backend.
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 34 (gouvernance 33 + platform 1) |
+| endpoints_ok (registered) | 33 |
+| endpoints_404 | 1 |
+| endpoints_500 | 0 |
+| endpoints_rbac (401/403) | — (offline) |
+| endpoints_non_vérifiés (offline) | 33 |
+| segments_ux_audités | 5 (users, roles, d360-roles, policies, access-review) |
+| panel_sections_vérifiées | 0/8 (panel non câblé — backlog) |
+| smartrightbar_axes_ok | 0/8 |
+| rbac_règles_vérifiées | useCanPerform present on mutating buttons |
+| insight_action_buttons_manquants | annotations cost/risk/govDelta/lineageImpact absent (all) |
+| cortex_tips_manquants | 5 (S7 absent on every segment) |
+| henry_tasks_p1 | 1 |
+| henry_tasks_p2 | 2 |
+| henry_tasks_p3 | 1 |
+| backend_bonnes_pratiques_gaps | service layer uses hardcoded paths, not API.gouvernance.* |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API up check | ⚠ | dev=OFFLINE, api=UP (health 200) |
+| 2. Token obtenu | ❌ | token=absent (no NextAuth session) |
+| 2b. Bonnes pratiques backend | ⚠ | conventions_respectées partielles, gaps=hardcoded paths |
+| 3. Docs publiques consultées | ✅ | SF ACCOUNT_USAGE / FastAPI |
+| 4. Matrice rôle×action | ✅ | rôle=Governor, actions auditées |
+| 4b. SmartRightBar axes | ❌ | axes_ok=0/8 |
+| 4c. Audit tab data + actions | ✅ | tabs=5, gaps_p1=1 |
+| 5. Redesign panel | ⏭ | hors-scope de ce sweep KPI |
+| 6. Henry tasks P1/P2/P3 | ✅ | P1=1, P2=2, P3=1 |
+| 7. Écriture page-governance.md | ✅ | section ajoutée |
+
+### Henry Tasks — governance (backend delegation)
+
+#### P1
+- [ ] Enregistrer `POST /gouvernance/drop-users-batch` — contrat FE existe (`API.gouvernance.dropUsersBatch`) mais route absente du manifest. Le backend a `drop-roles-batch` + `drop-user` (singulier); ajouter la variante batch users.
+      Fichier: `backend/app/modules/gouvernance/routers/gouvernance.py` (ou `d360_roles.py`) + service `drop_users_batch`.
+
+#### P2
+- [ ] Brancher `@invalidates_cache` / SSE `CACHE_KEYS.D360_ROLES` sur les mutations d360-roles (clé absente).
+- [ ] Exposer Cortex tips contextuels (S7) pour les segments users/roles (suggestion inactivité > 30j via ACCOUNT_USAGE.LOGIN_HISTORY).
+
+#### P3
+- [ ] Historique GOVERNANCE_EVENTS dans le panel → `GET /api/data360/events?module=gouvernance&entity_id={username}&limit=5` (route events déjà registered).

@@ -361,3 +361,39 @@ e2e/results/screenshots/explore-design.png
 ### Remaining Gaps (backend-only, needs go)
 - `columnLineage` — `GET /explore-design/{id}/lineage/column` has no call sites in the FE; skip until UI is wired
 - Pre-existing TS build error in `apps/data360/src/app/services/catalog/index.ts:491` (`CATALOG` constant undefined) — out of scope for explore-design audit, pre-dates this session
+
+## Alice Run — explore-design — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: exploreDesign (28), exploreDesignV1 (4), metadata (1).
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 33 |
+| endpoints_ok (registered) | 32 |
+| endpoints_404 | 1 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 32 |
+| segments_ux_audités | dynamic-tables, streams, tasks, alerts, glossary, ddl-events |
+| henry_tasks_p1 | 1 |
+| henry_tasks_p2 | 0 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 majeurs |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | gaps_p1=1 |
+| 6. Henry tasks | ✅ | P1=1 |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — explore-design (backend delegation)
+
+#### P1
+- [ ] Enregistrer `POST /metadata/init_metadata` — contrat FE `API.metadata.init()` existe, route absente. (Bootstrap des tables de métadonnées du module.)
+      Fichier: `backend/app/modules/projects/explore_design/router.py` ou un router metadata dédié + mount.

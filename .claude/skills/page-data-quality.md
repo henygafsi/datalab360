@@ -189,3 +189,38 @@ e2e/results/screenshots/data-quality.png
 | `@session_cache` on GETs | partial (snapshot GET missing) |
 | Cache invalidation on POSTs | compliant |
 | RBAC (`require_module` + `useCanPerform`) | compliant |
+
+## Alice Run — data-quality — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: dataQuality (26).
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 26 |
+| endpoints_ok (registered) | 26 |
+| endpoints_404 | 0 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 26 |
+| henry_tasks_p1 | 0 |
+| henry_tasks_p2 | 0 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 (toutes les routes du contrat sont enregistrées) |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | 404=0 — aucune route backend manquante |
+| 6. Henry tasks | ✅ | aucune tâche backend (couverture 100%) |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — data-quality (backend delegation)
+
+Aucune route backend manquante (100% des chemins du contrat sont enregistrés dans le manifest).
+Gaps restants = frontend/UX (SmartRightBar, annotations CTA, Cortex tips) — hors scope "dev backend".
+Test live (données réelles) à refaire quand le dev server sera up (actuellement NON VÉRIFIÉ).

@@ -931,3 +931,38 @@ e2e/results/screenshots/workflow.png
 | Cache invalidation on POSTs | compliant |
 | RBAC (`require_module` + `useCanPerform`) | partial (router OK; FE gates sparse) |
 | Brand compliance | failing (2 violations) |
+
+## Alice Run — workflow — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: workflow (47), projects (16), projectsV1 (3).
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 66 |
+| endpoints_ok (registered) | 66 |
+| endpoints_404 | 0 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 66 |
+| henry_tasks_p1 | 0 |
+| henry_tasks_p2 | 0 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 (toutes les routes du contrat sont enregistrées) |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | 404=0 — aucune route backend manquante |
+| 6. Henry tasks | ✅ | aucune tâche backend (couverture 100%) |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — workflow (backend delegation)
+
+Aucune route backend manquante (100% des chemins du contrat sont enregistrés dans le manifest).
+Gaps restants = frontend/UX (SmartRightBar, annotations CTA, Cortex tips) — hors scope "dev backend".
+Test live (données réelles) à refaire quand le dev server sera up (actuellement NON VÉRIFIÉ).

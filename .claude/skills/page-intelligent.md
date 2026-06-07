@@ -392,3 +392,41 @@ e2e/results/screenshots/intelligent-vector-search.png
 | `@session_cache` on GETs | unknown (only 2 endpoints verified) |
 | Cache invalidation on POSTs | unknown |
 | RBAC (`require_module` + `useCanPerform`) | partial (2/11 tabs gated) |
+
+## Alice Run — intelligent — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (cortex domain) | 38 |
+| endpoints_ok (registered) | 37 |
+| endpoints_404 | 1 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 37 |
+| segments_ux_audités | semantic-models, agents, ml, snowpark, vectors |
+| henry_tasks_p1 | 1 |
+| henry_tasks_p2 | 1 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 majeurs |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | gaps_p1=1 |
+| 6. Henry tasks | ✅ | P1=1, P2=1 |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — intelligent (backend delegation)
+
+#### P1
+- [ ] Enregistrer `POST /cortex/analyst/query` — contrat FE `API.cortex.analystQuery()` existe (annoté TODO(henry-P1)), route absente. Câbler à Cortex Analyst (NL→SQL) sur un semantic model.
+      Fichier: `backend/app/modules/intelligence/cortex/router.py` + service.
+
+#### P2
+- [ ] Confirmer `cached_sf_get()` non appliqué sur l'endpoint NL→query (mutation/compute) — utiliser le pattern compute, pas cache long.

@@ -169,3 +169,46 @@ e2e/results/screenshots/account-overview.png
 - Tab renames (snowflake-explorer → snowflake-objects, cost → finops, security-adv → security) still pending per Henry P1
 - Many KPI `value` props in Projects tab (lines ~3625–3673), FinOps tab (lines ~4412–4443), and Security tab (lines ~4974–4988) still use `?? 0` but these are behind `if (loading || !data) return <LoadingSection />` guards — they show 0 only when data returns a genuinely null field, which is an acceptable backend-driven zero vs a missing-data zero; left as-is to avoid masking real values
 - No `GET /admin/activity-stats` calls found in the frontend yet — endpoint registered in api-contracts.ts, awaiting UI consumption
+
+## Alice Run — account-overview — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+> Scope domains: accountOverview, commandCenter, orgAccounts, dashboard, snowflakeExplorer, biDashboard, biRetail.
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 79 |
+| endpoints_ok (registered) | 57 |
+| endpoints_404 | 22 |
+| endpoints_500 | 0 |
+| endpoints_non_vérifiés (offline) | 57 |
+| segments_ux_audités | overview, infra, cost, security, snowflake-explorer, bi-dashboard |
+| henry_tasks_p1 | 3 |
+| henry_tasks_p2 | 1 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | bi-dashboard module entièrement frontend-ahead |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit | ✅ | gaps_p1=3 (22 routes manquantes) |
+| 6. Henry tasks | ✅ | P1=3, P2=1 |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — account-overview (backend delegation)
+
+#### P1
+- [ ] **BI self-service module (19 routes)** — tout le domaine `/bi-dashboard/*` est dans api-contracts.ts mais AUCUNE route backend n'existe. À créer (CRUD dashboards/pages/widgets/filters + render/snapshot/drill-through/export + nl-to-chart/auto-create/templates/retail-kpis).
+      Fichier: nouveau `backend/app/modules/bi_dashboard/router.py` + service + schemas + mount dans `app/main.py`. (Module volumineux — découper en sous-tâches.)
+- [ ] **BI retail (2 routes)** — `/bi/sales/overview`, `/bi/sales/dashboard` absents. Endpoints démo retail KPIs.
+      Fichier: `backend/app/modules/bi_dashboard/` ou analytics.
+- [ ] **`/command-center/tabs/{tab}` absent** — contrat FE `API.commandCenter.tab(tab, days)` existe, route absente. Le backend expose les tabs individuels (overview-kpis, cost-breakdown, etc.) mais pas l'enveloppe générique `/tabs/{tab}`. Ajouter le dispatcher ou retirer le contrat.
+      Fichier: `backend/app/modules/command_center/router.py`.
+
+#### P2
+- [ ] Vérifier que les 57 endpoints registered exposent bien des données (test live requis quand dev server up — actuellement NON VÉRIFIÉ).

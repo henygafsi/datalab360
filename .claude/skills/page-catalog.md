@@ -339,3 +339,46 @@ done
 - `POST /governance/classify/auto` (PII auto-classifier) not yet in api-contracts
 - `GET /catalog/tables/{db}/{schema}/{table}/preview` — table preview missing from api-contracts
 - `?? 0` in KpiCard display counters: intentional (0 is a valid count); `formatNumber()` handles null→"—" for data fields
+
+## Alice Run — catalog — 2026-06-07 (full-suite KPI sweep)
+
+> Method: dev OFFLINE → existence vs backend route manifest (823 entries). No fabricated statuses.
+
+### Global KPIs
+
+| KPI | Valeur |
+|-----|--------|
+| endpoints_testés (contract paths) | 34 |
+| endpoints_ok (registered) | 32 |
+| endpoints_404 | 2 |
+| endpoints_500 | 0 |
+| endpoints_rbac | — (offline) |
+| endpoints_non_vérifiés (offline) | 32 |
+| segments_ux_audités | 4 (overview, objects, scores, sources) |
+| panel_sections_vérifiées | partiel (catalog SmartRightBar partiellement câblé) |
+| smartrightbar_axes_ok | voir page-catalog SmartRightBar section |
+| henry_tasks_p1 | 2 |
+| henry_tasks_p2 | 1 |
+| henry_tasks_p3 | 0 |
+| backend_bonnes_pratiques_gaps | 0 majeurs |
+
+### État par étape
+
+| Étape | État | KPIs étape |
+|-------|------|------------|
+| 1. Dev + API | ⚠ | dev=OFFLINE, api=UP |
+| 2. Token | ❌ | absent |
+| 4c. Audit tab | ✅ | tabs=4, gaps_p1=2 |
+| 6. Henry tasks | ✅ | P1=2, P2=1 |
+| 7. Écriture | ✅ | section ajoutée |
+
+### Henry Tasks — catalog (backend delegation)
+
+#### P1
+- [ ] Enregistrer `GET /catalog/views/{db}/{schema}/{view}/ddl` — contrat FE `API.catalog.viewDdl(...)` existe, route absente. Retourner le DDL via `GET_DDL('VIEW', ...)`.
+      Fichier: `backend/app/modules/catalog/router.py` + service.
+- [ ] Enregistrer `GET /sources/detected-models` — contrat FE existe, route absente. (Endpoint sources/AI-detected models.)
+      Fichier: `backend/app/modules/connectors/router.py` ou module sources.
+
+#### P2
+- [ ] Vérifier `cached_sf_get()` + `@invalidates_cache` sur les nouveaux endpoints DDL/sources.
