@@ -113,6 +113,13 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 - ⏳ Reste à wirer : deployment-readiness (diff+lignée+coût) dans le Submit du WorkflowSmartPanel ; SmartRightBar catalog (ObjectSmartPanel) déjà branché sur les routes H1
 - Vault Obsidian `data360-coffre` absent de la machine → atlas produit in-repo
 
+## 📊 Page Performance par compte (multi-axes) — 06-08
+Demande : admin page comme les captures ServerMetrics, **par compte**, avec détail endpoints/users/cache/queries/erreurs sur tous les axes.
+- **Backend** (`4acc8065`, poussé GitLab) : 7 routes `/administration/performance/{account}/*` depuis `USER_REQUESTS` — overview(8 KPIs) · by-endpoint · by-user · by-cache?axis=page|tab|module|project · by-module · errors(détaillées) · user/{username}(drill-down). RBAC accountadmin, APPROX_PERCENTILE, dégradation par requête.
+- **Frontend** (`4d4f45c`, poussé GitHub) : page `/admin/performance` — sélecteur de compte, 8 cartes KPI (design ServerMetrics), FilterChips par axe (zéro tab), panneau détail droite (drill-down user → ses queries/cache/erreurs), barres hit-rate cache, badges 4xx/5xx, refresh live 5s, dégrade 404.
+- Liaison vérifiée : 8/8 endpoints liés, contrats FE = chemins backend, build vert.
+- **Backend GitLab 100% poussé et synchronisé** (local===origin `4acc8065`) ; reste : merge MR → deploy.
+
 ## Journal des vagues
 - **Vague 1** (06-07) : audit 11 modules + contrats + fake-zeros + brand (4e1ac9f→04f8992)
 - **Vague H** (06-07) : 8 agents backend H1-H8 + 4 frontend (helpers/popups/services/AIflow) → bi_dashboard restauré
