@@ -11,7 +11,7 @@
 | Endpoints backend (path-level) | ✅ 100% — tout contrat consommé pointe vers une route réelle |
 | Endpoints (method-level) | ✅ 352/392 mutations OK ; 4 mismatch annotés P1 ; 36 literals hors-contrat à suivre |
 | Frontend `feat/backlog-v1` | ✅ POUSSÉ (HEAD `64567e2`) |
-| Backend `feat/backlog-v1` (GitLab) | ⏸ 12 commits LOCAUX (852 routes) — attendent un « push backend » explicite |
+| Backend `feat/backlog-v1` (GitLab) | ⏸ 14 commits LOCAUX (852 routes, durcis) — attendent un « push backend » explicite |
 | Workflow page (SmartRightBar) | ✅ FAIT + zéro-bouton (7 actions → menu icône) |
 | Capability audit (au-delà du path) | ✅ FAIT — 2 deltas réels (cost-sim, gov) + B1 clone livré ; Snowpark non requis |
 | ⚠ Visible par l'utilisateur ? | ❌ NON — `feat/backlog-v1` pas mergée dans `dev` ni déployée |
@@ -89,6 +89,15 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 - [ ] Roadmap Phase 3 : `GET /finops/cost-simulation/{object}?days=30` — prévision coût 30j avant engagement (le différenciateur, voir roadmap-verified)
 
 ---
+
+## 🔒 Passe de durcissement backend (06-08) — 3 bugs critiques rattrapés
+4 agents Alice+Henry ont audité+corrigé les routes de session (RBAC / SQL-injection / exposition / cache / fake-zero) :
+- `ebd543f2` **CRITIQUE** : B1 clone sans garde "survivors" → un échec de clone pouvait laisser le préfixe prod et **muter une vraie table** → garde `skipped_unsafe` (miroir B2) ; +2 RBAC sous-gatés (contributors, connector test)
+- `e552e41e` **CRITIQUE** : D2 masking preview lisait via le compte service (ACCOUNTADMIN) → **masquage contournable** → bascule sur le rôle réel de l'appelant ; +audit sur tous les chemins D1
+- `53e74f8d` catalog : `tags/flow` colonnes inversées + `lineage` risk_level=LOW masquant un échec → null honnête
+- `3d77c7c3` DQ : `@session_cache` manquant sur snapshot fan-out + import `Any`
+- Reste confirmé propre : RBAC router-level, SQL `quote_identifier`+`%s`, invalidation cache sur mutations, null honnête
+- ⚠ Latent préexistant flaggé (hors scope) : `handle_snowflake_error` non importé dans 2 routes connect (create_azure_stage, list_stage_files)
 
 ## Journal des vagues
 - **Vague 1** (06-07) : audit 11 modules + contrats + fake-zeros + brand (4e1ac9f→04f8992)
