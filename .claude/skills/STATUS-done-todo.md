@@ -11,7 +11,7 @@
 | Endpoints backend (path-level) | ✅ 100% — tout contrat consommé pointe vers une route réelle |
 | Endpoints (method-level) | ✅ 352/392 mutations OK ; 4 mismatch annotés P1 ; 36 literals hors-contrat à suivre |
 | Frontend `feat/backlog-v1` | ✅ POUSSÉ (HEAD `64567e2`) |
-| Backend `feat/backlog-v1` (GitLab) | ⏸ 7 commits LOCAUX — attendent un « push backend » explicite |
+| Backend `feat/backlog-v1` (GitLab) | ⏸ 12 commits LOCAUX (852 routes) — attendent un « push backend » explicite |
 | Workflow page (SmartRightBar) | ✅ FAIT + zéro-bouton (7 actions → menu icône) |
 | Capability audit (au-delà du path) | ✅ FAIT — 2 deltas réels (cost-sim, gov) + B1 clone livré ; Snowpark non requis |
 | ⚠ Visible par l'utilisateur ? | ❌ NON — `feat/backlog-v1` pas mergée dans `dev` ni déployée |
@@ -62,12 +62,15 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 - [ ] **Push backend** : 5 commits locaux prêts sur `feat/backlog-v1` (GitLab). Frontière mémoire « backend needs a go » → requiert accord explicite. Cmd : `git -C .../backend push origin feat/backlog-v1`
 - [ ] **PR frontend** : https://github.com/henygafsi/datalab360/compare/dev...feat/backlog-v1 (`gh` CLI absent localement → création web)
 
-### 🟠 P1 — backend (à implémenter, hors session actuelle)
-- [x] ~~B1 : `mode=clone` dispatche le vrai clone zero-copy~~ ✅ FAIT (commit local)
-- [ ] **B2** : `mode=temp_tables` → matérialiser réellement des temp tables (copier le scaffolding B1 → `run_workflow_temp_table_tests`)
-- [ ] **A** : `GET /org-accounts/cost-simulation/{type}/{id}?days=30` — prévision coût 30j par objet (réutilise credit-forecast + bandes wizard ; différenciateur roadmap Phase 3)
-- [ ] **D1/D2** : `POST /gouvernance/policies/row-access/simulate` + `/masking/preview` (preview de changement sûr, SQL pur)
-- [ ] **D3** : `GET /gouvernance/roles/{role}/least-privilege` (GRANTS_TO_ROLES ∖ ACCESS_HISTORY, advisory)
+### ✅ P1 backend — TOUT FAIT (commits locaux, non poussés)
+- [x] **B1** : `mode=clone` dispatche le vrai clone zero-copy + gate corrigé (`ok`) — `5dc91ab5`/fix
+- [x] **B2** : `mode=temp_tables` matérialise de vraies temp tables (garde `skipped_unsafe`) — `74c3eb47`
+- [x] **A** : `GET /org-accounts/cost-simulation/{type}/{id}?days=30` (baseline metering + bandes forecast) — `5dc91ab5`
+- [x] **D1** : `POST /gouvernance/policies/row-access/simulate` (read-only, predicate sûr) — `d7112d50`
+- [x] **D2** : `POST /gouvernance/policies/masking/preview` (sample sous le rôle appelant, jamais de bypass) — `d7112d50`
+- [x] **D3** : `GET /gouvernance/roles/{role}/least-privilege` (FQN-matched, advisory) — `d7112d50`
+- [x] Contrats FE des 4 routes ajoutés (`6823c1f`, poussé) ; 852 paths backend vérifiés
+- ⏳ Reste runtime-only : confirmer grants ACCOUNT_USAGE + shape réponse sur warehouse live
 - [ ] 4 method-mismatch (FE écrit, backend GET-only) : `POST /projects`, `POST /org-accounts/reader-accounts`, `PATCH /workflow/compute-pools/{}`, `POST /gouvernance/rls-policies`
 - [ ] Routes ML non testées runtime : `POST /data-quality/anomaly-detection`, `POST /cortex/analyst/query` (vérifier shape réponse Cortex Analyst sur warehouse live)
 - [ ] H1 catalog : confirmer colonnes ACCOUNT_USAGE sur rôle réellement granté (dégrade en null sinon)
