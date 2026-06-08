@@ -281,8 +281,7 @@ Appliquer tags: POST /gouvernance/tags/apply → ALTER TABLE MODIFY COLUMN SET T
       `getUserDetail(username)` → GET /gouvernance/users/{u}/detail (new endpoint)
       `getUserRolesAndGrants(username)` → GET /gouvernance/users/{u}/roles + grants
       `getLoginHistory(username, limit=5)` → ACCOUNT_USAGE.LOGIN_HISTORY
-- [ ] Backend: `GET /gouvernance/users/{username}/detail` dans router_users.py
-      Snowflake: `SHOW USERS LIKE '{username}'` + `ACCOUNT_USAGE.LOGIN_HISTORY WHERE USER_NAME = %s LIMIT 5`
+- [x] ~~Backend: `GET /gouvernance/users/{username}/detail`~~ ✅ RÉSOLU — le suffixe `/detail` était erroné ; la vraie route `GET /gouvernance/users/{username}` existe et le contrat FE `userDetail` (api-contracts.ts:310) pointe dessus. Vérifié 2026-06-08.
 - [ ] Migrer AddUserButton (modale) → inline dans RightPanel (section Actions, empty state)
 
 ### P2
@@ -388,8 +387,7 @@ e2e/results/screenshots/governance-security-matrix.png
 ### Henry Tasks — governance (backend delegation)
 
 #### P1
-- [ ] Enregistrer `POST /gouvernance/drop-users-batch` — contrat FE existe (`API.gouvernance.dropUsersBatch`) mais route absente du manifest. Le backend a `drop-roles-batch` + `drop-user` (singulier); ajouter la variante batch users.
-      Fichier: `backend/app/modules/gouvernance/routers/gouvernance.py` (ou `d360_roles.py`) + service `drop_users_batch`.
+- [x] ~~Enregistrer `POST /gouvernance/drop-users-batch`~~ ✅ FAIT (H7, `627b241c`) — boucle la logique `drop-user`, succès partiel `{dropped[], failed[]}`, audité. Durci `e552e41e`.
 
 #### P2
 - [ ] Brancher `@invalidates_cache` / SSE `CACHE_KEYS.D360_ROLES` sur les mutations d360-roles (clé absente).

@@ -425,8 +425,7 @@ e2e/results/screenshots/intelligent-vector-search.png
 ### Henry Tasks — intelligent (backend delegation)
 
 #### P1
-- [ ] Enregistrer `POST /cortex/analyst/query` — contrat FE `API.cortex.analystQuery()` existe (annoté TODO(henry-P1)), route absente. Câbler à Cortex Analyst (NL→SQL) sur un semantic model.
-      Fichier: `backend/app/modules/intelligence/cortex/router.py` + service.
+- [x] ~~Enregistrer `POST /cortex/analyst/query`~~ ✅ FAIT (H5, `627b241c`) — réutilise la vraie infra Analyst REST (`/api/v2/cortex/analyst/message`), extrait le SQL, exécute, `method:"cortex-analyst"`. Route enregistrée + contrat dé-TODO.
 
 #### P2
 - [ ] Confirmer `cached_sf_get()` non appliqué sur l'endpoint NL→query (mutation/compute) — utiliser le pattern compute, pas cache long.

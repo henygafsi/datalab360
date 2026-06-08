@@ -18,6 +18,14 @@
 > | `POST /metadata/init_metadata` | ✖ PAS UN GAP — textes d'erreur uniquement, aucun appel API |
 >
 > **Bilan corrigé : 27 annoncés → 1 vrai P1 + 4 dépréciations.**
+>
+> ## ✅ CLÔTURE (2026-06-08) — 100% des homeworks faits
+> Vérifié contre le manifest local (852 routes) :
+> - BI module (18 routes incl. widgets/pages/filters/render/snapshot) ✅ restauré `b8ccc459`
+> - `/command-center/tabs/{tab}` ✅ `ed31f308` · `/cortex/analyst/query` ✅ H5 · `/gouvernance/drop-users-batch` ✅ H7
+> - `/gouvernance/users/{username}/detail` ✅ résolu (vraie route sans suffixe `/detail`)
+> - bi/sales, catalog/views/ddl, sources/detected-models ⚰ dépréciés · metadata/init_metadata ✖ non-gap
+> **0 tâche backend ouverte.** Toutes durcies (passe sécurité 06-08).
 
 Source: Alice ran across all 11 module skills. Endpoint existence resolved against the
 authoritative backend route manifest (`from app.main import app` → 823 entries — STALE, voir correction),
