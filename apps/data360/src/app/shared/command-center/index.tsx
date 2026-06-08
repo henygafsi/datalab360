@@ -132,6 +132,7 @@ const SnowflakeAccountsTab = lazy(() => import('./SnowflakeAccountsTab'));
 const OrgSummaryTab = lazy(() => import('./OrgSummaryTab'));
 import ApprovalDetailModal from './ApprovalDetailModal';
 import ServerlessFinOpsCards from './serverless-finops-cards';
+import CostPreview from './CostPreview';
 import type {
   SecurityOverviewResponse,
   PerformanceOverviewResponse,
@@ -4513,6 +4514,16 @@ const CostTab = memo(function CostTab({
             Review cost drivers →
           </a>
         </div>
+      )}
+
+      {/* 30d cost projection for the top spending warehouse (cost-simulation).
+          Degrades quietly when the backend route isn't deployed yet. */}
+      {topWarehouses[0]?.name && (
+        <CostPreview
+          objectType="warehouse"
+          objectId={String(topWarehouses[0].name)}
+          days={periodDays}
+        />
       )}
 
       {/* AI flow: discussion → proposed action → execute → capitalize as an event.
