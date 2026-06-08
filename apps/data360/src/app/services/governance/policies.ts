@@ -6,6 +6,7 @@
  */
 
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { API_CONFIG, DEFAULTS } from '@/config/database.config';
 
 const POLICIES_API = `${API_CONFIG.ENDPOINTS.GOVERNANCE}/policies`;
@@ -1868,6 +1869,89 @@ export async function replaceAggregationPolicy(data: {
     });
     throw error;
   }
+}
+
+// ============= GOVERNANCE DEPTH (advisory, read-only — honest 404 degrade) =============
+// D1 RLS simulate · D2 masking preview · D3 least-privilege.
+// All three are advisory probes (~0 credits). When the route is not deployed the
+// backend returns 404/501; callers must treat any thrown error as "unavailable"
+// and degrade quietly (never fabricate a result).
+
+export interface RowAccessSimulateResult {
+  target?: string;
+  applies?: boolean | null;
+  predicate?: string | null;
+  visible_count?: number | null;
+  hidden_count?: number | null;
+  available: boolean;
+  note?: string | null;
+}
+
+/** D1 — simulate which rows a role/user would see under the row-access policy. */
+export async function simulateRowAccess(input: {
+  database: string;
+  schema: string;
+  table: string;
+  role?: string;
+  user?: string;
+}): Promise<RowAccessSimulateResult> {
+  const res = await apiClient.post<RowAccessSimulateResult>(
+    API.gouvernance.policyRowAccessSimulate(),
+    input
+  );
+  return res.data;
+}
+
+export interface MaskingPreviewColumn {
+  column: string;
+  policy?: string | null;
+  masking_expr?: string | null;
+  preview?: string | null;
+  available: boolean;
+}
+
+export interface MaskingPreviewResult {
+  target?: string;
+  columns: MaskingPreviewColumn[];
+}
+
+/** D2 — preview the masking expression (and sample) applied per column. */
+export async function previewMasking(input: {
+  database: string;
+  schema: string;
+  table: string;
+  column?: string;
+}): Promise<MaskingPreviewResult> {
+  const res = await apiClient.post<MaskingPreviewResult>(
+    API.gouvernance.policyMaskingPreview(),
+    input
+  );
+  return res.data;
+}
+
+export interface LeastPrivilegeGrant {
+  privilege: string;
+  object: string;
+}
+
+export interface LeastPrivilegeResult {
+  role?: string;
+  window_days?: number | null;
+  granted_count?: number | null;
+  used_count?: number | null;
+  unused_grants: LeastPrivilegeGrant[];
+  available: boolean;
+  note?: string | null;
+}
+
+/** D3 — granted-but-unused privileges for a role over a recent window (advisory). */
+export async function getRoleLeastPrivilege(
+  role: string
+): Promise<LeastPrivilegeResult> {
+  const res = await apiClient.get<LeastPrivilegeResult>(
+    API.gouvernance.roleLeastPrivilege(role)
+  );
+  return res.data;
 }
 
 // ============= UTILITY SERVICES =============

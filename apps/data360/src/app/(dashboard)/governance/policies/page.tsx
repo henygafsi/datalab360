@@ -24,6 +24,7 @@ import PasswordPoliciesContent from './password-policies-content';
 import SessionPoliciesContent from './session-policies-content';
 import DMFContent from './dmf-content';
 import ClassificationContent from './classification-content';
+import GovernanceDepthPanel from '../components/GovernanceDepthPanel';
 
 type TabType =
   | 'rls'
@@ -216,6 +217,9 @@ export default function PoliciesPage() {
             {activeTab === 'classification' && <ClassificationContent />}
           </div>
         </div>
+
+        {/* Advisory governance-depth probes (read-only; self-disable if route not deployed) */}
+        <GovernanceDepthPanel />
       </div>
     </ErrorBoundary>
   );
