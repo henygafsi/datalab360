@@ -852,6 +852,38 @@ export const API = {
   platform: {
     path: (p: string) => `/api/${p.replace(/^\//, '')}`,
   },
+
+  /**
+   * Administration — platform admin surfaces under /administration/*.
+   * `performance.*` is the per-account, multi-axis Performance page contract
+   * (backend built in parallel; FE degrades quietly on 404 — "not deployed yet").
+   * All paths are scoped per account: /administration/performance/{account}/...
+   */
+  administration: {
+    performance: {
+      /** GET /administration/performance/{account}/overview?hours= — KPI block. */
+      overview: (account: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/overview${qs({ hours })}`,
+      /** GET /administration/performance/{account}/by-endpoint?hours=&limit= */
+      byEndpoint: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/by-endpoint${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/by-user?hours=&limit= */
+      byUser: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/by-user${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/by-cache?axis=page|tab|module|project&hours= */
+      byCache: (account: string, axis: 'page' | 'tab' | 'module' | 'project', hours?: number) =>
+        `/administration/performance/${enc(account)}/by-cache${qs({ axis, hours })}`,
+      /** GET /administration/performance/{account}/by-module?hours= */
+      byModule: (account: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/by-module${qs({ hours })}`,
+      /** GET /administration/performance/{account}/errors?hours=&limit= */
+      errors: (account: string, opts?: { hours?: number; limit?: number }) =>
+        `/administration/performance/${enc(account)}/errors${qs({ hours: opts?.hours, limit: opts?.limit })}`,
+      /** GET /administration/performance/{account}/user/{username}?hours= — user drill-down. */
+      userDetail: (account: string, username: string, hours?: number) =>
+        `/administration/performance/${enc(account)}/user/${enc(username)}${qs({ hours })}`,
+    },
+  },
 } as const;
 
 /** Build an absolute URL from a relative API path (for fetch()/axios callers). */

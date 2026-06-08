@@ -263,6 +263,12 @@ export const carbonMenuItems: MenuItemsType[] = [
         href: routes.data360Config.view,
         icon: PiCubeDuotone,
       },
+      {
+        name: 'Performance',
+        description: 'Per-account drill-down: endpoints, users, cache, modules, errors',
+        href: routes.adminPerformance.view,
+        icon: PiChartLineDuotone,
+      },
     ],
   },
 ];

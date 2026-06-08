@@ -54,6 +54,10 @@ export const routes = {
     /** Config Data360 : metadata, tables, colonnes date, cache/refresh */
     view: '/admin/data360-config',
   },
+  adminPerformance: {
+    /** Per-account, multi-axis Performance admin page (endpoint/user/cache/module/project/errors). */
+    view: '/admin/performance',
+  },
   clientAccounts: {
     dashboard: '/client-accounts',
   },
