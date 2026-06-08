@@ -322,6 +322,12 @@ export const API = {
     classificationClassify: () => '/gouvernance/policies/classification/classify',
     /** POST /gouvernance/policies/row-access — create a row access policy (policies.ts:createRLSPolicy). */
     policyRowAccess: () => '/gouvernance/policies/row-access',
+    /** POST /gouvernance/policies/row-access/simulate — D1: who-can-see preview (read-only, honest degrade). */
+    policyRowAccessSimulate: () => '/gouvernance/policies/row-access/simulate',
+    /** POST /gouvernance/policies/masking/preview — D2: masked-vs-unmasked sample under caller's own role. */
+    policyMaskingPreview: () => '/gouvernance/policies/masking/preview',
+    /** GET /gouvernance/roles/{role}/least-privilege — D3: granted-but-unused grants (advisory only). */
+    roleLeastPrivilege: (role: string) => `/gouvernance/roles/${enc(role)}/least-privilege`,
     /** GET /gouvernance/d360-roles — list all Data360 granular roles (fetch_roles.ts:getD360Roles). */
     d360Roles: () => '/gouvernance/d360-roles',
     /** GET /gouvernance/d360-roles/my-permissions — caller's effective action set (useCanPerform hook). */
@@ -577,6 +583,9 @@ export const API = {
       `/org-accounts/credits/top${qs({ days, limit })}`,
     /** GET /org-accounts/credit-forecast[?days_back=<n>] — linear regression forecast. */
     creditForecast:       (daysBack?: number)           => `/org-accounts/credit-forecast${daysBack != null ? `?days_back=${daysBack}` : ''}`,
+    /** GET /org-accounts/cost-simulation/{type}/{id}[?days=30] — A: per-object 30d cost projection (baseline+bands, null→"—"). */
+    costSimulation:       (objectType: string, objectId: string, days?: number) =>
+      `/org-accounts/cost-simulation/${enc(objectType)}/${enc(objectId)}${days != null ? `?days=${days}` : ''}`,
     /** GET /org-accounts/credits/history/{name}[?days=<n>] — per-account daily credit history. */
     creditHistory:        (name: string, days?: number) =>
       `/org-accounts/credits/history/${enc(name)}${days != null ? `?days=${days}` : ''}`,
