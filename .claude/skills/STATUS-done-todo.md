@@ -11,7 +11,7 @@
 | Endpoints backend (path-level) | ✅ 100% — tout contrat consommé pointe vers une route réelle |
 | Endpoints (method-level) | ✅ 352/392 mutations OK ; 4 mismatch annotés P1 ; 36 literals hors-contrat à suivre |
 | Frontend `feat/backlog-v1` | ✅ POUSSÉ (HEAD `64567e2`) |
-| Backend `feat/backlog-v1` (GitLab) | ⏸ 14 commits LOCAUX (852 routes, durcis) — attendent un « push backend » explicite |
+| Backend `feat/backlog-v1` (GitLab) | ✅ POUSSÉ (14 commits, 852 routes, durcis) — nouvelle branche sur GitLab |
 | Workflow page (SmartRightBar) | ✅ FAIT + zéro-bouton (7 actions → menu icône) |
 | Capability audit (au-delà du path) | ✅ FAIT — 2 deltas réels (cost-sim, gov) + B1 clone livré ; Snowpark non requis |
 | ⚠ Visible par l'utilisateur ? | ❌ NON — `feat/backlog-v1` pas mergée dans `dev` ni déployée |
@@ -59,8 +59,15 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 ## ⏳ TODO
 
 ### 🔴 P0 — décision utilisateur (bloquant)
-- [ ] **Push backend** : 5 commits locaux prêts sur `feat/backlog-v1` (GitLab). Frontière mémoire « backend needs a go » → requiert accord explicite. Cmd : `git -C .../backend push origin feat/backlog-v1`
-- [ ] **PR frontend** : https://github.com/henygafsi/datalab360/compare/dev...feat/backlog-v1 (`gh` CLI absent localement → création web)
+- [x] ~~Push backend~~ ✅ FAIT — 14 commits poussés sur GitLab `feat/backlog-v1`
+- [ ] **Merge MR backend** : http://gitlab.datalab360.io/root/backend/-/merge_requests/new?merge_request%5Bsource_branch%5D=feat%2Fbacklog-v1 → puis déployer (CI `main`-only) pour que les routes soient live sur api.datalab360.io
+- [ ] **Merge PR frontend** : https://github.com/henygafsi/datalab360/compare/dev...feat/backlog-v1
+- ⚠ Tant que non mergé+déployé : nouvelles routes 404 en live ; UI dégrade proprement (404-self-disable)
+
+### ✅ Audit erreurs backend (06-08) — propre
+- pyflakes : **0 nom indéfini** sur tous les modules ; le `NameError` flaggé était une fausse alerte (`handle_snowflake_error` défini in-file l.1322, résolu à l'appel)
+- 170 imports inutilisés = cosmétique (nettoyage différé)
+- Coherence FE↔backend : 296/326 contrats matchent ; gaps réels résolus (literals morts explore-design dépréciés `5fda69f`) ; front build clean
 
 ### ✅ P1 backend — TOUT FAIT (commits locaux, non poussés)
 - [x] **B1** : `mode=clone` dispatche le vrai clone zero-copy + gate corrigé (`ok`) — `5dc91ab5`/fix
