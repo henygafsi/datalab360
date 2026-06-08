@@ -3,6 +3,7 @@
 import cn from '@core/utils/class-names';
 import { Text, Title } from 'rizzui';
 import { PiHeartbeatDuotone } from 'react-icons/pi';
+import MetricHelp from '@/components/ui/MetricHelp';
 
 interface HealthScoreCardProps {
   score: number;
@@ -47,9 +48,17 @@ export default function HealthScoreCard({ score, status, className }: HealthScor
     >
       <div className="flex items-center justify-between">
         <div>
-          <Text className="text-sm font-medium text-gray-500 dark:text-gray-400">
-            Overall Health Score
-          </Text>
+          <div className="flex items-center gap-1.5">
+            <Text className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              Overall Health Score
+            </Text>
+            <MetricHelp
+              title="Overall Health Score"
+              definition="Composite 0–100 score blending freshness, reliability and error signals across monitored assets. Higher means healthier."
+              source="observability telemetry"
+              goodRange="≥ 80 / 100"
+            />
+          </div>
           <div className="mt-2 flex items-baseline gap-2">
             <Title as="h2" className={cn('text-4xl font-bold', config.color)}>
               {score}

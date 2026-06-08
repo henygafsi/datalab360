@@ -104,10 +104,12 @@ const sortByPriority = (events: DesignEvent[]): DesignEvent[] =>
 
 // Status config
 const statusConfig: Record<EventStatus, { icon: React.ComponentType<any>; label: string; color: string }> = {
-  pending: { icon: Clock4, label: 'Pending', color: 'bg-amber-100 text-amber-600' },
-  validated: { icon: CheckCircle2, label: 'Validated', color: 'bg-green-100 text-green-600' },
-  failed: { icon: XCircle, label: 'Failed', color: 'bg-red-100 text-red-600' },
-  applied: { icon: Check, label: 'Applied', color: 'bg-blue-100 text-blue-600' },
+  pending:   { icon: Clock4,        label: 'Pending',   color: 'bg-amber-100 text-amber-600' },
+  validated: { icon: CheckCircle2,  label: 'Validated', color: 'bg-green-100 text-green-600' },
+  failed:    { icon: XCircle,       label: 'Failed',    color: 'bg-red-100 text-red-600' },
+  applied:   { icon: Check,         label: 'Applied',   color: 'bg-blue-100 text-blue-600' },
+  approved:  { icon: CheckCircle2,  label: 'Approved',  color: 'bg-indigo-100 text-indigo-600' },
+  rejected:  { icon: XCircle,       label: 'Rejected',  color: 'bg-rose-100 text-rose-600' },
 };
 
 // Format timestamp

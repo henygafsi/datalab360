@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useAtomValue } from 'jotai';
 import { Badge, Button } from 'rizzui';
 import {
   Package, Search, Plus, Loader2, RefreshCw, ShieldCheck, Eye,
@@ -23,6 +24,9 @@ import {
   getCatalogScores,
   type CatalogScoresResponse,
 } from '@/app/services/catalog';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 import Object360Panel from './components/Object360Panel';
 import KpiLifecyclePanel from './components/KpiLifecyclePanel';
 import PublishGate from './components/PublishGate';
@@ -120,6 +124,25 @@ function DataProductsPage() {
     void fetchScores();
   }, [fetchProducts, fetchScores]);
 
+  // SSE cache invalidation: auto-refresh the portfolio + catalog scores when the
+  // backend pushes data_products / catalog_products events (publish, create,
+  // KPI / score recompute). Reuses the page's existing loaders — no new fetch.
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation || loading) return;
+    const shouldRefresh = lastInvalidation.keys.some(
+      (k: string) =>
+        k === CACHE_KEYS.DATA_PRODUCTS ||
+        k === CACHE_KEYS.CATALOG_PRODUCTS ||
+        k === CACHE_KEYS.CATALOG_SCORES
+    );
+    if (shouldRefresh) {
+      void fetchProducts();
+      void fetchScores();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
+
   const handleCreate = useCallback(async (body: CreateDataProductRequest): Promise<string | null> => {
     try {
       await createDataProduct(body);
@@ -192,17 +215,33 @@ function DataProductsPage() {
 
   const trustAvg = catalogScores?.averages?.trust_avg;
 
-  const kpis: { label: string; value: string; icon: React.ReactNode; color: string; sub: string }[] = [
-    { label: 'Data Products', value: fmtNum(stats.total), icon: <Package className="h-4 w-4" />, color: 'blue', sub: loading ? '—' : `${stats.active} active` },
-    { label: 'Certified', value: fmtNum(stats.certified), icon: <ShieldCheck className="h-4 w-4" />, color: 'emerald', sub: 'verified quality' },
-    { label: 'Avg Quality', value: stats.avgQuality === null ? '—' : `${stats.avgQuality}%`, icon: <Target className="h-4 w-4" />, color: 'purple', sub: 'threshold score' },
-    { label: 'Consumers', value: fmtNum(stats.consumers), icon: <Users className="h-4 w-4" />, color: 'amber', sub: 'total subscribers' },
-    { label: 'Domains', value: fmtNum(stats.domains), icon: <Tag className="h-4 w-4" />, color: 'indigo', sub: 'tag categories' },
+  const kpis: { label: string; value: string; icon: React.ReactNode; color: string; sub: string; help?: MetricHelpProps }[] = [
+    {
+      label: 'Data Products', value: fmtNum(stats.total), icon: <Package className="h-4 w-4" />, color: 'blue', sub: loading ? '—' : `${stats.active} active`,
+      help: { title: 'Data Products', definition: 'Total data products in the portfolio; the sub-count shows how many are currently live (published or certified).', source: 'product registry' },
+    },
+    {
+      label: 'Certified', value: fmtNum(stats.certified), icon: <ShieldCheck className="h-4 w-4" />, color: 'emerald', sub: 'verified quality',
+      help: { title: 'Certified', definition: 'Products that have passed verification and carry a certified lifecycle status.', source: 'product registry' },
+    },
+    {
+      label: 'Avg Quality', value: stats.avgQuality === null ? '—' : `${stats.avgQuality}%`, icon: <Target className="h-4 w-4" />, color: 'purple', sub: 'threshold score',
+      help: { title: 'Avg Quality', definition: 'Mean of each product’s configured quality threshold across the portfolio.', source: 'product quality thresholds', goodRange: '> 90%' },
+    },
+    {
+      label: 'Consumers', value: fmtNum(stats.consumers), icon: <Users className="h-4 w-4" />, color: 'amber', sub: 'total subscribers',
+      help: { title: 'Subscribers', definition: 'Total accounts subscribed to a product, summed across the whole portfolio.', source: 'product subscriptions' },
+    },
+    {
+      label: 'Domains', value: fmtNum(stats.domains), icon: <Tag className="h-4 w-4" />, color: 'indigo', sub: 'tag categories',
+      help: { title: 'Domains', definition: 'Distinct tag categories applied across products, used to group the portfolio by business domain.', source: 'product tags' },
+    },
     {
       label: 'Trust Score',
       value: scoresError ? '—' : trustAvg != null ? `${Math.round(trustAvg)}` : '—',
       icon: <Activity className="h-4 w-4" />, color: 'emerald',
       sub: scoresError ? 'scores unavailable' : 'catalog average',
+      help: { title: 'Trust Score', definition: 'Catalog-wide average trust rating, blending freshness, quality and usage signals for the underlying assets.', source: 'catalog scoring', goodRange: '> 80' },
     },
   ];
 
@@ -253,6 +292,7 @@ function DataProductsPage() {
               <div className="flex items-center gap-1.5 mb-1">
                 <span className={cn(`text-${s.color}-500`)}>{s.icon}</span>
                 <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
+                {s.help && <MetricHelp {...s.help} />}
               </div>
               <p className="text-lg font-bold text-gray-900 dark:text-white">{loading ? '—' : s.value}</p>
               <p className="text-[10px] text-gray-400">{s.sub}</p>
@@ -487,7 +527,7 @@ function ProductCard({ product, isSelected, onSelect, onSubscribe, subscribing, 
   const subscribeDisabledReason = !canSubscribe
     ? 'You lack the "subscribe" permission on data products. Ask an administrator to grant it.'
     : !isPublished
-      ? 'Not published yet — publish this product as a Snowflake share first to enable subscriptions.'
+      ? 'Not published yet — publish this product as a data share first to enable subscriptions.'
       : undefined;
 
   const qualityColor = product.QUALITY_THRESHOLD >= 90

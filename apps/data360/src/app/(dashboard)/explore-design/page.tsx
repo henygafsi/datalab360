@@ -4598,37 +4598,51 @@ export default function ExploreDesignPage() {
         </div>
       )}
 
-      {/* DAG Dependency Graph Modal */}
-      <Modal isOpen={showDagViewer && !!selectedProjectId} onClose={() => setShowDagViewer(false)} size="full" className="max-w-6xl">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
+      {/* DAG Dependency Graph — right-side panel (non-blocking, zero-popup) */}
+      {showDagViewer && selectedProjectId && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label="Dependency Graph (DAG)"
+          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-5xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <Workflow className="h-5 w-5 text-violet-600" />
               Dependency Graph (DAG)
             </h3>
-            <button onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <button aria-label="Close dependency graph panel" onClick={() => setShowDagViewer(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
               <X className="h-4 w-4 text-slate-500" />
             </button>
           </div>
-          {selectedProjectId && <DagViewer projectId={selectedProjectId} className="h-[70vh]" />}
+          <div className="flex-1 overflow-auto p-4">
+            <DagViewer projectId={selectedProjectId} className="h-full min-h-[70vh]" />
+          </div>
         </div>
-      </Modal>
+      )}
 
-      {/* Ingestion Results Modal */}
-      <Modal isOpen={showIngestionResults && !!selectedProjectId} onClose={() => setShowIngestionResults(false)} size="full" className="max-w-5xl">
-        <div className="p-4">
-          <div className="flex items-center justify-between mb-3">
+      {/* Ingestion Runs — right-side panel (non-blocking, zero-popup) */}
+      {showIngestionResults && selectedProjectId && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          aria-label="Ingestion Runs"
+          className="fixed inset-y-0 right-0 z-40 flex w-full max-w-3xl flex-col border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
+        >
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
             <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-teal-500" />
               Ingestion Runs
             </h3>
-            <button onClick={() => setShowIngestionResults(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+            <button aria-label="Close ingestion runs panel" onClick={() => setShowIngestionResults(false)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
               <X className="h-4 w-4 text-slate-500" />
             </button>
           </div>
-          {selectedProjectId && <IngestionResultsPanel projectId={selectedProjectId} className="max-h-[70vh] overflow-auto" />}
+          <div className="flex-1 overflow-auto p-4">
+            <IngestionResultsPanel projectId={selectedProjectId} className="overflow-auto" />
+          </div>
         </div>
-      </Modal>
+      )}
 
       {/* AI Intelligence — right-side panel (non-blocking) */}
       {showAiPanel && (

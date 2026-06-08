@@ -216,7 +216,7 @@ const ETLExecutionHistory: React.FC<ETLExecutionHistoryProps> = ({
 
   const { data: runsData, loading: isLoading, error: fetchError, refetch } = useCacheAwareQuery(
     fetchRunsFn,
-    { cacheKeys: [CACHE_KEYS.WORKFLOWS], enabled: !!pipelineId, initialData: null }
+    { cacheKeys: [CACHE_KEYS.WORKFLOWS, CACHE_KEYS.RUNS], enabled: !!pipelineId, initialData: null }
   );
 
   // SSE-first refresh: when the cache-stream is connected, run-status updates

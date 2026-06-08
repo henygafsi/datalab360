@@ -476,7 +476,7 @@ export default function SourceCatalog() {
             { label: 'Total Tables', value: String(catalog.total_tables), icon: Database, color: 'text-blue-500' },
             { label: 'Domains', value: String(catalog.domains.length), icon: Layers, color: 'text-purple-500' },
             { label: 'Total Rows', value: formatNumber(totalRows), icon: BarChart3, color: 'text-emerald-500' },
-            { label: 'Loaded (30d)', value: String(catalog.tables_loaded_30d ?? 0), icon: TrendingUp, color: 'text-cyan-500' },
+            { label: 'Loaded (30d)', value: catalog.tables_loaded_30d != null ? String(catalog.tables_loaded_30d) : '—', icon: TrendingUp, color: 'text-cyan-500' },
             { label: 'Fresh (<24h)', value: String(freshCount), icon: Activity, color: 'text-green-500' },
             { label: 'Stale (>72h)', value: String(staleCount), icon: Clock, color: staleCount > 0 ? 'text-red-500' : 'text-slate-400' },
           ].map((kpi) => (

@@ -83,6 +83,7 @@ import {
 
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 import LoginHistoryTable from '@/components/audit/LoginHistoryTable';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 
 import {
   getSummary,
@@ -118,6 +119,8 @@ import {
   rejectDeployment,
 } from '@/app/services/api/projectsApi';
 import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+import AIActionFlow, { type Suggestion as AISuggestion } from '@/app/shared/insights/AIActionFlow';
 import { useOverviewKpis } from '@/hooks/useOverviewKpis';
 import { useAuth } from '@/hooks/useAuth';
 
@@ -361,6 +364,7 @@ const KpiCard = memo(function KpiCard({
   suffix,
   previousValue,
   invertTrend,
+  help,
 }: {
   label: string;
   value: string | number;
@@ -370,6 +374,7 @@ const KpiCard = memo(function KpiCard({
   suffix?: string;
   previousValue?: number;
   invertTrend?: boolean;
+  help?: MetricHelpProps;
 }) {
   const [expanded, setExpanded] = useState(false);
 
@@ -475,7 +480,10 @@ const KpiCard = memo(function KpiCard({
           : value}
         {suffix}
       </p>
-      <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">{label}</p>
+      <p className="mt-1 flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+        {label}
+        {help && <MetricHelp {...help} />}
+      </p>
       {expanded && (
         <div className="mt-3 space-y-1.5 border-t border-gray-100 pt-3 dark:border-gray-800">
           {healthBadge && (
@@ -1439,11 +1447,11 @@ function CommandCenterDashboardInner() {
   const [tabLoading, setTabLoading] = useState<Record<string, boolean>>({
     overview: true,
     projects: false,
-    'security-adv': false,
+    security: false,
     'governance-grants': false,
     'data-ops': false,
     performance: false,
-    cost: false,
+    finops: false,
     compute: false,
     'platform-activity': false,
   });
@@ -1593,7 +1601,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchSecurityAdv = useCallback(async () => {
-    setTabLoading((p) => ({ ...p, 'security-adv': true }));
+    setTabLoading((p) => ({ ...p, security: true }));
     try {
       const data = await getSecurityOverview(filters.days, filters);
       if (isApiError(data)) {
@@ -1602,10 +1610,6 @@ function CommandCenterDashboardInner() {
       }
       setSecurityData(data);
       setLastUpdated(new Date());
-      // Cache key must match the tab id read by the switch effect
-      // (`tabDataCache.current[activeTab]`). The Security tab id is 'security'
-      // (see tabs[]), so writing under 'security-adv' meant the 2-min cache
-      // never hit and every visit refetched (and remounted the audit tables).
       tabDataCache.current['security'] = {
         data: true,
         timestamp: Date.now(),
@@ -1614,7 +1618,7 @@ function CommandCenterDashboardInner() {
     } catch (err) {
       toast.error('Failed to load security data');
     } finally {
-      setTabLoading((p) => ({ ...p, 'security-adv': false }));
+      setTabLoading((p) => ({ ...p, security: false }));
     }
   }, [filters]);
 
@@ -1682,7 +1686,7 @@ function CommandCenterDashboardInner() {
   }, [filters]);
 
   const fetchCost = useCallback(async () => {
-    setTabLoading((p) => ({ ...p, cost: true }));
+    setTabLoading((p) => ({ ...p, finops: true }));
     try {
       const [cost, cortex] = await Promise.all([
         getCostBreakdown(filters.days, {
@@ -1713,13 +1717,11 @@ function CommandCenterDashboardInner() {
         cortex_total: cortexCredits,
       } as CostBreakdownResponse);
       setLastUpdated(new Date());
-      // Cache key must match the tab id ('finops', see tabs[]) read by the
-      // switch effect; writing under 'cost' meant the 2-min cache never hit.
       tabDataCache.current['finops'] = { data: true, timestamp: Date.now(), filtersKey: buildFiltersKey(filters) };
     } catch (err) {
       toast.error('Failed to load cost data');
     } finally {
-      setTabLoading((p) => ({ ...p, cost: false }));
+      setTabLoading((p) => ({ ...p, finops: false }));
     }
   }, [filters]);
 
@@ -2146,7 +2148,7 @@ function CommandCenterDashboardInner() {
               </Suspense>
             )}
             {activeTab === 'finops' && (
-              <CostTab data={costData} loading={tabLoading.cost} days={filters.days} />
+              <CostTab data={costData} loading={tabLoading.finops} days={filters.days} />
             )}
             {activeTab === 'modules' && (
               <Suspense fallback={<LoadingSection />}>
@@ -2176,7 +2178,7 @@ function CommandCenterDashboardInner() {
             {activeTab === 'security' && (
               <SecurityAdvTab
                 data={securityData}
-                loading={tabLoading['security-adv']}
+                loading={tabLoading['security']}
               />
             )}
             {activeTab === 'snowflake-accounts' && (
@@ -2839,6 +2841,11 @@ const OverviewTab = memo(function OverviewTab({
           icon={DollarSign}
           color="amber"
           trend={Number(summary?.cost?.credit_trend_pct) || undefined}
+          help={{
+            title: 'Credits',
+            definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label="Open Alerts"
@@ -3080,11 +3087,11 @@ const OverviewTab = memo(function OverviewTab({
         const deployments30d =
           kpis?.deployments_30d ??
           ((summary as unknown as { platform?: { deployments_30d?: number } })
-            ?.platform?.deployments_30d ?? 0);
+            ?.platform?.deployments_30d ?? null);
         // Real 24h workflow-run count from the cached KPI payload. (The old
         // summary.platform.workflow_runs_30d read was phantom — not in any
         // response type — so the value was always the 24h figure anyway.)
-        const workflowRuns24h = kpis?.workflow_runs_24h ?? 0;
+        const workflowRuns24h = kpis?.workflow_runs_24h ?? null;
 
         const toDonutData = (rec: Record<string, number> | null) => {
           if (!rec) return [];
@@ -3240,7 +3247,7 @@ const OverviewTab = memo(function OverviewTab({
                     Deployments (30d)
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {deployments30d ?? 0}
+                    {deployments30d ?? '—'}
                   </p>
                 </div>
                 <div className="flex flex-col justify-between rounded-lg border border-gray-100 p-3 dark:border-gray-800">
@@ -3248,7 +3255,7 @@ const OverviewTab = memo(function OverviewTab({
                     Workflow Runs (24h)
                   </p>
                   <p className="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                    {workflowRuns24h ?? 0}
+                    {workflowRuns24h ?? '—'}
                   </p>
                 </div>
               </div>
@@ -3494,8 +3501,7 @@ const ProjectsTab = memo(function ProjectsTab({
             }),
           };
         });
-        // Force refetch after short delay to get server-confirmed data
-        setTimeout(() => onRefresh?.(), 500);
+        onRefresh?.();
       } catch (err: any) {
         toast.error(
           err?.response?.data?.detail || 'Failed to approve deployment'
@@ -4420,6 +4426,11 @@ const CostTab = memo(function CostTab({
           icon={DollarSign}
           color="amber"
           trend={data?.credit_trend_pct}
+          help={{
+            title: 'Credits',
+            definition: 'Compute consumption units billed for query and pipeline execution over the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label={`∆ vs prev ${periodDays}d`}
@@ -4432,6 +4443,11 @@ const CostTab = memo(function CostTab({
           value={storageTb.toFixed(3)}
           icon={Database}
           color="blue"
+          help={{
+            title: 'Storage',
+            definition: 'Total data volume held across active tables, time-travel and fail-safe retention.',
+            source: 'data warehouse storage metrics',
+          }}
         />
         <KpiCard
           label="Daily Avg"
@@ -4466,6 +4482,11 @@ const CostTab = memo(function CostTab({
           value={activeWarehouses.toLocaleString()}
           icon={Server}
           color="blue"
+          help={{
+            title: 'Active Warehouses',
+            definition: 'Number of compute clusters that consumed credits during the selected period.',
+            source: 'data warehouse metering history',
+          }}
         />
         <KpiCard
           label="Estimated Savings"
@@ -4474,6 +4495,65 @@ const CostTab = memo(function CostTab({
           color="green"
         />
       </div>
+
+      {/* Cost-spike CTA — when spend rose materially vs the prior period, link to
+          the observability cost dashboard to drill into the drivers. */}
+      {(data?.credit_trend_pct ?? 0) > 20 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800 dark:bg-amber-900/20">
+          <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+            <TrendingUp className="h-4 w-4 flex-shrink-0" />
+            <span>
+              Credit consumption is up {data?.credit_trend_pct}% vs the previous {periodDays}d.
+            </span>
+          </div>
+          <a
+            href="/observability"
+            className="inline-flex flex-shrink-0 items-center gap-0.5 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/30"
+          >
+            Review cost drivers →
+          </a>
+        </div>
+      )}
+
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM). Only renders on a material spend increase. One real
+          mutation (refresh the KPI cache) plus a business-flow-automation hand-off
+          to the workflow builder pre-loaded with a cost-report template. */}
+      {(data?.credit_trend_pct ?? 0) > 20 && (
+        <AIActionFlow
+          title="Recommended next steps"
+          context={{
+            module: 'command_center',
+            entityType: 'finops',
+            entityId: `${periodDays}d`,
+            data: { creditTrendPct: data?.credit_trend_pct, periodDays },
+          }}
+          suggestions={[
+            {
+              id: 'cc-cost-report-workflow',
+              title: 'Schedule cost report workflow',
+              rationale: `Spend is up ${data?.credit_trend_pct}% vs the previous ${periodDays}d. A scheduled cost-report workflow keeps stakeholders informed without manual pulls.`,
+              navigate: {
+                label: 'Create cost report →',
+                href: '/workflow?template=cost-report',
+              },
+            },
+            {
+              id: 'cc-refresh-kpis',
+              title: 'Refresh KPI cache',
+              rationale: 'The KPIs above are served from a cache. Refresh it to confirm the spike against the latest metering data before acting on it.',
+              action: {
+                label: 'Refresh KPIs',
+                endpoint: API.commandCenter.overviewKpisRefresh(),
+                method: 'POST',
+                payload: { source: 'ai_action_flow' },
+                cost: '~0.01 credits',
+                risk: 'none',
+              },
+            },
+          ] satisfies AISuggestion[]}
+        />
+      )}
 
       {/* Daily Credit Trend */}
       <SectionCard title={`Daily Credit Trend (${periodDays}d)`}>

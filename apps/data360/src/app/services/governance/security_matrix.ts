@@ -256,6 +256,7 @@ export async function getRLSPolicies(): Promise<RLSPolicy[]> {
 }
 
 export async function createRLSPolicy(policy: Omit<RLSPolicy, 'active'>): Promise<RLSPolicy> {
+  // TODO(henry-P1): method gap — FE sends POST /gouvernance/rls-policies, backend only has GET (verified 2026-06-07)
   try {
     const response = await apiClient.post('/gouvernance/rls-policies', policy);
     return response.data;

@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useCallback, Component, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, Component, type ReactNode } from 'react';
+import { useAtomValue } from 'jotai';
 import { PiWarningCircleBold } from 'react-icons/pi';
 import ObservabilityDashboard from '@/app/shared/observability';
 import Breadcrumb from '@/components/ui/Breadcrumb';
+import { lastInvalidationAtom } from '@/components/providers/CacheInvalidationProvider';
+import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -69,6 +72,21 @@ export default function ObservabilityPage() {
   // Bumping this key remounts the dashboard subtree, re-triggering its own fetches.
   const [resetKey, setResetKey] = useState(0);
   const handleRetry = useCallback(() => setResetKey((k) => k + 1), []);
+
+  // SSE cache invalidation: when the backend pushes an observability_dashboard
+  // event (batch probe checks, monitor edits) remount the dashboard subtree so it
+  // re-runs its own fetches. The dashboard owns all data fetching internally, so a
+  // keyed remount is the minimal way to reuse it. `observability_dashboard` is the
+  // only key the observability router emits (verified against the backend router).
+  const lastInvalidation = useAtomValue(lastInvalidationAtom);
+  useEffect(() => {
+    if (!lastInvalidation) return;
+    const shouldRefresh = lastInvalidation.keys.some(
+      (k: string) => k === CACHE_KEYS.OBSERVABILITY_DASHBOARD
+    );
+    if (shouldRefresh) setResetKey((k) => k + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastInvalidation]);
 
   return (
     <div className="@container">

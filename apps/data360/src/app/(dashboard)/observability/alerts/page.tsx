@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, Button, Loader } from 'rizzui';
-import { PiWarningCircleBold, PiBellRingingDuotone, PiArrowsClockwise } from 'react-icons/pi';
+import { PiWarningCircleBold, PiBellRingingDuotone, PiArrowsClockwise, PiCheckBold } from 'react-icons/pi';
+import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
@@ -14,8 +15,10 @@ import {
   getCrossModuleAlerts,
   isRouteNotDeployed,
 } from '@/app/services/observability';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
+import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import type { ObservabilityAlert } from '@/app/services/observability/types';
-import { getApiErrorMessage } from '@/lib/api-client';
 
 function severityClasses(severity?: string): string {
   const s = (severity || '').toLowerCase();
@@ -43,6 +46,7 @@ export default function AlertsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notDeployed, setNotDeployed] = useState(false);
   const [selected, setSelected] = useState<ObservabilityAlert | null>(null);
+  const [ackingId, setAckingId] = useState<string | null>(null);
   const { isOpen, open, close } = useActionPanel<'details'>();
 
   const load = useCallback(async () => {
@@ -69,6 +73,25 @@ export default function AlertsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const acknowledge = useCallback(async (alert: ObservabilityAlert) => {
+    const alertId = alert.id;
+    if (!alertId) { toast.error('This alert has no ID and cannot be acknowledged'); return; }
+    setAckingId(alertId);
+    try {
+      await apiClient.post(`/observability/alerts/${encodeURIComponent(alertId)}/ack`, {
+        acknowledged_by: 'current_user',
+      });
+      toast.success('Alert acknowledged');
+      load();
+      // Close the panel if the acknowledged alert was the selected one
+      if (selected?.id === alertId) { close(); }
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setAckingId(null);
+    }
+  }, [load, selected, close]);
 
   return (
     <div className="@container p-4">
@@ -109,6 +132,52 @@ export default function AlertsPage() {
       </div>
 
       <FreshnessDisclaimer className="mb-4" />
+
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM). Only renders when alerts are present. The top alert's
+          id drives a real acknowledge mutation; the second suggestion hands off to
+          the workflow builder (business-flow automation) with a triage template. */}
+      {!loading && !error && !notDeployed && alerts.length > 0 && (() => {
+        const top = alerts.find((a) => a.id);
+        const suggestions: Suggestion[] = [];
+        if (top?.id) {
+          suggestions.push({
+            id: 'obs-ack-top',
+            title: 'Acknowledge top alert',
+            rationale: `"${top.title ?? top.message ?? 'Top alert'}"${top.severity ? ` (${top.severity})` : ''} is the highest-priority open alert. Acknowledging it records ownership and stops repeat notifications.`,
+            action: {
+              label: 'Acknowledge',
+              endpoint: API.observability.acknowledgeAlert(top.id),
+              method: 'POST',
+              payload: { acknowledged_by: 'current_user', source: 'ai_action_flow' },
+              cost: '~0',
+              risk: 'low',
+            },
+          });
+        }
+        suggestions.push({
+          id: 'obs-automate-triage',
+          title: 'Automate alert triage',
+          rationale: `${alerts.length} alert${alerts.length === 1 ? '' : 's'} active. Instead of triaging by hand each time, build a workflow that routes and acts on alerts automatically.`,
+          navigate: {
+            label: 'Create triage workflow →',
+            href: '/workflow?template=alert-triage',
+          },
+        });
+        return (
+          <AIActionFlow
+            className="mb-4"
+            title="Recommended next steps"
+            context={{
+              module: 'observability',
+              entityType: 'alerts',
+              entityId: scope,
+              data: { alertCount: alerts.length, scope },
+            }}
+            suggestions={suggestions}
+          />
+        );
+      })()}
 
       {loading ? (
         <TableSkeleton rows={6} columns={4} />
@@ -164,16 +233,31 @@ export default function AlertsPage() {
                     {fmtTimestamp(a.detected_at ?? a.timestamp)}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setSelected(a);
-                        open('details');
-                      }}
-                    >
-                      Details
-                    </Button>
+                    <div className="flex items-center justify-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setSelected(a);
+                          open('details');
+                        }}
+                      >
+                        Details
+                      </Button>
+                      {a.id && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          isLoading={ackingId === a.id}
+                          disabled={ackingId !== null}
+                          className="gap-1 border-green-300 text-green-700 hover:bg-green-50 dark:border-green-700 dark:text-green-400"
+                          onClick={() => acknowledge(a)}
+                        >
+                          <PiCheckBold className="h-3 w-3" />
+                          Ack
+                        </Button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -229,6 +313,20 @@ export default function AlertsPage() {
                   Suggested action
                 </p>
                 <p className="mt-0.5 text-gray-700 dark:text-gray-300">{selected.suggested_action}</p>
+              </div>
+            )}
+            {selected.id && (
+              <div className="pt-2">
+                <Button
+                  size="sm"
+                  isLoading={ackingId === selected.id}
+                  disabled={ackingId !== null}
+                  className="w-full gap-1 bg-green-600 text-white hover:bg-green-700"
+                  onClick={() => acknowledge(selected)}
+                >
+                  <PiCheckBold className="h-3.5 w-3.5" />
+                  Acknowledge alert
+                </Button>
               </div>
             )}
           </div>

@@ -1,16 +1,143 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Badge, Button, Loader } from 'rizzui';
-import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise } from 'react-icons/pi';
+import { Badge, Button, Input, Loader, Select } from 'rizzui';
+import { PiWarningCircleBold, PiGaugeDuotone, PiArrowsClockwise, PiPlusBold } from 'react-icons/pi';
+import toast from 'react-hot-toast';
 import cn from '@core/utils/class-names';
 import Breadcrumb from '@/components/ui/Breadcrumb';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import FreshnessDisclaimer from '@/app/shared/observability/freshness-disclaimer';
+import ActionRail from '@/app/shared/action-rail/ActionRail';
 import { getSloTracking, isRouteNotDeployed } from '@/app/services/observability';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
 import type { SloRecord } from '@/app/services/observability/types';
-import { getApiErrorMessage } from '@/lib/api-client';
+
+// ---------------------------------------------------------------------------
+// Add SLO dialog
+// ---------------------------------------------------------------------------
+const TARGET_METRIC_OPTIONS = [
+  { label: 'Availability', value: 'AVAILABILITY' },
+  { label: 'Latency', value: 'LATENCY' },
+  { label: 'Error rate', value: 'ERROR_RATE' },
+];
+
+function AddSloModal({
+  isOpen,
+  onClose,
+  onAdded,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [targetMetric, setTargetMetric] = useState<string>('AVAILABILITY');
+  const [targetValue, setTargetValue] = useState('');
+  const [windowDays, setWindowDays] = useState('30');
+  const [submitting, setSubmitting] = useState(false);
+
+  const reset = () => {
+    setName('');
+    setTargetMetric('AVAILABILITY');
+    setTargetValue('');
+    setWindowDays('30');
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleSubmit = async () => {
+    if (!name.trim()) { toast.error('Name is required'); return; }
+    const target = Number(targetValue);
+    if (!targetValue || Number.isNaN(target) || target < 0 || target > 100) {
+      toast.error('Target value must be between 0 and 100');
+      return;
+    }
+    const days = Number(windowDays);
+    if (!windowDays || Number.isNaN(days) || days <= 0) {
+      toast.error('Window days must be a positive number');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await apiClient.post('/observability/slo', {
+        name: name.trim(),
+        target_metric: targetMetric,
+        target_value: target,
+        window_days: days,
+      });
+      toast.success(`SLO "${name.trim()}" added`);
+      reset();
+      onAdded();
+    } catch (err) {
+      toast.error(getApiErrorMessage(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <ActionRail
+      isOpen={isOpen}
+      onClose={handleClose}
+      title="Add SLO"
+      description="Define a service-level objective for this account"
+      accentClassName="bg-indigo-500"
+      footer={
+        <>
+          <Button variant="outline" onClick={handleClose} disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            isLoading={submitting}
+            onClick={handleSubmit}
+            className="bg-indigo-600 text-white hover:bg-indigo-700"
+          >
+            Add SLO
+          </Button>
+        </>
+      }
+    >
+      <Input
+        label="Name"
+        placeholder="query_availability"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+      />
+
+      <Select
+        label="Target metric"
+        options={TARGET_METRIC_OPTIONS}
+        value={targetMetric}
+        onChange={(opt) => setTargetMetric((opt as { value: string }).value)}
+      />
+
+      <Input
+        label="Target value (%)"
+        type="number"
+        min={0}
+        max={100}
+        step={0.1}
+        placeholder="99.9"
+        value={targetValue}
+        onChange={(e) => setTargetValue(e.target.value)}
+      />
+
+      <Input
+        label="Window (days)"
+        type="number"
+        min={1}
+        placeholder="30"
+        value={windowDays}
+        onChange={(e) => setWindowDays(e.target.value)}
+      />
+    </ActionRail>
+  );
+}
 
 function statusClasses(status?: string): string {
   // Backend get_slo_tracking emits OK / BREACH (lowercased here); older payloads
@@ -48,6 +175,7 @@ export default function SloPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notDeployed, setNotDeployed] = useState(false);
+  const [addSloOpen, setAddSloOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,10 +216,20 @@ export default function SloPage() {
           <PiGaugeDuotone className="h-6 w-6 text-indigo-500" />
           <h1 className="text-xl font-bold text-gray-900 dark:text-white">SLO Tracking</h1>
         </div>
-        <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1">
-          {loading ? <Loader variant="spinner" size="sm" /> : <PiArrowsClockwise className="h-3.5 w-3.5" />}
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            className="gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
+            onClick={() => setAddSloOpen(true)}
+          >
+            <PiPlusBold className="h-3.5 w-3.5" />
+            Add SLO
+          </Button>
+          <Button size="sm" variant="outline" onClick={load} disabled={loading} className="gap-1">
+            {loading ? <Loader variant="spinner" size="sm" /> : <PiArrowsClockwise className="h-3.5 w-3.5" />}
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <FreshnessDisclaimer className="mb-4" />
@@ -114,6 +252,16 @@ export default function SloPage() {
           icon={PiGaugeDuotone}
           title="No SLOs defined"
           description="Service-level objectives will appear here once they are configured for this account."
+          action={
+            <Button
+              size="sm"
+              className="mt-3 gap-1 bg-indigo-600 text-white hover:bg-indigo-700"
+              onClick={() => setAddSloOpen(true)}
+            >
+              <PiPlusBold className="h-3.5 w-3.5" />
+              Add SLO
+            </Button>
+          }
         />
       ) : (
         <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
@@ -171,6 +319,15 @@ export default function SloPage() {
           </table>
         </div>
       )}
+
+      <AddSloModal
+        isOpen={addSloOpen}
+        onClose={() => setAddSloOpen(false)}
+        onAdded={() => {
+          setAddSloOpen(false);
+          load();
+        }}
+      />
     </div>
   );
 }

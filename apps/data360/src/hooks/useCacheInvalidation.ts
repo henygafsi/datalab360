@@ -30,12 +30,9 @@ export const CACHE_KEYS = {
 
   // ── Workflow ──────────────────────────────────────────────────────────
   WORKFLOWS: 'workflows',
+  RUNS: 'runs',
   TASKS: 'tasks',
   APPROVALS: 'approvals',
-
-  // ── BI Dashboard ──────────────────────────────────────────────────────
-  BI_DASHBOARDS: 'bi_dashboards',
-  BI_WIDGETS: 'bi_widgets',
 
   // ── Gouvernance ───────────────────────────────────────────────────────
   USERS: 'users',
@@ -54,6 +51,10 @@ export const CACHE_KEYS = {
   ML_MODELS: 'ml_models',
   FINE_TUNE_JOBS: 'fine_tune_jobs',
   CHAT: 'chat',
+  VECTORS: 'vectors',
+  AGENTS: 'agents',
+  SNOWPARK_SERVICES: 'snowpark_services',
+  QUERY_ANALYTICS: 'query_analytics',
 
   // ── Data Quality ──────────────────────────────────────────────────────
   DATA_QUALITY: 'data_quality',
@@ -113,6 +114,29 @@ export const CACHE_KEYS = {
 
   // ── AI ────────────────────────────────────────────────────────────────
   AI_SUGGESTIONS: 'ai_suggestions',
+
+  // ── Trust Center / Anomaly Detection ──────────────────────────────────
+  TRUST_CENTER: 'trust_center',
+  ANOMALY_DETECTION: 'anomaly_detection',
+
+  // ── Catalog / SmartRightBar ────────────────────────────────────────────
+  // Fired by backend after tag apply, classification, masking or ownership changes.
+  CATALOG: 'catalog',
+  // Granular catalog keys emitted by the backend catalog router (catalog scan /
+  // refresh / enrich / clustering). String values match `CacheKey` in
+  // backend cache_event_bus.py exactly.
+  CATALOG_OBJECTS: 'catalog_objects',
+  CATALOG_OVERVIEW: 'catalog_overview',
+  CATALOG_KPIS: 'catalog_kpis',
+  CATALOG_SCORES: 'catalog_scores',
+  CATALOG_PRODUCTS: 'catalog_products',
+  CATALOG_RECOMMENDATIONS: 'catalog_recommendations',
+  TAGS: 'tags',
+  TABLE_GOVERNANCE: 'table_governance',
+  TABLE_LINEAGE: 'table_lineage',
+  TABLE_INGESTION: 'table_ingestion',
+  TABLE_OWNERSHIP: 'table_ownership',
+  GOVERNANCE_RATE: 'governance_rate',
 
   // ── Legacy (kept for backward compat, no backend equivalent) ──────────
   CHARTS: 'charts',

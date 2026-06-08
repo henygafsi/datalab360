@@ -24,6 +24,7 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import {
@@ -55,8 +56,8 @@ function SourceProductGrantsPanel() {
     let mounted = true;
     setLoading(true);
     Promise.allSettled([
-      apiClient.get('/catalog/sources').then(r => r.data?.sources || []),
-      apiClient.get('/catalog/products').then(r => r.data?.products || []),
+      apiClient.get(API.catalog.sources()).then(r => r.data?.sources || []),
+      apiClient.get(API.catalog.products()).then(r => r.data?.products || []),
     ]).then(([s, p]) => {
       if (!mounted) return;
       setSources(s.status === 'fulfilled' ? (Array.isArray(s.value) ? s.value : []) : []);

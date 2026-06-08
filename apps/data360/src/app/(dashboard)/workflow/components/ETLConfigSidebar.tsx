@@ -363,6 +363,13 @@ interface ETLConfigSidebarProps {
   accessToken?: string | null;
   leftInputColumns?: string[];
   rightInputColumns?: string[];
+  /**
+   * When true the sidebar is embedded inside the WorkflowSmartPanel "Block"
+   * section rather than docked to the canvas edge — drops the fixed `w-80` +
+   * `border-l` so it fills the section width.
+   */
+  embedded?: boolean;
+  className?: string;
 }
 
 const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
@@ -374,6 +381,8 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   accessToken,
   leftInputColumns = [],
   rightInputColumns = [],
+  embedded = false,
+  className,
 }) => {
   const [formData, setFormData] = useState<any>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -1009,7 +1018,13 @@ const ETLConfigSidebar: React.FC<ETLConfigSidebarProps> = ({
   };
 
   return (
-    <div className="w-80 bg-white dark:bg-slate-800 border-l border-slate-200 dark:border-slate-700 flex flex-col h-full">
+    <div
+      className={cn(
+        'bg-white dark:bg-slate-800 flex flex-col h-full',
+        embedded ? 'w-full' : 'w-80 border-l border-slate-200 dark:border-slate-700',
+        className,
+      )}
+    >
       {/* Header */}
       <div className={cn('px-4 py-3 border-b border-slate-200 dark:border-slate-700', blockDef.bgColor)}>
         <div className="flex items-center justify-between">

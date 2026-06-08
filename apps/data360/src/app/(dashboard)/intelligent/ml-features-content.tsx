@@ -128,7 +128,7 @@ export default function MLFeaturesContent() {
         </div>
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
-            Cortex ML Features
+            AI ML Features
           </h2>
           <p className="text-slate-500 dark:text-slate-400">
             AI-powered text analysis, translation, and summarization

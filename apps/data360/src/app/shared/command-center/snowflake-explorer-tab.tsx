@@ -9,14 +9,14 @@ import {
   Clock, Search, Lock, X, GitBranch,
 } from 'lucide-react';
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 
 // ---------------------------------------------------------------------------
-// Snowflake Objects Explorer — backed by GET /api/snowflake/explorer/*.
+// Data Catalog Object Explorer — backed by GET /api/snowflake/explorer/*.
 // Local interfaces only (no edits to types.ts/hooks.ts). Every field below is
 // returned by the backend services (databases.py / schemas.py / objects.py /
 // summary.py / facets.py) — never read a field the backend does not return.
 // ---------------------------------------------------------------------------
-const EXPLORER = '/api/snowflake/explorer';
 const PAGE_SIZE = 200; // backend caps page_size at 200; old lake calls returned everything.
 
 type BrowseLevel = 'databases' | 'schemas' | 'objects';
@@ -342,7 +342,7 @@ function SnowflakeExplorerTab() {
 
   const fetchSummary = useCallback(async () => {
     try {
-      const res = await apiClient.get<SummaryResponse>(`${EXPLORER}/summary`);
+      const res = await apiClient.get<SummaryResponse>(API.snowflakeExplorer.summary());
       setSummary(res.data || null);
     } catch {
       setSummary(null);
@@ -353,7 +353,7 @@ function SnowflakeExplorerTab() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiClient.get<ListEnvelope<DbInfo>>(`${EXPLORER}/databases`, {
+      const res = await apiClient.get<ListEnvelope<DbInfo>>(API.snowflakeExplorer.databases(), {
         params: { page_size: PAGE_SIZE },
       });
       const items = res.data?.items || [];
@@ -372,7 +372,7 @@ function SnowflakeExplorerTab() {
     setError(null);
     setSelectedDb(db);
     try {
-      const res = await apiClient.get<ListEnvelope<SchemaInfo>>(`${EXPLORER}/schemas`, {
+      const res = await apiClient.get<ListEnvelope<SchemaInfo>>(API.snowflakeExplorer.schemas(), {
         params: { database: db, page_size: PAGE_SIZE },
       });
       const items = res.data?.items || [];
@@ -402,7 +402,7 @@ function SnowflakeExplorerTab() {
       if (flt.risk_level) params.risk_level = flt.risk_level;
       if (flt.freshness_status) params.freshness_status = flt.freshness_status;
       if (flt.search) params.search = flt.search;
-      const res = await apiClient.get<ListEnvelope<ObjectInfo>>(`${EXPLORER}/objects`, { params });
+      const res = await apiClient.get<ListEnvelope<ObjectInfo>>(API.snowflakeExplorer.objects(), { params });
       const items = res.data?.items || [];
       setObjects(items);
       setObjectTotal(res.data?.pagination?.total ?? items.length);
@@ -418,7 +418,7 @@ function SnowflakeExplorerTab() {
   // chip set stays stable while filtering objects.
   const fetchFacets = useCallback(async (db: string, schema: string) => {
     try {
-      const res = await apiClient.get<FacetsResponse>(`${EXPLORER}/facets`, {
+      const res = await apiClient.get<FacetsResponse>(API.snowflakeExplorer.facets(), {
         params: { database: db, schema },
       });
       setFacets(res.data || null);
@@ -499,7 +499,7 @@ function SnowflakeExplorerTab() {
         }}
         className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
       >
-        Snowflake
+        Catalog
       </button>
       {selectedDb && (
         <>
@@ -532,9 +532,9 @@ function SnowflakeExplorerTab() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Snowflake Object Browser</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Data Catalog Explorer</h2>
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Browse databases, schemas, and objects across your Snowflake account.
+            Browse databases, schemas, and objects across your data warehouse account.
           </p>
         </div>
         {level !== 'databases' && (

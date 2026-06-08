@@ -60,7 +60,39 @@ export type EventType =
   | 'QUALITY_GATE_SET';
 
 // Event Status
-export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied';
+export type EventStatus = 'pending' | 'validated' | 'failed' | 'applied' | 'approved' | 'rejected';
+
+// Lineage impact shape returned by /deployment-readiness → impact_analysis_global
+export interface LineageImpact {
+  impact_summary: {
+    high_risk: number;
+    medium_risk: number;
+    low_risk: number;
+    total_affected_objects: number;
+  };
+  affected_objects: Array<{
+    type: string;
+    name: string;
+    database?: string;
+    schema?: string;
+    risk_level: 'HIGH' | 'MEDIUM' | 'LOW';
+    reason: string;
+  }>;
+  breaking_changes: Array<{
+    type: string;
+    name: string;
+    risk_level: string;
+    reason?: string;
+  }>;
+}
+
+// Cost estimate shape — credits_estimate: null means render "—", never invent a 0
+export interface CostEstimate {
+  credits_estimate: number | null;
+  method: 'DDL_FREE' | 'METERING_HISTORY' | 'PATTERN_MATCH' | 'UNAVAILABLE';
+  breakdown: string[];
+  warning?: string | null;
+}
 
 // Base Event Interface
 export interface DesignEvent {
@@ -81,6 +113,13 @@ export interface DesignEvent {
   // Backend sync fields
   backendId?: string; // ID returned from backend after sync
   synced?: boolean; // Whether event has been synced to backend
+  // Deployment readiness fields — hydrated by useDeploymentReadiness hook
+  lineageImpact?: LineageImpact;
+  costEstimate?: CostEstimate;
+  // Bundle-level approval (DEPLOYMENT_APPROVALS table); per-change detail in approval payload
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  rejectedReason?: string;
 }
 
 // Table Rename Event

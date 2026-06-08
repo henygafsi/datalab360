@@ -19,6 +19,7 @@ import ErrorDisplay from '@/components/ui/ErrorDisplay';
 import TableSkeleton from '@/components/ui/TableSkeleton';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import { toast } from 'react-hot-toast';
+import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 
 // Define the UserTableDataType based on your frontend needs, including first and last name
 export type UserTableDataType = {
@@ -190,8 +191,42 @@ export default function UsersTable({ onAddUserSuccess }: UsersTableProps) {
     );
   }
 
+  // AI flow condition: active (non-disabled) users with no recorded last-login
+  // signal — i.e. accounts we can't confirm are in use. No backend mutation maps
+  // to "audit access", so the suggestion is a navigation hand-off to the access
+  // review surface (security matrix). Honest: read-only, no data change.
+  const usersList = data ?? [];
+  const staleActiveCount = usersList.filter(
+    (u) => u.status !== 'Disabled' && !u.lastLogin,
+  ).length;
+
   return (
     <>
+      {staleActiveCount > 0 && (
+        <AIActionFlow
+          className="mb-4"
+          title="Recommended next steps"
+          context={{
+            module: 'gouvernance',
+            entityType: 'users',
+            entityId: 'list',
+            data: { staleActiveCount, totalUsers: usersList.length },
+          }}
+          suggestions={
+            [
+              {
+                id: 'gov-audit-access',
+                title: 'Audit user access',
+                rationale: `${staleActiveCount} active user${staleActiveCount === 1 ? ' has' : 's have'} no recorded sign-in activity. Review their grants in the security matrix to confirm the access is still warranted.`,
+                navigate: {
+                  label: 'Open access review →',
+                  href: '/governance/security-matrix',
+                },
+              },
+            ] satisfies Suggestion[]
+          }
+        />
+      )}
       <div className="mb-4 flex justify-between items-center">
         <div className="flex items-center gap-3">
           <Filters table={table} />

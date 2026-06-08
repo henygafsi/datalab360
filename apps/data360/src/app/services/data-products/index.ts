@@ -3,8 +3,7 @@
  * Handles: data product CRUD, subscriptions.
  */
 import apiClient from '@/lib/api-client';
-
-const PREFIX = '/data-products';
+import { API } from '@/lib/api-contracts';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,7 +107,7 @@ export interface PublishProductResponse {
 // ---------------------------------------------------------------------------
 
 export async function listDataProducts(): Promise<DataProductListResponse> {
-  const { data } = await apiClient.get<DataProductListResponse>(PREFIX);
+  const { data } = await apiClient.get<DataProductListResponse>(API.dataProducts.list());
   return data;
 }
 
@@ -116,7 +115,7 @@ export async function getDataProduct(
   productId: string
 ): Promise<DataProductDetailResponse> {
   const { data } = await apiClient.get<DataProductDetailResponse>(
-    `${PREFIX}/${productId}`
+    API.dataProducts.get(productId)
   );
   return data;
 }
@@ -124,7 +123,7 @@ export async function getDataProduct(
 export async function createDataProduct(
   body: CreateDataProductRequest
 ): Promise<CreateDataProductResponse> {
-  const { data } = await apiClient.post<CreateDataProductResponse>(PREFIX, body);
+  const { data } = await apiClient.post<CreateDataProductResponse>(API.dataProducts.create(), body);
   return data;
 }
 
@@ -145,7 +144,7 @@ export async function publishDataProduct(
   body?: { accounts?: string[] }
 ): Promise<PublishProductResponse> {
   const { data } = await apiClient.post<PublishProductResponse>(
-    `${PREFIX}/${productId}/publish`,
+    API.dataProducts.publish(productId),
     body
   );
   return data;
@@ -162,7 +161,7 @@ export async function subscribeToProduct(
   body?: { consumer_account?: string }
 ): Promise<SubscribeResponse> {
   const { data } = await apiClient.post<SubscribeResponse>(
-    `${PREFIX}/${productId}/subscribe`,
+    API.dataProducts.subscribe(productId),
     body
   );
   return data;

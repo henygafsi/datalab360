@@ -23,6 +23,7 @@ import {
 import { cn } from '@/lib/utils';
 import { motion, LayoutGroup } from 'framer-motion';
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import {
   runQualityCheckOnTable,
   listDmfs,
@@ -34,7 +35,9 @@ import {
 } from '@/app/services/data-quality';
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import EmptyState from '@/components/ui/EmptyState';
+import MetricHelp, { type MetricHelpProps } from '@/components/ui/MetricHelp';
 import { ActionRail, useActionPanel } from '@/app/shared/action-rail';
+import AIActionFlow, { type Suggestion } from '@/app/shared/insights/AIActionFlow';
 import QueryHistoryTable from '@/components/audit/QueryHistoryTable';
 
 // ── Types ──
@@ -85,6 +88,22 @@ const DARK_TOOLTIP_STYLE = {
   fontSize: '12px',
 };
 
+// Tab → API.dataQuality.* path (Convention-1: no hardcoded endpoint strings)
+const TAB_API_PATHS: Record<string, () => string> = {
+  completeness:   API.dataQuality.completenessMetrics,
+  uniqueness:     API.dataQuality.uniquenessMetrics,
+  freshness:      API.dataQuality.freshnessMetrics,
+  ingestion:      API.dataQuality.ingestionMetrics,
+  schema:         API.dataQuality.schemaQuality,
+  classification: API.dataQuality.classificationCoverage,
+  cost:           API.dataQuality.costMetrics,
+  security:       API.dataQuality.securityPosture,
+  dmf:            API.dataQuality.dmfResults,
+};
+
+// Legacy suffix map kept for the fetchQualityData(endpoint, ...) call-sites that
+// pass a bare suffix (snapshot, trend-analysis, quality-summary). All tab fetches
+// are now routed through TAB_API_PATHS.
 const TAB_ENDPOINTS: Record<string, string> = {
   completeness: 'completeness-metrics',
   uniqueness: 'uniqueness-metrics',
@@ -138,11 +157,16 @@ const USE_SNAPSHOT = process.env.NEXT_PUBLIC_DQ_USE_SNAPSHOT === 'true';
 // duplicate completeness-metrics call seen in production telemetry.
 const _inFlight = new Map<string, Promise<any>>();
 
-async function fetchQualityData(endpoint: string, forceRefresh = false, params?: Record<string, string | number>): Promise<any> {
+/**
+ * fetchQualityData — calls apiClient with deduplication.
+ * `path` must be a full relative path (e.g. API.dataQuality.qualitySummary())
+ * so no hardcoded strings escape this file (Convention-1).
+ */
+async function fetchQualityData(path: string, forceRefresh = false, params?: Record<string, string | number>): Promise<any> {
   const queryStr = params ? '?' + new URLSearchParams(
     Object.entries(params).map(([k, v]) => [k, String(v)])
   ).toString() : '';
-  const key = `GET:${endpoint}${queryStr}:${forceRefresh ? 'force' : 'cached'}`;
+  const key = `GET:${path}${queryStr}:${forceRefresh ? 'force' : 'cached'}`;
 
   // Reuse an in-flight identical request rather than firing a duplicate.
   // forceRefresh participates in the key so an explicit Refresh always bypasses
@@ -154,11 +178,11 @@ async function fetchQualityData(endpoint: string, forceRefresh = false, params?:
   if (forceRefresh) headers['Cache-Control'] = 'no-cache';
 
   const promise = apiClient
-    .get(`/data-quality/${endpoint}${queryStr}`, { headers })
+    .get(`${path}${queryStr}`, { headers })
     .then((res) => res.data)
     .catch((err: any) => {
       const msg = err?.response?.data?.detail || err?.message || 'Request failed';
-      console.error(`[DataQuality] ${endpoint} failed:`, msg);
+      console.error(`[DataQuality] ${path} failed:`, msg);
       throw new Error(msg);
     })
     .finally(() => {
@@ -514,10 +538,14 @@ function AuditTable({
   columns,
   data,
   emptyMsg,
+  selectedRow,
+  onRowClick,
 }: {
   columns: { key: string; label: string; format?: (v: unknown, row: MetricRow) => React.ReactNode }[];
   data: MetricRow[];
   emptyMsg?: string;
+  selectedRow?: MetricRow | null;
+  onRowClick?: (row: MetricRow) => void;
 }) {
   if (!data || data.length === 0) {
     return (
@@ -539,15 +567,30 @@ function AuditTable({
           </tr>
         </thead>
         <tbody>
-          {data.map((row, i) => (
-            <tr key={i} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-              {columns.map((col) => (
-                <td key={col.key} className="px-2.5 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                  {col.format ? col.format(row[col.key], row) : String(row[col.key] ?? '—')}
-                </td>
-              ))}
-            </tr>
-          ))}
+          {data.map((row, i) => {
+            const isSelected = selectedRow !== undefined && selectedRow !== null &&
+              String(row.TABLE_NAME ?? i) === String(selectedRow.TABLE_NAME ?? -1) &&
+              String(row.COLUMN_NAME ?? '') === String(selectedRow.COLUMN_NAME ?? '');
+            return (
+              <tr
+                key={i}
+                onClick={() => onRowClick?.(row)}
+                className={cn(
+                  'border-b border-gray-100 dark:border-gray-800 transition-colors',
+                  onRowClick ? 'cursor-pointer' : '',
+                  isSelected
+                    ? 'bg-blue-50 dark:bg-blue-900/20'
+                    : 'hover:bg-gray-50 dark:hover:bg-gray-800/50',
+                )}
+              >
+                {columns.map((col) => (
+                  <td key={col.key} className="px-2.5 py-1.5 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    {col.format ? col.format(row[col.key], row) : String(row[col.key] ?? '—')}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -964,6 +1007,248 @@ function TrendChart({ trendData }: { trendData: MetricRow[] }) {
   );
 }
 
+// ── SmartRightBar — 8-section contextual panel (spec: .claude/skills/smart-rightbar-spec.md) ──
+
+interface SmartRightBarProps {
+  selectedRow: MetricRow | null;
+  data: {
+    dqScore: number | null;
+    dmfCount: number | null;
+    classificationTags: MetricRow[];
+    ingestionStatus: string | null;
+    owner: string | null;
+    steward: string | null;
+    dmfHistory: MetricRow[];
+  } | null;
+  loading: boolean;
+  onRunCheck: () => void;
+  onAssociateDmf: () => void;
+  onScheduleDmf: () => void;
+  canRunCheck: boolean;
+  canAssociateDmf: boolean;
+  canScheduleDmf: boolean;
+}
+
+function SmartRightBar({
+  selectedRow,
+  data,
+  loading,
+  onRunCheck,
+  onAssociateDmf,
+  onScheduleDmf,
+  canRunCheck,
+  canAssociateDmf,
+  canScheduleDmf,
+}: SmartRightBarProps) {
+  const tableName = selectedRow ? String(selectedRow.TABLE_NAME || selectedRow.table_name || '') : null;
+  const schemaName = selectedRow ? String(selectedRow.SCHEMA_NAME || selectedRow.TABLE_SCHEMA || '') : null;
+
+  return (
+    <aside
+      aria-label="Smart context panel"
+      className="w-[380px] flex-shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 flex flex-col overflow-y-auto"
+      style={{ maxHeight: 'calc(100vh - 120px)', position: 'sticky', top: '0' }}
+    >
+      {/* Header */}
+      <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 flex-shrink-0">
+        <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 uppercase tracking-wider">Smart Context</p>
+        {tableName ? (
+          <p className="text-sm font-bold text-gray-900 dark:text-white truncate mt-0.5">{tableName}</p>
+        ) : (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Select a row to see context</p>
+        )}
+      </div>
+
+      {!tableName ? (
+        <div className="flex flex-col items-center justify-center flex-1 py-16 gap-3 text-center px-4">
+          <Info className="h-8 w-8 text-gray-300 dark:text-gray-600" />
+          <p className="text-sm text-gray-500 dark:text-gray-400">Click any row in the table to load its context, actions, governance, and history.</p>
+        </div>
+      ) : loading ? (
+        <div className="p-4 space-y-3">
+          {Array.from({ length: 5 }).map((_, i) => <SkeletonBar key={i} className="h-12 w-full rounded-lg" />)}
+        </div>
+      ) : (
+        <div className="divide-y divide-gray-100 dark:divide-gray-800 flex-1">
+
+          {/* S1: Context — DQ score + DMF count */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S1 Context</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">DQ Score</p>
+                <p className={cn('text-lg font-bold',
+                  data?.dqScore === null ? 'text-gray-400' :
+                  (data?.dqScore ?? 0) >= 80 ? 'text-green-600 dark:text-green-400' :
+                  (data?.dqScore ?? 0) >= 50 ? 'text-amber-600 dark:text-amber-400' : 'text-red-600 dark:text-red-400'
+                )}>
+                  {data?.dqScore !== null && data?.dqScore !== undefined ? `${data.dqScore}%` : '—'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-100 dark:border-gray-800 px-3 py-2 bg-gray-50 dark:bg-gray-800/50">
+                <p className="text-[10px] text-gray-500 dark:text-gray-400">DMF Checks</p>
+                <p className="text-lg font-bold text-gray-900 dark:text-white">
+                  {data?.dmfCount ?? '—'}
+                </p>
+              </div>
+            </div>
+            {schemaName && (
+              <p className="mt-2 text-[10px] text-gray-500 dark:text-gray-400 font-mono truncate">Schema: {schemaName}</p>
+            )}
+          </div>
+
+          {/* S2: Actions — Run Check / Associate DMF / Set Schedule */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S2 Actions</p>
+            <div className="space-y-1.5">
+              <button
+                onClick={onRunCheck}
+                disabled={!canRunCheck}
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                  canRunCheck
+                    ? 'border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-800 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40'
+                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
+                )}
+                title={!canRunCheck ? 'You lack the "run" permission on data quality.' : `Run threshold check on ${tableName}`}
+              >
+                <Play className="h-3.5 w-3.5 flex-shrink-0" />
+                Run Check
+              </button>
+              <button
+                onClick={onAssociateDmf}
+                disabled={!canAssociateDmf}
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                  canAssociateDmf
+                    ? 'border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 dark:border-violet-800 dark:bg-violet-900/20 dark:text-violet-400 dark:hover:bg-violet-900/40'
+                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
+                )}
+                title={!canAssociateDmf ? 'You lack the "associate" permission on data quality.' : `Associate a DMF to ${tableName}`}
+              >
+                <Link2 className="h-3.5 w-3.5 flex-shrink-0" />
+                Associate DMF
+              </button>
+              <button
+                onClick={onScheduleDmf}
+                disabled={!canScheduleDmf}
+                className={cn(
+                  'w-full flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors',
+                  canScheduleDmf
+                    ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40'
+                    : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-800 cursor-not-allowed'
+                )}
+                title={!canScheduleDmf ? 'You lack the "schedule" permission on data quality.' : `Set DMF schedule for ${tableName}`}
+              >
+                <CalendarClock className="h-3.5 w-3.5 flex-shrink-0" />
+                Set Schedule
+              </button>
+            </div>
+          </div>
+
+          {/* S3: Governance — classification coverage + PII tags */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S3 Governance</p>
+            {data?.classificationTags && data.classificationTags.length > 0 ? (
+              <div className="space-y-1">
+                {data.classificationTags.slice(0, 4).map((tag, i) => (
+                  <div key={i} className="flex items-center gap-2 text-xs">
+                    <Tag className="h-3 w-3 text-amber-500 flex-shrink-0" />
+                    <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{String(tag.COLUMN_NAME || '—')}</span>
+                    <Badge variant="flat" color="warning" className="text-[10px] ml-auto flex-shrink-0">{String(tag.TAG_NAME || tag.CATEGORY || '—')}</Badge>
+                  </div>
+                ))}
+                {data.classificationTags.length > 4 && (
+                  <p className="text-[10px] text-gray-400 dark:text-gray-500">+{data.classificationTags.length - 4} more tags</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500">No classification tags. Run SYSTEM$CLASSIFY to tag sensitive columns.</p>
+            )}
+          </div>
+
+          {/* S4: Lineage — link to /observability/lineage */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S4 Lineage</p>
+            <a
+              href={tableName ? `/observability?tab=lineage&table=${encodeURIComponent(tableName)}` : '/observability'}
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+            >
+              <Activity className="h-3.5 w-3.5" />
+              View in Observability Lineage
+            </a>
+          </div>
+
+          {/* S5: Ingestion — last load status + COPY_HISTORY freshness */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S5 Ingestion</p>
+            <div className="flex items-center gap-2">
+              <Upload className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+              <span className="text-xs text-gray-600 dark:text-gray-300">Last status:</span>
+              <StatusBadge status={data?.ingestionStatus || '—'} />
+            </div>
+          </div>
+
+          {/* S6: Ownership — data owner + steward from catalog */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S6 Ownership</p>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-xs">
+                <Database className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-500 dark:text-gray-400">Owner:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{data?.owner || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2 text-xs">
+                <Shield className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+                <span className="text-gray-500 dark:text-gray-400">Steward:</span>
+                <span className="font-medium text-gray-700 dark:text-gray-300 truncate">{data?.steward || '—'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* S7: Alice Tips — AI-generated DQ recommendations */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S7 AI Tips</p>
+            <div className="rounded-lg border border-amber-100 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-900/10 px-3 py-2">
+              <div className="flex items-start gap-2">
+                <Lightbulb className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {data?.dqScore !== null && data?.dqScore !== undefined && (data.dqScore ?? 0) < 80
+                    ? `DQ score ${data.dqScore}% — associate NULL_COUNT and DUPLICATE_COUNT DMFs to improve coverage.`
+                    : data?.dmfCount === 0
+                      ? `No DMF checks configured. Add NULL_COUNT to key columns to begin continuous monitoring.`
+                      : `Quality looks good. Schedule periodic DMF runs and review classification tags for PII compliance.`
+                  }
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* S8: History — last 5 DMF measurements */}
+          <div className="px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 mb-2">S8 DMF History</p>
+            {data?.dmfHistory && data.dmfHistory.length > 0 ? (
+              <div className="space-y-1">
+                {data.dmfHistory.map((h, i) => (
+                  <div key={i} className="flex items-center justify-between gap-2 rounded border border-gray-100 dark:border-gray-800 px-2 py-1">
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-medium text-gray-700 dark:text-gray-300 truncate">{String(h.METRIC_NAME || h.metric_name || '—')}</p>
+                      <p className="text-[10px] text-gray-400 dark:text-gray-500 truncate">{String(h.MEASUREMENT_TIME || h.measured_at || '—')}</p>
+                    </div>
+                    <StatusBadge status={h.STATUS || h.status || '—'} />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400 dark:text-gray-500">No DMF measurements yet for this table.</p>
+            )}
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+
 // ── Main page ──
 
 export default function DataQualityPage() {
@@ -979,6 +1264,22 @@ export default function DataQualityPage() {
   const [trendData, setTrendData] = useState<MetricRow[]>([]);
   const [trendError, setTrendError] = useState<string | null>(null);
   const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
+
+  // Server-side DMF breaches (GET /data-quality/dmf/breaches — threshold-aware)
+  const [serverBreaches, setServerBreaches] = useState<MetricRow[]>([]);
+
+  // SmartRightBar — selected row context
+  const [selectedRow, setSelectedRow] = useState<MetricRow | null>(null);
+  const [rightbarData, setRightbarData] = useState<{
+    dqScore: number | null;
+    dmfCount: number | null;
+    classificationTags: MetricRow[];
+    ingestionStatus: string | null;
+    owner: string | null;
+    steward: string | null;
+    dmfHistory: MetricRow[];
+  } | null>(null);
+  const [rightbarLoading, setRightbarLoading] = useState(false);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -1062,7 +1363,7 @@ export default function DataQualityPage() {
 
   const loadSummary = useCallback(async (force = false) => {
     try {
-      const data = await fetchQualityData('quality-summary', force);
+      const data = await fetchQualityData(API.dataQuality.qualitySummary(), force);
       if (data) setSummary(data?.data || data);
       setError(null);
     } catch (err) {
@@ -1079,13 +1380,17 @@ export default function DataQualityPage() {
     setTabLoading(true);
     setTabErrors((prev) => ({ ...prev, [tab]: null }));
     try {
-      const endpoint = TAB_ENDPOINTS[tab] || tab;
+      // Use typed API path from TAB_API_PATHS (Convention-1 — no hardcoded strings).
+      // Fall back to legacy suffix for unknown tab keys (snapshot, etc.).
+      const apiPath = TAB_API_PATHS[tab]
+        ? TAB_API_PATHS[tab]()
+        : `/data-quality/${TAB_ENDPOINTS[tab] || tab}`;
       const params: Record<string, string | number> = {};
       if (PAGINATED_TABS.has(tab)) {
         params.offset = (currentPage - 1) * currentSize;
         params.limit = currentSize;
       }
-      const data = await fetchQualityData(endpoint, force, Object.keys(params).length > 0 ? params : undefined);
+      const data = await fetchQualityData(apiPath, force, Object.keys(params).length > 0 ? params : undefined);
       const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
       setTabData((prev) => ({ ...prev, [tab]: Array.isArray(rows) ? (rows as MetricRow[]) : [] }));
       if (data?.total !== undefined) {
@@ -1113,7 +1418,7 @@ export default function DataQualityPage() {
   const loadTrend = useCallback(async (force = false) => {
     setTrendError(null);
     try {
-      const data = await fetchQualityData('trend-analysis', force);
+      const data = await fetchQualityData(API.dataQuality.trendAnalysis(), force);
       // /trend-analysis returns { rows, dmf_trend, sources } — NOT a bare array
       // and NOT a `.data` envelope. Prefer the real per-day DMF measurement trend
       // when present, else fall back to the table-freshness proxy rows (and the
@@ -1128,6 +1433,63 @@ export default function DataQualityPage() {
     }
   }, []);
 
+  // Wire GET /data-quality/dmf/breaches — server computes threshold-aware breaches
+  // (replaces the client-side STATUS=FAIL filter which misses threshold comparisons).
+  const loadDmfBreaches = useCallback(async (force = false) => {
+    try {
+      const data = await fetchQualityData(API.dataQuality.dmfBreaches(), force);
+      const rows = data?.breaches || data?.rows || data?.data || data || [];
+      setServerBreaches(Array.isArray(rows) ? (rows as MetricRow[]) : []);
+    } catch {
+      // Non-blocking — falls back to client-side breach filter below.
+      setServerBreaches([]);
+    }
+  }, []);
+
+  // Load SmartRightBar data when a row is selected
+  const loadRightbarData = useCallback(async (row: MetricRow) => {
+    const tableName = String(row.TABLE_NAME || row.table_name || '');
+    if (!tableName) { setRightbarData(null); return; }
+    setRightbarLoading(true);
+    try {
+      // Fan-out: DQ score from summary, DMF count from dmf tab, classification from classification tab,
+      // ingestion from ingestion tab, ownership from catalog endpoint
+      const [ownershipResp, ingestionResp] = await Promise.allSettled([
+        apiClient.get(API.catalog.tableOwnership('CP_DATA360', String(row.SCHEMA_NAME || row.TABLE_SCHEMA || 'PUBLIC'), tableName)).then(r => r.data).catch(() => null),
+        apiClient.get(API.dataQuality.ingestionMetrics()).then(r => r.data).catch(() => null),
+      ]);
+      const ownershipData = ownershipResp.status === 'fulfilled' ? ownershipResp.value : null;
+      const ingestionData = ingestionResp.status === 'fulfilled' ? ingestionResp.value : null;
+
+      // DMF history: last 5 results for this table from the already-loaded dmf tab
+      const dmfRows = (tabData.dmf || []).filter(r => String(r.TABLE_NAME || '') === tableName).slice(-5);
+      // Classification tags for this table
+      const classRows = (tabData.classification || []).filter(r => String(r.TABLE_NAME || '') === tableName);
+      // Ingestion last status
+      const ingRows = Array.isArray(ingestionData?.rows || ingestionData?.data || ingestionData)
+        ? (ingestionData?.rows || ingestionData?.data || ingestionData || []) as MetricRow[]
+        : [];
+      const tableIngestion = ingRows.find(r => String(r.TABLE_NAME || '') === tableName);
+
+      // DQ score — approximate from summary
+      const dmfTotal = (tabData.dmf || []).filter(r => String(r.TABLE_NAME || '') === tableName).length;
+      const dmfPass = (tabData.dmf || []).filter(r => String(r.TABLE_NAME || '') === tableName && String(r.STATUS ?? '').toUpperCase() === 'PASS').length;
+      const dqScore = dmfTotal > 0 ? Math.round((dmfPass / dmfTotal) * 100) : null;
+
+      setRightbarData({
+        dqScore,
+        dmfCount: dmfTotal,
+        classificationTags: classRows,
+        ingestionStatus: tableIngestion ? String(tableIngestion.STATUS || tableIngestion.status || '—') : '—',
+        owner: ownershipData?.owner || ownershipData?.data_owner || null,
+        steward: ownershipData?.steward || ownershipData?.data_steward || null,
+        dmfHistory: dmfRows,
+      });
+    } finally {
+      setRightbarLoading(false);
+    }
+  }, [tabData]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     setError(null);
@@ -1135,6 +1497,7 @@ export default function DataQualityPage() {
       await Promise.all([
         loadSummary(true),
         loadTrend(true),
+        loadDmfBreaches(true),
       ]);
       // Force reload every dimension so the KPI bar, charts and recommendations
       // all reflect fresh data. Per-tab failures land in tabErrors so the
@@ -1144,7 +1507,8 @@ export default function DataQualityPage() {
       await Promise.allSettled(
         TAB_IDS.map(async (tab) => {
           try {
-            const data = await fetchQualityData(TAB_ENDPOINTS[tab], true);
+            const apiPath = TAB_API_PATHS[tab] ? TAB_API_PATHS[tab]() : `/data-quality/${TAB_ENDPOINTS[tab]}`;
+            const data = await fetchQualityData(apiPath, true);
             const rows = data?.rows || data?.results || data?.metrics || data?.data || data || [];
             nextData[tab] = Array.isArray(rows) ? (rows as MetricRow[]) : [];
             nextErrors[tab] = null;
@@ -1172,6 +1536,7 @@ export default function DataQualityPage() {
     if (shouldRefresh) {
       loadSummary(true);
       loadTrend(true);
+      loadDmfBreaches(true);
       loadTabData(activeTab, true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1191,7 +1556,7 @@ export default function DataQualityPage() {
       // Single-shot: backend fans out for us.
       (async () => {
         try {
-          const snap = await fetchQualityData('snapshot');
+          const snap = await fetchQualityData(API.dataQuality.snapshot());
           const payload: Record<string, unknown> = snap?.data || {};
           // Map snapshot keys → tabData keys
           const next: Record<string, MetricRow[]> = {};
@@ -1211,7 +1576,7 @@ export default function DataQualityPage() {
         } catch {
           // Snapshot is an optional optimization; on failure fall back to the
           // legacy lazy path, which surfaces its own inline errors per section.
-          await Promise.all([loadSummary(), loadTrend(), loadTabData(activeTab)]);
+          await Promise.all([loadSummary(), loadTrend(), loadDmfBreaches(), loadTabData(activeTab)]);
         } finally {
           setLoading(false);
         }
@@ -1219,14 +1584,22 @@ export default function DataQualityPage() {
       return;
     }
 
-    // Legacy lazy path: summary + trend + only the visible tab.
+    // Legacy lazy path: summary + trend + DMF breaches + only the visible tab.
     Promise.all([
       loadSummary(),
       loadTrend(),
+      loadDmfBreaches(),
       loadTabData(activeTab),
     ]).finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Load SmartRightBar data when selection changes
+  useEffect(() => {
+    if (!selectedRow) { setRightbarData(null); return; }
+    void loadRightbarData(selectedRow);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRow]);
 
   // Tab change — reset pagination when switching tabs.
   // Skips the initial render (activeTab === 'completeness' is already loaded
@@ -1485,13 +1858,14 @@ export default function DataQualityPage() {
   }, [tabData, summary]);
 
   // ── DMF threshold breaches ──
-  // A DMF result is a breach when its STATUS is FAIL (backend computes this as
-  // VALUE != 0 against the metric's pass condition). Surfaced as a prominent
-  // alert so threshold violations are not buried in the table.
+  // Prefer server-side breaches from GET /data-quality/dmf/breaches (threshold-aware).
+  // Falls back to client-side STATUS=FAIL filter when the backend endpoint is not
+  // yet deployed (InsightActionButton auto-disables on 404/501 — same pattern).
   const dmfBreaches = useMemo(() => {
+    if (serverBreaches.length > 0) return serverBreaches;
     const rows = tabData.dmf || [];
     return rows.filter((r) => String(r.STATUS ?? '').toUpperCase() === 'FAIL');
-  }, [tabData.dmf]);
+  }, [serverBreaches, tabData.dmf]);
 
   // KPI bar — health score color: green >80, amber 50-80, red <50
   const healthColor = summary
@@ -1502,19 +1876,88 @@ export default function DataQualityPage() {
         : 'from-red-400 to-rose-500'
     : 'from-green-400 to-emerald-500';
 
-  const kpis = [
-    { label: 'Health Score', value: summary ? `${summary.health_score}%` : '—', icon: BarChart3, color: healthColor },
-    { label: 'Tables', value: summary?.total_tables ?? '—', icon: Database, color: 'from-blue-400 to-indigo-500' },
-    { label: 'Violations', value: summary ? `${summary.freshness_violations} (${summary.freshness_violation_pct ?? 0}%)` : '—', icon: AlertTriangle, color: 'from-amber-400 to-orange-500' },
-    { label: 'DMF Pass', value: summary ? `${summary.dmf_pass_rate}%` : '—', icon: Activity, color: 'from-rose-400 to-pink-500' },
-    { label: 'Checks (30d)', value: summary?.checks_run_30d ?? '—', icon: CheckCircle2, color: 'from-cyan-400 to-teal-500' },
+  // Violations badge color & CTA state — a non-zero count is a "bad" state, so
+  // surface a "Review breaches" CTA jumping straight to the freshness tab.
+  const violationCount = summary?.freshness_violations ?? 0;
+
+  const kpis: {
+    label: string;
+    value: string | number;
+    icon: React.ComponentType<{ className?: string }>;
+    color: string;
+    help?: MetricHelpProps;
+    cta?: { label: string; onClick: () => void };
+  }[] = [
+    {
+      label: 'Health Score',
+      value: summary ? `${summary.health_score}%` : '—',
+      icon: BarChart3,
+      color: healthColor,
+      help: {
+        title: 'Quality Score',
+        definition: 'Weighted pass-rate across all data metric checks — the headline indicator of overall data health.',
+        source: 'data metric functions',
+        goodRange: '> 80%',
+      },
+    },
+    {
+      label: 'Tables',
+      value: summary?.total_tables ?? '—',
+      icon: Database,
+      color: 'from-blue-400 to-indigo-500',
+      help: {
+        title: 'Monitored Tables',
+        definition: 'Number of tables currently under quality monitoring across all dimensions.',
+        source: 'data warehouse metadata',
+      },
+    },
+    {
+      label: 'Violations',
+      value: summary ? `${summary.freshness_violations}${summary.freshness_violation_pct != null ? ` (${summary.freshness_violation_pct}%)` : ''}` : '—',
+      icon: AlertTriangle,
+      color: 'from-amber-400 to-orange-500',
+      help: {
+        title: 'Violations',
+        definition: 'Checks breaching their freshness threshold — tables whose time since last successful load exceeds the configured SLA.',
+        source: 'freshness checks',
+        goodRange: '0 violations',
+      },
+      ...(violationCount > 0
+        ? { cta: { label: 'Review breaches', onClick: () => setActiveTab('freshness') } }
+        : {}),
+    },
+    {
+      label: 'DMF Pass',
+      value: summary ? `${summary.dmf_pass_rate}%` : '—',
+      icon: Activity,
+      color: 'from-rose-400 to-pink-500',
+      help: {
+        title: 'Completeness & Check Pass Rate',
+        definition: 'Share of data metric checks that pass their thresholds, including completeness (% non-null across monitored columns).',
+        source: 'data metric functions',
+        goodRange: '> 95%',
+      },
+    },
+    {
+      label: 'Checks (30d)',
+      value: summary?.checks_run_30d ?? '—',
+      icon: CheckCircle2,
+      color: 'from-cyan-400 to-teal-500',
+      help: {
+        title: 'Freshness',
+        definition: 'Quality checks executed in the last 30 days; freshness measures time since each table’s last successful load versus its SLA.',
+        source: 'metering history',
+      },
+    },
     { label: 'Schema Chg', value: summary?.schema_changes_30d ?? '—', icon: Table2, color: 'from-purple-400 to-violet-500' },
     { label: 'DQ Credits', value: summary?.dq_credits_30d ?? '—', icon: DollarSign, color: 'from-lime-400 to-green-500' },
   ];
 
   return (
     <ErrorBoundary>
-    <div className="p-4 space-y-4 max-w-[1600px] mx-auto">
+    {/* 14:6 main+rightbar layout */}
+    <div className="flex gap-0 min-h-screen">
+    <div className="flex-1 min-w-0 p-4 space-y-4">
       <Breadcrumb items={[{ label: 'Data Quality', href: '/data-quality' }]} />
       {/* ── Header Bar ── */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl px-5 py-4 flex items-center justify-between">
@@ -1642,6 +2085,39 @@ export default function DataQualityPage() {
         </div>
       )}
 
+      {/* AI flow: discussion → proposed action → execute → capitalize as an event.
+          Rule-based (no LLM call): when breaches exist, propose scheduling a recurring
+          quality check. The action route is a backend gap — InsightActionButton
+          self-disables on 404/501 until it ships. */}
+      {!loading && dmfBreaches.length > 0 && (
+        <AIActionFlow
+          title="Recommended next steps"
+          context={{
+            module: 'data_quality',
+            entityType: 'dmf_breaches',
+            entityId: 'dashboard',
+            data: { breachCount: dmfBreaches.length },
+          }}
+          suggestions={
+            [
+              {
+                id: 'dq-schedule-check',
+                title: 'Schedule a recurring quality check',
+                rationale: `${dmfBreaches.length} threshold ${dmfBreaches.length === 1 ? 'breach is' : 'breaches are'} active. A scheduled DMF check catches regressions early instead of waiting for a manual run.`,
+                action: {
+                  label: 'Schedule check',
+                  endpoint: API.dataQuality.dmfSchedule(),
+                  method: 'POST',
+                  payload: { cadence: 'daily', source: 'ai_action_flow' },
+                  cost: '~1 credit/run',
+                  risk: 'low — creates a scheduled task, no data change',
+                },
+              },
+            ] satisfies Suggestion[]
+          }
+        />
+      )}
+
       {/* ── Compact KPI Bar ── */}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl" aria-live="polite" aria-atomic="true">
         {loading ? (
@@ -1658,8 +2134,19 @@ export default function DataQualityPage() {
                     <Icon className="h-3.5 w-3.5 text-white" />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 font-medium truncate">{kpi.label}</p>
+                      {kpi.help && <MetricHelp {...kpi.help} />}
+                    </div>
                     <p className="text-base font-bold text-gray-900 dark:text-white leading-tight">{kpi.value}</p>
+                    {kpi.cta && (
+                      <button
+                        onClick={kpi.cta.onClick}
+                        className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-medium text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300"
+                      >
+                        {kpi.cta.label} →
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -1944,6 +2431,12 @@ export default function DataQualityPage() {
                 columns={getTabColumns(activeTab)}
                 data={filteredData}
                 emptyMsg={getTabEmptyMsg(activeTab)}
+                selectedRow={selectedRow}
+                onRowClick={(row) => setSelectedRow(selectedRow &&
+                  String(row.TABLE_NAME ?? '') === String(selectedRow.TABLE_NAME ?? '') &&
+                  String(row.COLUMN_NAME ?? '') === String(selectedRow.COLUMN_NAME ?? '')
+                    ? null : row
+                )}
               />
 
               {/* Pagination controls for paginated tabs */}
@@ -2181,6 +2674,7 @@ export default function DataQualityPage() {
       </ActionRail>
 
       {/* ── Threshold check ActionRail — wired to /data-quality/run-check ── */}
+      {/* (ActionRail portals outside the flex column — no layout change needed) */}
       <ActionRail
         isOpen={thresholdPanel.isOpen}
         onClose={thresholdPanel.close}
@@ -2279,6 +2773,20 @@ export default function DataQualityPage() {
           </p>
         )}
       </ActionRail>
+    </div>
+
+    {/* SmartRightBar — 8-section context panel, w-[380px], sticky beside main body */}
+    <SmartRightBar
+      selectedRow={selectedRow}
+      data={rightbarData}
+      loading={rightbarLoading}
+      onRunCheck={() => { setThError(null); setThResult(null); dmfPanel.close(); thresholdPanel.open('main'); }}
+      onAssociateDmf={() => openDmfPanel('associate')}
+      onScheduleDmf={() => openDmfPanel('schedule')}
+      canRunCheck={canRunCheck}
+      canAssociateDmf={canAssociateDmf}
+      canScheduleDmf={canScheduleDmf}
+    />
     </div>
     </ErrorBoundary>
   );

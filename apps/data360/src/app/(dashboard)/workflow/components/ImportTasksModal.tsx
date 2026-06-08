@@ -80,20 +80,17 @@ export default function ImportTasksModal({
     <AnimatePresence>
       {open && (
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm"
-          onClick={onClose}
+          initial={{ x: '100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '100%' }}
+          transition={{ type: 'spring', stiffness: 380, damping: 32 }}
+          role="dialog"
+          aria-modal="false"
+          aria-label="Import Snowflake task graphs"
+          onClick={(e) => e.stopPropagation()}
+          className="fixed inset-y-0 right-0 z-50 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
         >
-          <motion.div
-            initial={{ scale: 0.95, opacity: 0, y: 8 }}
-            animate={{ scale: 1, opacity: 1, y: 0 }}
-            exit={{ scale: 0.95, opacity: 0, y: 8 }}
-            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
-            onClick={(e) => e.stopPropagation()}
-            className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900"
-          >
+          <div className="relative flex h-full w-full flex-col">
             {/* Decorative orb */}
             <div className="pointer-events-none absolute -left-16 -top-16 h-44 w-44 rounded-full bg-gradient-to-br from-cyan-400/30 to-blue-500/30 blur-3xl" />
 
@@ -144,7 +141,7 @@ export default function ImportTasksModal({
             </div>
 
             {/* Body */}
-            <div className="relative max-h-[60vh] overflow-y-auto px-6 py-4">
+            <div className="relative flex-1 overflow-y-auto px-6 py-4">
               {loading && graphs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center gap-3 py-12">
                   <Loader2 className="h-7 w-7 animate-spin text-cyan-500" />
@@ -259,7 +256,7 @@ export default function ImportTasksModal({
                 Done
               </button>
             </div>
-          </motion.div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>

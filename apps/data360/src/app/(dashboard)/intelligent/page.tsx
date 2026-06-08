@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Loader } from 'rizzui';
 import { getCortexKpis, type CortexKpis } from '@/app/services/cortex';
 import apiClient from '@/lib/api-client';
+import { API } from '@/lib/api-contracts';
 import { useCacheAwareQuery } from '@/hooks/useCacheAwareQuery';
 import { CACHE_KEYS } from '@/hooks/useCacheInvalidation';
+import { useTrackEvent } from '@/hooks/useTrackEvent';
 import {
   PiBrain,
   PiDatabase,
@@ -177,6 +179,8 @@ function formatKpiValue(value: number | null | undefined, format: 'number' | 'pe
 
 export default function IntelligentPage() {
   const searchParams = useSearchParams();
+  // useTrackEvent auto-fires PAGE_VIEW on mount via pathname; call trackTabSwitch on tab changes.
+  const { trackTabSwitch } = useTrackEvent();
   const tabFromUrl = useMemo(() => {
     const t = searchParams.get('tab');
     if (t === 'ml-features' || t === 'semantic-models' || t === 'cortex-chat' || t === 'advanced-ml' || t === 'query-analytics' || t === 'local-analytics' || t === 'snowpark-services' || t === 'cortex-agents' || t === 'semantic-views' || t === 'vector-search' || t === 'ai-advisor') return t as TabType;
@@ -206,34 +210,34 @@ export default function IntelligentPage() {
 
   // ── Cortex Agents via useCacheAwareQuery ──
   const fetchAgents = useCallback(async () => {
-    const res = await apiClient.get<{ agents?: CortexAgent[] }>('/cortex/agents?database=CP_DATA360');
+    const res = await apiClient.get<{ agents?: CortexAgent[] }>(API.cortex.agents('CP_DATA360'));
     return res.data?.agents ?? [];
   }, []);
   const { data: agents, loading: agentsLoading, error: agentsErrorObj, refetch: loadAgents } = useCacheAwareQuery<CortexAgent[]>(
     fetchAgents,
-    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'cortex-agents', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.AGENTS], enabled: activeTab === 'cortex-agents', initialData: [] }
   );
   const agentsError = agentsErrorObj?.message ?? null;
 
   // ── Semantic Views via useCacheAwareQuery ──
   const fetchSemanticViews = useCallback(async () => {
-    const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>('/cortex/semantic-views?database=CP_DATA360');
+    const res = await apiClient.get<{ semantic_views?: CortexSemanticView[] }>(API.cortex.semanticViews('CP_DATA360'));
     return res.data?.semantic_views ?? [];
   }, []);
   const { data: semanticViews, loading: semanticViewsLoading, error: semanticViewsErrorObj, refetch: loadSemanticViews } = useCacheAwareQuery<CortexSemanticView[]>(
     fetchSemanticViews,
-    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS], enabled: activeTab === 'semantic-views', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.SEMANTIC_MODELS, CACHE_KEYS.CORTEX], enabled: activeTab === 'semantic-views', initialData: [] }
   );
   const semanticViewsError = semanticViewsErrorObj?.message ?? null;
 
   // ── Vector Columns via useCacheAwareQuery ──
   const fetchVectorColumns = useCallback(async () => {
-    const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>('/cortex/vectors/columns?database=CP_DATA360');
+    const res = await apiClient.get<{ vector_columns?: CortexVectorColumn[] }>(API.cortex.vectorColumns('CP_DATA360'));
     return res.data?.vector_columns ?? [];
   }, []);
   const { data: vectorColumns, loading: vectorColumnsLoading, error: vectorColumnsErrorObj, refetch: loadVectorColumns } = useCacheAwareQuery<CortexVectorColumn[]>(
     fetchVectorColumns,
-    { cacheKeys: [CACHE_KEYS.CORTEX], enabled: activeTab === 'vector-search', initialData: [] }
+    { cacheKeys: [CACHE_KEYS.CORTEX, CACHE_KEYS.VECTORS], enabled: activeTab === 'vector-search', initialData: [] }
   );
   const vectorColumnsError = vectorColumnsErrorObj?.message ?? null;
   // Distinct (schema.table) pairs holding a vector column — derived from the
@@ -295,6 +299,7 @@ export default function IntelligentPage() {
           title="Models Active"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.models_active ?? null, 'number')}
           subtitle="Semantic models deployed"
+          help={{ title: 'Models Active', definition: 'Number of semantic models currently deployed and available for natural-language analytics.', source: 'AI engine catalog' }}
           icon={<PiDatabase className="w-6 h-6" />}
           color="purple"
           loading={kpisLoading}
@@ -303,6 +308,7 @@ export default function IntelligentPage() {
           title="Queries Today"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.queries_today ?? null, 'number')}
           subtitle="Natural language queries"
+          help={{ title: 'Queries Today', definition: 'Count of natural-language questions answered by the AI engine since the start of the day.', source: 'AI engine query log' }}
           icon={<PiChatCircleDots className="w-6 h-6" />}
           color="blue"
           loading={kpisLoading}
@@ -311,6 +317,7 @@ export default function IntelligentPage() {
           title="Avg Response"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.avg_response_sec ?? null, 'seconds')}
           subtitle="Query response time"
+          help={{ title: 'Avg Response', definition: 'Average time the AI engine takes to return an answer for a natural-language query.', source: 'AI engine query log', goodRange: '< 5s' }}
           icon={<PiLightning className="w-6 h-6" />}
           color="amber"
           loading={kpisLoading}
@@ -319,6 +326,7 @@ export default function IntelligentPage() {
           title="Accuracy Rate"
           value={kpisLoading ? '…' : formatKpiValue(kpis?.accuracy_rate ?? null, 'percent')}
           subtitle="Query accuracy"
+          help={{ title: 'Accuracy Rate', definition: 'Share of AI-engine answers validated as correct against expected results.', source: 'AI engine evaluation', goodRange: '> 90%' }}
           icon={<PiTrendUp className="w-6 h-6" />}
           color="green"
           loading={kpisLoading}
@@ -329,7 +337,7 @@ export default function IntelligentPage() {
       {hasCortexUsage && cortexUsage && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-800/50 text-sm">
           <span className="font-medium text-gray-700 dark:text-gray-300">
-            Cortex usage{cortexUsage.period_days ? ` · last ${cortexUsage.period_days}d` : ''}
+            AI engine usage{cortexUsage.period_days ? ` · last ${cortexUsage.period_days}d` : ''}
           </span>
           {cortexUsage.total_credits != null && (
             <span className="text-gray-500 dark:text-gray-400">
@@ -371,7 +379,7 @@ export default function IntelligentPage() {
                 key={tab.id}
                 role="tab"
                 aria-selected={isActive}
-                onClick={() => setActiveTab(tab.id)}
+                onClick={() => { setActiveTab(tab.id); trackTabSwitch(tab.id); }}
                 className={`flex items-center gap-3 px-5 py-3 text-sm font-medium transition-all duration-200 rounded-lg border-2 ${
                   isActive
                     ? 'border-purple bg-purple-lighter/50 text-purple'
