@@ -106,6 +106,13 @@ par champ (try/except → null, jamais 500). **Non testé runtime** (pas de cred
 - Reste confirmé propre : RBAC router-level, SQL `quote_identifier`+`%s`, invalidation cache sur mutations, null honnête
 - ⚠ Latent préexistant flaggé (hors scope) : `handle_snowflake_error` non importé dans 2 routes connect (create_azure_stage, list_stage_files)
 
+## 🔌 Wiring FE des routes capacité + test endpoints (06-08)
+- **CostPreview** (`fc397d7`) : projection coût 30j dans FinOps (cost-simulation, dégrade 404)
+- **GovernanceDepthPanel** (`5a076ef`) : D1 RLS simulate + D2 masking preview + D3 least-privilege, gatés `useCanPerform`, jamais de données `available:false`, self-disable 404
+- **Test live de tous les endpoints** : 471 GET probés sur api.datalab360.io → **0 erreur 500**, 449 OK, 22 = nouvelles routes non déployées (attendent merge+deploy) ; atlas `endpoint-atlas-2026-06-08.md`
+- ⏳ Reste à wirer : deployment-readiness (diff+lignée+coût) dans le Submit du WorkflowSmartPanel ; SmartRightBar catalog (ObjectSmartPanel) déjà branché sur les routes H1
+- Vault Obsidian `data360-coffre` absent de la machine → atlas produit in-repo
+
 ## Journal des vagues
 - **Vague 1** (06-07) : audit 11 modules + contrats + fake-zeros + brand (4e1ac9f→04f8992)
 - **Vague H** (06-07) : 8 agents backend H1-H8 + 4 frontend (helpers/popups/services/AIflow) → bi_dashboard restauré
