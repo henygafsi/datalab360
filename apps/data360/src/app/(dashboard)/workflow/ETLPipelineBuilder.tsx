@@ -2635,7 +2635,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
 
       if (result.buildMode === 'ai') {
         setAiSeedDescription(result.aiDescription ?? '');
-        setShowAiGenerate(true);
+        setActiveTab('ai');
       } else if (result.buildMode === 'template' && result.templateId) {
         const tpl = WORKFLOW_TEMPLATES.find((t) => t.id === result.templateId);
         if (tpl) {
@@ -2717,6 +2717,90 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
     );
   }
 
+  // AI Assist agent handlers — shared by the embedded right-pane tab (aiSlot).
+  // (The legacy centered-modal mount below is now inert: its triggers route to
+  // the AI tab via setActiveTab('ai'); it renders null while showAiGenerate stays
+  // false. Kept for one release, slated for removal once the tab is validated.)
+  const handleAiClose = () => {
+    setShowAiGenerate(false);
+    setAiSeedDescription('');
+  };
+  const handleAiCreated = async (
+    genNodes: Node[],
+    genEdges: Edge[],
+    meta: { description: string; compliance_review?: Record<string, 'reviewed' | 'unchecked'> },
+  ) => {
+    setNodes(genNodes as unknown as typeof nodes);
+    setEdges(genEdges as unknown as typeof edges);
+    setIsDirty(true);
+    setAiNextStepHint(true);
+    const draftName = `[AI Draft] ${(meta.description || 'Untitled').slice(0, 30)}`;
+    try {
+      const steps = genNodes.map((n, i) => {
+        const incoming = genEdges.filter((e) => e.target === n.id).map((e) => e.source);
+        return {
+          action_type: String(n.type || 'sql'),
+          step_name: String((n.data as { label?: string } | undefined)?.label ?? `Step ${i + 1}`),
+          description: `AI-generated ${String(n.type)} block.`,
+          payload: {
+            ai_generated: true,
+            node_type: String(n.type),
+            nodeId: n.id,
+            position: n.position,
+            inputs: incoming,
+            ...((n.data as Record<string, unknown>) ?? {}),
+          },
+        };
+      });
+
+      let targetProjectId: string;
+      if (activeWorkflowId) {
+        targetProjectId = activeWorkflowId;
+        try {
+          const existing = await workflowApi.listSteps(activeWorkflowId);
+          for (const s of existing.steps || []) {
+            await workflowApi.deleteStep(activeWorkflowId, s.step_id).catch(() => {});
+          }
+        } catch { /* no steps yet — fine */ }
+        for (const s of steps) {
+          await workflowApi.addStep(activeWorkflowId, s);
+        }
+        void loadWorkflows();
+        toast.success(`AI workflow added to "${activeWorkflowName}" — running validation…`);
+      } else {
+        const complianceMeta = (meta as { compliance_review?: Record<string, 'reviewed' | 'unchecked'> }).compliance_review;
+        const created = await workflowApi.createWorkflow({
+          project_name: draftName,
+          description: meta.description,
+          tags: complianceMeta
+            ? ['ai-draft', 'build:ai', ...Object.entries(complianceMeta).filter(([, v]) => v === 'reviewed').map(([k]) => `compliance:${k}`)]
+            : ['ai-draft', 'build:ai'],
+          steps,
+        });
+        targetProjectId = created.project_id;
+        void loadWorkflows();
+        setActiveWorkflowId(created.project_id);
+        setPipelineName(draftName);
+        toast.success(`Saved as "${draftName}" — running validation…`);
+      }
+
+      try {
+        const validation = await workflowApi.validateWorkflow(targetProjectId);
+        const issues = (validation as { errors?: unknown[] })?.errors ?? [];
+        if (Array.isArray(issues) && issues.length > 0) {
+          toast.error(`Validation found ${issues.length} issue${issues.length === 1 ? '' : 's'} — see Runs panel`);
+        } else {
+          toast.success('Validation passed — ready to run');
+        }
+      } catch (validateErr) {
+        toast.error(`Validation failed: ${getApiErrorMessage(validateErr) || 'backend error'}`);
+      }
+    } catch (err) {
+      const msg = getApiErrorMessage(err) || 'Auto-save failed — click Save to retry';
+      toast.error(msg);
+    }
+  };
+
   return (
     <div className={cn('h-full flex flex-col bg-slate-100 dark:bg-slate-900', className)}>
       {/* Global keyboard-shortcut announcer (⌘S / view-only). Persists across
@@ -2768,7 +2852,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
                   setShowApproachFork(false);
                   if (mode === 'ai') {
                     setAiSeedDescription('');
-                    setShowAiGenerate(true);
+                    setActiveTab('ai');
                   } else if (mode === 'template') {
                     setShowCreateWizard(true);
                   }
@@ -3284,6 +3368,15 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           selectedNode={selectedNode}
           isReadOnly={isReadOnly}
           canDeploy={canWfDeploy}
+          aiSlot={
+            <GuidedAiWorkflowWizard
+              embedded
+              open
+              onClose={handleAiClose}
+              onCreated={handleAiCreated}
+              initialDescription={aiSeedDescription}
+            />
+          }
           hasConnectorSource={cloneTestConnectorIds.length > 0}
           onValidate={async () => { await handleValidate(); }}
           onDryRun={async () => { await handleExecute(true); }}
@@ -3297,7 +3390,7 @@ const ETLPipelineBuilder: React.FC<ETLPipelineBuilderProps> = ({ className }) =>
           }}
           // --- Lifecycle / creation actions relocated from the toolbar ---
           onNew={handleNewPipeline}
-          onAiCreate={() => setShowAiGenerate(true)}
+          onAiCreate={() => setActiveTab('ai')}
           onImport={() => setShowImportTasks(true)}
           onSave={handleSavePipeline}
           onRun={() => handleExecute(false)}

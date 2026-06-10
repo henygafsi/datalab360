@@ -100,6 +100,14 @@ const TABS: { id: RightBarTab; icon: React.ElementType; label: string }[] = [
   { id: 'help', icon: HelpCircle, label: 'Help' },
 ];
 
+// Versioned, minimal localStorage key (client-localstorage-schema): persist the
+// user's last-viewed tab ("draft of menu") so it is preselected on return.
+// activeTab is owned by the parent (controlled prop), so we restore via
+// onTabChange once on mount and write the parent's value as it changes.
+// Validated against the known tab ids so a stale/invalid value is ignored.
+const ACTIVE_TAB_KEY = 'data360.exploreDesign.contextTab.v1';
+const TAB_IDS = new Set<RightBarTab>(TABS.map((t) => t.id));
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -115,6 +123,34 @@ export default function ContextRightBar({
   const tableName = selectedTable?.table || '';
   const fqn = selectedTable ? `${selectedTable.database}.${selectedTable.schema}.${selectedTable.table}` : '';
   const classifications = selectedTable ? columnClassifications.get(selectedTable.id) : undefined;
+
+  // Restore the last-used tab ONCE on mount (draft → preselect). activeTab is a
+  // controlled prop, so we restore via onTabChange. Declared BEFORE the persist
+  // effect so the parent's default isn't written back before this reads.
+  const tabRestoredRef = useRef(false);
+  useEffect(() => {
+    if (tabRestoredRef.current) return;
+    tabRestoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(ACTIVE_TAB_KEY);
+      if (saved && saved !== activeTab && TAB_IDS.has(saved as RightBarTab)) {
+        onTabChange(saved as RightBarTab);
+      }
+    } catch {
+      /* storage unavailable — keep the current tab */
+    }
+    // run-once on mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the active tab as it changes.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVE_TAB_KEY, activeTab);
+    } catch {
+      /* ignore */
+    }
+  }, [activeTab]);
 
   return (
     <div className="flex h-full shrink-0" style={{ flexShrink: 0, flexGrow: 0 }}>
@@ -542,6 +578,9 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
   onRunClassify: () => void;
 }) {
   const [prompt, setPrompt] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [askError, setAskError] = useState<string | null>(null);
   const hasClassifications = classifications && Object.keys(classifications).length > 0;
 
   const SUGGESTED = [
@@ -551,6 +590,32 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
     'Suggest calculated columns',
     'Create retail KPI mapping',
   ];
+
+  const fqn = `${table.database}.${table.schema}.${table.table}`;
+
+  const askAI = async () => {
+    const q = prompt.trim();
+    if (!q || asking) return;
+    setAsking(true);
+    setAskError(null);
+    setAnswer(null);
+    try {
+      const { generateCompletion } = await import('@/app/services/cortex');
+      const colList = columns
+        .slice(0, 40)
+        .map((c) => `${c.name} ${c.dataType}${c.isSensitive ? ' (PII)' : ''}${c.isPrimaryKey ? ' [PK]' : ''}`)
+        .join(', ');
+      const fullPrompt =
+        'You are a Snowflake and Data360 data-modelling expert. Answer the question about ' +
+        `the table ${fqn} concisely and actionably.\n\nColumns: ${colList || 'unknown'}\n\nQuestion: ${q}`;
+      const res = await generateCompletion({ prompt: fullPrompt });
+      setAnswer(res.response || 'No response returned.');
+    } catch (err: any) {
+      setAskError(err?.message || 'Ask AI failed');
+    } finally {
+      setAsking(false);
+    }
+  };
 
   return (
     <div className="p-4 space-y-4">
@@ -620,10 +685,17 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             placeholder="Ask about this table, policies, quality..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
-            className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            onKeyDown={(e) => { if (e.key === 'Enter') askAI(); }}
+            disabled={asking}
+            className="w-full pl-3 pr-9 py-2 text-xs border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60"
           />
-          <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30">
-            <Send className="h-3.5 w-3.5" />
+          <button
+            onClick={askAI}
+            disabled={asking || !prompt.trim()}
+            title="Ask AI"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            {asking ? <Loader size="sm" className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
           </button>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -633,6 +705,24 @@ function AIAssistPanel({ table, columns, classifications, classificationDetails,
             </button>
           ))}
         </div>
+
+        {/* Result / loading / error */}
+        {asking && (
+          <div className="flex items-center gap-2 text-[11px] text-slate-500 pt-1">
+            <Loader size="sm" className="h-3 w-3" /> Thinking...
+          </div>
+        )}
+        {askError && !asking && (
+          <div className="flex items-start gap-1.5 rounded-lg border border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10 p-2 text-[11px] text-red-600 dark:text-red-400">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
+            <span>{askError}</span>
+          </div>
+        )}
+        {answer && !asking && (
+          <div className="rounded-lg border border-blue-100 dark:border-blue-900/40 bg-blue-50/30 dark:bg-blue-900/10 p-2.5 text-[11px] text-slate-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+            {answer}
+          </div>
+        )}
       </div>
     </div>
   );

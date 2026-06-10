@@ -184,6 +184,18 @@ export async function validateWorkflow(workflowId: string) {
   return data;
 }
 
+export async function dryRunSavedWorkflow(
+  workflowId: string,
+  // Backend dry-run contract is {mode: 'clone' | 'temp_tables'} (see STATUS-done-todo);
+  // not to be confused with the panel's ValidateStrategy enum (production_clone/pipeline_temp_tables).
+  mode?: 'clone' | 'temp_tables',
+) {
+  // POST /workflow/{id}/dry-run — compile + validate a saved workflow without executing.
+  // `mode` selects the validation strategy when the backend honours it; omitted → default.
+  const { data } = await apiClient.post(`${PREFIX}/${workflowId}/dry-run`, mode ? { mode } : {});
+  return data;
+}
+
 // ============================================================================
 // Runs
 // ============================================================================

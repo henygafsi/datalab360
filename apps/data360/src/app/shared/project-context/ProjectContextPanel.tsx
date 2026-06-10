@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   ChevronDown,
   ChevronUp,
@@ -12,11 +13,18 @@ import {
   FolderOpen,
   Loader2,
   GitBranch,
+  ArrowRight,
+  Download,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getCortexRecommend } from '@/app/services/cortex';
-import * as ExploreDesignService from '@/app/services/explore-design';
-import * as GouvernanceService from '@/app/services/governance';
+import apiClient, { getApiErrorMessage } from '@/lib/api-client';
+import {
+  getCommandCenterRecommendations,
+  type CommandCenterRecommendations,
+  type Recommendation,
+  type RecommendationSeverity,
+} from '@/app/services/command-center/recommendations';
 
 export type ProjectContextTabId = 'deployment' | 'versions' | 'history' | 'grants' | 'errors' | 'recos';
 
@@ -52,6 +60,12 @@ const TAB_CONFIG: { id: ProjectContextTabId; label: string; icon: React.ElementT
   { id: 'recos', label: 'Cortex Recommendations', icon: Sparkles },
 ];
 
+// Versioned, minimal localStorage key (client-localstorage-schema): persist the
+// user's last-viewed tab ("draft of menu") so it is preselected on return.
+// Validated against the known tab ids so a stale/invalid value is ignored.
+const ACTIVE_TAB_KEY = 'data360.projectContext.tab.v1';
+const TAB_IDS = new Set<ProjectContextTabId>(TAB_CONFIG.map((t) => t.id));
+
 export function ProjectContextPanel({
   projectId,
   projectName,
@@ -66,11 +80,43 @@ export function ProjectContextPanel({
   recosSlot,
   className,
 }: ProjectContextPanelProps) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [activeTab, setActiveTab] = useState<ProjectContextTabId>('deployment');
   const [recosLoading, setRecosLoading] = useState(false);
-  const [recosText, setRecosText] = useState<string | null>(null);
-  const [recentErrors, setRecentErrors] = useState<ExploreDesignService.RecentDeploymentError[]>([]);
+
+  // Restore the last-used tab ONCE on mount (draft → preselect). Done in an
+  // effect (not a lazy initializer) so server and client first-render agree —
+  // localStorage is only touched after hydration. Declared BEFORE the persist
+  // effect so the default value isn't written back before this reads.
+  const tabRestoredRef = useRef(false);
+  useEffect(() => {
+    if (tabRestoredRef.current) return;
+    tabRestoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(ACTIVE_TAB_KEY);
+      if (saved && TAB_IDS.has(saved as ProjectContextTabId)) {
+        setActiveTab(saved as ProjectContextTabId);
+      }
+    } catch {
+      /* storage unavailable — keep the default tab */
+    }
+    // run-once on mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist the active tab as it changes.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(ACTIVE_TAB_KEY, activeTab);
+    } catch {
+      /* ignore */
+    }
+  }, [activeTab]);
+
+  const [recosError, setRecosError] = useState<string | null>(null);
+  const [recos, setRecos] = useState<CommandCenterRecommendations | null>(null);
+  const [ctaBusy, setCtaBusy] = useState<string | null>(null);
 
   // After a deployment, the Verify step emits this event so we can switch the
   // user to the relevant tab (and expand the panel) — making the freshly
@@ -87,50 +133,60 @@ export function ProjectContextPanel({
     return () => window.removeEventListener('explore-design:open-context-tab', onOpenTab);
   }, []);
 
-  // Fetch recent deployment errors for Recos (when Recos tab is active and no custom slot)
+  // Fetch structured command-center recommendations when the Recos tab is active
+  // and no custom slot is provided.
+  const loadRecos = useCallback(async () => {
+    setRecosLoading(true);
+    setRecosError(null);
+    try {
+      const res = await getCommandCenterRecommendations();
+      setRecos(res);
+    } catch (err) {
+      setRecosError(getApiErrorMessage(err));
+      setRecos(null);
+    } finally {
+      setRecosLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab !== 'recos' || recosSlot != null) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await ExploreDesignService.getRecentDeploymentErrors(10);
-        if (!cancelled) setRecentErrors(res?.errors ?? []);
-      } catch {
-        if (!cancelled) setRecentErrors([]);
+    void loadRecos();
+  }, [activeTab, recosSlot, loadRecos]);
+
+  // Dispatch a recommendation's CTA by its declared action.
+  const handleCta = useCallback(
+    async (reco: Recommendation) => {
+      const { action, target } = reco.cta;
+      if (action === 'navigate') {
+        if (target) router.push(target);
+        return;
       }
-    })();
-    return () => { cancelled = true; };
-  }, [activeTab, recosSlot]);
+      if (action === 'refresh') {
+        await loadRecos();
+        return;
+      }
+      if (action === 'install') {
+        if (!target) return;
+        setCtaBusy(reco.id);
+        setRecosError(null);
+        try {
+          await apiClient.post(target);
+          await loadRecos();
+        } catch (err) {
+          setRecosError(getApiErrorMessage(err));
+        } finally {
+          setCtaBusy(null);
+        }
+      }
+    },
+    [router, loadRecos],
+  );
 
   const hasProject = !!projectId || !!projectName;
   if (hideWhenEmpty && !hasProject) return null;
 
   const tabsWithContent = TAB_CONFIG;
-
-  const loadCortexRecos = async () => {
-    setRecosLoading(true);
-    setRecosText(null);
-    try {
-      if (recentErrors.length > 0) {
-        const errorContext = recentErrors.map((e) => e.error_message).join('\n---\n');
-        const result = await getCortexRecommend({ error_context: errorContext });
-        setRecosText(result?.response ?? 'No recommendations generated.');
-      } else {
-        const res = await GouvernanceService.getDashboardErrors({ limit: 20 });
-        const errors = res?.errors ?? [];
-        if (errors.length === 0) {
-          setRecosText('No recent errors to analyze. The platform is healthy.');
-          return;
-        }
-        const result = await getCortexRecommend({ events: errors });
-        setRecosText(result?.response ?? 'No recommendations generated.');
-      }
-    } catch (err: any) {
-      setRecosText(`Failed to get recommendations: ${err?.message || err}. Ensure Cortex LLM is available.`);
-    } finally {
-      setRecosLoading(false);
-    }
-  };
 
   const placeholders: Record<ProjectContextTabId, React.ReactNode> = {
     deployment: <div className="p-4 text-sm text-slate-500 dark:text-slate-400">Deployment: use the Deploy button above or open the deployment panel.</div>,
@@ -150,28 +206,14 @@ export function ProjectContextPanel({
     if (activeTab === 'recos') {
       if (recosSlot) return recosSlot;
       return (
-        <div className="p-4 space-y-3">
-          {recentErrors.length > 0 && (
-            <p className="text-xs text-slate-600 dark:text-slate-400">
-              {recentErrors.length} recent deployment error(s) — use button below for Cortex-based recommendations.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={loadCortexRecos}
-            disabled={recosLoading}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-200 dark:hover:bg-indigo-900/60 text-sm font-medium disabled:opacity-60"
-          >
-            {recosLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {recosLoading ? 'Loading…' : 'Get Cortex recommendations from errors & run metrics'}
-          </button>
-          {recosText != null && (
-            <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 p-3 border border-slate-200 dark:border-slate-700">
-              <p className="text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Recommendations</p>
-              <p className="text-sm text-slate-800 dark:text-slate-200 whitespace-pre-wrap">{recosText}</p>
-            </div>
-          )}
-        </div>
+        <RecosTab
+          recos={recos}
+          loading={recosLoading}
+          error={recosError}
+          ctaBusy={ctaBusy}
+          onReload={loadRecos}
+          onCta={handleCta}
+        />
       );
     }
     return null;
@@ -232,6 +274,151 @@ export function ProjectContextPanel({
         <div className="border-t border-slate-200 dark:border-slate-700 max-h-[min(60vh,480px)] overflow-auto">
           {currentContent}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Recos tab — structured command-center recommendations (severity + CTA).
+// ---------------------------------------------------------------------------
+
+const SEVERITY_TINT: Record<RecommendationSeverity, string> = {
+  critical: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  warning: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  info: 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+};
+
+function RecosTab({
+  recos,
+  loading,
+  error,
+  ctaBusy,
+  onReload,
+  onCta,
+}: {
+  recos: CommandCenterRecommendations | null;
+  loading: boolean;
+  error: string | null;
+  ctaBusy: string | null;
+  onReload: () => void | Promise<void>;
+  onCta: (reco: Recommendation) => void | Promise<void>;
+}) {
+  if (loading && recos == null) {
+    return (
+      <div className="p-4 space-y-2" aria-hidden="true">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-12 animate-pulse rounded-lg bg-slate-100 dark:bg-slate-800" />
+        ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4">
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-300"
+        >
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold">Could not load recommendations</p>
+            <p className="break-words">{error}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void onReload()}
+            className="rounded-lg border border-red-300 px-2.5 py-1 text-[11px] font-medium hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900/30"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const items = recos?.recommendations ?? [];
+
+  return (
+    <div className="p-4 space-y-3">
+      {/* Counts badge */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">
+            <Sparkles className="h-3 w-3" />
+            {recos?.total_open ?? 0} open
+          </span>
+          {(recos?.total_critical ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+              {recos!.total_critical} critical
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => void onReload()}
+          disabled={loading}
+          className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+          Refresh
+        </button>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="rounded-lg bg-slate-50 dark:bg-slate-800/50 p-4 text-center text-sm text-slate-500 dark:text-slate-400">
+          No open recommendations. The platform is healthy.
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((r) => {
+            const busy = ctaBusy === r.id;
+            const CtaIcon =
+              r.cta.action === 'navigate'
+                ? ArrowRight
+                : r.cta.action === 'install'
+                  ? Download
+                  : RefreshCw;
+            return (
+              <li
+                key={r.id}
+                className="flex items-start justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2.5 dark:border-slate-700"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase',
+                        SEVERITY_TINT[r.severity] ?? SEVERITY_TINT.info,
+                      )}
+                    >
+                      {r.severity}
+                    </span>
+                    <p className="truncate text-sm font-medium text-slate-800 dark:text-slate-200">
+                      {r.title}
+                    </p>
+                  </div>
+                  {r.detail && (
+                    <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">{r.detail}</p>
+                  )}
+                </div>
+                {r.cta?.label && (
+                  <button
+                    type="button"
+                    onClick={() => void onCta(r)}
+                    disabled={busy}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-indigo-100 px-2.5 py-1 text-[11px] font-medium text-indigo-700 hover:bg-indigo-200 disabled:opacity-60 dark:bg-indigo-900/40 dark:text-indigo-300 dark:hover:bg-indigo-900/60"
+                  >
+                    {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <CtaIcon className="h-3 w-3" />}
+                    {r.cta.label}
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

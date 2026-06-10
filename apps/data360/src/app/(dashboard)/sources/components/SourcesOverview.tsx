@@ -161,9 +161,16 @@ export default function SourcesOverview({ onSelectTable }: SourcesOverviewProps)
               <span className="text-xs font-medium text-gray-500 dark:text-gray-400">{s.label}</span>
               <MetricHelp {...s.help} />
             </div>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">
-              {loading ? '—' : s.value}
-            </p>
+            {loading ? (
+              <div className="mt-2 h-7 w-12 animate-pulse rounded bg-gray-200 dark:bg-gray-700" aria-hidden="true" />
+            ) : (
+              <p className={cn(
+                'text-2xl font-bold mt-1',
+                s.value === 0 ? 'text-gray-400 dark:text-gray-500' : 'text-gray-900 dark:text-white',
+              )}>
+                {s.value === 0 ? '0' : s.value.toLocaleString()}
+              </p>
+            )}
           </div>
         ))}
       </div>

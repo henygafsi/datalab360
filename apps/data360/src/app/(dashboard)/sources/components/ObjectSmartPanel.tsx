@@ -25,12 +25,16 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  Package, Shield, GitBranch, Zap, User, X, ChevronDown,
+  Package, Shield, GitBranch, Zap, User, X, ChevronDown, Gauge,
+  Lightbulb, Clock, ArrowRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import apiClient from '@/lib/api-client';
 import { API } from '@/lib/api-contracts';
+import { applyRecommendation } from '@/app/services/catalog';
+import type { Recommendation, ObjectHistoryResponse } from '@/app/services/catalog';
 import type {
   TableContext,
   TableGovernance,
@@ -49,6 +53,44 @@ interface ObjectSmartPanelProps {
   selected: SelectedObject | null;
   onClose?: () => void;
 }
+
+/** GET /catalog/objects/{fqn}/scores — the per-object DQ/GOV/COST/trust rollup
+ *  (scores === null until computed; ``recommended_actions`` are the CTAs). */
+interface ObjectScores {
+  scores: {
+    quality_score: number | null;
+    governance_score: number | null;
+    modeling_score: number | null;
+    finops_score: number | null;
+    ml_ready_score: number | null;
+    trust_score: number | null;
+  } | null;
+  top_issues?: string[];
+  recommended_actions?: Array<string | { title?: string; label?: string; target?: string }>;
+  hint?: string;
+}
+
+/** GET /catalog/recommendations?object_fqn=… — object-scoped reco list envelope. */
+interface RecommendationsResponse {
+  items: Recommendation[];
+  count: number;
+  filters?: Record<string, unknown>;
+}
+
+// Stable (module-level) URL factories: useSection's useCallback deps must not
+// change identity each render, so these can't be inline arrows in the body.
+const objectScoresUrl = (db: string, s: string, t: string) =>
+  API.catalog.objectScores(`${db}.${s}.${t}`);
+
+// Recommendations are fetched through useSection (not the getCatalogRecommendations
+// wrapper) on purpose: the wrapper collapses a 404 into a thrown error, whereas this
+// panel must distinguish 'not deployed' (gap) from a real failure — same rationale as
+// the file header. The object_fqn is passed as a query param on the list route.
+const objectRecommendationsUrl = (db: string, s: string, t: string) =>
+  `${API.catalog.recommendations()}?object_fqn=${encodeURIComponent(`${db}.${s}.${t}`)}`;
+
+const objectHistoryUrl = (db: string, s: string, t: string) =>
+  API.catalog.objectHistory(`${db}.${s}.${t}`);
 
 // ---------------------------------------------------------------------------
 // Per-section fetch state machine
@@ -70,7 +112,7 @@ interface SectionState<T> {
 function useSection<T>(
   urlFactory: ((db: string, s: string, t: string) => string) | null,
   selected: SelectedObject | null,
-): SectionState<T> {
+): SectionState<T> & { refetch: () => Promise<void> } {
   const [state, setState] = useState<SectionState<T>>({ status: 'loading', data: null });
 
   const fetchSection = useCallback(async () => {
@@ -98,7 +140,7 @@ function useSection<T>(
     void fetchSection();
   }, [selected, urlFactory, fetchSection]);
 
-  return state;
+  return { ...state, refetch: fetchSection };
 }
 
 // ---------------------------------------------------------------------------
@@ -151,12 +193,23 @@ function GapNote() {
   );
 }
 
-/** Real error — surfaces the status code. */
-function ErrorNote({ code }: { code?: number }) {
+/** Real error — surfaces the status code, with an optional Retry. */
+function ErrorNote({ code, onRetry }: { code?: number; onRetry?: () => void }) {
   return (
-    <p className="text-[11px] text-rose-600 dark:text-rose-400 py-1">
-      Section unavailable{code ? ` (${code})` : ''}
-    </p>
+    <div className="flex items-center justify-between gap-2 py-1">
+      <p className="text-[11px] text-rose-600 dark:text-rose-400">
+        Section unavailable{code ? ` (${code})` : ''}
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="shrink-0 rounded border border-rose-200 px-1.5 py-0.5 text-[10px] font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-900/20"
+        >
+          Retry
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -170,7 +223,7 @@ function Section<T>({
 }: {
   title: string;
   icon: React.ReactNode;
-  state: SectionState<T>;
+  state: SectionState<T> & { refetch?: () => void };
   children: (data: T) => React.ReactNode;
   defaultOpen?: boolean;
 }) {
@@ -198,7 +251,7 @@ function Section<T>({
         <div className="px-4 pb-3 text-xs text-gray-700 dark:text-gray-300">
           {state.status === 'loading' && <SkeletonRows />}
           {state.status === 'gap' && <GapNote />}
-          {state.status === 'error' && <ErrorNote code={state.code} />}
+          {state.status === 'error' && <ErrorNote code={state.code} onRetry={state.refetch} />}
           {state.status === 'ok' && state.data && children(state.data)}
           {state.status === 'ok' && !state.data && <GapNote />}
         </div>
@@ -230,16 +283,65 @@ function Pill({ children, tone = 'gray' }: { children: React.ReactNode; tone?: '
   );
 }
 
+/** One object-scoped recommendation with an Apply CTA (POST then refetch). */
+function RecoRow({ reco, onApplied }: { reco: Recommendation; onApplied: () => void }) {
+  const [applying, setApplying] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const title = reco.title || reco.feature || reco.rule_id;
+  const detail = reco.rationale || reco.explanation || reco.proposed_action || undefined;
+  const sev = (reco.severity || '').toLowerCase();
+  const tone = sev === 'critical' || sev === 'high' ? 'rose' : sev === 'medium' ? 'amber' : 'gray';
+
+  const apply = async () => {
+    setApplying(true);
+    setErr(null);
+    try {
+      await applyRecommendation(reco.reco_id);
+      onApplied();
+    } catch {
+      setErr('Apply failed');
+      setApplying(false);
+    }
+  };
+
+  return (
+    <div className="rounded border border-gray-100 p-2 dark:border-gray-800">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            {reco.severity && <Pill tone={tone}>{sev}</Pill>}
+            <span className="truncate font-medium text-gray-800 dark:text-gray-200">{title}</span>
+          </div>
+          {detail && <p className="mt-0.5 text-gray-500 dark:text-gray-400">{detail}</p>}
+        </div>
+        <button
+          type="button"
+          onClick={apply}
+          disabled={applying}
+          className="shrink-0 rounded bg-blue-600 px-2 py-0.5 text-[10px] font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        >
+          {applying ? '…' : 'Apply'}
+        </button>
+      </div>
+      {err && <p className="mt-0.5 text-[10px] text-rose-600 dark:text-rose-400">{err}</p>}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
 
 export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanelProps) {
+  const router = useRouter();
   const context    = useSection<TableContext>(selected ? API.catalog.tableContext : null, selected);
   const governance = useSection<TableGovernance>(selected ? API.catalog.tableGovernance : null, selected);
   const lineage    = useSection<TableLineage>(selected ? API.catalog.tableLineage : null, selected);
   const ingestion  = useSection<TableIngestion>(selected ? API.catalog.tableIngestion : null, selected);
   const ownership  = useSection<TableOwnership>(selected ? API.catalog.tableOwnership : null, selected);
+  const scores     = useSection<ObjectScores>(selected ? objectScoresUrl : null, selected);
+  const recos      = useSection<RecommendationsResponse>(selected ? objectRecommendationsUrl : null, selected);
+  const history    = useSection<ObjectHistoryResponse>(selected ? objectHistoryUrl : null, selected);
 
   return (
     <aside className="flex h-full w-[380px] shrink-0 flex-col overflow-hidden border-l border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
@@ -283,6 +385,65 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
           </div>
         ) : (
           <>
+            {/* S0 — TRUST SCORES (DQ / GOV / COST / trust rollup + recommended actions) */}
+            <Section title="Trust Scores" icon={<Gauge className="h-3.5 w-3.5" />} state={scores}>
+              {(d) =>
+                d.scores ? (
+                  <div className="space-y-0.5">
+                    <Field label="Trust" value={num(d.scores.trust_score, (n) => n.toFixed(0))} />
+                    <Field label="Quality (DQ)" value={num(d.scores.quality_score, (n) => n.toFixed(0))} />
+                    <Field label="Governance" value={num(d.scores.governance_score, (n) => n.toFixed(0))} />
+                    <Field label="FinOps (Cost)" value={num(d.scores.finops_score, (n) => n.toFixed(0))} />
+                    <Field label="ML-ready" value={num(d.scores.ml_ready_score, (n) => n.toFixed(0))} />
+                    {!!d.recommended_actions?.length && (
+                      <div className="mt-2 space-y-1">
+                        <span className="text-gray-400 dark:text-gray-500">Recommended actions</span>
+                        {d.recommended_actions.slice(0, 4).map((a, i) => {
+                          const target = typeof a === 'string' ? undefined : a.target;
+                          const text = typeof a === 'string' ? a : (a.title || a.label);
+                          return target ? (
+                            <button
+                              key={i}
+                              type="button"
+                              onClick={() => router.push(target)}
+                              className="flex w-full items-center justify-between gap-1.5 rounded border border-amber-200 px-1.5 py-1 text-left text-gray-700 hover:bg-amber-50 dark:border-amber-800 dark:text-gray-300 dark:hover:bg-amber-900/20"
+                            >
+                              <span className="truncate">{text}</span>
+                              <ArrowRight className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                            </button>
+                          ) : (
+                            <div key={i} className="flex items-start gap-1.5">
+                              <Pill tone="amber">action</Pill>
+                              <span className="text-gray-700 dark:text-gray-300">{text}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-gray-500 dark:text-gray-400">
+                    Not yet scored.{d.hint ? ` ${d.hint}` : ''}
+                  </div>
+                )
+              }
+            </Section>
+
+            {/* S0b — RECOMMENDATIONS (object-scoped, actionable) */}
+            <Section title="Recommendations" icon={<Lightbulb className="h-3.5 w-3.5" />} state={recos}>
+              {(d) =>
+                d.items && d.items.length > 0 ? (
+                  <div className="space-y-1.5">
+                    {d.items.slice(0, 6).map((r) => (
+                      <RecoRow key={r.reco_id} reco={r} onApplied={() => void recos.refetch()} />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400">No open recommendations.</p>
+                )
+              }
+            </Section>
+
             {/* S1 — CONTEXT */}
             <Section title="Context" icon={<Package className="h-3.5 w-3.5" />} state={context}>
               {(d) => (
@@ -418,6 +579,30 @@ export default function ObjectSmartPanel({ selected, onClose }: ObjectSmartPanel
                   </div>
                 </div>
               )}
+            </Section>
+
+            {/* S7 — HISTORY (recent events across sources for this object) */}
+            <Section title="History" icon={<Clock className="h-3.5 w-3.5" />} state={history} defaultOpen={false}>
+              {(d) =>
+                d.entries && d.entries.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {d.entries.slice(0, 8).map((e, i) => (
+                      <li key={`${e.ts}-${i}`} className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <Pill tone={e.status === 'error' || e.status === 'failed' ? 'rose' : 'gray'}>{str(e.kind)}</Pill>
+                            <span className="truncate text-gray-700 dark:text-gray-300">{str(e.actor)}</span>
+                          </div>
+                          {e.source && <p className="text-[10px] text-gray-400">{e.source}</p>}
+                        </div>
+                        <span className="shrink-0 text-[10px] text-gray-400">{fmtDate(e.ts)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 dark:text-gray-400">No recent activity.</p>
+                )
+              }
             </Section>
           </>
         )}

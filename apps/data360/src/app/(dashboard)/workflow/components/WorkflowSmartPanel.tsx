@@ -64,6 +64,8 @@ import {
   Play,
   Pause,
   Loader2,
+  ChevronsDownUp,
+  ChevronsUpDown,
   type LucideIcon,
 } from 'lucide-react';
 import type { Node } from 'reactflow';
@@ -199,6 +201,8 @@ export interface WorkflowSmartPanelProps {
   statusHero?: React.ReactNode;
   /** Selected-block config editor (ETLConfigSidebar), rendered in `block`. */
   blockSlot?: React.ReactNode;
+  /** AI Assist agent (embedded GuidedAiWorkflowWizard), rendered in `ai`. */
+  aiSlot?: React.ReactNode;
   /**
    * The legacy tab bodies (results / runs / sql / schedules / ai), each still
    * self-guarded on `activeTab` inside the builder. Rendered as-is whenever the
@@ -437,14 +441,14 @@ function SubmitSection({
     [trackFeatureClick, workflowId, strategy],
   );
 
-  // Temp-tables path: dry-run with a {mode} payload. Whether the backend honours
-  // `mode` is unconfirmed — InsightActionButton self-disables on 404/501, and
-  // this is flagged as Henry P1 in the report.
+  // Temp-tables path: dry-run with a {mode} payload, routed through the typed
+  // workflowApi contract (same POST /workflow/{id}/dry-run). Whether the backend
+  // honours `mode` is unconfirmed — InsightActionButton self-disables on 404/501.
   const runTempTables = useCallback(async () => {
     if (!workflowId) throw new Error('No workflow selected');
-    const res = await apiClient.post(API.workflow.dryRun(workflowId), { mode: 'temp_tables' });
+    const data = await workflowApi.dryRunSavedWorkflow(workflowId, 'temp_tables');
     fireEvent({ outcome: 'ok' });
-    return res.data;
+    return data;
   }, [workflowId, fireEvent]);
 
   const runClone = useCallback(async () => {
@@ -1060,6 +1064,14 @@ const RAIL: RailItem[] = [
   { id: 'schedule', icon: Calendar, label: 'Schedule' },
 ];
 
+const RAIL_IDS = new Set(RAIL.map((r) => r.id));
+
+// Versioned, minimal localStorage keys (client-localstorage-schema): persist the
+// user's last section ("draft of menu" → preselect on return) and whether the
+// always-on actions strip is collapsed so the active section can run full-height.
+const PANEL_SECTION_KEY = 'data360.wf.panel.section.v1';
+const PANEL_ACTIONS_COLLAPSED_KEY = 'data360.wf.panel.actionsCollapsed.v1';
+
 // ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
@@ -1085,10 +1097,43 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     onReload,
     statusHero,
     blockSlot,
+    aiSlot,
     legacyBodies,
   } = props;
 
   const active = RAIL.find((r) => r.id === activeSection) ?? RAIL[0];
+
+  // Collapse the always-on actions strip (lazy init from storage; functional
+  // updater keeps the toggle callback stable — rerender-lazy-state-init).
+  const [actionsCollapsed, setActionsCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(PANEL_ACTIONS_COLLAPSED_KEY) === '1'; }
+    catch { return false; }
+  });
+  const toggleActions = useCallback(() => setActionsCollapsed((c) => !c), []);
+
+  // Restore the last-used section ONCE on mount (draft → preselect).
+  const restoredRef = React.useRef(false);
+  useEffect(() => {
+    if (restoredRef.current) return;
+    restoredRef.current = true;
+    try {
+      const saved = window.localStorage.getItem(PANEL_SECTION_KEY);
+      if (saved && saved !== activeSection && RAIL_IDS.has(saved as WorkflowPanelSection)) {
+        onSectionChange(saved as WorkflowPanelSection);
+      }
+    } catch { /* storage unavailable — keep current section */ }
+    // run-once on mount only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist section + collapse state as they change.
+  useEffect(() => {
+    try { window.localStorage.setItem(PANEL_SECTION_KEY, activeSection); } catch { /* ignore */ }
+  }, [activeSection]);
+  useEffect(() => {
+    try { window.localStorage.setItem(PANEL_ACTIONS_COLLAPSED_KEY, actionsCollapsed ? '1' : '0'); }
+    catch { /* ignore */ }
+  }, [actionsCollapsed]);
 
   return (
     <div
@@ -1099,19 +1144,33 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
     >
       {/* ── Panel body ── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
-            {active.label}
-          </p>
-          <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
-            {activeWorkflowName || 'New workflow'}
-          </h2>
+        {/* Header — active section label + workflow name + actions-collapse toggle */}
+        <div className="flex items-start justify-between gap-2 border-b border-gray-200 px-4 py-3 dark:border-gray-700">
+          <div className="min-w-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">
+              {active.label}
+            </p>
+            <h2 className="truncate text-sm font-bold text-gray-900 dark:text-white">
+              {activeWorkflowName || 'New workflow'}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={toggleActions}
+            aria-pressed={actionsCollapsed}
+            title={actionsCollapsed ? 'Show actions' : 'Hide actions — give this section full height'}
+            aria-label={actionsCollapsed ? 'Show actions' : 'Hide actions'}
+            className="mt-0.5 shrink-0 rounded-md p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800 dark:hover:text-gray-300"
+          >
+            {actionsCollapsed
+              ? <ChevronsUpDown className="h-4 w-4" />
+              : <ChevronsDownUp className="h-4 w-4" />}
+          </button>
         </div>
 
-        {/* Actions cluster — always visible (works in the empty/new state too),
-            so the canvas keeps ONLY its viewport controls. */}
-        <ActionsCluster {...props} />
+        {/* Actions strip — collapsible so the active section can run full-height.
+            Hidden state is persisted; the toggle lives in the header above. */}
+        {actionsCollapsed ? null : <ActionsCluster {...props} />}
 
         {/* Status hero (deploy/run snapshot from the builder) */}
         {statusHero}
@@ -1163,7 +1222,7 @@ export default function WorkflowSmartPanel(props: WorkflowSmartPanelProps) {
                 )
               )}
               {activeSection === 'ai' && (
-                <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />
+                aiSlot ?? <AiSection workflowId={activeWorkflowId} blocks={currentBlocks} />
               )}
               {/* Legacy bodies self-guard on `activeTab` internally; render them
                   for the legacy sections and append the legacy run-analysis body

@@ -606,8 +606,8 @@ export async function removeWorkflowContributor(
 // ============================================
 
 /**
- * Initialize workflow tracking tables (run once)
- * TODO: no backend route POST /workflow/setup/initialize-tables exists yet
+ * Initialize workflow tracking tables (run once).
+ * Backed by POST /workflow/setup/initialize-tables (deployed — verified in OpenAPI 2026-06-09).
  */
 export async function initializeTables(): Promise<{
   status: string;
