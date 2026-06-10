@@ -7,6 +7,7 @@ import { BarChart2, ChevronLeft, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { getDashboard } from '@/app/services/api/biDashboardApi';
 import type { FullDashboard } from '@/app/services/api/types';
+import DashboardEditor from '../components/DashboardEditor';
 
 // ---------------------------------------------------------------------------
 // NL-to-chart bar (stub — wired to /bi-dashboard/nl-to-chart)
@@ -107,28 +108,29 @@ export default function BIDashboardProjectPage() {
           {isLoading && <RefreshCw className="w-3.5 h-3.5 text-gray-400 animate-spin ml-auto" />}
         </div>
 
-        {/* NL bar */}
-        {!error && <NlBar projectId={projectId} />}
-
-        {/* Content */}
-        <div className="flex-1 p-6">
-          {error ? (
-            <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
-              <p className="text-sm text-red-600">{error}</p>
-              <Link href="/bi-dashboard" className="text-sm text-cyan-600 hover:underline">
-                Back to dashboards
-              </Link>
-            </div>
-          ) : isLoading ? (
-            <div className="grid grid-cols-3 gap-4">
-              {[1, 2, 3, 4, 5, 6].map((i) => (
-                <div key={i} className="h-36 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
-              ))}
-            </div>
-          ) : (
-            <EmptyPage />
-          )}
-        </div>
+        {/* Content — full self-service builder (palette + grid + config).
+            Restored from bd84756^ (G1 BI builder regression). */}
+        {error ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+            <p className="text-sm text-red-600">{error}</p>
+            <Link href="/bi-dashboard" className="text-sm text-cyan-600 hover:underline">
+              Back to dashboards
+            </Link>
+          </div>
+        ) : isLoading ? (
+          <div className="grid flex-1 grid-cols-3 gap-4 p-6">
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} className="h-36 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="min-h-0 flex-1">
+            <DashboardEditor
+              projectId={projectId}
+              projectName={dashboard?.project_name ?? 'BI Dashboard'}
+            />
+          </div>
+        )}
       </div>
     </ErrorBoundary>
   );

@@ -8,6 +8,7 @@ import ErrorBoundary from '@/components/ui/ErrorBoundary';
 import { createDashboard } from '@/app/services/api/biDashboardApi';
 import { getUnifiedProjects, type UnifiedProject } from '@/app/services/api/projectsApi';
 import ActionRail from '@/app/shared/action-rail/ActionRail';
+import ScoreCards from '@/app/shared/score-cards/ScoreCards';
 
 // ---------------------------------------------------------------------------
 // Empty state
@@ -294,6 +295,10 @@ export default function BIDashboardPage() {
 
         {/* Content */}
         <div className="p-6 max-w-5xl mx-auto">
+          {/* Cross-module health score cards (Data360 G6) */}
+          <div className="mb-6">
+            <ScoreCards />
+          </div>
           {!projectsLoading && projects.length === 0 && (
             <EmptyState onCreate={() => { setShowCreate(true); }} />
           )}
